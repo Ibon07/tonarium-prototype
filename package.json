@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n server,client \"tsx watch server/index.ts\" \"vite\"",
+    "dev": "concurrently -k -n server,client \"tsx watch server/index.ts --dev\" \"vite\"",
     "build": "vite build",
     "start": "vite build && tsx server/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"

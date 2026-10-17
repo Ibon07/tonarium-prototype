@@ -13,6 +13,7 @@ import { ROOM_HALF } from '../shared/protocol.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
 const ROOM_NAME = 'tonarium';
+const DEV = process.argv.includes('--dev');
 const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../client/dist');
 
 // ---- 部屋の状態（メモリ内・1部屋のみ） ----
@@ -168,6 +169,12 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ url: LIVEKIT_URL, token: await at.toJwt() }));
     return;
   }
+  // npm run dev 中は古いビルドを出さず Vite の開発サーバーへ送る
+  if (DEV) {
+    res.writeHead(302, { Location: `http://localhost:5173${url.pathname}${url.search}` });
+    res.end();
+    return;
+  }
   // 静的配信（npm start 時）
   let file = path.join(DIST, decodeURIComponent(url.pathname));
   if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory())
@@ -178,6 +185,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   res.setHeader('Content-Type', MIME[path.extname(file)] ?? 'application/octet-stream');
+  // assets/ はハッシュ付きなので長期キャッシュ可。index.html は毎回取り直させる
+  res.setHeader('Cache-Control', file.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache');
   fs.createReadStream(file).pipe(res);
 });
 
