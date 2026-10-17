@@ -128,17 +128,17 @@ function RoomMesh() {
   ];
   return (
     <>
-      <ambientLight intensity={0.7} />
+      <ambientLight intensity={1.4} />
       <directionalLight position={[5, 10, 5]} intensity={1.2} />
       <mesh rotation-x={-Math.PI / 2}>
         <planeGeometry args={[2 * H, 2 * H]} />
-        <meshStandardMaterial color="#d6d3d1" />
+        <meshStandardMaterial color="#565961" />
       </mesh>
-      <gridHelper args={[2 * H, 20, '#a8a29e', '#c7c3bf']} position-y={0.005} />
+      <gridHelper args={[2 * H, 20, '#5c5f66', '#4a4d54']} position-y={0.005} />
       {walls.map(([x, z, w, d], i) => (
         <mesh key={i} position={[x, 2, z]}>
           <boxGeometry args={[w, 4, d]} />
-          <meshStandardMaterial color="#f5f5f4" />
+          <meshStandardMaterial color="#80848e" />
         </mesh>
       ))}
     </>
@@ -156,7 +156,7 @@ function Screen() {
   }, []);
   const idle = useMemo(() => {
     const { canvas, tex } = makeCanvasTexture(1024, 576);
-    drawText(canvas, [{ text: '配信はありません', size: 64 }, { text: 'ヘッダーの「画面を配信」で開始', size: 40 }], {
+    drawText(canvas, [{ text: '配信はありません', size: 64 }, { text: '🖥 ボタンから画面を配信できます', size: 40 }], {
       bg: '#1c1917', fg: '#e7e5e4', pad: 60,
     });
     tex.needsUpdate = true;
@@ -375,7 +375,7 @@ export function View3D() {
   return (
     <div className="view3d">
       <Canvas camera={{ fov: 70, near: 0.1, far: 100, position: [a0.x, EYE, a0.z] }}>
-        <color attach="background" args={['#e7e5e4']} />
+        <color attach="background" args={["#2b2d31"]} />
         <RoomMesh />
         <Screen />
         <TwoDBoard />
@@ -383,7 +383,6 @@ export function View3D() {
         {Object.values(notes).map((n) => <Note3D key={n.id} note={n} />)}
         <Player />
       </Canvas>
-      <div className="hint">WASD/矢印: 移動 ・ ドラッグ: 視点 ・ 付箋クリック: 選択/ドラッグで移動</div>
       <button className="addnote3d primary" onClick={addNoteInFront}>＋ 目の前に付箋を置く</button>
       <NoteEditor />
     </div>

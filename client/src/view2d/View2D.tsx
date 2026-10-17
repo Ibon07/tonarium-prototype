@@ -1,17 +1,49 @@
 import { useRef, useState } from 'react';
-import { ROOM_HALF, NOTE_COLORS, type Note } from '../../../shared/protocol.ts';
+import { ROOM_HALF, NOTE_COLORS, type Note, type Participant } from '../../../shared/protocol.ts';
 import { useStore, colorOf, nameOf } from '../store.ts';
 import { ShareVideoHost } from '../ShareVideo.tsx';
-import { createNote, deleteNote, selectNote, updateNote } from '../actions.ts';
+import { createNote, deleteNote, selectNote, setMode, updateNote } from '../actions.ts';
+import { toggleMic, toggleShare } from '../net/livekit.ts';
+import { Avatar } from '../ui.tsx';
 
 function StreamPanel() {
   const sharer = useStore((s) => s.sharer);
   useStore((s) => s.participants); // 名前解決のため購読
-  if (!sharer) return <div className="stream empty">配信はありません。ヘッダーの「画面を配信」で開始できます</div>;
+  if (!sharer) return null;
   return (
     <div className="stream">
       <ShareVideoHost className="videohost" />
-      <div className="caption">🔴 {nameOf(sharer)} の配信</div>
+      <div className="caption"><span className="livebadge">LIVE</span> {nameOf(sharer)} の画面</div>
+    </div>
+  );
+}
+
+function Tile({ p }: { p: Participant }) {
+  const speaking = useStore((s) => !!s.speaking[p.id]);
+  const micOff = useStore((s) => s.voice === 'connected' && s.micOn[p.id] === false);
+  return (
+    <div className={`tile ${speaking ? 'speaking' : ''}`}>
+      <Avatar id={p.id} name={p.name} size={64} />
+      <div className="tilename">{micOff && '🔇 '}{p.name}</div>
+      {p.mode === '3d' && <div className="tilemode">3D空間</div>}
+    </div>
+  );
+}
+
+function ControlBar() {
+  const { voice, micEnabled, sharer, selfId } = useStore();
+  const ok = voice === 'connected';
+  const sharingSelf = sharer === selfId;
+  return (
+    <div className="controlbar">
+      <button className={`round ${micEnabled ? '' : 'off'}`} disabled={!ok} onClick={toggleMic} title="マイク">
+        {micEnabled ? '🎙' : '🔇'}
+      </button>
+      <button
+        className={`round ${sharingSelf ? 'on' : ''}`} disabled={!ok || (!!sharer && !sharingSelf)}
+        onClick={toggleShare} title={sharingSelf ? '配信を停止' : '画面を配信'}
+      >🖥</button>
+      <button className="round enter3d" onClick={() => setMode('3d')}>🧊 3D空間に入る</button>
     </div>
   );
 }
@@ -54,8 +86,7 @@ function NoteBoard() {
   const list = Object.values(notes).sort((a, b) => a.updatedAt - b.updatedAt);
   return (
     <section className="board">
-      <h3>付箋（3D空間にも置かれます）</h3>
-      <div className="addnote">
+            <div className="addnote">
         <input
           placeholder="付箋に書く内容" value={text} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) add(); }}
@@ -139,14 +170,28 @@ function MiniMap() {
   );
 }
 
-export function View2D() {
+export function SessionView() {
+  const participants = useStore((s) => s.participants);
+  const sharer = useStore((s) => s.sharer);
   return (
-    <div className="view2d">
-      <StreamPanel />
-      <div className="row">
-        <NoteBoard />
-        <MiniMap />
+    <div className="session">
+      <div className="stage">
+        <StreamPanel />
+        <div className={`tiles ${sharer ? 'small' : ''}`}>
+          {participants.map((p) => <Tile key={p.id} p={p} />)}
+        </div>
+        <ControlBar />
       </div>
+      <MiniMap />
+    </div>
+  );
+}
+
+export function BoardView() {
+  return (
+    <div className="boardview">
+      <NoteBoard />
+      <MiniMap />
     </div>
   );
 }

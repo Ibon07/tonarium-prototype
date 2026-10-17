@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useStore, set } from './store.ts';
 import { connectWs } from './net/ws.ts';
-import { connectVoice, toggleMic, toggleShare } from './net/livekit.ts';
+import { connectVoice } from './net/livekit.ts';
 import { setMode } from './actions.ts';
-import { Sidebar } from './Sidebar.tsx';
-import { View2D } from './view2d/View2D.tsx';
+import { ChannelSidebar, Chat, MemberList } from './ui.tsx';
+import { SessionView, BoardView } from './view2d/View2D.tsx';
 import { View3D } from './view3d/View3D.tsx';
 
 function loadId() {
@@ -31,57 +31,67 @@ function JoinScreen() {
     void connectVoice();
   };
   return (
-    <div className="join">
-      <h1>Tonarium</h1>
-      <p>2D と 3D を行き来できる通話ルーム（プロトタイプ）</p>
-      <input
-        autoFocus placeholder="表示名" value={name} maxLength={24}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && join()}
-      />
-      <button className="primary" onClick={join}>参加する</button>
-      <small>マイクの許可を求められます。推奨: デスクトップ版 Chrome / Edge</small>
+    <div className="joinbg">
+      <div className="join">
+        <h1>Tonarium へようこそ</h1>
+        <p>2D と 3D を行き来できる通話ルーム（プロトタイプ）</p>
+        <label>表示名</label>
+        <input
+          autoFocus value={name} maxLength={24}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && join()}
+        />
+        <button className="primary" onClick={join}>参加する</button>
+        <small>マイクの許可を求められます。推奨: デスクトップ版 Chrome / Edge</small>
+      </div>
     </div>
   );
 }
 
-function Header() {
-  const { mode, voice, voiceError, micEnabled, sharer, selfId, wsConnected } = useStore();
-  const sharingSelf = sharer === selfId;
-  const voiceOk = voice === 'connected';
+const TITLES = {
+  chat: { icon: '#', name: '雑談', topic: 'テキストで話そう' },
+  session: { icon: '🔊', name: 'セッション', topic: '通話と配信。3D空間のようすもここで見られます' },
+  board: { icon: '📌', name: '付箋ボード', topic: '付箋は3D空間にも置かれます' },
+  '3d': { icon: '🧊', name: '3D空間', topic: 'WASD/矢印: 移動 ・ ドラッグ: 視点 ・ 付箋クリック: 選択/ドラッグで移動' },
+};
+
+function MainHeader() {
+  const mode = useStore((s) => s.mode);
+  const view2d = useStore((s) => s.view2d);
+  const t = TITLES[mode === '3d' ? '3d' : view2d];
   return (
-    <header>
-      <strong>Tonarium</strong>
-      <span className={`status ${wsConnected ? 'ok' : 'ng'}`}>{wsConnected ? '接続中' : '再接続中…'}</span>
-      <span className={`status ${voiceOk ? 'ok' : 'ng'}`} title={voiceError ?? ''}>
-        通話: {{ off: '未接続', connecting: '接続中…', connected: '参加中', unavailable: '利用不可' }[voice]}
-      </span>
+    <div className="mainhdr">
+      <span className="chicon">{t.icon}</span>
+      <b>{t.name}</b>
+      <span className="topic">{t.topic}</span>
       <div className="spacer" />
-      <button disabled={!voiceOk} className={micEnabled ? '' : 'warn'} onClick={toggleMic}>
-        {micEnabled ? '🎙 マイクON' : '🔇 ミュート中'}
-      </button>
-      <button disabled={!voiceOk || (!!sharer && !sharingSelf)} className={sharingSelf ? 'warn' : ''} onClick={toggleShare}>
-        {sharingSelf ? '■ 配信を停止' : '🖥 画面を配信'}
-      </button>
       <div className="modeswitch">
         <button className={mode === '2d' ? 'active' : ''} onClick={() => setMode('2d')}>2D</button>
         <button className={mode === '3d' ? 'active' : ''} onClick={() => setMode('3d')}>3D</button>
       </div>
-      {voiceError && <span className="error" title={voiceError}>⚠ {voiceError}</span>}
-    </header>
+    </div>
   );
 }
 
 export function App() {
   const joined = useStore((s) => s.joined);
   const mode = useStore((s) => s.mode);
+  const view2d = useStore((s) => s.view2d);
   if (!joined) return <JoinScreen />;
+  const chatIsMain = mode === '2d' && view2d === 'chat';
   return (
-    <div className="app">
-      <Header />
-      <div className="body">
-        <main>{mode === '2d' ? <View2D /> : <View3D />}</main>
-        <Sidebar />
+    <div className="dc">
+      <nav className="rail"><div className="guild" title="Tonarium">T</div></nav>
+      <ChannelSidebar />
+      <div className="mainarea">
+        <MainHeader />
+        <div className="mainbody">
+          <main>
+            {mode === '3d' ? <View3D /> : view2d === 'chat' ? <Chat /> : view2d === 'session' ? <SessionView /> : <BoardView />}
+          </main>
+          {/* チャットがメインでないときは右側に常に出す（どの表示でも会話に参加できるように） */}
+          <aside>{chatIsMain ? <MemberList /> : <Chat compact />}</aside>
+        </div>
       </div>
     </div>
   );

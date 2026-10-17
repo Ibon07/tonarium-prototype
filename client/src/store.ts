@@ -2,12 +2,15 @@ import { create } from 'zustand';
 import type { AvatarState, ChatMessage, Mode, Note, Participant } from '../../shared/protocol.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
+/** 2D 表示中にメイン領域で開いている「チャンネル」 */
+export type View2D = 'chat' | 'session' | 'board';
 
 interface State {
   selfId: string;
   selfName: string;
   joined: boolean;
   mode: Mode;
+  view2d: View2D;
   wsConnected: boolean;
 
   participants: Participant[];
@@ -35,6 +38,7 @@ export const useStore = create<State>(() => ({
   selfName: '',
   joined: false,
   mode: '2d',
+  view2d: 'session',
   wsConnected: false,
   participants: [],
   chat: [],
