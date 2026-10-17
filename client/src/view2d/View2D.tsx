@@ -12,11 +12,12 @@ import { ShareVideoHost } from '../ShareVideo.tsx';
 import { follow, leaveSession, openView, selectNote, setMode } from '../actions.ts';
 import { placesOf } from '../spatial.ts';
 import { toggleMic, toggleShare } from '../net/livekit.ts';
-import { Avatar } from '../ui.tsx';
+import { Avatar, NearbyList } from '../ui.tsx';
 
 type StageTile =
   | { key: string; kind: 'stream' }
   | { key: string; kind: 'map' }
+  | { key: string; kind: 'players' }
   | { key: string; kind: 'cam'; item: Item & { kind: 'camera' } }
   | { key: string; kind: 'view'; user: User }
   | { key: string; kind: 'item'; item: Item }
@@ -136,9 +137,25 @@ function MapTile({ big }: { big: boolean }) {
   );
 }
 
+/** 参加者を自分から近い順に並べたリスト（声が届かない人の手前に区切り線） */
+function PlayersTile({ big }: { big: boolean }) {
+  const n = useStore((s) => s.participants.length);
+  return (
+    <div className={`tile activity playerstile ${big ? 'big' : ''}`} onClick={big ? undefined : () => toggleFocus('players')}>
+      <div className="activityhdr">
+        <span>👥 プレイヤー（{n}人・近い順）</span>
+        <div className="spacer" />
+        {big && <button className="small" onClick={() => toggleFocus('players')}>縮小</button>}
+      </div>
+      <div className="playerlist"><NearbyList large={big} /></div>
+    </div>
+  );
+}
+
 function StageTileView({ t, big }: { t: StageTile; big: boolean }) {
   if (t.kind === 'stream') return <StreamTile big={big} />;
   if (t.kind === 'map') return <MapTile big={big} />;
+  if (t.kind === 'players') return <PlayersTile big={big} />;
   if (t.kind === 'cam') return <CamTile item={t.item} big={big} />;
   if (t.kind === 'view') return <ViewTile user={t.user} big={big} />;
   if (t.kind === 'item') return <ActivityTile item={t.item} big={big} />;
@@ -500,6 +517,7 @@ export function SessionView() {
     // 届いているカメラ配信は画面共有と同じようにタイルで並べる
     ...Object.values(items).flatMap((i) => (i.kind === 'camera' && i.live && camFeeds[i.id] ? [{ key: i.id, kind: 'cam' as const, item: i }] : [])),
     { key: 'map', kind: 'map' as const },
+    { key: 'players', kind: 'players' as const },
     ...Object.values(items).filter((i) => PANELS[i.kind]).map((item) => ({ key: item.id, kind: 'item' as const, item })),
     ...participants.map((user) => ({ key: user.id, kind: 'user' as const, user })),
   ];

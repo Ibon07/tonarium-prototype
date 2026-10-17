@@ -1,7 +1,7 @@
 // 空間オーディオと「その人が空間のどこにいるか」の計算。
 // 3D の人はアバターの位置、2D の人は入口の外の列（フォロー中ならフォロー先の少し後ろ）にいる扱い。
 import { entranceSlot, type AvatarState, type User } from '../../shared/protocol.ts';
-import { get } from './store.ts';
+import { useStore, get } from './store.ts';
 
 export interface Place { x: number; z: number; ry: number; small: boolean }
 
@@ -46,9 +46,30 @@ export function placesOf(s = get()): Map<string, Place> {
   return out;
 }
 
+/** 参加中セッションの参加者を自分から近い順に（自分が先頭、距離 0） */
+export function useNearby(): { user: User; d: number }[] {
+  // 位置に関わる状態が変わったら並べ直す
+  useStore((s) => s.participants);
+  useStore((s) => s.avatars);
+  useStore((s) => s.selfAvatar);
+  useStore((s) => s.mode);
+  const s = get();
+  const places = placesOf(s);
+  const me = places.get(s.selfId);
+  return s.participants
+    .map((user) => {
+      const p = places.get(user.id);
+      const d = user.id === s.selfId ? 0 : me && p ? Math.hypot(p.x - me.x, p.z - me.z) : Infinity;
+      return { user, d };
+    })
+    .sort((a, b) => a.d - b.d);
+}
+
+export const formatDistance = (d: number) => (d === 0 ? '自分' : !Number.isFinite(d) ? '—' : d < 10 ? `${d.toFixed(1)}m` : `${Math.round(d)}m`);
+
 // ---------- 空間オーディオ ----------
 const FULL = 2; // この距離までは等倍
-const SILENT = 12; // この距離で無音
+export const SILENT = 12; // この距離で無音
 
 let ctx: AudioContext | null = null;
 const voices = new Map<string, { gain: GainNode; pan: StereoPannerNode; source: MediaStreamAudioSourceNode }>();

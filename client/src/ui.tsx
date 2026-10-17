@@ -1,10 +1,11 @@
 // Discord 風レイアウトの共通部品（チャンネル一覧・メンバー一覧・チャット・ユーザーパネル）
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ChannelDef, ChatMessage, User } from '../../shared/protocol.ts';
 import { useStore, set, colorOf, channelOf, heldHammer } from './store.ts';
 import { send } from './net/ws.ts';
 import { toggleMic, toggleShare } from './net/livekit.ts';
 import { joinSession, leaveSession, openText, setMode } from './actions.ts';
+import { SILENT, formatDistance, useNearby } from './spatial.ts';
 
 export function Avatar({ id, name, size = 32, speaking = false }: { id: string; name: string; size?: number; speaking?: boolean }) {
   return (
@@ -28,17 +29,35 @@ function TextChannel({ ch }: { ch: ChannelDef }) {
   );
 }
 
-function VoiceMember({ u }: { u: User }) {
+function VoiceMember({ u, dist, large = false }: { u: User; dist?: number; large?: boolean }) {
   // 発話は自分と同じセッションの人だけ LiveKit から分かる
   const speaking = useStore((s) => s.session === u.session && !!s.speaking[u.id]);
+  const far = dist !== undefined && dist > SILENT;
   return (
-    <div className="vmember">
-      <Avatar id={u.id} name={u.name} size={24} speaking={speaking} />
+    <div className={`vmember ${large ? 'large' : ''} ${far ? 'far' : ''}`}>
+      <Avatar id={u.id} name={u.name} size={large ? 32 : 24} speaking={speaking} />
       <span className="vname">{u.name}</span>
       {!u.micOn && <span className="ico" title="ミュート">🔇</span>}
       {u.sharing && <span className="livebadge">LIVE</span>}
       {u.mode === '3d' && <span className="modebadge">3D</span>}
+      {dist !== undefined && <span className="dist">{formatDistance(dist)}</span>}
     </div>
+  );
+}
+
+/** 参加中セッションの参加者を自分から近い順に。声が届かない距離の手前に区切り線を入れる */
+export function NearbyList({ large = false }: { large?: boolean }) {
+  const list = useNearby();
+  const cut = list.findIndex((x) => x.d > SILENT);
+  return (
+    <>
+      {list.map((x, i) => (
+        <Fragment key={x.user.id}>
+          {i === cut && <div className="farline"><span>ここから先は声が届きません</span></div>}
+          <VoiceMember u={x.user} dist={x.d} large={large} />
+        </Fragment>
+      ))}
+    </>
   );
 }
 
@@ -58,7 +77,9 @@ function SessionChannel({ ch }: { ch: ChannelDef }) {
         {members.some((u) => u.sharing) && <span className="livebadge">LIVE</span>}
       </div>
       {members.length > 0 && (
-        <div className="vmembers">{members.map((u) => <VoiceMember key={u.id} u={u} />)}</div>
+        <div className="vmembers">
+          {joined ? <NearbyList /> : members.map((u) => <VoiceMember key={u.id} u={u} />)}
+        </div>
       )}
     </>
   );
