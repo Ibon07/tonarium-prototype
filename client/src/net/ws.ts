@@ -1,5 +1,6 @@
 import type { ClientMsg, ServerMsg } from '../../../shared/protocol.ts';
 import { get, set, recompute } from '../store.ts';
+import { onHit } from '../items/effects.ts';
 
 let ws: WebSocket | null = null;
 let retry = 0;
@@ -35,7 +36,7 @@ export function send(msg: ClientMsg) {
 function onMessage(msg: ServerMsg) {
   switch (msg.t) {
     case 'snapshot': {
-      const { guild, users, chats, notes, avatars } = msg.s;
+      const { guild, users, chats, notes, avatars, items } = msg.s;
       const firstText = guild.categories.flatMap((c) => c.channels).find((c) => c.type === 'text');
       set((s) => ({
         guild,
@@ -43,6 +44,7 @@ function onMessage(msg: ServerMsg) {
         chats,
         notesBy: Object.fromEntries(Object.entries(notes).map(([sid, list]) => [sid, Object.fromEntries(list.map((n) => [n.id, n]))])),
         avatarsBy: avatars,
+        itemsBy: Object.fromEntries(Object.entries(items).map(([sid, list]) => [sid, Object.fromEntries(list.map((n) => [n.id, n]))])),
         textChannel: s.textChannel || firstText?.id || '',
       }));
       break;
@@ -73,6 +75,19 @@ function onMessage(msg: ServerMsg) {
         return { notesBy: { ...s.notesBy, [msg.sid]: m }, selectedNote: s.selectedNote === msg.id ? null : s.selectedNote };
       });
       break;
+    case 'item':
+      set((s) => ({ itemsBy: { ...s.itemsBy, [msg.sid]: { ...s.itemsBy[msg.sid], [msg.item.id]: msg.item } } }));
+      break;
+    case 'itemRemove':
+      set((s) => {
+        const m = { ...s.itemsBy[msg.sid] };
+        delete m[msg.id];
+        return { itemsBy: { ...s.itemsBy, [msg.sid]: m }, focus: s.focus === msg.id ? null : s.focus };
+      });
+      break;
+    case 'hit':
+      if (msg.sid === get().session) onHit(msg.from, msg.to);
+      return;
   }
   recompute();
 }

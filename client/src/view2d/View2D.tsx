@@ -1,32 +1,144 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ROOM_HALF, NOTE_COLORS, type Note, type User } from '../../../shared/protocol.ts';
-import { useStore, colorOf, nameOf } from '../store.ts';
+import { ITEM_INFO, type Item } from '../../../shared/items.ts';
+import { useStore, get, set, colorOf, nameOf, heldHammer } from '../store.ts';
+import { PANELS } from '../items/panels.ts';
+import { PanelCanvas } from '../items/PanelCanvas.tsx';
+import { ItemMenu } from '../items/ItemMenu.tsx';
+import { dropHammer, hit, itemAction, removeItem } from '../items/actions.ts';
+import { consumeHitFx, recentlyHit } from '../items/effects.ts';
 import { ShareVideoHost } from '../ShareVideo.tsx';
 import { createNote, deleteNote, leaveSession, selectNote, setMode, updateNote } from '../actions.ts';
 import { toggleMic, toggleShare } from '../net/livekit.ts';
 import { Avatar } from '../ui.tsx';
 
-function StreamPanel() {
+type StageTile =
+  | { key: string; kind: 'stream' }
+  | { key: string; kind: 'map' }
+  | { key: string; kind: 'item'; item: Item }
+  | { key: string; kind: 'user'; user: User };
+
+const toggleFocus = (key: string) => set((s) => ({ focus: s.focus === key ? null : key }));
+
+function StreamTile({ big }: { big: boolean }) {
   const sharer = useStore((s) => s.sharer);
   useStore((s) => s.participants); // 名前解決のため購読
-  if (!sharer) return null;
   return (
-    <div className="stream">
+    <div className={`tile streamtile ${big ? 'big' : ''}`} onClick={() => toggleFocus('stream')}>
       <ShareVideoHost className="videohost" />
       <div className="caption"><span className="livebadge">LIVE</span> {nameOf(sharer)} の画面</div>
     </div>
   );
 }
 
-function Tile({ p }: { p: User }) {
+function ActivityTile({ item, big }: { item: Item; big: boolean }) {
+  const info = ITEM_INFO[item.kind];
+  return (
+    <div className={`tile activity ${big ? 'big' : ''}`} onClick={big ? undefined : () => toggleFocus(item.id)}>
+      <div className="activityhdr">
+        <span>{info.icon} {info.name}</span>
+        <div className="spacer" />
+        {big && <button className="small" onClick={() => removeItem(item.id)}>片付ける</button>}
+        {big && <button className="small" onClick={() => toggleFocus(item.id)}>縮小</button>}
+      </div>
+      <div className="activitybody"><PanelCanvas item={item} interactive={big} /></div>
+    </div>
+  );
+}
+
+function UserTile({ p }: { p: User }) {
   const speaking = useStore((s) => !!s.speaking[p.id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[p.id] === false);
+  const holding = useStore((s) => Object.values(s.items).some((i) => i.kind === 'hammer' && i.holder === p.id));
+  const iHold = useStore((s) => !!heldHammer(s));
+  const self = useStore((s) => s.selfId === p.id);
+  useStore((s) => s.hits[p.id]);
+  const canHit = iHold && !self;
   return (
-    <div className={`tile ${speaking ? 'speaking' : ''}`}>
+    <div
+      data-uid={p.id}
+      className={`tile ${speaking ? 'speaking' : ''} ${recentlyHit(p.id) ? 'hit' : ''} ${canHit ? 'hittable' : ''}`}
+      onClick={canHit ? () => hit(p.id) : undefined}
+      title={canHit ? 'クリックで叩く' : undefined}
+    >
       <Avatar id={p.id} name={p.name} size={64} />
       <div className="tilename">{micOff && '🔇 '}{p.name}</div>
       {p.mode === '3d' && <div className="tilemode">3D空間</div>}
+      {holding && <div className="tilehammer" title="ピコピコハンマーを持っている">🔨</div>}
     </div>
+  );
+}
+
+/** 3D空間を上から見たマップ。2D からも空間のようすが分かるように、ステージに常に置く */
+function MapTile({ big }: { big: boolean }) {
+  const n3d = useStore((s) => s.participants.filter((p) => p.mode === '3d').length);
+  return (
+    <div className={`tile activity maptile ${big ? 'big' : ''}`} onClick={big ? undefined : () => toggleFocus('map')}>
+      <div className="activityhdr">
+        <span>🧊 3D空間のようす（{n3d}人）</span>
+        <div className="spacer" />
+        {big && <span className="sub">付箋はドラッグで移動</span>}
+        {big && <button className="small" onClick={() => toggleFocus('map')}>縮小</button>}
+      </div>
+      <div className="activitybody"><MiniMap bare /></div>
+    </div>
+  );
+}
+
+function StageTileView({ t, big }: { t: StageTile; big: boolean }) {
+  if (t.kind === 'stream') return <StreamTile big={big} />;
+  if (t.kind === 'map') return <MapTile big={big} />;
+  if (t.kind === 'item') return <ActivityTile item={t.item} big={big} />;
+  return <UserTile p={t.user} />;
+}
+
+/** 部屋にあるハンマーの一覧（拾う・手放す） */
+function HammerBar() {
+  const items = useStore((s) => s.items);
+  const selfId = useStore((s) => s.selfId);
+  useStore((s) => s.participants);
+  const hammers = Object.values(items).flatMap((i) => (i.kind === 'hammer' ? [i] : []));
+  if (!hammers.length) return null;
+  const iHold = hammers.some((h) => h.holder === selfId);
+  return (
+    <div className="hammerbar">
+      {hammers.map((h) => (
+        <div key={h.id} className="hammerchip">
+          🔨 {h.holder ? (h.holder === selfId ? '持っています — 相手のタイルをクリックで叩く' : `${nameOf(h.holder)} が持っている`) : '置いてある'}
+          {h.holder === null && !iHold && <button className="small" onClick={() => itemAction(h.id, { a: 'pick' })}>拾う</button>}
+          {h.holder === selfId && <button className="small" onClick={dropHammer}>手放す</button>}
+          {h.holder === null && <button className="small" onClick={() => removeItem(h.id)}>片付ける</button>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 叩いたときにハンマーが相手のタイルへ飛んでいく演出 */
+function HitFxLayer({ stage }: { stage: React.RefObject<HTMLDivElement | null> }) {
+  const fx = useStore((s) => s.hitFx);
+  return (
+    <>
+      {fx.map((f) => {
+        const root = stage.current;
+        const a = root?.querySelector(`[data-uid="${f.from}"]`)?.getBoundingClientRect();
+        const b = root?.querySelector(`[data-uid="${f.to}"]`)?.getBoundingClientRect();
+        if (!root || !b) { queueMicrotask(() => consumeHitFx(f.key)); return null; }
+        const base = root.getBoundingClientRect();
+        const to = { x: b.left + b.width / 2 - base.left, y: b.top + b.height / 2 - base.top };
+        const from = a ? { x: a.left + a.width / 2 - base.left, y: a.top + a.height / 2 - base.top } : { x: to.x, y: to.y - 120 };
+        return (
+          <div key={f.key} className="hitfx" style={{ left: to.x, top: to.y }}>
+            <div
+              className="flyhammer"
+              style={{ '--dx': `${from.x - to.x}px`, '--dy': `${from.y - to.y}px` } as React.CSSProperties}
+              onAnimationEnd={() => consumeHitFx(f.key)}
+            >🔨</div>
+            <div className="pico">ピコッ!</div>
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -43,6 +155,7 @@ function ControlBar() {
         className={`round ${sharingSelf ? 'on' : ''}`} disabled={!ok || (!!sharer && !sharingSelf)}
         onClick={toggleShare} title={sharingSelf ? '配信を停止' : '画面を配信'}
       >🖥</button>
+      <ItemMenu up />
       <button className="round enter3d" onClick={() => setMode('3d')}>🧊 3D空間に入る</button>
       <button className="round hangup" onClick={leaveSession} title="切断">📞</button>
     </div>
@@ -102,7 +215,7 @@ function NoteBoard() {
 }
 
 /** 3D空間を上から見た簡易マップ。付箋はドラッグで移動できる */
-function MiniMap() {
+function MiniMap({ bare = false }: { bare?: boolean }) {
   const { avatars, notes, participants, speaking, selfId, sharer } = useStore();
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ id: string; last: number } | null>(null);
@@ -131,8 +244,8 @@ function MiniMap() {
   const H = ROOM_HALF;
 
   return (
-    <section className="map">
-      <h3>3D空間のようす <small>（3D: {in3d.length}人 / 付箋はドラッグで移動）</small></h3>
+    <section className={bare ? 'map bare' : 'map'}>
+      {!bare && <h3>3D空間のようす <small>（3D: {in3d.length}人 / 付箋はドラッグで移動）</small></h3>}
       <svg
         ref={svgRef} viewBox={`${-H - 0.5} ${-H - 0.5} ${2 * H + 1} ${2 * H + 1}`}
         onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
@@ -174,16 +287,50 @@ function MiniMap() {
 export function SessionView() {
   const participants = useStore((s) => s.participants);
   const sharer = useStore((s) => s.sharer);
+  const items = useStore((s) => s.items);
+  const focus = useStore((s) => s.focus);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const tiles: StageTile[] = [
+    ...(sharer ? [{ key: 'stream', kind: 'stream' as const }] : []),
+    { key: 'map', kind: 'map' as const },
+    ...Object.values(items).filter((i) => PANELS[i.kind]).map((item) => ({ key: item.id, kind: 'item' as const, item })),
+    ...participants.map((user) => ({ key: user.id, kind: 'user' as const, user })),
+  ];
+  const focused = tiles.find((t) => t.key === focus && t.kind !== 'user');
+  const focusedItem = focused?.kind === 'item' ? focused.item : null;
+
+  // 拡大中のアクティビティにキー操作を渡す（2048 の矢印キーなど）
+  useEffect(() => {
+    if (!focusedItem) return;
+    const panel = PANELS[focusedItem.kind];
+    const id = focusedItem.id;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return;
+      const item = get().items[id];
+      if (item && panel?.key?.(e.key, item)) e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [focusedItem?.id, focusedItem?.kind]);
+
   return (
     <div className="session">
-      <div className="stage">
-        <StreamPanel />
-        <div className={`tiles ${sharer ? 'small' : ''}`}>
-          {participants.map((p) => <Tile key={p.id} p={p} />)}
-        </div>
+      <div className="stage" ref={stageRef}>
+        {focused ? (
+          <>
+            <div className="focusarea"><StageTileView t={focused} big /></div>
+            <div className="tilerow">
+              {tiles.filter((t) => t !== focused).map((t) => <StageTileView key={t.key} t={t} big={false} />)}
+            </div>
+          </>
+        ) : (
+          <div className="tiles">{tiles.map((t) => <StageTileView key={t.key} t={t} big={false} />)}</div>
+        )}
+        <HammerBar />
         <ControlBar />
+        <HitFxLayer stage={stageRef} />
       </div>
-      <MiniMap />
     </div>
   );
 }

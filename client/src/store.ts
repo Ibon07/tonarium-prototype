@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { AvatarState, ChatMessage, GuildConfig, Mode, Note, User } from '../../shared/protocol.ts';
+import type { Item } from '../../shared/items.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
 /** メイン領域に開いているもの: テキストチャンネル / 参加中セッションの通話画面 / その付箋ボード */
@@ -17,6 +18,7 @@ interface State {
   chats: Record<string, ChatMessage[]>;
   notesBy: Record<string, Record<string, Note>>;
   avatarsBy: Record<string, Record<string, AvatarState>>;
+  itemsBy: Record<string, Record<string, Item>>;
 
   /** 自分が入っているセッション（null = 未接続） */
   session: string | null;
@@ -29,6 +31,21 @@ interface State {
   notes: Record<string, Note>;
   /** 自分以外のアバター */
   avatars: Record<string, AvatarState>;
+  items: Record<string, Item>;
+
+  // ---- アイテムの手元だけの状態 ----
+  /** チェスの選択中マスなど、各アイテムの見た目用の状態（同期しない） */
+  itemUi: Record<string, { sel?: number }>;
+  /** 2D の通話画面で拡大表示しているタイル（'stream' かアイテムID） */
+  focus: string | null;
+  /** ハンマーで叩かれた時刻・振った時刻（ユーザーID → performance.now()） */
+  hits: Record<string, number>;
+  swings: Record<string, number>;
+  /** 2D の叩く演出の待ち行列 */
+  hitFx: { key: number; from: string; to: string }[];
+  /** 3D でマウスをロックしているか、照準の先の説明 */
+  locked: boolean;
+  aimHint: string | null;
 
   /** 自分の3D位置（2Dに戻って再度3Dに入ったとき復元） */
   selfAvatar: AvatarState;
@@ -59,6 +76,7 @@ export const useStore = create<State>(() => ({
   chats: {},
   notesBy: {},
   avatarsBy: {},
+  itemsBy: {},
   session: null,
   mode: '2d',
   view: 'text',
@@ -66,6 +84,14 @@ export const useStore = create<State>(() => ({
   participants: [],
   notes: {},
   avatars: {},
+  items: {},
+  itemUi: {},
+  focus: null,
+  hits: {},
+  swings: {},
+  hitFx: [],
+  locked: false,
+  aimHint: null,
   selfAvatar: DEFAULT_AVATAR,
   voice: 'off',
   voiceError: null,
@@ -90,6 +116,7 @@ export function recompute() {
   set({
     participants: sid ? s.users.filter((u) => u.session === sid) : [],
     notes: (sid && s.notesBy[sid]) || EMPTY,
+    items: (sid && s.itemsBy[sid]) || EMPTY,
     avatars,
   });
 }
@@ -112,5 +139,10 @@ export function channelOf(id: string | null) {
 export function colorOf(id: string) {
   let h = 0;
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return `hsl(${h % 360} 65% 55%)`;
+  return `hsl(${h % 360}, 65%, 55%)`;
+}
+
+/** 自分が持っているハンマー */
+export function heldHammer(s: { items: Record<string, Item>; selfId: string }) {
+  return Object.values(s.items).find((i) => i.kind === 'hammer' && i.holder === s.selfId);
 }

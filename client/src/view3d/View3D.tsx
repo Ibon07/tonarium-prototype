@@ -1,124 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { ROOM_HALF, NOTE_COLORS, type AvatarState, type Note } from '../../../shared/protocol.ts';
-import { useStore, get, set, colorOf, nameOf } from '../store.ts';
-import { send } from '../net/ws.ts';
+import { ROOM_HALF, NOTE_COLORS, type AvatarState, type Note, type User } from '../../../shared/protocol.ts';
+import { useStore, get, colorOf, nameOf, heldHammer } from '../store.ts';
 import { shareVideoEl } from '../net/livekit.ts';
 import { createNote, deleteNote, selectNote, updateNote } from '../actions.ts';
+import { ItemMenu } from '../items/ItemMenu.tsx';
+import { bump, recentlyHit } from '../items/effects.ts';
 import { drawText, makeCanvasTexture } from './textTexture.ts';
+import { clampRoom, EYE, type Interactable } from './interact.ts';
+import { Player } from './Player.tsx';
+import { HammerModel, Item3D, useFollow } from './items3d.tsx';
 
-const EYE = 1.6;
 const NOTE_Y = 1.5;
-const SPEED = 4;
-const LIMIT = ROOM_HALF - 0.5;
-
-/** R3F のオブジェクトイベントと、視点ドラッグ（DOM）との橋渡し */
-const interaction = {
-  hitObject: false,
-  dragNote: null as null | { id: string; x: number; z: number; last: number },
-};
-
-const isTyping = (t: EventTarget | null) =>
-  t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
-const clamp = (v: number) => Math.max(-LIMIT, Math.min(LIMIT, v));
-
-// ---------- 自分（一人称カメラ・移動・送信） ----------
-function Player() {
-  const { camera, gl } = useThree();
-  const keys = useRef<Record<string, boolean>>({});
-  const look = useRef({ yaw: get().selfAvatar.ry, pitch: -0.05 });
-  const sent = useRef({ t: 0, x: NaN, z: NaN, ry: NaN });
-
-  useEffect(() => {
-    const a = get().selfAvatar;
-    camera.position.set(a.x, EYE, a.z);
-    camera.rotation.order = 'YXZ';
-
-    let dragging = false;
-    let lx = 0;
-    let ly = 0;
-    const kd = (e: KeyboardEvent) => {
-      if (isTyping(e.target)) return;
-      keys.current[e.code] = true;
-      if (e.code === 'Escape') selectNote(null);
-    };
-    const ku = (e: KeyboardEvent) => { keys.current[e.code] = false; };
-    const blur = () => { keys.current = {}; };
-    // window の bubble で受けるので、R3F のオブジェクトイベントが先に hitObject を立てる
-    const pd = (e: PointerEvent) => {
-      if (e.target !== gl.domElement) return;
-      (document.activeElement as HTMLElement | null)?.blur?.();
-      lx = e.clientX; ly = e.clientY;
-      if (interaction.hitObject) { interaction.hitObject = false; return; }
-      dragging = true;
-    };
-    const pm = (e: PointerEvent) => {
-      const dx = e.clientX - lx;
-      const dy = e.clientY - ly;
-      lx = e.clientX; ly = e.clientY;
-      const d = interaction.dragNote;
-      if (d) {
-        // 付箋ドラッグ: 横移動=カメラの左右、縦移動=奥行き
-        const yaw = look.current.yaw;
-        const k = 0.02;
-        d.x = clamp(d.x + Math.cos(yaw) * dx * k + Math.sin(yaw) * dy * k);
-        d.z = clamp(d.z - Math.sin(yaw) * dx * k + Math.cos(yaw) * dy * k);
-        const now = performance.now();
-        if (now - d.last > 60) { d.last = now; updateNote(d.id, { x: d.x, z: d.z }); }
-        return;
-      }
-      if (!dragging) return;
-      look.current.yaw -= dx * 0.005;
-      look.current.pitch = Math.max(-1.3, Math.min(1.3, look.current.pitch - dy * 0.005));
-    };
-    const pu = () => {
-      dragging = false;
-      const d = interaction.dragNote;
-      if (d) { updateNote(d.id, { x: d.x, z: d.z }); interaction.dragNote = null; }
-    };
-    window.addEventListener('keydown', kd);
-    window.addEventListener('keyup', ku);
-    window.addEventListener('blur', blur);
-    window.addEventListener('pointerdown', pd);
-    window.addEventListener('pointermove', pm);
-    window.addEventListener('pointerup', pu);
-    return () => {
-      window.removeEventListener('keydown', kd);
-      window.removeEventListener('keyup', ku);
-      window.removeEventListener('blur', blur);
-      window.removeEventListener('pointerdown', pd);
-      window.removeEventListener('pointermove', pm);
-      window.removeEventListener('pointerup', pu);
-    };
-  }, [camera, gl]);
-
-  useFrame((_, dt) => {
-    const { yaw, pitch } = look.current;
-    camera.rotation.set(pitch, yaw, 0);
-    const k = keys.current;
-    const f = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0);
-    const r = (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
-    if (f || r) {
-      const len = Math.hypot(f, r);
-      const step = (SPEED * Math.min(dt, 0.1)) / len;
-      camera.position.x = clamp(camera.position.x + (-Math.sin(yaw) * f + Math.cos(yaw) * r) * step);
-      camera.position.z = clamp(camera.position.z + (-Math.cos(yaw) * f - Math.sin(yaw) * r) * step);
-    }
-    const now = performance.now();
-    const s = sent.current;
-    const x = camera.position.x;
-    const z = camera.position.z;
-    if (now - s.t > 100 && (Math.abs(x - s.x) > 0.01 || Math.abs(z - s.z) > 0.01 || Math.abs(yaw - s.ry) > 0.01)) {
-      Object.assign(s, { t: now, x, z, ry: yaw });
-      const a: AvatarState = { x, z, ry: yaw };
-      set({ selfAvatar: a });
-      send({ t: 'avatar', s: a });
-    }
-  });
-  return null;
-}
 
 // ---------- 部屋 ----------
 function RoomMesh() {
@@ -134,7 +29,7 @@ function RoomMesh() {
         <planeGeometry args={[2 * H, 2 * H]} />
         <meshStandardMaterial color="#565961" />
       </mesh>
-      <gridHelper args={[2 * H, 20, '#5c5f66', '#4a4d54']} position-y={0.005} />
+      <gridHelper args={[2 * H, 20, '#5c5f66', '#4a4d54']} position-y={0.005} userData={{ noRay: true }} />
       {walls.map(([x, z, w, d], i) => (
         <mesh key={i} position={[x, 2, z]}>
           <boxGeometry args={[w, 4, d]} />
@@ -191,28 +86,52 @@ function Screen() {
   );
 }
 
-// ---------- 2D 参加者の掲示板 ----------
+// ---------- 2D 参加者の掲示板（ハンマーで名前を叩くと、その人の 2D 画面に演出が出る） ----------
+const BOARD_PX = 512;
+const ROW_Y = 110;
+const ROW_H = 64;
+
 function TwoDBoard() {
   const participants = useStore((s) => s.participants);
   const speaking = useStore((s) => s.speaking);
   const micOn = useStore((s) => s.micOn);
-  const { canvas, tex } = useMemo(() => makeCanvasTexture(512, 512), []);
+  const items = useStore((s) => s.items);
+  useStore((s) => s.hits);
+  const list = useMemo(() => participants.filter((p) => p.mode === '2d'), [participants]);
+  const listRef = useRef<User[]>(list);
+  listRef.current = list;
+  const { canvas, tex } = useMemo(() => makeCanvasTexture(BOARD_PX, BOARD_PX), []);
   useEffect(() => {
-    const list = participants.filter((p) => p.mode === '2d');
-    drawText(canvas, [
-      { text: '💻 2Dで参加中', size: 60, color: '#fafaf9' },
-      ...(list.length
-        ? list.map((p) => ({
-          text: `${speaking[p.id] ? '🗣' : micOn[p.id] ? '・' : '🔇'} ${p.name}`,
-          size: 52,
-          color: speaking[p.id] ? '#4ade80' : '#e7e5e4',
-        }))
-        : [{ text: '（いません）', size: 36, color: '#a8a29e' }]),
-    ], { bg: '#292524' });
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#292524';
+    ctx.fillRect(0, 0, BOARD_PX, BOARD_PX);
+    ctx.textBaseline = 'middle';
+    ctx.font = '600 52px "Segoe UI", "Noto Sans JP", sans-serif';
+    ctx.fillStyle = '#fafaf9';
+    ctx.fillText('💻 2Dで参加中', 28, 60);
+    ctx.font = '48px "Segoe UI", "Noto Sans JP", sans-serif';
+    if (!list.length) {
+      ctx.fillStyle = '#a8a29e';
+      ctx.fillText('（いません）', 28, ROW_Y + ROW_H / 2);
+    }
+    list.forEach((p, i) => {
+      const y = ROW_Y + i * ROW_H + ROW_H / 2;
+      const holding = Object.values(items).some((it) => it.kind === 'hammer' && it.holder === p.id);
+      ctx.fillStyle = recentlyHit(p.id) ? '#fde047' : speaking[p.id] ? '#4ade80' : '#e7e5e4';
+      const mark = recentlyHit(p.id) ? '💥' : speaking[p.id] ? '🗣' : micOn[p.id] === false ? '🔇' : '・';
+      ctx.fillText(`${mark} ${p.name}${holding ? ' 🔨' : ''}`, 28, y);
+    });
     tex.needsUpdate = true;
-  }, [participants, speaking, micOn, canvas, tex]);
+  });
+  const data: Interactable = {
+    hitTarget: (hit) => {
+      if (!hit.uv) return null;
+      const i = Math.floor(((1 - hit.uv.y) * BOARD_PX - ROW_Y) / ROW_H);
+      return listRef.current[i]?.id ?? null;
+    },
+  };
   return (
-    <mesh position={[-7, 2.4, -ROOM_HALF + 0.12]}>
+    <mesh position={[-7, 2.4, -ROOM_HALF + 0.12]} userData={data}>
       <planeGeometry args={[3, 3]} />
       <meshBasicMaterial map={tex} toneMapped={false} />
     </mesh>
@@ -224,7 +143,10 @@ function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
   const name = useStore((s) => s.participants.find((p) => p.id === id)?.name);
   const speaking = useStore((s) => !!s.speaking[id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[id] === false);
+  const holding = useStore((s) => Object.values(s.items).some((i) => i.kind === 'hammer' && i.holder === id));
   const ref = useRef<THREE.Group>(null);
+  const head = useRef<THREE.Group>(null);
+  const hand = useRef<THREE.Group>(null);
   useFrame((_, dt) => {
     const g = ref.current;
     if (!g) return;
@@ -234,23 +156,36 @@ function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
     let d = state.ry - g.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     g.rotation.y += d * k;
+    const s = get();
+    // 叩かれたら頭が一瞬へこんで戻る
+    const b = bump(s.hits[id]);
+    head.current?.scale.set(1 + 0.4 * b, 1 - 0.6 * b, 1 + 0.4 * b);
+    head.current?.position.setY(1.45 - 0.14 * b);
+    if (hand.current) hand.current.rotation.x = -0.4 - bump(s.swings[id], performance.now(), 350) * 1.6;
   });
   if (!name) return null;
   const color = colorOf(id);
   return (
-    <group ref={ref} position={[state.x, 0, state.z]} rotation-y={state.ry}>
+    <group ref={ref} position={[state.x, 0, state.z]} rotation-y={state.ry} userData={{ hitTarget: id } satisfies Interactable}>
       <mesh position-y={0.75}>
         <capsuleGeometry args={[0.3, 0.8, 4, 12]} />
         <meshStandardMaterial color={color} />
       </mesh>
-      <mesh position-y={1.45}>
-        <sphereGeometry args={[0.24, 20, 16]} />
-        <meshStandardMaterial color={color} />
-      </mesh>
-      <mesh position={[0, 1.48, -0.2]}>
-        <boxGeometry args={[0.3, 0.1, 0.1]} />
-        <meshStandardMaterial color="#1c1917" />
-      </mesh>
+      <group ref={head} position-y={1.45}>
+        <mesh>
+          <sphereGeometry args={[0.24, 20, 16]} />
+          <meshStandardMaterial color={color} />
+        </mesh>
+        <mesh position={[0, 0.03, -0.2]}>
+          <boxGeometry args={[0.3, 0.1, 0.1]} />
+          <meshStandardMaterial color="#1c1917" />
+        </mesh>
+      </group>
+      {holding && (
+        <group ref={hand} position={[0.38, 0.95, -0.1]}>
+          <HammerModel />
+        </group>
+      )}
       {speaking && (
         <mesh rotation-x={-Math.PI / 2} position-y={0.02}>
           <ringGeometry args={[0.45, 0.62, 32]} />
@@ -280,31 +215,17 @@ function Note3D({ note }: { note: Note }) {
   }, [note.text, note.color, note.editingBy, participants, selfId, canvas, tex]);
 
   const ref = useRef<THREE.Group>(null);
-  useFrame((_, dt) => {
-    const g = ref.current;
-    if (!g) return;
-    // ドラッグ中は手元の値を即時に、それ以外は滑らかに追従
-    const d = interaction.dragNote?.id === note.id ? interaction.dragNote : null;
-    const k = d ? 1 : Math.min(1, dt * 12);
-    g.position.x += ((d?.x ?? note.x) - g.position.x) * k;
-    g.position.z += ((d?.z ?? note.z) - g.position.z) * k;
-    let r = note.ry - g.rotation.y;
-    r = Math.atan2(Math.sin(r), Math.cos(r));
-    g.rotation.y += r * Math.min(1, dt * 12);
-  });
+  useFollow(ref, 'note', note.id, note.x, note.z, note.ry);
+  const data: Interactable = {
+    hint: 'クリック: 編集',
+    carry: { type: 'note', id: note.id },
+    remove: () => deleteNote(note.id),
+    // 文字を打てるようにマウスのロックを外して編集欄を出す
+    use: () => { selectNote(note.id); document.exitPointerLock(); },
+  };
 
   return (
-    <group
-      ref={ref} position={[note.x, 0, note.z]} rotation-y={note.ry}
-      onPointerDown={(e) => {
-        e.stopPropagation();
-        interaction.hitObject = true;
-        selectNote(note.id);
-        interaction.dragNote = { id: note.id, x: note.x, z: note.z, last: 0 };
-      }}
-      onPointerOver={() => { document.body.style.cursor = 'grab'; }}
-      onPointerOut={() => { document.body.style.cursor = ''; }}
-    >
+    <group ref={ref} position={[note.x, 0, note.z]} rotation-y={note.ry} userData={data}>
       <mesh position-y={(NOTE_Y - 0.6) / 2}>
         <cylinderGeometry args={[0.03, 0.03, NOTE_Y - 0.6]} />
         <meshStandardMaterial color="#78716c" />
@@ -343,9 +264,9 @@ function NoteEditor() {
     updateNote(note.id, { ry: Math.atan2(a.x - note.x, a.z - note.z) });
   };
   return (
-    <div className="noteeditor" onPointerDown={(e) => e.stopPropagation()}>
+    <div className="noteeditor">
       <textarea
-        value={note.text} placeholder="付箋の内容"
+        autoFocus value={note.text} placeholder="付箋の内容"
         style={{ background: note.color }}
         onChange={(e) => updateNote(note.id, { text: e.target.value })}
       />
@@ -355,35 +276,66 @@ function NoteEditor() {
         ))}
         <button className="small" onClick={faceMe}>こちらに向ける</button>
         <button className="small" onClick={() => deleteNote(note.id)}>削除</button>
-        <button className="small" onClick={() => selectNote(null)}>閉じる (Esc)</button>
+        <button className="small" onClick={() => selectNote(null)}>閉じる</button>
       </div>
-      <small>付箋をドラッグすると移動できます</small>
+      <small>空間をクリックすると操作に戻ります</small>
     </div>
+  );
+}
+
+function Crosshair() {
+  const locked = useStore((s) => s.locked);
+  const hint = useStore((s) => s.aimHint);
+  const holding = useStore((s) => !!heldHammer(s));
+  const hitMe = useStore((s) => s.hits[s.selfId]);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (hitMe === undefined) return;
+    const t = setTimeout(() => tick((n) => n + 1), 700);
+    return () => clearTimeout(t);
+  }, [hitMe]);
+  return (
+    <>
+      {locked && <div className={`crosshair ${hint ? 'on' : ''}`} />}
+      {locked && hint && <div className="aimhint">{hint}</div>}
+      {recentlyHit(get().selfId) && <div className="hitme">ピコッ!</div>}
+      <div className="keyhelp">
+        {locked
+          ? <>WASD: 移動 ・ マウス: 視点 ・ クリック: 操作 ・ G: 持ち運ぶ ・ X: 片付ける{holding && ' ・ Q: ハンマーを置く'} ・ Esc: カーソルを出す</>
+          : <>画面をクリックすると操作を始めます（マウスで視点・照準で操作）</>}
+      </div>
+    </>
   );
 }
 
 function addNoteInFront() {
   const a = get().selfAvatar;
-  createNote('', { x: clamp(a.x - Math.sin(a.ry) * 2), z: clamp(a.z - Math.cos(a.ry) * 2), ry: a.ry });
+  createNote('', { x: clampRoom(a.x - Math.sin(a.ry) * 2), z: clampRoom(a.z - Math.cos(a.ry) * 2), ry: a.ry });
 }
 
 export function View3D() {
   const avatars = useStore((s) => s.avatars);
   const notes = useStore((s) => s.notes);
+  const items = useStore((s) => s.items);
+  const locked = useStore((s) => s.locked);
   const a0 = get().selfAvatar;
-  useEffect(() => () => { document.body.style.cursor = ''; }, []);
   return (
-    <div className="view3d">
-      <Canvas camera={{ fov: 70, near: 0.1, far: 100, position: [a0.x, EYE, a0.z] }}>
-        <color attach="background" args={["#2b2d31"]} />
+    <div className={`view3d ${locked ? 'locked' : ''}`}>
+      <Canvas camera={{ fov: 70, near: 0.05, far: 100, position: [a0.x, EYE, a0.z] }}>
+        <color attach="background" args={['#2b2d31']} />
         <RoomMesh />
         <Screen />
         <TwoDBoard />
         {Object.entries(avatars).map(([id, s]) => <Avatar3D key={id} id={id} state={s} />)}
         {Object.values(notes).map((n) => <Note3D key={n.id} note={n} />)}
+        {Object.values(items).map((it) => <Item3D key={it.id} item={it} />)}
         <Player />
       </Canvas>
-      <button className="addnote3d primary" onClick={addNoteInFront}>＋ 目の前に付箋を置く</button>
+      <Crosshair />
+      <div className="tools3d">
+        <button className="primary" onClick={addNoteInFront}>＋ 付箋</button>
+        <ItemMenu />
+      </div>
       <NoteEditor />
     </div>
   );

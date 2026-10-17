@@ -47,7 +47,7 @@ function JoinScreen() {
   );
 }
 
-const TOPIC_3D = 'WASD/矢印: 移動 ・ ドラッグ: 視点 ・ 付箋クリック: 選択/ドラッグで移動';
+const TOPIC_3D = 'クリックで操作開始 ・ マウス: 視点 ・ 照準で操作 ・ Esc: カーソルを出す';
 
 function MainHeader() {
   const { mode, view, textChannel, session } = useStore();

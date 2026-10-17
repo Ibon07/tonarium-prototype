@@ -10,6 +10,7 @@ import type {
   AvatarState, ChatMessage, ClientMsg, GuildConfig, Mode, Note, ServerMsg, User,
 } from '../shared/protocol.ts';
 import { ROOM_HALF, sessionChatKey } from '../shared/protocol.ts';
+import { ITEM_INFO, applyItemAction, createItem, type Item } from '../shared/items.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
 const DEV = process.argv.includes('--dev');
@@ -30,11 +31,13 @@ const sockets = new Map<string, Set<WebSocket>>(); // 同一IDの複数タブに
 const chats = new Map<string, ChatMessage[]>();
 const notes = new Map<string, Map<string, Note>>(); // sid -> notes
 const avatars = new Map<string, Map<string, AvatarState>>(); // sid -> avatars
+const items = new Map<string, Map<string, Item>>(); // sid -> items
 for (const id of textIds) chats.set(id, []);
 for (const sid of sessionIds) {
   chats.set(sessionChatKey(sid), []);
   notes.set(sid, new Map());
   avatars.set(sid, new Map());
+  items.set(sid, new Map());
 }
 
 function send(ws: WebSocket, msg: ServerMsg) {
@@ -61,9 +64,17 @@ const clamp = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5
 function leaveSession(u: User) {
   const sid = u.session;
   if (!sid) return;
+  const av = avatars.get(sid)!.get(u.id);
   if (avatars.get(sid)!.delete(u.id)) broadcast({ t: 'avatarRemove', sid, id: u.id });
   for (const n of notes.get(sid)!.values())
     if (n.editingBy === u.id) { n.editingBy = null; broadcast({ t: 'note', sid, note: n }); }
+  // 持っていたハンマーはその場（3Dにいればアバターの位置）に落とす
+  for (const it of items.get(sid)!.values())
+    if (it.kind === 'hammer' && it.holder === u.id) {
+      it.holder = null;
+      if (av) { it.x = av.x; it.z = av.z; }
+      broadcast({ t: 'item', sid, item: it });
+    }
   u.session = null;
   u.mode = '2d';
   u.micOn = false;
@@ -86,6 +97,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
         chats: Object.fromEntries(chats),
         notes: Object.fromEntries([...notes].map(([sid, m]) => [sid, [...m.values()]])),
         avatars: Object.fromEntries([...avatars].map(([sid, m]) => [sid, Object.fromEntries(m)])),
+        items: Object.fromEntries([...items].map(([sid, m]) => [sid, [...m.values()]])),
       },
     });
     broadcastUsers();
@@ -120,7 +132,50 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
   // 以降はセッション内でのみ有効
   if (!sid) return;
   const sessNotes = notes.get(sid)!;
+  const sessItems = items.get(sid)!;
   switch (msg.t) {
+    case 'itemCreate': {
+      if (!(msg.kind in ITEM_INFO)) return;
+      const it = createItem(msg.kind, {
+        id: randomUUID(), x: clamp(msg.x), z: clamp(msg.z), ry: msg.ry, createdBy: me.id,
+      }, Math.random);
+      sessItems.set(it.id, it);
+      broadcast({ t: 'item', sid, item: it });
+      const info = ITEM_INFO[msg.kind];
+      pushChat(sessionChatKey(sid), null, `${me.name} が ${info.icon} ${info.name} を出しました`);
+      return;
+    }
+    case 'itemRemove': {
+      const it = sessItems.get(msg.id);
+      if (!it || !sessItems.delete(msg.id)) return;
+      broadcast({ t: 'itemRemove', sid, id: msg.id });
+      const info = ITEM_INFO[it.kind];
+      pushChat(sessionChatKey(sid), null, `${me.name} が ${info.icon} ${info.name} を片付けました`);
+      return;
+    }
+    case 'itemMove': {
+      const it = sessItems.get(msg.id);
+      if (!it || (it.kind === 'hammer' && it.holder)) return;
+      it.x = clamp(msg.x); it.z = clamp(msg.z); it.ry = msg.ry;
+      broadcast({ t: 'item', sid, item: it });
+      return;
+    }
+    case 'itemAction': {
+      const it = sessItems.get(msg.id);
+      if (!it) return;
+      // ハンマーは1人1本まで
+      if (msg.action.a === 'pick' && [...sessItems.values()].some((h) => h.kind === 'hammer' && h.holder === me.id)) return;
+      if (msg.action.a === 'drop') { msg.action.x = clamp(msg.action.x); msg.action.z = clamp(msg.action.z); }
+      if (applyItemAction(it, msg.action, me.id, Math.random)) broadcast({ t: 'item', sid, item: it });
+      return;
+    }
+    case 'hit': {
+      const holding = [...sessItems.values()].some((h) => h.kind === 'hammer' && h.holder === me.id);
+      const target = users.get(msg.to);
+      if (!holding || !target || target.session !== sid || target.id === me.id) return;
+      broadcast({ t: 'hit', sid, from: me.id, to: target.id });
+      return;
+    }
     case 'mode': {
       if (me.mode === msg.mode) return;
       me.mode = msg.mode;

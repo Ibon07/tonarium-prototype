@@ -1,4 +1,5 @@
 // WebSocket で交換するメッセージ型。サーバーとクライアントで共有する。
+import type { Item, ItemAction, ItemKind } from './items.ts';
 
 export type Mode = '2d' | '3d';
 
@@ -69,6 +70,7 @@ export interface Snapshot {
   chats: Record<string, ChatMessage[]>;
   notes: Record<string, Note[]>;
   avatars: Record<string, Record<string, AvatarState>>;
+  items: Record<string, Item[]>;
 }
 
 export type ClientMsg =
@@ -82,7 +84,13 @@ export type ClientMsg =
   | { t: 'noteCreate'; note: Pick<Note, 'text' | 'color' | 'x' | 'z' | 'ry'> }
   | { t: 'noteUpdate'; id: string; patch: Partial<Pick<Note, 'text' | 'color' | 'x' | 'z' | 'ry'>> }
   | { t: 'noteLock'; id: string; lock: boolean }
-  | { t: 'noteDelete'; id: string };
+  | { t: 'noteDelete'; id: string }
+  | { t: 'itemCreate'; kind: ItemKind; x: number; z: number; ry: number }
+  | { t: 'itemRemove'; id: string }
+  | { t: 'itemMove'; id: string; x: number; z: number; ry: number }
+  | { t: 'itemAction'; id: string; action: ItemAction }
+  /** ハンマーで叩く（持っている人だけ有効） */
+  | { t: 'hit'; to: string };
 
 export type ServerMsg =
   | { t: 'snapshot'; s: Snapshot }
@@ -91,7 +99,10 @@ export type ServerMsg =
   | { t: 'avatar'; sid: string; id: string; s: AvatarState }
   | { t: 'avatarRemove'; sid: string; id: string }
   | { t: 'note'; sid: string; note: Note }
-  | { t: 'noteDelete'; sid: string; id: string };
+  | { t: 'noteDelete'; sid: string; id: string }
+  | { t: 'item'; sid: string; item: Item }
+  | { t: 'itemRemove'; sid: string; id: string }
+  | { t: 'hit'; sid: string; from: string; to: string };
 
 /** 3D部屋の寸法（床は -ROOM_HALF..ROOM_HALF の正方形）。スクリーンは北壁 (z = -ROOM_HALF) */
 export const ROOM_HALF = 10;
