@@ -21,6 +21,24 @@ export function playPico() {
   } catch { /* 音が出せない環境では無視 */ }
 }
 
+/** シャッター音（ノイズを短く鳴らす） */
+export function playShutter() {
+  try {
+    audio ??= new AudioContext();
+    const t = audio.currentTime;
+    const len = Math.floor(audio.sampleRate * 0.08);
+    const buf = audio.createBuffer(1, len, audio.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len) ** 2;
+    const src = audio.createBufferSource();
+    const gain = audio.createGain();
+    gain.gain.value = 0.25;
+    src.buffer = buf;
+    src.connect(gain).connect(audio.destination);
+    src.start(t);
+  } catch { /* 音が出せない環境では無視 */ }
+}
+
 let fxKey = 0;
 
 /** サーバーから叩いた通知が来た（自分が叩いた場合も含む） */

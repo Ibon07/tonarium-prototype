@@ -1,7 +1,7 @@
 // Discord 風レイアウトの共通部品（チャンネル一覧・メンバー一覧・チャット・ユーザーパネル）
 import { useEffect, useRef, useState } from 'react';
 import type { ChannelDef, ChatMessage, User } from '../../shared/protocol.ts';
-import { useStore, colorOf, channelOf } from './store.ts';
+import { useStore, set, colorOf, channelOf } from './store.ts';
 import { send } from './net/ws.ts';
 import { toggleMic, toggleShare } from './net/livekit.ts';
 import { joinSession, leaveSession, openText, setMode } from './actions.ts';
@@ -165,6 +165,23 @@ export function MemberList() {
 }
 
 // ---------- チャット ----------
+function ChatImage({ src }: { src?: string }) {
+  if (!src) return null;
+  return <img className="chatimg" src={src} alt="" onClick={() => set({ lightbox: src })} />;
+}
+
+/** チャット画像の拡大表示 */
+export function Lightbox() {
+  const src = useStore((s) => s.lightbox);
+  if (!src) return null;
+  return (
+    <div className="lightbox" onClick={() => set({ lightbox: null })}>
+      <img src={src} alt="" />
+      <a className="dl" href={src} download="tonarium.jpg" onClick={(e) => e.stopPropagation()}>保存</a>
+    </div>
+  );
+}
+
 const NO_MESSAGES: ChatMessage[] = [];
 
 export function Chat({ ch, title, compact = false }: { ch: string; title: string; compact?: boolean }) {
@@ -197,13 +214,14 @@ export function Chat({ ch, title, compact = false }: { ch: string; title: string
           const cont = prev && prev.from === m.from && m.at - prev.at < 5 * 60_000;
           const time = new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           return cont ? (
-            <div key={m.id} className="msg cont"><div className="mtext">{m.text}</div></div>
+            <div key={m.id} className="msg cont"><div className="mtext">{m.text}</div><ChatImage src={m.image} /></div>
           ) : (
             <div key={m.id} className="msg">
               <Avatar id={m.from} name={m.fromName} size={compact ? 32 : 40} />
               <div className="mbody">
                 <div><b style={{ color: colorOf(m.from) }}>{m.fromName}</b><span className="time">{time}</span></div>
                 <div className="mtext">{m.text}</div>
+                <ChatImage src={m.image} />
               </div>
             </div>
           );

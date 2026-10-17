@@ -2,7 +2,7 @@
 // 同じ描画・クリック処理を 3D の互換モード（空間内のパネル）でも使うので、DOM に依存させない。
 import { CANVAS_H, CANVAS_W, type Dir, type Item } from '../../../shared/items.ts';
 import type { ItemUi } from '../store.ts';
-import { deltaAction, itemAction, setItemUi } from './actions.ts';
+import { deltaAction, itemAction, postImage, setItemUi } from './actions.ts';
 
 type Ui = ItemUi;
 type Rect = [number, number, number, number];
@@ -179,8 +179,9 @@ export const panel2048: Panel = {
 const PEN_COLORS = ['#111111', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7'];
 const AREA: Rect = [10, 58, CANVAS_W, CANVAS_H];
 const SIZE_BTNS: [number, string, Rect][] = [[3, '細', [272, 12, 44, 34]], [10, '太', [320, 12, 44, 34]]];
-const ERASER: Rect = [374, 12, 100, 34];
-const CLEAR: Rect = [640 - 14 - 100, 12, 100, 34];
+const ERASER: Rect = [370, 12, 92, 34];
+const SAVE: Rect = [468, 12, 70, 34];
+const CLEAR: Rect = [544, 12, 84, 34];
 const colorRect = (i: number): Rect => [16 + i * 40, 13, 32, 32];
 
 /** 描いている途中の線（送信は間引いてまとめる） */
@@ -218,35 +219,10 @@ export const canvasPanel: Panel = {
       }
     });
     for (const [v, label, r] of SIZE_BTNS) button(ctx, r, label, size === v ? '#5865f2' : '#4e5058');
-    button(ctx, ERASER, '🧽 消しゴム', erase ? '#5865f2' : '#4e5058', 16);
-    button(ctx, CLEAR, '全部消す', '#da373c', 16);
-    // 描画領域
-    const [ax, ay, aw, ah] = AREA;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(ax, ay, aw, ah);
-    ctx.clip();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(ax, ay, aw, ah);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    for (const st of item.strokes) {
-      ctx.strokeStyle = st.color === 'erase' ? '#ffffff' : st.color;
-      ctx.fillStyle = ctx.strokeStyle;
-      ctx.lineWidth = st.size;
-      const p = st.pts;
-      if (p.length <= 2) {
-        ctx.beginPath();
-        ctx.arc(ax + p[0], ay + p[1], st.size / 2, 0, Math.PI * 2);
-        ctx.fill();
-        continue;
-      }
-      ctx.beginPath();
-      ctx.moveTo(ax + p[0], ay + p[1]);
-      for (let i = 2; i + 1 < p.length; i += 2) ctx.lineTo(ax + p[i], ay + p[i + 1]);
-      ctx.stroke();
-    }
-    ctx.restore();
+    button(ctx, ERASER, '🧽 消しゴム', erase ? '#5865f2' : '#4e5058', 15);
+    button(ctx, SAVE, '💾 保存', '#248046', 15);
+    button(ctx, CLEAR, '全部消す', '#da373c', 15);
+    drawStrokes(ctx, item, AREA[0], AREA[1]);
   },
   click(x, y, item, ui) {
     this.drag!('start', x, y, item, ui);
@@ -263,6 +239,7 @@ export const canvasPanel: Panel = {
         if (inRect(x, y, colorRect(i))) { setItemUi(item.id, { ...ui, color: PEN_COLORS[i], erase: false }); return; }
       for (const [v, , r] of SIZE_BTNS) if (inRect(x, y, r)) { setItemUi(item.id, { ...ui, size: v }); return; }
       if (inRect(x, y, ERASER)) { setItemUi(item.id, { ...ui, erase: !ui.erase }); return; }
+      if (inRect(x, y, SAVE)) { saveCanvas(item); return; }
       if (inRect(x, y, CLEAR)) { deltaAction(item.id, { a: 'canvasClear' }); return; }
       if (!inRect(x, y, AREA)) return;
       const strokeId = Math.random().toString(36).slice(2, 10);
@@ -289,6 +266,53 @@ export const canvasPanel: Panel = {
     active = null;
   },
 };
+
+/** 描画領域（白地と線）を (ox, oy) を左上に描く */
+function drawStrokes(ctx: CanvasRenderingContext2D, item: Item, ox: number, oy: number) {
+  if (item.kind !== 'canvas') return;
+  const ax = ox;
+  const ay = oy;
+  const aw = CANVAS_W;
+  const ah = CANVAS_H;
+  {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ax, ay, aw, ah);
+    ctx.clip();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(ax, ay, aw, ah);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const st of item.strokes) {
+      ctx.strokeStyle = st.color === 'erase' ? '#ffffff' : st.color;
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.lineWidth = st.size;
+      const p = st.pts;
+      if (p.length <= 2) {
+        ctx.beginPath();
+        ctx.arc(ax + p[0], ay + p[1], st.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
+      ctx.beginPath();
+      ctx.moveTo(ax + p[0], ay + p[1]);
+      for (let i = 2; i + 1 < p.length; i += 2) ctx.lineTo(ax + p[i], ay + p[i + 1]);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+/** キャンバスの絵を画像にしてセッションのチャットに投稿する */
+function saveCanvas(item: Item) {
+  const cv = document.createElement('canvas');
+  cv.width = CANVAS_W * 2;
+  cv.height = CANVAS_H * 2;
+  const ctx = cv.getContext('2d')!;
+  ctx.scale(2, 2);
+  drawStrokes(ctx, item, 0, 0);
+  postImage('🎨 キャンバスを保存しました', cv.toDataURL('image/jpeg', 0.85));
+}
 
 /** 2D 画面を持つアイテム（通話画面にアクティビティとして並ぶ） */
 export const PANELS: Partial<Record<Item['kind'], Panel>> = { chess: chessPanel, g2048: panel2048, canvas: canvasPanel };

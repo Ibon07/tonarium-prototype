@@ -11,6 +11,7 @@ import { COMPAT_ONLY, PANELS, chessSelect } from '../items/panels.ts';
 import { drawPanel } from '../items/PanelCanvas.tsx';
 import { carrying, type Interactable } from './interact.ts';
 import { drawText, makeCanvasTexture } from './textTexture.ts';
+import { Camera3D } from './camera3d.tsx';
 
 /** 持ち運び中なら手元の位置、そうでなければ同期された位置へ滑らかに寄せる */
 function useFollow(ref: React.RefObject<THREE.Group | null>, id: string, x: number, z: number, ry: number) {
@@ -274,6 +275,7 @@ export function Item3D({ item }: { item: Item }) {
   switch (item.kind) {
     case 'note': return <Note3D item={item} />;
     case 'hammer': return <Hammer3D item={item} />;
+    case 'camera': return <Camera3D item={item} />;
     case 'chess': return <Chess3D item={item} />;
     default: return PANELS[item.kind] ? <CompatPanel3D item={item} /> : null;
   }

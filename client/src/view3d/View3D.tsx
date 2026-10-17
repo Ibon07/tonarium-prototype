@@ -4,7 +4,7 @@ import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { DOOR_HALF, ROOM_HALF, entranceSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
 import { NOTE_COLORS } from '../../../shared/items.ts';
-import { useStore, get, colorOf, nameOf, heldHammer } from '../store.ts';
+import { useStore, get, colorOf, nameOf, heldHammer, heldCamera } from '../store.ts';
 import { shareVideoEl } from '../net/livekit.ts';
 import { selectNote } from '../actions.ts';
 import { ItemMenu } from '../items/ItemMenu.tsx';
@@ -14,6 +14,7 @@ import { drawText, makeCanvasTexture } from './textTexture.ts';
 import { EYE, type Interactable } from './interact.ts';
 import { Player } from './Player.tsx';
 import { HammerModel, Item3D } from './items3d.tsx';
+import { CameraModel, CameraStreamer, CamMonitor } from './camera3d.tsx';
 
 // ---------- 部屋（南壁の中央に入口） ----------
 const H = ROOM_HALF;
@@ -221,6 +222,7 @@ function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
   const speaking = useStore((s) => !!s.speaking[id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[id] === false);
   const holding = useStore((s) => Object.values(s.items).some((i) => i.kind === 'hammer' && i.holder === id));
+  const camera = useStore((s) => Object.values(s.items).find((i) => i.kind === 'camera' && i.holder === id));
   const ref = useRef<THREE.Group>(null);
   const head = useRef<THREE.Group>(null);
   const hand = useRef<THREE.Group>(null);
@@ -262,6 +264,12 @@ function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
         <group ref={hand} position={[0.38, 0.95, -0.1]}>
           <HammerModel />
         </group>
+      )}
+      {camera?.kind === 'camera' && (
+        <>
+          <CameraModel live={camera.live} position={[0.22, 1.35, -0.32]} />
+          <CamMonitor item={camera} position={[0, 2.45, 0]} />
+        </>
       )}
       {speaking && (
         <mesh rotation-x={-Math.PI / 2} position-y={0.02}>
@@ -305,10 +313,27 @@ function NoteEditor() {
   );
 }
 
+/** カメラを持っている間のファインダー表示と、撮影時のフラッシュ */
+function Viewfinder() {
+  const cam = useStore((s) => heldCamera(s));
+  const flashAt = useStore((s) => s.flashAt);
+  return (
+    <>
+      {cam && (
+        <div className="viewfinder">
+          <i className="tl" /><i className="tr" /><i className="bl" /><i className="br" />
+          {cam.live && <div className="rec">● LIVE 配信中</div>}
+        </div>
+      )}
+      {flashAt > 0 && <div key={flashAt} className="flash" />}
+    </>
+  );
+}
+
 function Crosshair() {
   const locked = useStore((s) => s.locked);
   const hint = useStore((s) => s.aimHint);
-  const holding = useStore((s) => !!heldHammer(s));
+  const holding = useStore((s) => !!heldHammer(s) || !!heldCamera(s));
   const hitMe = useStore((s) => s.hits[s.selfId]);
   const [, tick] = useState(0);
   useEffect(() => {
@@ -323,7 +348,7 @@ function Crosshair() {
       {recentlyHit(get().selfId) && <div className="hitme">ピコッ!</div>}
       <div className="keyhelp">
         {locked
-          ? <>WASD: 移動 ・ マウス: 視点 ・ クリック: 操作 ・ G: 持ち運ぶ ・ X: 片付ける{holding && ' ・ Q: ハンマーを置く'} ・ Esc: カーソルを出す</>
+          ? <>WASD: 移動 ・ マウス: 視点 ・ クリック: 操作 ・ G: 持ち運ぶ ・ X: 片付ける{holding && ' ・ Q: 手に持った物を置く'} ・ Esc: カーソルを出す</>
           : <>画面をクリックすると操作を始めます（マウスで視点・照準で操作）</>}
       </div>
     </>
@@ -334,6 +359,7 @@ export function View3D() {
   const avatars = useStore((s) => s.avatars);
   const items = useStore((s) => s.items);
   const locked = useStore((s) => s.locked);
+  const selfId = useStore((s) => s.selfId);
   const a0 = get().selfAvatar;
   return (
     <div className={`view3d ${locked ? 'locked' : ''}`}>
@@ -344,8 +370,11 @@ export function View3D() {
         <Entrance />
         {Object.entries(avatars).map(([id, s]) => <Avatar3D key={id} id={id} state={s} />)}
         {Object.values(items).map((it) => <Item3D key={it.id} item={it} />)}
+        {Object.values(items).map((it) => (it.kind === 'camera' && it.live && it.operator === selfId
+          ? <CameraStreamer key={`stream-${it.id}`} item={it} /> : null))}
         <Player />
       </Canvas>
+      <Viewfinder />
       <Crosshair />
       <div className="tools3d">
         <button className="primary" onClick={() => spawnItem('note')}>＋ 付箋</button>

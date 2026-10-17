@@ -37,6 +37,8 @@ export interface ChatMessage {
   from: string | null;
   fromName: string;
   text: string;
+  /** 画像（撮影・キャンバス保存）。data URL */
+  image?: string;
   at: number;
 }
 
@@ -63,7 +65,7 @@ export type ClientMsg =
   | { t: 'leave' }
   | { t: 'mode'; mode: Mode }
   | { t: 'status'; micOn: boolean; sharing: boolean }
-  | { t: 'chat'; ch: string; text: string }
+  | { t: 'chat'; ch: string; text: string; image?: string }
   | { t: 'avatar'; s: AvatarState }
   | { t: 'itemCreate'; kind: ItemKind; x: number; z: number; ry: number; text?: string }
   | { t: 'itemRemove'; id: string }

@@ -61,6 +61,12 @@ interface State {
 
   /** 編集中の付箋（アイテムID） */
   selectedNote: string | null;
+  /** チャットの画像を拡大表示中 */
+  lightbox: string | null;
+  /** 届いているカメラ配信（アイテムID → 受信した時刻。映像要素は livekit.ts の camVideos） */
+  camFeeds: Record<string, number>;
+  /** 撮影したときの白いフラッシュ */
+  flashAt: number;
 }
 
 /** 3D に入ると入口のすぐ内側から、スクリーンの方を向いて始まる。重ならないように少しばらす */
@@ -101,6 +107,9 @@ export const useStore = create<State>(() => ({
   sharer: null,
   shareHasAudio: false,
   selectedNote: null,
+  lightbox: null,
+  camFeeds: {},
+  flashAt: 0,
 }));
 
 /** アイテムごとの手元だけの状態（チェスの選択中マス、キャンバスのペン設定など） */
@@ -147,4 +156,9 @@ export function colorOf(id: string) {
 /** 自分が持っているハンマー */
 export function heldHammer(s: { items: Record<string, Item>; selfId: string }) {
   return Object.values(s.items).find((i) => i.kind === 'hammer' && i.holder === s.selfId);
+}
+
+/** 自分が持っているカメラ */
+export function heldCamera(s: { items: Record<string, Item>; selfId: string }) {
+  return Object.values(s.items).find((i): i is Item & { kind: 'camera' } => i.kind === 'camera' && i.holder === s.selfId);
 }

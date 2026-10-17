@@ -1,7 +1,7 @@
 // セッション内に出せるアイテム（ハードコード）。状態の更新はサーバーが権威的に行う。
 // 最終的には UGC にする想定なので、種類ごとの振る舞いはこのファイルの関数に閉じ込めておく。
 
-export type ItemKind = 'note' | 'hammer' | 'chess' | 'g2048' | 'canvas';
+export type ItemKind = 'note' | 'hammer' | 'chess' | 'g2048' | 'canvas' | 'camera';
 
 /** キャンバスの描画領域（ストロークの座標はこの範囲） */
 export const CANVAS_W = 620;
@@ -31,7 +31,17 @@ export type Item =
   /** 2048。全員で1つの盤面を操作する */
   | (ItemBase & { kind: 'g2048'; grid: number[]; score: number; over: boolean })
   /** みんなで描けるキャンバス */
-  | (ItemBase & { kind: 'canvas'; strokes: Stroke[] });
+  | (ItemBase & { kind: 'canvas'; strokes: Stroke[] })
+  /**
+   * カメラ（3D 専用）。手に持つか、三脚に置く（置いたときの向きは ry と pitch）。
+   * live 中は operator のブラウザがカメラの視点を描いて配信する
+   */
+  | (ItemBase & { kind: 'camera'; holder: string | null; pitch: number; live: boolean; operator: string | null });
+
+/** 手に持つアイテム（1人1つまで） */
+export const isHandheld = (i: Item) => i.kind === 'hammer' || i.kind === 'camera';
+/** 3D でしか出せない・持てないアイテム */
+export const ONLY_3D: Partial<Record<ItemKind, boolean>> = { camera: true };
 
 export type Dir = 'up' | 'down' | 'left' | 'right';
 
@@ -39,7 +49,8 @@ export type ItemAction =
   | { a: 'noteEdit'; text?: string; color?: string }
   | { a: 'noteLock'; lock: boolean }
   | { a: 'pick' }
-  | { a: 'drop'; x: number; z: number; ry: number }
+  | { a: 'drop'; x: number; z: number; ry: number; pitch?: number }
+  | { a: 'camLive'; on: boolean }
   | { a: 'chessMove'; from: number; to: number }
   | { a: 'chessReset' }
   | { a: 'slide'; dir: Dir }
@@ -58,6 +69,7 @@ export const ITEM_INFO: Record<ItemKind, { name: string; icon: string; desc: str
   chess: { name: 'チェス', icon: '♟️', desc: '駒を自由に動かせる盤（2D/3D）' },
   g2048: { name: '2048', icon: '🔢', desc: 'みんなで操作する2Dゲーム（3Dは互換表示）' },
   canvas: { name: 'キャンバス', icon: '🎨', desc: 'みんなで絵を描ける（ペン・消しゴム）' },
+  camera: { name: 'カメラ', icon: '📷', desc: '撮影とライブ配信（3D でのみ出せる）' },
 };
 
 // ---------- チェス ----------
@@ -141,6 +153,7 @@ export function createItem(
     case 'chess': return { ...b, kind, board: chessInitial(), last: null };
     case 'g2048': return { ...b, kind, grid: g2048Initial(rng), score: 0, over: false };
     case 'canvas': return { ...b, kind, strokes: [] };
+    case 'camera': return { ...b, kind, holder: null, pitch: 0, live: false, operator: null };
   }
 }
 
@@ -157,6 +170,31 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
         if (act.lock) item.editingBy = userId;
         else if (item.editingBy === userId) item.editingBy = null;
         else return false;
+        break;
+      }
+      return false;
+    case 'camera':
+      if (act.a === 'pick' && item.holder === null) {
+        item.holder = userId;
+        // 他の人が配信していたカメラを拾ったら配信は止める
+        if (item.live && item.operator !== userId) { item.live = false; item.operator = null; }
+        break;
+      }
+      if (act.a === 'drop' && item.holder === userId) {
+        item.holder = null;
+        item.x = act.x; item.z = act.z; item.ry = act.ry; item.pitch = act.pitch ?? 0;
+        break;
+      }
+      if (act.a === 'camLive') {
+        if (act.on) {
+          if (item.holder !== null && item.holder !== userId) return false;
+          item.live = true;
+          item.operator = userId;
+        } else {
+          if (item.operator !== userId && item.holder !== userId) return false;
+          item.live = false;
+          item.operator = null;
+        }
         break;
       }
       return false;

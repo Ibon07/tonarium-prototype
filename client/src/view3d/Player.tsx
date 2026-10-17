@@ -2,13 +2,15 @@ import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { AvatarState } from '../../../shared/protocol.ts';
-import { get, set, heldHammer, nameOf } from '../store.ts';
+import { get, set, heldHammer, heldCamera, nameOf } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { selectNote } from '../actions.ts';
-import { dropHammer, hit, moveItem } from '../items/actions.ts';
+import { dropCamera, dropHammer, hit, moveItem, toggleLive } from '../items/actions.ts';
 import { bump } from '../items/effects.ts';
 import { aimAt, aimOn, carrying, clampRoom, EYE, type Interactable } from './interact.ts';
 import { HammerModel } from './items3d.tsx';
+import { takePhoto, world } from './cameraRender.ts';
+import { cameraHelp } from './camera3d.tsx';
 
 const SPEED = 4;
 const SENS = 0.0025;
@@ -19,8 +21,10 @@ const isTyping = (t: EventTarget | null) =>
 /** 照準の先の物から、画面に出す説明を作る */
 function hintFor(aim: { data: Interactable; hit: THREE.Intersection } | null): string | null {
   if (carrying.current) return 'クリック / G: ここに置く';
-  if (!aim) return null;
   const s = get();
+  const cam = heldCamera(s);
+  if (cam) return cameraHelp(cam);
+  if (!aim) return null;
   if (heldHammer(s) && aim.data.hitTarget) {
     const t = typeof aim.data.hitTarget === 'function' ? aim.data.hitTarget(aim.hit) : aim.data.hitTarget;
     if (t && t !== s.selfId) return `クリック: ${nameOf(t)} を叩く`;
@@ -52,6 +56,8 @@ export function Player() {
     const a = get().selfAvatar;
     camera.position.set(a.x, EYE, a.z);
     camera.rotation.order = 'YXZ';
+    world.scene = scene;
+    world.camera = camera as THREE.PerspectiveCamera;
     const canvas = gl.domElement;
 
     const onLock = () => {
@@ -88,7 +94,15 @@ export function Player() {
           carrying.current = { id: aim.current.data.carry, x: 0, z: 0, ry: 0, last: 0 };
         }
       }
-      if (e.code === 'KeyQ') dropHammer();
+      if (e.code === 'KeyQ') { dropHammer(); dropCamera(look.current.pitch); }
+      // カメラ: 手に持っていればそれを、なければ照準の先の三脚のカメラを操作する
+      const aimedCam = () => {
+        const id = aim.current?.data.carry;
+        const it = id ? get().items[id] : undefined;
+        return it?.kind === 'camera' ? it : undefined;
+      };
+      if (e.code === 'KeyL') { const c = heldCamera(get()) ?? aimedCam(); if (c) toggleLive(c.id); }
+      if (e.code === 'KeyC') { const c = aimedCam(); if (c) takePhoto(c); }
       if (e.code === 'KeyX' && !carrying.current) aim.current?.data.remove?.();
     };
     const onKeyUp = (e: KeyboardEvent) => { keys.current[e.code] = false; };
@@ -120,6 +134,9 @@ export function Player() {
     if (carrying.current) { finishCarry(); return; }
     const s = get();
     const target = aim.current;
+    // カメラを持っている間のクリックは撮影
+    const cam = heldCamera(s);
+    if (cam) { takePhoto(cam); return; }
     if (heldHammer(s)) {
       set((st) => ({ swings: { ...st.swings, [s.selfId]: performance.now() } }));
       const ht = target?.data.hitTarget;
@@ -214,7 +231,7 @@ export function Player() {
   });
 
   return (
-    <group ref={hammerRef} userData={{ noRay: true }}>
+    <group ref={hammerRef} userData={{ noRay: true, firstPerson: true }}>
       <HammerModel scale={0.38} />
     </group>
   );

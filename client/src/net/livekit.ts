@@ -2,7 +2,8 @@
 // 2D/3D の表示コンポーネントは接続に触らないので、表示切替で通話・配信が切れない。
 // セッションを移るときだけ、前のルームから切断して次のルームへつなぎ直す。
 import {
-  Room, RoomEvent, Track, type RemoteTrack, type Participant as LkParticipant, type LocalTrackPublication,
+  Room, RoomEvent, Track, LocalVideoTrack,
+  type RemoteTrack, type RemoteTrackPublication, type Participant as LkParticipant, type LocalTrackPublication,
 } from 'livekit-client';
 import { get, set } from '../store.ts';
 import { send } from './ws.ts';
@@ -21,6 +22,22 @@ audioHost.style.display = 'none';
 document.body.appendChild(audioHost);
 
 let reported = { micOn: false, sharing: false };
+
+/** カメラアイテムの配信映像（アイテムID → 受信用の <video>）。トラック名は `camera:<アイテムID>` */
+export const camVideos = new Map<string, HTMLVideoElement>();
+export const camHolder = document.createElement('div');
+Object.assign(camHolder.style, { position: 'fixed', left: '0', bottom: '0', width: '2px', height: '2px', opacity: '0', pointerEvents: 'none' });
+document.body.appendChild(camHolder);
+const camIdOf = (name: string | undefined) => (name?.startsWith('camera:') ? name.slice(7) : null);
+
+function setCamFeed(id: string, on: boolean) {
+  set((s) => {
+    const camFeeds = { ...s.camFeeds };
+    if (on) camFeeds[id] = performance.now();
+    else delete camFeeds[id];
+    return { camFeeds };
+  });
+}
 
 function syncParticipants() {
   if (get().voice !== 'connected') return;
@@ -48,7 +65,19 @@ function syncParticipants() {
   }
 }
 
-function attachRemote(track: RemoteTrack) {
+function attachRemote(track: RemoteTrack, pub: RemoteTrackPublication) {
+  const camId = camIdOf(pub.trackName);
+  if (camId && track.kind === Track.Kind.Video) {
+    const el = document.createElement('video');
+    el.muted = true;
+    el.playsInline = true;
+    el.autoplay = true;
+    camHolder.appendChild(el);
+    track.attach(el);
+    camVideos.set(camId, el);
+    setCamFeed(camId, true);
+    return;
+  }
   if (track.kind === Track.Kind.Audio) {
     // マイク音声・配信音声とも1回だけ attach する（二重音声防止）
     audioHost.appendChild(track.attach());
@@ -58,9 +87,11 @@ function attachRemote(track: RemoteTrack) {
 }
 
 room
-  .on(RoomEvent.TrackSubscribed, (track) => { attachRemote(track); syncParticipants(); })
-  .on(RoomEvent.TrackUnsubscribed, (track) => {
+  .on(RoomEvent.TrackSubscribed, (track, pub) => { attachRemote(track, pub); syncParticipants(); })
+  .on(RoomEvent.TrackUnsubscribed, (track, pub) => {
     track.detach().forEach((el) => { if (el !== shareVideoEl) el.remove(); });
+    const camId = camIdOf(pub.trackName);
+    if (camId) { camVideos.delete(camId); setCamFeed(camId, false); }
     syncParticipants();
   })
   .on(RoomEvent.LocalTrackPublished, (pub: LocalTrackPublication) => {
@@ -86,6 +117,9 @@ let generation = 0;
 
 function resetVoiceState() {
   audioHost.replaceChildren();
+  camHolder.replaceChildren();
+  camVideos.clear();
+  set({ camFeeds: {} });
   shareVideoEl.srcObject = null;
   reported = { micOn: false, sharing: false };
   set({ speaking: {}, micOn: {}, sharer: null, shareHasAudio: false });
@@ -155,4 +189,19 @@ export async function toggleShare() {
     if ((e as Error).name !== 'NotAllowedError') set({ voiceError: `画面共有: ${(e as Error).message}` });
   }
   syncParticipants();
+}
+
+/** カメラアイテムの視点を配信する。戻り値で配信を止める */
+export async function publishCamera(itemId: string, mediaTrack: MediaStreamTrack) {
+  const track = new LocalVideoTrack(mediaTrack, undefined, true);
+  const pub = await room.localParticipant.publishTrack(track, {
+    name: `camera:${itemId}`,
+    source: Track.Source.Camera,
+    videoEncoding: { maxBitrate: 1_200_000, maxFramerate: 15 },
+    simulcast: false,
+  });
+  return async () => {
+    if (pub.track) await room.localParticipant.unpublishTrack(pub.track);
+    track.stop();
+  };
 }

@@ -325,3 +325,25 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .nametag.twod { background: #4e5058; }
 .nametag.hitflash { background: #f0b132; color: #1e1f22; }
 .panelcanvas.drawable { cursor: crosshair; touch-action: none; }
+
+/* ---- チャット画像 ---- */
+.chatimg { display: block; max-width: min(320px, 100%); max-height: 240px; border-radius: 6px; margin-top: 4px; cursor: zoom-in; }
+.msg.cont .chatimg { margin-top: 2px; }
+.lightbox { position: fixed; inset: 0; z-index: 50; background: #000d; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+.lightbox img { max-width: 92vw; max-height: 88vh; border-radius: 8px; box-shadow: 0 8px 32px #000; }
+.lightbox .dl { position: absolute; top: 16px; right: 16px; background: var(--blurple); color: #fff; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-weight: 700; }
+
+/* ---- カメラ ---- */
+.viewfinder { position: absolute; inset: 8% 10%; pointer-events: none; }
+.viewfinder i { position: absolute; width: 40px; height: 40px; border: 3px solid #fffc; }
+.viewfinder .tl { left: 0; top: 0; border-right: 0; border-bottom: 0; }
+.viewfinder .tr { right: 0; top: 0; border-left: 0; border-bottom: 0; }
+.viewfinder .bl { left: 0; bottom: 0; border-right: 0; border-top: 0; }
+.viewfinder .br { right: 0; bottom: 0; border-left: 0; border-top: 0; }
+.viewfinder .rec { position: absolute; left: 12px; top: 12px; color: #fff; background: #ed4245; padding: 2px 10px; border-radius: 4px; font-weight: 800; font-size: 13px; animation: recblink 1.2s infinite; }
+@keyframes recblink { 50% { opacity: .55; } }
+.flash { position: absolute; inset: 0; background: #fff; pointer-events: none; animation: flash .35s forwards; }
+@keyframes flash { from { opacity: .9; } to { opacity: 0; } }
+.itemrow.disabled { opacity: .45; cursor: not-allowed; }
+.itemrow.disabled:hover { background: none; }
+.msg.cont { flex-direction: column; align-items: flex-start; gap: 0; }

@@ -10,7 +10,7 @@ import type {
   AvatarState, ChatMessage, ClientMsg, GuildConfig, Mode, ServerMsg, User,
 } from '../shared/protocol.ts';
 import { ROOM_HALF, sessionChatKey } from '../shared/protocol.ts';
-import { ITEM_INFO, applyItemAction, createItem, isDeltaAction, type Item } from '../shared/items.ts';
+import { ITEM_INFO, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, type Item } from '../shared/items.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
 const DEV = process.argv.includes('--dev');
@@ -46,13 +46,35 @@ function broadcast(msg: ServerMsg, except?: WebSocket) {
   for (const set of sockets.values())
     for (const ws of set) if (ws !== except && ws.readyState === WebSocket.OPEN) ws.send(data);
 }
-function pushChat(ch: string, from: User | null, text: string) {
+/** 1チャンネルに保持する画像の数（古いものは本文だけ残す。途中参加時のスナップショットが重くならないように） */
+const MAX_IMAGES = 40;
+
+function pushChat(ch: string, from: User | null, text: string, image?: string) {
   const list = chats.get(ch);
   if (!list) return;
-  const m: ChatMessage = { id: randomUUID(), from: from?.id ?? null, fromName: from?.name ?? '', text, at: Date.now() };
+  const m: ChatMessage = { id: randomUUID(), from: from?.id ?? null, fromName: from?.name ?? '', text, image, at: Date.now() };
   list.push(m);
   if (list.length > 500) list.shift();
+  if (image) {
+    const withImage = list.filter((x) => x.image);
+    for (const old of withImage.slice(0, -MAX_IMAGES)) { delete old.image; old.text += '（画像は古いため省略）'; }
+  }
   broadcast({ t: 'chat', ch, m });
+}
+
+/** カメラを使えなくなった人（退出・2D に切替）: 持っていたら置き、配信していたら止める */
+function releaseCameras(sid: string, u: User, at?: AvatarState) {
+  for (const it of items.get(sid)!.values()) {
+    if (it.kind !== 'camera') continue;
+    let changed = false;
+    if (it.holder === u.id) {
+      it.holder = null;
+      if (at) { it.x = at.x; it.z = at.z; it.ry = at.ry; }
+      changed = true;
+    }
+    if (it.live && it.operator === u.id) { it.live = false; it.operator = null; changed = true; }
+    if (changed) broadcast({ t: 'item', sid, item: it });
+  }
 }
 const broadcastUsers = () => broadcast({ t: 'users', list: [...users.values()] });
 const modeLabel = (m: Mode) => (m === '3d' ? '3D' : '2D');
@@ -73,6 +95,7 @@ function leaveSession(u: User) {
       broadcast({ t: 'item', sid, item: it });
     }
   }
+  releaseCameras(sid, u, av);
   u.session = null;
   u.mode = '2d';
   u.micOn = false;
@@ -121,7 +144,10 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
     }
     case 'chat': {
       const text = msg.text.trim().slice(0, 1000);
-      if (text) pushChat(msg.ch, me, text);
+      // 画像は JPEG/PNG の data URL で 2MB まで
+      const image = typeof msg.image === 'string' && /^data:image\/(jpeg|png);base64,/.test(msg.image) && msg.image.length < 2_000_000
+        ? msg.image : undefined;
+      if (text || image) pushChat(msg.ch, me, text, image);
       return;
     }
   }
@@ -132,6 +158,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
   switch (msg.t) {
     case 'itemCreate': {
       if (!(msg.kind in ITEM_INFO)) return;
+      if (ONLY_3D[msg.kind] && me.mode !== '3d') return;
       const it = createItem(msg.kind, {
         id: randomUUID(), x: clamp(msg.x), z: clamp(msg.z), ry: msg.ry, createdBy: me.id,
       }, Math.random);
@@ -160,8 +187,16 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
     case 'itemAction': {
       const it = sessItems.get(msg.id);
       if (!it) return;
-      // ハンマーは1人1本まで
-      if (msg.action.a === 'pick' && [...sessItems.values()].some((h) => h.kind === 'hammer' && h.holder === me.id)) return;
+      // 手に持てるのは1人1つまで。カメラは 3D の人だけが持てる・配信できる
+      if (msg.action.a === 'pick' && [...sessItems.values()].some((h) => isHandheld(h) && 'holder' in h && h.holder === me.id)) return;
+      if (it.kind === 'camera' && (msg.action.a === 'pick' || (msg.action.a === 'camLive' && msg.action.on)) && me.mode !== '3d') return;
+      // 配信できるカメラは1人1台。別のカメラで配信を始めたら前のものは止める
+      if (it.kind === 'camera' && msg.action.a === 'camLive' && msg.action.on)
+        for (const other of sessItems.values())
+          if (other !== it && other.kind === 'camera' && other.live && other.operator === me.id) {
+            other.live = false; other.operator = null;
+            broadcast({ t: 'item', sid, item: other });
+          }
       if (msg.action.a === 'drop') { msg.action.x = clamp(msg.action.x); msg.action.z = clamp(msg.action.z); }
       if (!applyItemAction(it, msg.action, me.id, Math.random)) return;
       // 描画などは操作だけを配る（送り主は手元で適用済み）
@@ -179,7 +214,10 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
     case 'mode': {
       if (me.mode === msg.mode) return;
       me.mode = msg.mode;
-      if (msg.mode === '2d' && avatars.get(sid)!.delete(me.id)) broadcast({ t: 'avatarRemove', sid, id: me.id });
+      if (msg.mode === '2d') {
+        releaseCameras(sid, me, avatars.get(sid)!.get(me.id));
+        if (avatars.get(sid)!.delete(me.id)) broadcast({ t: 'avatarRemove', sid, id: me.id });
+      }
       broadcastUsers();
       pushChat(sessionChatKey(sid), null, `${me.name} が ${modeLabel(msg.mode)} に切り替えました`);
       return;

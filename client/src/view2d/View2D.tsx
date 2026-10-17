@@ -7,6 +7,7 @@ import { PanelCanvas } from '../items/PanelCanvas.tsx';
 import { ItemMenu } from '../items/ItemMenu.tsx';
 import { dropHammer, editNote, hit, itemAction, moveItem, removeItem, spawnItem } from '../items/actions.ts';
 import { consumeHitFx, recentlyHit } from '../items/effects.ts';
+import { camHolder, camVideos } from '../net/livekit.ts';
 import { ShareVideoHost } from '../ShareVideo.tsx';
 import { leaveSession, selectNote, setMode } from '../actions.ts';
 import { toggleMic, toggleShare } from '../net/livekit.ts';
@@ -15,6 +16,7 @@ import { Avatar } from '../ui.tsx';
 type StageTile =
   | { key: string; kind: 'stream' }
   | { key: string; kind: 'map' }
+  | { key: string; kind: 'cam'; item: Item & { kind: 'camera' } }
   | { key: string; kind: 'item'; item: Item }
   | { key: string; kind: 'user'; user: User };
 
@@ -27,6 +29,30 @@ function StreamTile({ big }: { big: boolean }) {
     <div className={`tile streamtile ${big ? 'big' : ''}`} onClick={() => toggleFocus('stream')}>
       <ShareVideoHost className="videohost" />
       <div className="caption"><span className="livebadge">LIVE</span> {nameOf(sharer)} の画面</div>
+    </div>
+  );
+}
+
+/** 受信したカメラ配信の <video> をタイルの中に移して表示する */
+function CamVideoHost({ id }: { id: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const feed = useStore((s) => s.camFeeds[id]);
+  useEffect(() => {
+    const el = camVideos.get(id);
+    if (!el || !ref.current) return;
+    ref.current.appendChild(el);
+    void el.play().catch(() => {});
+    return () => { camHolder.appendChild(el); void el.play().catch(() => {}); };
+  }, [id, feed]);
+  return <div ref={ref} className="videohost" />;
+}
+
+function CamTile({ item, big }: { item: Item & { kind: 'camera' }; big: boolean }) {
+  useStore((s) => s.participants);
+  return (
+    <div className={`tile streamtile ${big ? 'big' : ''}`} onClick={() => toggleFocus(item.id)}>
+      <CamVideoHost id={item.id} />
+      <div className="caption"><span className="livebadge">LIVE</span> 📷 {nameOf(item.operator)} のカメラ</div>
     </div>
   );
 }
@@ -88,6 +114,7 @@ function MapTile({ big }: { big: boolean }) {
 function StageTileView({ t, big }: { t: StageTile; big: boolean }) {
   if (t.kind === 'stream') return <StreamTile big={big} />;
   if (t.kind === 'map') return <MapTile big={big} />;
+  if (t.kind === 'cam') return <CamTile item={t.item} big={big} />;
   if (t.kind === 'item') return <ActivityTile item={t.item} big={big} />;
   return <UserTile p={t.user} />;
 }
@@ -278,8 +305,9 @@ function MiniMap({ bare = false }: { bare?: boolean }) {
   const in3d = participants.filter((p) => p.mode === '3d');
   const H = ROOM_HALF;
   // 誰かが持っているハンマーはその人と一緒に表示するので、床の物だけ描く
-  const placed = Object.values(items).filter((i) => !(i.kind === 'hammer' && i.holder));
+  const placed = Object.values(items).filter((i) => !('holder' in i && i.holder));
   const holding = (id: string) => Object.values(items).some((i) => i.kind === 'hammer' && i.holder === id);
+  const holdingCam = (id: string) => Object.values(items).some((i) => i.kind === 'camera' && i.holder === id);
   const H2 = H + 3.6;
 
   return (
@@ -315,7 +343,7 @@ function MiniMap({ bare = false }: { bare?: boolean }) {
               {speaking[id] && <circle r={0.9} className="speakring" />}
               <circle r={0.5} fill={colorOf(id)} />
               <line x1={0} y1={0} x2={-Math.sin(a.ry) * 1} y2={-Math.cos(a.ry) * 1} stroke={colorOf(id)} strokeWidth={0.15} />
-              <text y={-0.8} className="label" textAnchor="middle">{name}{holding(id) ? ' 🔨' : ''}</text>
+              <text y={-0.8} className="label" textAnchor="middle">{name}{holding(id) ? ' 🔨' : ''}{holdingCam(id) ? ' 📷' : ''}</text>
             </g>
           );
         })}
@@ -341,9 +369,12 @@ export function SessionView() {
   const sharer = useStore((s) => s.sharer);
   const items = useStore((s) => s.items);
   const focus = useStore((s) => s.focus);
+  const camFeeds = useStore((s) => s.camFeeds);
   const stageRef = useRef<HTMLDivElement>(null);
   const tiles: StageTile[] = [
     ...(sharer ? [{ key: 'stream', kind: 'stream' as const }] : []),
+    // 届いているカメラ配信は画面共有と同じようにタイルで並べる
+    ...Object.values(items).flatMap((i) => (i.kind === 'camera' && i.live && camFeeds[i.id] ? [{ key: i.id, kind: 'cam' as const, item: i }] : [])),
     { key: 'map', kind: 'map' as const },
     ...Object.values(items).filter((i) => PANELS[i.kind]).map((item) => ({ key: item.id, kind: 'item' as const, item })),
     ...participants.map((user) => ({ key: user.id, kind: 'user' as const, user })),
