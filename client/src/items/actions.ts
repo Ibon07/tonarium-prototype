@@ -7,15 +7,27 @@ const LIMIT = ROOM_HALF - 0.5;
 const clamp = (v: number) => Math.max(-LIMIT, Math.min(LIMIT, v));
 
 /** 3D なら目の前、2D ならスクリーン前の空いていそうな場所に出す */
-export function spawnItem(kind: ItemKind) {
+export function spawnItem(kind: ItemKind, text?: string) {
   const s = get();
   if (!s.session) return;
   if (s.mode === '3d') {
     const a = s.selfAvatar;
-    send({ t: 'itemCreate', kind, x: clamp(a.x - Math.sin(a.ry) * 2.2), z: clamp(a.z - Math.cos(a.ry) * 2.2), ry: a.ry });
+    send({ t: 'itemCreate', kind, text, x: clamp(a.x - Math.sin(a.ry) * 2.2), z: clamp(a.z - Math.cos(a.ry) * 2.2), ry: a.ry });
   } else {
-    send({ t: 'itemCreate', kind, x: (Math.random() - 0.5) * 10, z: -3 + (Math.random() - 0.5) * 4, ry: 0 });
+    send({ t: 'itemCreate', kind, text, x: (Math.random() - 0.5) * 10, z: -3 + (Math.random() - 0.5) * 4, ry: 0 });
   }
+}
+
+/** 付箋の文字・色を変える（入力が途切れないよう手元にすぐ反映する） */
+export function editNote(id: string, patch: { text?: string; color?: string }) {
+  const sid = get().session;
+  if (!sid) return;
+  set((s) => {
+    const it = s.itemsBy[sid]?.[id];
+    return it?.kind === 'note' ? { itemsBy: { ...s.itemsBy, [sid]: { ...s.itemsBy[sid], [id]: { ...it, ...patch } } } } : {};
+  });
+  recompute();
+  send({ t: 'itemAction', id, action: { a: 'noteEdit', ...patch } });
 }
 
 export function removeItem(id: string) {

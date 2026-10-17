@@ -36,13 +36,12 @@ export function send(msg: ClientMsg) {
 function onMessage(msg: ServerMsg) {
   switch (msg.t) {
     case 'snapshot': {
-      const { guild, users, chats, notes, avatars, items } = msg.s;
+      const { guild, users, chats, avatars, items } = msg.s;
       const firstText = guild.categories.flatMap((c) => c.channels).find((c) => c.type === 'text');
       set((s) => ({
         guild,
         users,
         chats,
-        notesBy: Object.fromEntries(Object.entries(notes).map(([sid, list]) => [sid, Object.fromEntries(list.map((n) => [n.id, n]))])),
         avatarsBy: avatars,
         itemsBy: Object.fromEntries(Object.entries(items).map(([sid, list]) => [sid, Object.fromEntries(list.map((n) => [n.id, n]))])),
         textChannel: s.textChannel || firstText?.id || '',
@@ -65,24 +64,25 @@ function onMessage(msg: ServerMsg) {
         return { avatarsBy: { ...s.avatarsBy, [msg.sid]: m } };
       });
       break;
-    case 'note':
-      set((s) => ({ notesBy: { ...s.notesBy, [msg.sid]: { ...s.notesBy[msg.sid], [msg.note.id]: msg.note } } }));
-      break;
-    case 'noteDelete':
-      set((s) => {
-        const m = { ...s.notesBy[msg.sid] };
-        delete m[msg.id];
-        return { notesBy: { ...s.notesBy, [msg.sid]: m }, selectedNote: s.selectedNote === msg.id ? null : s.selectedNote };
-      });
-      break;
     case 'item':
-      set((s) => ({ itemsBy: { ...s.itemsBy, [msg.sid]: { ...s.itemsBy[msg.sid], [msg.item.id]: msg.item } } }));
+      set((s) => {
+        let item = msg.item;
+        // 自分が入力中の付箋は、遅れて返ってくる自分の変更で文字を巻き戻さない
+        const cur = s.itemsBy[msg.sid]?.[item.id];
+        if (item.kind === 'note' && cur?.kind === 'note' && s.selectedNote === item.id && item.updatedBy === s.selfId)
+          item = { ...item, text: cur.text };
+        return { itemsBy: { ...s.itemsBy, [msg.sid]: { ...s.itemsBy[msg.sid], [item.id]: item } } };
+      });
       break;
     case 'itemRemove':
       set((s) => {
         const m = { ...s.itemsBy[msg.sid] };
         delete m[msg.id];
-        return { itemsBy: { ...s.itemsBy, [msg.sid]: m }, focus: s.focus === msg.id ? null : s.focus };
+        return {
+          itemsBy: { ...s.itemsBy, [msg.sid]: m },
+          focus: s.focus === msg.id ? null : s.focus,
+          selectedNote: s.selectedNote === msg.id ? null : s.selectedNote,
+        };
       });
       break;
     case 'hit':

@@ -8,8 +8,8 @@ export interface Interactable {
   use?: (hit: THREE.Intersection) => void;
   /** 照準を合わせたときの説明 */
   hint?: string;
-  /** G キーで持ち運べるもの */
-  carry?: { type: 'note' | 'item'; id: string };
+  /** G キーで持ち運べるアイテムのID */
+  carry?: string;
   /** X キーで片付ける */
   remove?: () => void;
   /** ハンマーで叩ける相手（ユーザーID）。2D参加者ボードのように当たった位置で決まる場合は関数 */
@@ -24,7 +24,7 @@ export const clampRoom = (v: number) => Math.max(-LIMIT, Math.min(LIMIT, v));
 
 /** 持ち運び中の物（位置は手元で即時に動かし、間引いてサーバーへ送る） */
 export const carrying = {
-  current: null as null | { type: 'note' | 'item'; id: string; x: number; z: number; ry: number; last: number },
+  current: null as null | { id: string; x: number; z: number; ry: number; last: number },
 };
 
 export function findInteractable(obj: THREE.Object3D | null): { data: Interactable; obj: THREE.Object3D } | null {

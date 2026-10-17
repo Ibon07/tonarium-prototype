@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AvatarState, ChatMessage, GuildConfig, Mode, Note, User } from '../../shared/protocol.ts';
+import type { AvatarState, ChatMessage, GuildConfig, Mode, User } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
@@ -16,7 +16,6 @@ interface State {
   /** オンラインの全ユーザー（どのセッションにいるかを含む） */
   users: User[];
   chats: Record<string, ChatMessage[]>;
-  notesBy: Record<string, Record<string, Note>>;
   avatarsBy: Record<string, Record<string, AvatarState>>;
   itemsBy: Record<string, Record<string, Item>>;
 
@@ -28,7 +27,6 @@ interface State {
 
   // ---- 参加中セッションから導出（recompute で更新） ----
   participants: User[];
-  notes: Record<string, Note>;
   /** 自分以外のアバター */
   avatars: Record<string, AvatarState>;
   items: Record<string, Item>;
@@ -61,10 +59,12 @@ interface State {
   sharer: string | null;
   shareHasAudio: boolean;
 
+  /** 編集中の付箋（アイテムID） */
   selectedNote: string | null;
 }
 
-export const DEFAULT_AVATAR: AvatarState = { x: 0, z: 4, ry: 0 };
+/** 3D に入ると入口のすぐ内側から、スクリーンの方を向いて始まる */
+export const DEFAULT_AVATAR: AvatarState = { x: 0, z: 8, ry: 0 };
 
 export const useStore = create<State>(() => ({
   selfId: '',
@@ -74,7 +74,6 @@ export const useStore = create<State>(() => ({
   guild: { name: 'Tonarium', categories: [] },
   users: [],
   chats: {},
-  notesBy: {},
   avatarsBy: {},
   itemsBy: {},
   session: null,
@@ -82,7 +81,6 @@ export const useStore = create<State>(() => ({
   view: 'text',
   textChannel: '',
   participants: [],
-  notes: {},
   avatars: {},
   items: {},
   itemUi: {},
@@ -115,7 +113,6 @@ export function recompute() {
   delete avatars[s.selfId];
   set({
     participants: sid ? s.users.filter((u) => u.session === sid) : [],
-    notes: (sid && s.notesBy[sid]) || EMPTY,
     items: (sid && s.itemsBy[sid]) || EMPTY,
     avatars,
   });

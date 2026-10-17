@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import type { AvatarState } from '../../../shared/protocol.ts';
 import { get, set, heldHammer, nameOf } from '../store.ts';
 import { send } from '../net/ws.ts';
-import { selectNote, updateNote } from '../actions.ts';
+import { selectNote } from '../actions.ts';
 import { dropHammer, hit, moveItem } from '../items/actions.ts';
 import { bump } from '../items/effects.ts';
 import { aimAt, carrying, clampRoom, EYE, type Interactable } from './interact.ts';
@@ -32,8 +32,7 @@ function hintFor(aim: { data: Interactable; hit: THREE.Intersection } | null): s
 function finishCarry() {
   const c = carrying.current;
   if (!c) return;
-  if (c.type === 'note') updateNote(c.id, { x: c.x, z: c.z, ry: c.ry });
-  else moveItem(c.id, c.x, c.z, c.ry);
+  moveItem(c.id, c.x, c.z, c.ry);
   carrying.current = null;
 }
 
@@ -78,8 +77,7 @@ export function Player() {
       if (e.code === 'KeyG') {
         if (carrying.current) finishCarry();
         else if (aim.current?.data.carry) {
-          const { type, id } = aim.current.data.carry;
-          carrying.current = { type, id, x: 0, z: 0, ry: 0, last: 0 };
+          carrying.current = { id: aim.current.data.carry, x: 0, z: 0, ry: 0, last: 0 };
         }
       }
       if (e.code === 'KeyQ') dropHammer();
@@ -170,8 +168,7 @@ export function Player() {
       c.ry = yaw;
       if (now - c.last > 80) {
         c.last = now;
-        if (c.type === 'note') updateNote(c.id, { x: c.x, z: c.z, ry: c.ry });
-        else moveItem(c.id, c.x, c.z, c.ry);
+        moveItem(c.id, c.x, c.z, c.ry);
       }
     }
 

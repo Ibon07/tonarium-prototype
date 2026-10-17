@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { ROOM_HALF, NOTE_COLORS, type Note, type User } from '../../../shared/protocol.ts';
-import { ITEM_INFO, type Item } from '../../../shared/items.ts';
+import { DOOR_HALF, ROOM_HALF, entranceSlot, type User } from '../../../shared/protocol.ts';
+import { ITEM_INFO, NOTE_COLORS, type Item } from '../../../shared/items.ts';
 import { useStore, get, set, colorOf, nameOf, heldHammer } from '../store.ts';
 import { PANELS } from '../items/panels.ts';
 import { PanelCanvas } from '../items/PanelCanvas.tsx';
 import { ItemMenu } from '../items/ItemMenu.tsx';
-import { dropHammer, hit, itemAction, removeItem } from '../items/actions.ts';
+import { dropHammer, editNote, hit, itemAction, moveItem, removeItem, spawnItem } from '../items/actions.ts';
 import { consumeHitFx, recentlyHit } from '../items/effects.ts';
 import { ShareVideoHost } from '../ShareVideo.tsx';
-import { createNote, deleteNote, leaveSession, selectNote, setMode, updateNote } from '../actions.ts';
+import { leaveSession, selectNote, setMode } from '../actions.ts';
 import { toggleMic, toggleShare } from '../net/livekit.ts';
 import { Avatar } from '../ui.tsx';
 
@@ -77,7 +77,7 @@ function MapTile({ big }: { big: boolean }) {
       <div className="activityhdr">
         <span>🧊 3D空間のようす（{n3d}人）</span>
         <div className="spacer" />
-        {big && <span className="sub">付箋はドラッグで移動</span>}
+        {big && <span className="sub">アイテムはドラッグで移動</span>}
         {big && <button className="small" onClick={() => toggleFocus('map')}>縮小</button>}
       </div>
       <div className="activitybody"><MiniMap bare /></div>
@@ -162,7 +162,9 @@ function ControlBar() {
   );
 }
 
-function NoteCard({ note }: { note: Note }) {
+type NoteItem = Item & { kind: 'note' };
+
+function NoteCard({ note }: { note: NoteItem }) {
   const selfId = useStore((s) => s.selfId);
   const selected = useStore((s) => s.selectedNote === note.id);
   useStore((s) => s.participants);
@@ -174,14 +176,14 @@ function NoteCard({ note }: { note: Note }) {
         placeholder="（空の付箋）"
         onFocus={() => selectNote(note.id)}
         onBlur={() => selectNote(null)}
-        onChange={(e) => updateNote(note.id, { text: e.target.value })}
+        onChange={(e) => editNote(note.id, { text: e.target.value })}
       />
       <div className="cardfoot">
         {NOTE_COLORS.map((c) => (
-          <button key={c} className="swatch" style={{ background: c }} onClick={() => updateNote(note.id, { color: c })} />
+          <button key={c} className="swatch" style={{ background: c }} onClick={() => editNote(note.id, { color: c })} />
         ))}
         <div className="spacer" />
-        <button className="small" onClick={() => deleteNote(note.id)}>削除</button>
+        <button className="small" onClick={() => removeItem(note.id)}>片付ける</button>
       </div>
       <div className="meta">
         {lockedByOther ? `✏️ ${nameOf(note.editingBy)} が編集中` : `更新: ${nameOf(note.updatedBy)}`}
@@ -191,16 +193,16 @@ function NoteCard({ note }: { note: Note }) {
 }
 
 function NoteBoard() {
-  const notes = useStore((s) => s.notes);
+  const items = useStore((s) => s.items);
   const [text, setText] = useState('');
   const add = () => {
-    createNote(text.trim());
+    spawnItem('note', text.trim());
     setText('');
   };
-  const list = Object.values(notes).sort((a, b) => a.updatedAt - b.updatedAt);
+  const notes = Object.values(items).flatMap((i) => (i.kind === 'note' ? [i] : []));
   return (
     <section className="board">
-            <div className="addnote">
+      <div className="addnote">
         <input
           placeholder="付箋に書く内容" value={text} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) add(); }}
@@ -208,78 +210,128 @@ function NoteBoard() {
         <button className="primary" onClick={add}>付箋を追加</button>
       </div>
       <div className="cards">
-        {list.map((n) => <NoteCard key={n.id} note={n} />)}
+        {notes.map((n) => <NoteCard key={n.id} note={n} />)}
       </div>
     </section>
   );
 }
 
-/** 3D空間を上から見た簡易マップ。付箋はドラッグで移動できる */
+/** マップ上のアイテムの描き方 */
+function MapItem({ item }: { item: Item }) {
+  if (item.kind === 'note') {
+    return (
+      <>
+        <rect x={-0.8} y={-0.15} width={1.6} height={0.3} fill={item.color} stroke={item.editingBy ? '#f43f5e' : '#555'} strokeWidth={0.06} />
+        <text y={0.9} className="label" textAnchor="middle" transform={`rotate(${(item.ry * 180) / Math.PI})`}>{item.text.slice(0, 8) || '付箋'}</text>
+      </>
+    );
+  }
+  if (item.kind === 'chess') {
+    return (
+      <>
+        <rect x={-0.95} y={-0.95} width={1.9} height={1.9} fill="#b58863" stroke="#5b3a1e" strokeWidth={0.08} />
+        <text y={0.35} className="mapicon" textAnchor="middle">♟</text>
+      </>
+    );
+  }
+  const info = ITEM_INFO[item.kind];
+  return (
+    <>
+      <circle r={0.55} className="mapitembg" />
+      <text y={0.32} className="mapicon" textAnchor="middle">{info.icon}</text>
+    </>
+  );
+}
+
+/** 3D空間を上から見たマップ。アイテムはドラッグで移動できる */
 function MiniMap({ bare = false }: { bare?: boolean }) {
-  const { avatars, notes, participants, speaking, selfId, sharer } = useStore();
+  const { avatars, items, participants, speaking, selfId, sharer } = useStore();
+  useStore((s) => s.hits);
   const svgRef = useRef<SVGSVGElement>(null);
-  const drag = useRef<{ id: string; last: number } | null>(null);
+  const drag = useRef<{ id: string; ry: number; last: number } | null>(null);
 
   const toRoom = (e: React.PointerEvent) => {
     const svg = svgRef.current!;
     const pt = svg.createSVGPoint();
     pt.x = e.clientX; pt.y = e.clientY;
     const p = pt.matrixTransform(svg.getScreenCTM()!.inverse());
-    return { x: p.x, z: p.y };
+    const L = ROOM_HALF - 0.5;
+    return { x: Math.max(-L, Math.min(L, p.x)), z: Math.max(-L, Math.min(L, p.y)) };
   };
   const onMove = (e: React.PointerEvent) => {
-    if (!drag.current) return;
+    const d = drag.current;
+    if (!d) return;
     const now = performance.now();
-    if (now - drag.current.last < 60) return;
-    drag.current.last = now;
-    updateNote(drag.current.id, toRoom(e));
+    if (now - d.last < 60) return;
+    d.last = now;
+    const p = toRoom(e);
+    moveItem(d.id, p.x, p.z, d.ry);
   };
   const onUp = (e: React.PointerEvent) => {
-    if (!drag.current) return;
-    updateNote(drag.current.id, toRoom(e));
+    const d = drag.current;
+    if (!d) return;
+    const p = toRoom(e);
+    moveItem(d.id, p.x, p.z, d.ry);
     drag.current = null;
   };
   const in2d = participants.filter((p) => p.mode === '2d');
   const in3d = participants.filter((p) => p.mode === '3d');
   const H = ROOM_HALF;
+  // 誰かが持っているハンマーはその人と一緒に表示するので、床の物だけ描く
+  const placed = Object.values(items).filter((i) => !(i.kind === 'hammer' && i.holder));
+  const holding = (id: string) => Object.values(items).some((i) => i.kind === 'hammer' && i.holder === id);
+  const H2 = H + 3.6;
 
   return (
     <section className={bare ? 'map bare' : 'map'}>
-      {!bare && <h3>3D空間のようす <small>（3D: {in3d.length}人 / 付箋はドラッグで移動）</small></h3>}
+      {!bare && <h3>3D空間のようす <small>（3D: {in3d.length}人 / アイテムはドラッグで移動）</small></h3>}
       <svg
-        ref={svgRef} viewBox={`${-H - 0.5} ${-H - 0.5} ${2 * H + 1} ${2 * H + 1}`}
+        ref={svgRef} viewBox={`${-H - 0.5} ${-H - 0.5} ${2 * H + 1} ${H + H2 + 1}`}
         onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
       >
         <rect x={-H} y={-H} width={2 * H} height={2 * H} className="floor" />
+        <rect x={-DOOR_HALF - 0.8} y={H} width={2 * DOOR_HALF + 1.6} height={3.2} className="hall" />
+        <line x1={-DOOR_HALF} y1={H} x2={DOOR_HALF} y2={H} className="door" />
+        <text x={DOOR_HALF + 1.1} y={H + 1} className="label">入口</text>
         <line x1={-4} y1={-H + 0.2} x2={4} y2={-H + 0.2} className={`screen ${sharer ? 'live' : ''}`} />
         <text x={0} y={-H + 1.2} className="label" textAnchor="middle">スクリーン{sharer ? '（配信中）' : ''}</text>
-        {Object.values(notes).map((n) => (
+        {placed.map((it) => (
           <g
-            key={n.id} transform={`translate(${n.x} ${n.z}) rotate(${(-n.ry * 180) / Math.PI})`}
-            className="mapnote"
+            key={it.id} transform={`translate(${it.x} ${it.z}) rotate(${(-it.ry * 180) / Math.PI})`}
+            className="mapitem"
             onPointerDown={(e) => {
-              (e.target as Element).setPointerCapture?.(e.pointerId);
-              drag.current = { id: n.id, last: 0 };
+              (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+              drag.current = { id: it.id, ry: it.ry, last: 0 };
             }}
           >
-            <rect x={-0.6} y={-0.15} width={1.2} height={0.3} fill={n.color} stroke={n.editingBy ? '#f43f5e' : '#555'} strokeWidth={0.06} />
-            <text y={0.9} className="label" textAnchor="middle">{n.text.slice(0, 8) || '付箋'}</text>
+            <MapItem item={it} />
           </g>
         ))}
         {Object.entries(avatars).map(([id, a]) => {
           const name = participants.find((p) => p.id === id)?.name;
           if (!name || id === selfId) return null;
           return (
-            <g key={id} transform={`translate(${a.x} ${a.z})`}>
+            <g key={id} transform={`translate(${a.x} ${a.z})`} className={recentlyHit(id) ? 'maphit' : ''}>
               {speaking[id] && <circle r={0.9} className="speakring" />}
               <circle r={0.5} fill={colorOf(id)} />
               <line x1={0} y1={0} x2={-Math.sin(a.ry) * 1} y2={-Math.cos(a.ry) * 1} stroke={colorOf(id)} strokeWidth={0.15} />
-              <text y={-0.8} className="label" textAnchor="middle">{name}</text>
+              <text y={-0.8} className="label" textAnchor="middle">{name}{holding(id) ? ' 🔨' : ''}</text>
+            </g>
+          );
+        })}
+        {/* 2D の人は入口の外に並ぶ（3D でも同じ位置に立っている） */}
+        {in2d.map((p, i) => {
+          const s = entranceSlot(i);
+          return (
+            <g key={p.id} transform={`translate(${s.x} ${s.z})`} className={recentlyHit(p.id) ? 'maphit' : ''}>
+              {speaking[p.id] && <circle r={0.55} className="speakring" />}
+              <rect x={-0.3} y={-0.3} width={0.6} height={0.6} rx={0.1} fill={colorOf(p.id)} />
+              <text y={0.95} className="label small" textAnchor="middle">{p.name}{p.id === selfId ? '(自分)' : ''}{holding(p.id) ? '🔨' : ''}</text>
             </g>
           );
         })}
       </svg>
-      <div className="twod">2Dで参加中: {in2d.map((p) => p.name).join('、') || 'なし'}</div>
+      <div className="twod">2Dで参加中（入口に並んでいる）: {in2d.map((p) => p.name).join('、') || 'なし'}</div>
     </section>
   );
 }

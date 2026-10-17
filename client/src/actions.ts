@@ -1,5 +1,4 @@
-import type { Mode, Note } from '../../shared/protocol.ts';
-import { NOTE_COLORS } from '../../shared/protocol.ts';
+import type { Mode } from '../../shared/protocol.ts';
 import { get, set, recompute, DEFAULT_AVATAR, type View } from './store.ts';
 import { send } from './net/ws.ts';
 import { connectVoice, leaveVoice } from './net/livekit.ts';
@@ -45,44 +44,14 @@ export function setMode(mode: Mode) {
 }
 
 function releaseNote() {
-  const { selectedNote } = get();
-  if (selectedNote) send({ t: 'noteLock', id: selectedNote, lock: false });
-  set({ selectedNote: null });
+  selectNote(null);
 }
 
-export function createNote(text: string, at?: { x: number; z: number; ry: number }) {
-  const pos = at ?? {
-    // 2D から追加した付箋は部屋の中央付近に置く（3D側で気付けるように）
-    x: (Math.random() - 0.5) * 6,
-    z: -5 + (Math.random() - 0.5) * 3,
-    ry: 0,
-  };
-  send({
-    t: 'noteCreate',
-    note: { text, color: NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)], ...pos },
-  });
-}
-
-export function updateNote(id: string, patch: Partial<Pick<Note, 'text' | 'color' | 'x' | 'z' | 'ry'>>) {
-  // 楽観的に手元へ反映してから送る
-  const sid = get().session;
-  if (!sid) return;
-  set((s) => {
-    const n = s.notesBy[sid]?.[id];
-    return n ? { notesBy: { ...s.notesBy, [sid]: { ...s.notesBy[sid], [id]: { ...n, ...patch } } } } : {};
-  });
-  recompute();
-  send({ t: 'noteUpdate', id, patch });
-}
-
+/** 付箋の編集を始める／やめる（他の人には「編集中」と表示される） */
 export function selectNote(id: string | null) {
   const prev = get().selectedNote;
   if (prev === id) return;
-  if (prev) send({ t: 'noteLock', id: prev, lock: false });
-  if (id) send({ t: 'noteLock', id, lock: true });
+  if (prev) send({ t: 'itemAction', id: prev, action: { a: 'noteLock', lock: false } });
+  if (id) send({ t: 'itemAction', id, action: { a: 'noteLock', lock: true } });
   set({ selectedNote: id });
-}
-
-export function deleteNote(id: string) {
-  send({ t: 'noteDelete', id });
 }

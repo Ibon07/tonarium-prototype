@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
-  AvatarState, ChatMessage, ClientMsg, GuildConfig, Mode, Note, ServerMsg, User,
+  AvatarState, ChatMessage, ClientMsg, GuildConfig, Mode, ServerMsg, User,
 } from '../shared/protocol.ts';
 import { ROOM_HALF, sessionChatKey } from '../shared/protocol.ts';
 import { ITEM_INFO, applyItemAction, createItem, type Item } from '../shared/items.ts';
@@ -29,13 +29,11 @@ const livekitRoom = (sid: string) => `tonarium-${sid}`;
 const users = new Map<string, User>();
 const sockets = new Map<string, Set<WebSocket>>(); // 同一IDの複数タブに対応
 const chats = new Map<string, ChatMessage[]>();
-const notes = new Map<string, Map<string, Note>>(); // sid -> notes
 const avatars = new Map<string, Map<string, AvatarState>>(); // sid -> avatars
 const items = new Map<string, Map<string, Item>>(); // sid -> items
 for (const id of textIds) chats.set(id, []);
 for (const sid of sessionIds) {
   chats.set(sessionChatKey(sid), []);
-  notes.set(sid, new Map());
   avatars.set(sid, new Map());
   items.set(sid, new Map());
 }
@@ -66,15 +64,15 @@ function leaveSession(u: User) {
   if (!sid) return;
   const av = avatars.get(sid)!.get(u.id);
   if (avatars.get(sid)!.delete(u.id)) broadcast({ t: 'avatarRemove', sid, id: u.id });
-  for (const n of notes.get(sid)!.values())
-    if (n.editingBy === u.id) { n.editingBy = null; broadcast({ t: 'note', sid, note: n }); }
-  // 持っていたハンマーはその場（3Dにいればアバターの位置）に落とす
-  for (const it of items.get(sid)!.values())
+  for (const it of items.get(sid)!.values()) {
+    // 編集中の付箋は解放し、持っていたハンマーはその場（3Dにいればアバターの位置）に落とす
+    if (it.kind === 'note' && it.editingBy === u.id) { it.editingBy = null; broadcast({ t: 'item', sid, item: it }); }
     if (it.kind === 'hammer' && it.holder === u.id) {
       it.holder = null;
       if (av) { it.x = av.x; it.z = av.z; }
       broadcast({ t: 'item', sid, item: it });
     }
+  }
   u.session = null;
   u.mode = '2d';
   u.micOn = false;
@@ -95,7 +93,6 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
         guild,
         users: [...users.values()],
         chats: Object.fromEntries(chats),
-        notes: Object.fromEntries([...notes].map(([sid, m]) => [sid, [...m.values()]])),
         avatars: Object.fromEntries([...avatars].map(([sid, m]) => [sid, Object.fromEntries(m)])),
         items: Object.fromEntries([...items].map(([sid, m]) => [sid, [...m.values()]])),
       },
@@ -131,7 +128,6 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
 
   // 以降はセッション内でのみ有効
   if (!sid) return;
-  const sessNotes = notes.get(sid)!;
   const sessItems = items.get(sid)!;
   switch (msg.t) {
     case 'itemCreate': {
@@ -139,6 +135,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       const it = createItem(msg.kind, {
         id: randomUUID(), x: clamp(msg.x), z: clamp(msg.z), ry: msg.ry, createdBy: me.id,
       }, Math.random);
+      if (it.kind === 'note' && msg.text) it.text = msg.text.slice(0, 300);
       sessItems.set(it.id, it);
       broadcast({ t: 'item', sid, item: it });
       const info = ITEM_INFO[msg.kind];
@@ -196,49 +193,6 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       const s = { x: clamp(msg.s.x), z: clamp(msg.s.z), ry: msg.s.ry };
       avatars.get(sid)!.set(me.id, s);
       broadcast({ t: 'avatar', sid, id: me.id, s }, ws);
-      return;
-    }
-    case 'noteCreate': {
-      const n: Note = {
-        id: randomUUID(),
-        text: msg.note.text.slice(0, 300),
-        color: msg.note.color,
-        x: clamp(msg.note.x), z: clamp(msg.note.z), ry: msg.note.ry,
-        createdBy: me.id, updatedBy: me.id, updatedAt: Date.now(), editingBy: null,
-      };
-      sessNotes.set(n.id, n);
-      broadcast({ t: 'note', sid, note: n });
-      pushChat(sessionChatKey(sid), null, `${me.name} が付箋を追加しました（${modeLabel(me.mode)}）`);
-      return;
-    }
-    case 'noteUpdate': {
-      const n = sessNotes.get(msg.id);
-      if (!n) return;
-      // 最後の変更を採用。他人が編集ロック中でも位置・内容の上書きは許す（プロトタイプの簡易方式）
-      const p = msg.patch;
-      if (p.text !== undefined) n.text = p.text.slice(0, 300);
-      if (p.color !== undefined) n.color = p.color;
-      if (p.x !== undefined) n.x = clamp(p.x);
-      if (p.z !== undefined) n.z = clamp(p.z);
-      if (p.ry !== undefined) n.ry = p.ry;
-      n.updatedBy = me.id;
-      n.updatedAt = Date.now();
-      broadcast({ t: 'note', sid, note: n });
-      return;
-    }
-    case 'noteLock': {
-      const n = sessNotes.get(msg.id);
-      if (!n) return;
-      if (msg.lock) n.editingBy = me.id;
-      else if (n.editingBy === me.id) n.editingBy = null;
-      broadcast({ t: 'note', sid, note: n });
-      return;
-    }
-    case 'noteDelete': {
-      if (sessNotes.delete(msg.id)) {
-        broadcast({ t: 'noteDelete', sid, id: msg.id });
-        pushChat(sessionChatKey(sid), null, `${me.name} が付箋を削除しました`);
-      }
       return;
     }
   }

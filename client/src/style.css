@@ -312,3 +312,15 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 }
 .nametag.compat { background: #5865f2; font-size: 12px; }
 .noteeditor { bottom: 48px; }
+
+/* ---- 入口・マップのアイテム ---- */
+.map .hall { fill: #2f3136; stroke: #5c5f66; stroke-width: .1; }
+.map .door { stroke: #f0b132; stroke-width: .3; }
+.map .mapitem { cursor: grab; }
+.map .mapitembg { fill: #1e1f22; stroke: #949ba4; stroke-width: .08; }
+.map .mapicon { font-size: .9px; pointer-events: none; }
+.map .label.small { font-size: .5px; }
+.map .maphit { animation: maphit .45s; }
+@keyframes maphit { 30% { opacity: .3; } }
+.nametag.twod { background: #4e5058; }
+.nametag.hitflash { background: #f0b132; color: #1e1f22; }

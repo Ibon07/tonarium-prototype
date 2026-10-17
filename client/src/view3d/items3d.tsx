@@ -1,21 +1,23 @@
-// アイテムの 3D 表示。チェスとハンマーは 3D 専用の表示を持ち、2048 は 2D 画面を空間に置く互換モード。
+// アイテムの 3D 表示。付箋・チェス・ハンマーは 3D 専用の表示を持ち、2048 は 2D 画面を空間に置く互換モード。
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, type ThreeElements } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { ITEM_INFO, type Item } from '../../../shared/items.ts';
-import { useStore, get } from '../store.ts';
+import { useStore, get, nameOf } from '../store.ts';
+import { selectNote } from '../actions.ts';
 import { itemAction, removeItem } from '../items/actions.ts';
 import { PANELS, chessSelect } from '../items/panels.ts';
 import { drawPanel } from '../items/PanelCanvas.tsx';
 import { carrying, type Interactable } from './interact.ts';
+import { drawText, makeCanvasTexture } from './textTexture.ts';
 
 /** 持ち運び中なら手元の位置、そうでなければ同期された位置へ滑らかに寄せる */
-function useFollow(ref: React.RefObject<THREE.Group | null>, type: 'note' | 'item', id: string, x: number, z: number, ry: number) {
+function useFollow(ref: React.RefObject<THREE.Group | null>, id: string, x: number, z: number, ry: number) {
   useFrame((_, dt) => {
     const g = ref.current;
     if (!g) return;
-    const c = carrying.current?.type === type && carrying.current.id === id ? carrying.current : null;
+    const c = carrying.current?.id === id ? carrying.current : null;
     const k = c ? 1 : Math.min(1, dt * 12);
     g.position.x += ((c?.x ?? x) - g.position.x) * k;
     g.position.z += ((c?.z ?? z) - g.position.z) * k;
@@ -24,12 +26,65 @@ function useFollow(ref: React.RefObject<THREE.Group | null>, type: 'note' | 'ite
     g.rotation.y += r * k;
   });
 }
-export { useFollow };
 
 const removable = (item: Item): Interactable => ({
-  carry: { type: 'item', id: item.id },
+  carry: item.id,
   remove: () => removeItem(item.id),
 });
+
+// ---------- 付箋 ----------
+const NOTE_Y = 1.5;
+
+function Note3D({ item }: { item: Item & { kind: 'note' } }) {
+  const selfId = useStore((s) => s.selfId);
+  const selected = useStore((s) => s.selectedNote === item.id);
+  const participants = useStore((s) => s.participants);
+  const { canvas, tex } = useMemo(() => makeCanvasTexture(512, 384), []);
+  useEffect(() => {
+    const other = item.editingBy && item.editingBy !== selfId;
+    drawText(canvas, [
+      { text: item.text || '（空の付箋）', color: item.text ? '#1c1917' : '#78716c', size: 64 },
+      ...(other ? [{ text: `✏ ${nameOf(item.editingBy)} が編集中`, size: 36, color: '#b91c1c' }] : []),
+    ], { bg: item.color });
+    tex.needsUpdate = true;
+  }, [item.text, item.color, item.editingBy, participants, selfId, canvas, tex]);
+  const ref = useRef<THREE.Group>(null);
+  useFollow(ref, item.id, item.x, item.z, item.ry);
+  const data: Interactable = {
+    ...removable(item),
+    hint: 'クリック: 編集',
+    // 文字を打てるようにマウスのロックを外して編集欄を出す
+    use: () => { selectNote(item.id); document.exitPointerLock(); },
+  };
+  return (
+    <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry} userData={data}>
+      <mesh position-y={(NOTE_Y - 0.6) / 2}>
+        <cylinderGeometry args={[0.03, 0.03, NOTE_Y - 0.6]} />
+        <meshStandardMaterial color="#78716c" />
+      </mesh>
+      <group position-y={NOTE_Y}>
+        <mesh>
+          <boxGeometry args={[1.6, 1.2, 0.04]} />
+          <meshStandardMaterial color={item.color} />
+        </mesh>
+        <mesh position-z={0.021}>
+          <planeGeometry args={[1.6, 1.2]} />
+          <meshBasicMaterial map={tex} toneMapped={false} />
+        </mesh>
+        <mesh position-z={-0.021} rotation-y={Math.PI}>
+          <planeGeometry args={[1.6, 1.2]} />
+          <meshBasicMaterial map={tex} toneMapped={false} />
+        </mesh>
+        {selected && (
+          <mesh>
+            <boxGeometry args={[1.72, 1.32, 0.06]} />
+            <meshBasicMaterial color="#f43f5e" wireframe />
+          </mesh>
+        )}
+      </group>
+    </group>
+  );
+}
 
 // ---------- ピコピコハンマー ----------
 /** 柄が +Y 方向、頭が Z 方向を向いたハンマー */
@@ -60,7 +115,7 @@ export function HammerModel(props: ThreeElements['group']) {
 
 function Hammer3D({ item }: { item: Item & { kind: 'hammer' } }) {
   const ref = useRef<THREE.Group>(null);
-  useFollow(ref, 'item', item.id, item.x, item.z, item.ry);
+  useFollow(ref, item.id, item.x, item.z, item.ry);
   // 誰かが持っている間は床には出さない（持ち主の手に出る）
   if (item.holder) return null;
   const data: Interactable = {
@@ -111,7 +166,7 @@ function ChessPiece({ code }: { code: string }) {
 
 function Chess3D({ item }: { item: Item & { kind: 'chess' } }) {
   const ref = useRef<THREE.Group>(null);
-  useFollow(ref, 'item', item.id, item.x, item.z, item.ry);
+  useFollow(ref, item.id, item.x, item.z, item.ry);
   const sel = useStore((s) => s.itemUi[item.id]?.sel);
   const pick = (i: number) => () => {
     const it = get().items[item.id];
@@ -159,7 +214,7 @@ const PANEL_H = 1.8;
 
 function CompatPanel3D({ item }: { item: Item }) {
   const ref = useRef<THREE.Group>(null);
-  useFollow(ref, 'item', item.id, item.x, item.z, item.ry);
+  useFollow(ref, item.id, item.x, item.z, item.ry);
   const panel = PANELS[item.kind]!;
   const ui = useStore((s) => s.itemUi[item.id]);
   const { canvas, tex } = useMemo(() => {
@@ -207,6 +262,7 @@ function CompatPanel3D({ item }: { item: Item }) {
 
 export function Item3D({ item }: { item: Item }) {
   switch (item.kind) {
+    case 'note': return <Note3D item={item} />;
     case 'hammer': return <Hammer3D item={item} />;
     case 'chess': return <Chess3D item={item} />;
     default: return PANELS[item.kind] ? <CompatPanel3D item={item} /> : null;

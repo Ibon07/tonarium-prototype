@@ -2,25 +2,59 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { ROOM_HALF, NOTE_COLORS, type AvatarState, type Note, type User } from '../../../shared/protocol.ts';
+import { DOOR_HALF, ROOM_HALF, entranceSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
+import { NOTE_COLORS } from '../../../shared/items.ts';
 import { useStore, get, colorOf, nameOf, heldHammer } from '../store.ts';
 import { shareVideoEl } from '../net/livekit.ts';
-import { createNote, deleteNote, selectNote, updateNote } from '../actions.ts';
+import { selectNote } from '../actions.ts';
 import { ItemMenu } from '../items/ItemMenu.tsx';
+import { editNote, moveItem, removeItem, spawnItem } from '../items/actions.ts';
 import { bump, recentlyHit } from '../items/effects.ts';
 import { drawText, makeCanvasTexture } from './textTexture.ts';
-import { clampRoom, EYE, type Interactable } from './interact.ts';
+import { EYE, type Interactable } from './interact.ts';
 import { Player } from './Player.tsx';
-import { HammerModel, Item3D, useFollow } from './items3d.tsx';
+import { HammerModel, Item3D } from './items3d.tsx';
 
-const NOTE_Y = 1.5;
+// ---------- 部屋（南壁の中央に入口） ----------
+const H = ROOM_HALF;
+const WALL_H = 4;
+const DOOR_H = 2.6;
+const HALL = 3.2; // 入口の外の奥行き
 
-// ---------- 部屋 ----------
+function Box({ p, s, color }: { p: [number, number, number]; s: [number, number, number]; color: string }) {
+  return (
+    <mesh position={p}>
+      <boxGeometry args={s} />
+      <meshStandardMaterial color={color} />
+    </mesh>
+  );
+}
+
+/** 入口の上の看板（部屋の内側に向ける） */
+function DoorSign() {
+  const tex = useMemo(() => {
+    const { canvas, tex: t } = makeCanvasTexture(1024, 128);
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#f0b132';
+    ctx.fillRect(0, 0, 1024, 128);
+    ctx.fillStyle = '#1e1f22';
+    ctx.font = '800 64px "Segoe UI", "Noto Sans JP", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🚪 入口 ・ 2Dで参加中の人', 512, 68);
+    t.needsUpdate = true;
+    return t;
+  }, []);
+  return (
+    <mesh position={[0, DOOR_H + 0.4, H - 0.11]} rotation-y={Math.PI}>
+      <planeGeometry args={[3.2, 0.4]} />
+      <meshBasicMaterial map={tex} toneMapped={false} />
+    </mesh>
+  );
+}
+
 function RoomMesh() {
-  const H = ROOM_HALF;
-  const walls: [number, number, number, number][] = [
-    [0, -H, 2 * H, 0.2], [0, H, 2 * H, 0.2], [-H, 0, 0.2, 2 * H], [H, 0, 0.2, 2 * H],
-  ];
+  const side = (H - DOOR_HALF);
   return (
     <>
       <ambientLight intensity={1.4} />
@@ -30,12 +64,22 @@ function RoomMesh() {
         <meshStandardMaterial color="#565961" />
       </mesh>
       <gridHelper args={[2 * H, 20, '#5c5f66', '#4a4d54']} position-y={0.005} userData={{ noRay: true }} />
-      {walls.map(([x, z, w, d], i) => (
-        <mesh key={i} position={[x, 2, z]}>
-          <boxGeometry args={[w, 4, d]} />
-          <meshStandardMaterial color="#80848e" />
-        </mesh>
-      ))}
+      <Box p={[0, WALL_H / 2, -H]} s={[2 * H, WALL_H, 0.2]} color="#80848e" />
+      <Box p={[-H, WALL_H / 2, 0]} s={[0.2, WALL_H, 2 * H]} color="#80848e" />
+      <Box p={[H, WALL_H / 2, 0]} s={[0.2, WALL_H, 2 * H]} color="#80848e" />
+      {/* 南壁: 入口の左右と上 */}
+      <Box p={[-(DOOR_HALF + side / 2), WALL_H / 2, H]} s={[side, WALL_H, 0.2]} color="#80848e" />
+      <Box p={[DOOR_HALF + side / 2, WALL_H / 2, H]} s={[side, WALL_H, 0.2]} color="#80848e" />
+      <Box p={[0, (WALL_H + DOOR_H) / 2, H]} s={[2 * DOOR_HALF, WALL_H - DOOR_H, 0.2]} color="#80848e" />
+      {/* 入口の外（2D の人が並ぶ控えの場所） */}
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.002, H + HALL / 2]}>
+        <planeGeometry args={[2 * DOOR_HALF + 1.6, HALL]} />
+        <meshStandardMaterial color="#3f4147" />
+      </mesh>
+      <Box p={[-(DOOR_HALF + 0.9), DOOR_H / 2, H + HALL / 2]} s={[0.15, DOOR_H, HALL]} color="#6d717a" />
+      <Box p={[DOOR_HALF + 0.9, DOOR_H / 2, H + HALL / 2]} s={[0.15, DOOR_H, HALL]} color="#6d717a" />
+      <Box p={[0, DOOR_H / 2, H + HALL]} s={[2 * DOOR_HALF + 1.95, DOOR_H, 0.15]} color="#6d717a" />
+      <DoorSign />
     </>
   );
 }
@@ -72,7 +116,7 @@ function Screen() {
   const h = Math.min(4.5, 8 / a);
   const w = h * a;
   return (
-    <group position={[0, 2.4, -ROOM_HALF + 0.12]}>
+    <group position={[0, 2.4, -H + 0.12]}>
       <mesh>
         <planeGeometry args={[w, h]} />
         <meshBasicMaterial map={sharer ? videoTex : idle} toneMapped={false} />
@@ -86,56 +130,89 @@ function Screen() {
   );
 }
 
-// ---------- 2D 参加者の掲示板（ハンマーで名前を叩くと、その人の 2D 画面に演出が出る） ----------
-const BOARD_PX = 512;
-const ROW_Y = 110;
-const ROW_H = 64;
-
-function TwoDBoard() {
-  const participants = useStore((s) => s.participants);
-  const speaking = useStore((s) => s.speaking);
-  const micOn = useStore((s) => s.micOn);
-  const items = useStore((s) => s.items);
-  useStore((s) => s.hits);
-  const list = useMemo(() => participants.filter((p) => p.mode === '2d'), [participants]);
-  const listRef = useRef<User[]>(list);
-  listRef.current = list;
-  const { canvas, tex } = useMemo(() => makeCanvasTexture(BOARD_PX, BOARD_PX), []);
+// ---------- 2D 参加者: 入口の外に並ぶ「紙の立ち姿」 ----------
+function Standee({ user, slot }: { user: User; slot: number }) {
+  const speaking = useStore((s) => !!s.speaking[user.id]);
+  const micOff = useStore((s) => s.voice === 'connected' && s.micOn[user.id] === false);
+  const holding = useStore((s) => Object.values(s.items).some((i) => i.kind === 'hammer' && i.holder === user.id));
+  const ref = useRef<THREE.Group>(null);
+  const card = useRef<THREE.Group>(null);
+  const { canvas, tex } = useMemo(() => makeCanvasTexture(256, 512), []);
   useEffect(() => {
     const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = '#292524';
-    ctx.fillRect(0, 0, BOARD_PX, BOARD_PX);
+    ctx.clearRect(0, 0, 256, 512);
+    // 紙の人型: 丸い頭と胴体
+    ctx.fillStyle = '#f2f3f5';
+    ctx.beginPath();
+    ctx.roundRect(28, 150, 200, 340, 60);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(128, 100, 84, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = colorOf(user.id);
+    ctx.beginPath();
+    ctx.arc(128, 100, 72, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(42, 168, 172, 308, 50);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = '700 76px "Segoe UI", "Noto Sans JP", sans-serif';
+    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '600 52px "Segoe UI", "Noto Sans JP", sans-serif';
-    ctx.fillStyle = '#fafaf9';
-    ctx.fillText('💻 2Dで参加中', 28, 60);
-    ctx.font = '48px "Segoe UI", "Noto Sans JP", sans-serif';
-    if (!list.length) {
-      ctx.fillStyle = '#a8a29e';
-      ctx.fillText('（いません）', 28, ROW_Y + ROW_H / 2);
-    }
-    list.forEach((p, i) => {
-      const y = ROW_Y + i * ROW_H + ROW_H / 2;
-      const holding = Object.values(items).some((it) => it.kind === 'hammer' && it.holder === p.id);
-      ctx.fillStyle = recentlyHit(p.id) ? '#fde047' : speaking[p.id] ? '#4ade80' : '#e7e5e4';
-      const mark = recentlyHit(p.id) ? '💥' : speaking[p.id] ? '🗣' : micOn[p.id] === false ? '🔇' : '・';
-      ctx.fillText(`${mark} ${p.name}${holding ? ' 🔨' : ''}`, 28, y);
-    });
+    ctx.fillText(user.name.slice(0, 1), 128, 104);
+    ctx.font = '64px "Segoe UI Emoji", sans-serif';
+    ctx.fillText('💻', 128, 300);
+    if (holding) ctx.fillText('🔨', 196, 420);
     tex.needsUpdate = true;
+  }, [user.id, user.name, holding, canvas, tex]);
+  const pos = entranceSlot(slot);
+  useFrame((_, dt) => {
+    const g = ref.current;
+    if (g) {
+      // 並び順が変わったら歩いて移動する
+      const k = Math.min(1, dt * 6);
+      g.position.x += (pos.x - g.position.x) * k;
+      g.position.z += (pos.z - g.position.z) * k;
+    }
+    const s = get();
+    const b = bump(s.hits[user.id]);
+    const talk = s.speaking[user.id] ? Math.abs(Math.sin(performance.now() / 120)) * 0.04 : 0;
+    card.current?.scale.set(1 + 0.25 * b, 1 - 0.35 * b + talk, 1);
   });
-  const data: Interactable = {
-    hitTarget: (hit) => {
-      if (!hit.uv) return null;
-      const i = Math.floor(((1 - hit.uv.y) * BOARD_PX - ROW_Y) / ROW_H);
-      return listRef.current[i]?.id ?? null;
-    },
-  };
   return (
-    <mesh position={[-7, 2.4, -ROOM_HALF + 0.12]} userData={data}>
-      <planeGeometry args={[3, 3]} />
-      <meshBasicMaterial map={tex} toneMapped={false} />
-    </mesh>
+    <group ref={ref} position={[pos.x, 0, pos.z]} userData={{ hitTarget: user.id } satisfies Interactable}>
+      <mesh position-y={0.02}>
+        <cylinderGeometry args={[0.28, 0.3, 0.04, 20]} />
+        <meshStandardMaterial color="#2b2d31" />
+      </mesh>
+      <group ref={card}>
+        {/* 紙なので両面に貼る（部屋の中＝ -Z 側を向く） */}
+        <mesh position-y={0.85} rotation-y={Math.PI}>
+          <planeGeometry args={[0.85, 1.7]} />
+          <meshBasicMaterial map={tex} transparent alphaTest={0.5} side={THREE.DoubleSide} toneMapped={false} />
+        </mesh>
+      </group>
+      {speaking && (
+        <mesh rotation-x={-Math.PI / 2} position-y={0.05}>
+          <ringGeometry args={[0.32, 0.42, 32]} />
+          <meshBasicMaterial color="#22c55e" />
+        </mesh>
+      )}
+      <Html position={[0, 1.95, 0]} center distanceFactor={8}>
+        <div className={`nametag twod ${speaking ? 'speaking' : ''} ${recentlyHit(user.id) ? 'hitflash' : ''}`}>
+          💻 {micOff && '🔇 '}{user.name}
+        </div>
+      </Html>
+    </group>
   );
+}
+
+function Entrance() {
+  const participants = useStore((s) => s.participants);
+  useStore((s) => s.hits);
+  const in2d = participants.filter((p) => p.mode === '2d');
+  return <>{in2d.map((u, i) => <Standee key={u.id} user={u} slot={i} />)}</>;
 }
 
 // ---------- 他の参加者のアバター ----------
@@ -199,83 +276,28 @@ function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
   );
 }
 
-// ---------- 付箋 ----------
-function Note3D({ note }: { note: Note }) {
-  const selfId = useStore((s) => s.selfId);
-  const selected = useStore((s) => s.selectedNote === note.id);
-  const participants = useStore((s) => s.participants);
-  const { canvas, tex } = useMemo(() => makeCanvasTexture(512, 384), []);
-  useEffect(() => {
-    const other = note.editingBy && note.editingBy !== selfId;
-    drawText(canvas, [
-      { text: note.text || '（空の付箋）', color: note.text ? '#1c1917' : '#78716c', size: 64 },
-      ...(other ? [{ text: `✏ ${nameOf(note.editingBy)} が編集中`, size: 36, color: '#b91c1c' }] : []),
-    ], { bg: note.color });
-    tex.needsUpdate = true;
-  }, [note.text, note.color, note.editingBy, participants, selfId, canvas, tex]);
-
-  const ref = useRef<THREE.Group>(null);
-  useFollow(ref, 'note', note.id, note.x, note.z, note.ry);
-  const data: Interactable = {
-    hint: 'クリック: 編集',
-    carry: { type: 'note', id: note.id },
-    remove: () => deleteNote(note.id),
-    // 文字を打てるようにマウスのロックを外して編集欄を出す
-    use: () => { selectNote(note.id); document.exitPointerLock(); },
-  };
-
-  return (
-    <group ref={ref} position={[note.x, 0, note.z]} rotation-y={note.ry} userData={data}>
-      <mesh position-y={(NOTE_Y - 0.6) / 2}>
-        <cylinderGeometry args={[0.03, 0.03, NOTE_Y - 0.6]} />
-        <meshStandardMaterial color="#78716c" />
-      </mesh>
-      <group position-y={NOTE_Y}>
-        <mesh>
-          <boxGeometry args={[1.6, 1.2, 0.04]} />
-          <meshStandardMaterial color={note.color} />
-        </mesh>
-        <mesh position-z={0.021}>
-          <planeGeometry args={[1.6, 1.2]} />
-          <meshBasicMaterial map={tex} toneMapped={false} />
-        </mesh>
-        <mesh position-z={-0.021} rotation-y={Math.PI}>
-          <planeGeometry args={[1.6, 1.2]} />
-          <meshBasicMaterial map={tex} toneMapped={false} />
-        </mesh>
-        {selected && (
-          <mesh>
-            <boxGeometry args={[1.72, 1.32, 0.06]} />
-            <meshBasicMaterial color="#f43f5e" wireframe />
-          </mesh>
-        )}
-      </group>
-    </group>
-  );
-}
-
 // ---------- DOM オーバーレイ ----------
 function NoteEditor() {
   const id = useStore((s) => s.selectedNote);
-  const note = useStore((s) => (id ? s.notes[id] : undefined));
-  if (!note) return null;
+  const note = useStore((s) => (id ? s.items[id] : undefined));
+  if (note?.kind !== 'note') return null;
   const faceMe = () => {
     const a = get().selfAvatar;
-    updateNote(note.id, { ry: Math.atan2(a.x - note.x, a.z - note.z) });
+    moveItem(note.id, note.x, note.z, Math.atan2(a.x - note.x, a.z - note.z));
   };
   return (
     <div className="noteeditor">
       <textarea
         autoFocus value={note.text} placeholder="付箋の内容"
         style={{ background: note.color }}
-        onChange={(e) => updateNote(note.id, { text: e.target.value })}
+        onChange={(e) => editNote(note.id, { text: e.target.value })}
       />
       <div className="row">
         {NOTE_COLORS.map((c) => (
-          <button key={c} className="swatch" style={{ background: c }} onClick={() => updateNote(note.id, { color: c })} />
+          <button key={c} className="swatch" style={{ background: c }} onClick={() => editNote(note.id, { color: c })} />
         ))}
         <button className="small" onClick={faceMe}>こちらに向ける</button>
-        <button className="small" onClick={() => deleteNote(note.id)}>削除</button>
+        <button className="small" onClick={() => removeItem(note.id)}>片付ける</button>
         <button className="small" onClick={() => selectNote(null)}>閉じる</button>
       </div>
       <small>空間をクリックすると操作に戻ります</small>
@@ -308,14 +330,8 @@ function Crosshair() {
   );
 }
 
-function addNoteInFront() {
-  const a = get().selfAvatar;
-  createNote('', { x: clampRoom(a.x - Math.sin(a.ry) * 2), z: clampRoom(a.z - Math.cos(a.ry) * 2), ry: a.ry });
-}
-
 export function View3D() {
   const avatars = useStore((s) => s.avatars);
-  const notes = useStore((s) => s.notes);
   const items = useStore((s) => s.items);
   const locked = useStore((s) => s.locked);
   const a0 = get().selfAvatar;
@@ -325,15 +341,14 @@ export function View3D() {
         <color attach="background" args={['#2b2d31']} />
         <RoomMesh />
         <Screen />
-        <TwoDBoard />
+        <Entrance />
         {Object.entries(avatars).map(([id, s]) => <Avatar3D key={id} id={id} state={s} />)}
-        {Object.values(notes).map((n) => <Note3D key={n.id} note={n} />)}
         {Object.values(items).map((it) => <Item3D key={it.id} item={it} />)}
         <Player />
       </Canvas>
       <Crosshair />
       <div className="tools3d">
-        <button className="primary" onClick={addNoteInFront}>＋ 付箋</button>
+        <button className="primary" onClick={() => spawnItem('note')}>＋ 付箋</button>
         <ItemMenu />
       </div>
       <NoteEditor />

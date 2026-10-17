@@ -1,7 +1,9 @@
 // セッション内に出せるアイテム（ハードコード）。状態の更新はサーバーが権威的に行う。
 // 最終的には UGC にする想定なので、種類ごとの振る舞いはこのファイルの関数に閉じ込めておく。
 
-export type ItemKind = 'hammer' | 'chess' | 'g2048';
+export type ItemKind = 'note' | 'hammer' | 'chess' | 'g2048';
+
+export const NOTE_COLORS = ['#fde68a', '#fca5a5', '#86efac', '#93c5fd', '#d8b4fe'];
 
 interface ItemBase {
   id: string;
@@ -14,6 +16,8 @@ interface ItemBase {
 }
 
 export type Item =
+  /** 付箋。編集中の人がいれば editingBy（簡易ロック、表示のみ） */
+  | (ItemBase & { kind: 'note'; text: string; color: string; editingBy: string | null })
   /** ピコピコハンマー。持てるのは1本につき1人 */
   | (ItemBase & { kind: 'hammer'; holder: string | null })
   /** チェス。ルールなし、駒を自由に動かすだけ。board[row*8+col]、row 0 が黒側（8段目） */
@@ -24,6 +28,8 @@ export type Item =
 export type Dir = 'up' | 'down' | 'left' | 'right';
 
 export type ItemAction =
+  | { a: 'noteEdit'; text?: string; color?: string }
+  | { a: 'noteLock'; lock: boolean }
   | { a: 'pick' }
   | { a: 'drop'; x: number; z: number; ry: number }
   | { a: 'chessMove'; from: number; to: number }
@@ -32,6 +38,7 @@ export type ItemAction =
   | { a: 'reset2048' };
 
 export const ITEM_INFO: Record<ItemKind, { name: string; icon: string; desc: string }> = {
+  note: { name: '付箋', icon: '📝', desc: '文字を書ける付箋（2D/3D）' },
   hammer: { name: 'ピコピコハンマー', icon: '🔨', desc: '拾って誰かを叩けます（2D/3D）' },
   chess: { name: 'チェス', icon: '♟️', desc: '駒を自由に動かせる盤（2D/3D）' },
   g2048: { name: '2048', icon: '🔢', desc: 'みんなで操作する2Dゲーム（3Dは互換表示）' },
@@ -113,6 +120,7 @@ export function createItem(
 ): Item {
   const b = { ...base, updatedBy: base.createdBy };
   switch (kind) {
+    case 'note': return { ...b, kind, text: '', color: NOTE_COLORS[Math.floor(rng() * NOTE_COLORS.length)], editingBy: null };
     case 'hammer': return { ...b, kind, holder: null };
     case 'chess': return { ...b, kind, board: chessInitial(), last: null };
     case 'g2048': return { ...b, kind, grid: g2048Initial(rng), score: 0, over: false };
@@ -122,6 +130,19 @@ export function createItem(
 /** アクションを適用する（item を書き換える）。変化があれば true */
 export function applyItemAction(item: Item, act: ItemAction, userId: string, rng: () => number): boolean {
   switch (item.kind) {
+    case 'note':
+      if (act.a === 'noteEdit') {
+        if (act.text !== undefined) item.text = act.text.slice(0, 300);
+        if (act.color !== undefined && NOTE_COLORS.includes(act.color)) item.color = act.color;
+        break;
+      }
+      if (act.a === 'noteLock') {
+        if (act.lock) item.editingBy = userId;
+        else if (item.editingBy === userId) item.editingBy = null;
+        else return false;
+        break;
+      }
+      return false;
     case 'hammer':
       if (act.a === 'pick' && item.holder === null) { item.holder = userId; break; }
       if (act.a === 'drop' && item.holder === userId) {
