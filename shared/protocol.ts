@@ -80,6 +80,8 @@ export type ServerMsg =
   | { t: 'avatarRemove'; sid: string; id: string }
   | { t: 'item'; sid: string; item: Item }
   | { t: 'itemRemove'; sid: string; id: string }
+  /** 操作だけを配る（isDeltaAction のもの） */
+  | { t: 'itemAction'; sid: string; id: string; action: ItemAction; by: string }
   | { t: 'hit'; sid: string; from: string; to: string };
 
 /** 3D部屋の寸法（床は -ROOM_HALF..ROOM_HALF の正方形）。スクリーンは北壁 (z = -ROOM_HALF) */

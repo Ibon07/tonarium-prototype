@@ -10,7 +10,7 @@ import type {
   AvatarState, ChatMessage, ClientMsg, GuildConfig, Mode, ServerMsg, User,
 } from '../shared/protocol.ts';
 import { ROOM_HALF, sessionChatKey } from '../shared/protocol.ts';
-import { ITEM_INFO, applyItemAction, createItem, type Item } from '../shared/items.ts';
+import { ITEM_INFO, applyItemAction, createItem, isDeltaAction, type Item } from '../shared/items.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
 const DEV = process.argv.includes('--dev');
@@ -163,7 +163,10 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       // ハンマーは1人1本まで
       if (msg.action.a === 'pick' && [...sessItems.values()].some((h) => h.kind === 'hammer' && h.holder === me.id)) return;
       if (msg.action.a === 'drop') { msg.action.x = clamp(msg.action.x); msg.action.z = clamp(msg.action.z); }
-      if (applyItemAction(it, msg.action, me.id, Math.random)) broadcast({ t: 'item', sid, item: it });
+      if (!applyItemAction(it, msg.action, me.id, Math.random)) return;
+      // 描画などは操作だけを配る（送り主は手元で適用済み）
+      if (isDeltaAction(msg.action)) broadcast({ t: 'itemAction', sid, id: it.id, action: msg.action, by: me.id }, ws);
+      else broadcast({ t: 'item', sid, item: it });
       return;
     }
     case 'hit': {

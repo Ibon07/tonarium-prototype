@@ -6,6 +6,8 @@ import { ROOM_HALF } from '../../../shared/protocol.ts';
 export interface Interactable {
   /** クリックしたとき */
   use?: (hit: THREE.Intersection) => void;
+  /** 押したまま照準を動かす操作（キャンバスに描くなど）。あれば use の代わりに使う */
+  drag?: (phase: 'start' | 'move' | 'end', hit: THREE.Intersection | null) => void;
   /** 照準を合わせたときの説明 */
   hint?: string;
   /** G キーで持ち運べるアイテムのID */
@@ -31,13 +33,19 @@ export function findInteractable(obj: THREE.Object3D | null): { data: Interactab
   for (let o = obj; o; o = o.parent) {
     const d = o.userData as Interactable;
     if (d.noRay) return null;
-    if (d.use || d.carry || d.remove || d.hitTarget) return { data: d, obj: o };
+    if (d.use || d.drag || d.carry || d.remove || d.hitTarget) return { data: d, obj: o };
   }
   return null;
 }
 
 const raycaster = new THREE.Raycaster();
 const CENTER = new THREE.Vector2(0, 0);
+
+/** 照準が特定の物のどこに当たっているか（描画の続きに使う） */
+export function aimOn(obj: THREE.Object3D, camera: THREE.Camera) {
+  raycaster.setFromCamera(CENTER, camera);
+  return raycaster.intersectObject(obj, true)[0] ?? null;
+}
 
 /** 照準（画面中央）の先にある、最も近い物 */
 export function aimAt(scene: THREE.Scene, camera: THREE.Camera) {

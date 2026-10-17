@@ -33,7 +33,7 @@ interface State {
 
   // ---- アイテムの手元だけの状態 ----
   /** チェスの選択中マスなど、各アイテムの見た目用の状態（同期しない） */
-  itemUi: Record<string, { sel?: number }>;
+  itemUi: Record<string, ItemUi>;
   /** 2D の通話画面で拡大表示しているタイル（'stream' かアイテムID） */
   focus: string | null;
   /** ハンマーで叩かれた時刻・振った時刻（ユーザーID → performance.now()） */
@@ -63,8 +63,10 @@ interface State {
   selectedNote: string | null;
 }
 
-/** 3D に入ると入口のすぐ内側から、スクリーンの方を向いて始まる */
-export const DEFAULT_AVATAR: AvatarState = { x: 0, z: 8, ry: 0 };
+/** 3D に入ると入口のすぐ内側から、スクリーンの方を向いて始まる。重ならないように少しばらす */
+export function spawnPoint(): AvatarState {
+  return { x: (Math.random() - 0.5) * 5, z: 7 + Math.random() * 1.5, ry: 0 };
+}
 
 export const useStore = create<State>(() => ({
   selfId: '',
@@ -90,7 +92,7 @@ export const useStore = create<State>(() => ({
   hitFx: [],
   locked: false,
   aimHint: null,
-  selfAvatar: DEFAULT_AVATAR,
+  selfAvatar: spawnPoint(),
   voice: 'off',
   voiceError: null,
   micEnabled: true,
@@ -100,6 +102,9 @@ export const useStore = create<State>(() => ({
   shareHasAudio: false,
   selectedNote: null,
 }));
+
+/** アイテムごとの手元だけの状態（チェスの選択中マス、キャンバスのペン設定など） */
+export interface ItemUi { sel?: number; color?: string; size?: number; erase?: boolean }
 
 export const set = useStore.setState;
 export const get = useStore.getState;

@@ -1,5 +1,5 @@
 import type { Mode } from '../../shared/protocol.ts';
-import { get, set, recompute, DEFAULT_AVATAR, type View } from './store.ts';
+import { get, set, recompute, spawnPoint, type View } from './store.ts';
 import { send } from './net/ws.ts';
 import { connectVoice, leaveVoice } from './net/livekit.ts';
 
@@ -7,7 +7,7 @@ import { connectVoice, leaveVoice } from './net/livekit.ts';
 export function joinSession(sid: string) {
   if (get().session === sid) { openView('session'); return; }
   releaseNote();
-  set({ session: sid, mode: '2d', view: 'session', selfAvatar: DEFAULT_AVATAR });
+  set({ session: sid, mode: '2d', view: 'session', selfAvatar: spawnPoint() });
   recompute();
   send({ t: 'join', sid });
   void connectVoice(sid);

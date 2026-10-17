@@ -1,6 +1,6 @@
-import type { ItemAction, ItemKind } from '../../../shared/items.ts';
+import { applyItemAction, type ItemAction, type ItemKind } from '../../../shared/items.ts';
 import { ROOM_HALF } from '../../../shared/protocol.ts';
-import { get, set, recompute, heldHammer } from '../store.ts';
+import { get, set, recompute, heldHammer, type ItemUi } from '../store.ts';
 import { send } from '../net/ws.ts';
 
 const LIMIT = ROOM_HALF - 0.5;
@@ -49,8 +49,26 @@ export function moveItem(id: string, x: number, z: number, ry: number) {
   send({ t: 'itemMove', id, x, z, ry });
 }
 
-export function setItemUi(id: string, ui: { sel?: number }) {
+export function setItemUi(id: string, ui: ItemUi) {
   set((s) => ({ itemUi: { ...s.itemUi, [id]: ui } }));
+}
+
+/** 操作だけを手元のアイテムに適用する（描画など。サーバーから届いたもの・自分の操作の両方） */
+export function applyDelta(sid: string, id: string, action: ItemAction, by: string) {
+  const cur = get().itemsBy[sid]?.[id];
+  if (!cur) return;
+  const next = cur.kind === 'canvas' ? { ...cur, strokes: [...cur.strokes] } : { ...cur };
+  if (!applyItemAction(next, action, by, Math.random)) return;
+  set((s) => ({ itemsBy: { ...s.itemsBy, [sid]: { ...s.itemsBy[sid], [id]: next } } }));
+  if (sid === get().session) recompute();
+}
+
+/** 自分の描画操作: 手元にすぐ反映してから送る */
+export function deltaAction(id: string, action: ItemAction) {
+  const s = get();
+  if (!s.session) return;
+  applyDelta(s.session, id, action, s.selfId);
+  send({ t: 'itemAction', id, action });
 }
 
 /** 持っているハンマーを手放す。3D では目の前の床、2D では元の場所に置く */

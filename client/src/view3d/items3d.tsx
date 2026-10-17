@@ -7,7 +7,7 @@ import { ITEM_INFO, type Item } from '../../../shared/items.ts';
 import { useStore, get, nameOf } from '../store.ts';
 import { selectNote } from '../actions.ts';
 import { itemAction, removeItem } from '../items/actions.ts';
-import { PANELS, chessSelect } from '../items/panels.ts';
+import { COMPAT_ONLY, PANELS, chessSelect } from '../items/panels.ts';
 import { drawPanel } from '../items/PanelCanvas.tsx';
 import { carrying, type Interactable } from './interact.ts';
 import { drawText, makeCanvasTexture } from './textTexture.ts';
@@ -229,15 +229,23 @@ function CompatPanel3D({ item }: { item: Item }) {
     tex.needsUpdate = true;
   }, [item, ui, canvas, tex]);
   const w = (PANEL_H * panel.w) / panel.h;
+  // 照準が当たったパネル上の位置を、2D 画面のその位置の操作として渡す
+  const at = (hit: THREE.Intersection) => [hit.uv!.x * panel.w, (1 - hit.uv!.y) * panel.h] as const;
+  const latest = () => [get().items[item.id] ?? item, get().itemUi[item.id] ?? {}] as const;
   const data: Interactable = {
     ...removable(item),
-    hint: 'クリック: 照準の位置を押す',
-    // 照準が当たったパネル上の位置を、2D 画面のその位置のクリックとして渡す
-    use: (hit) => {
-      if (!hit.uv) return;
-      const it = get().items[item.id];
-      if (it) panel.click(hit.uv.x * panel.w, (1 - hit.uv.y) * panel.h, it, get().itemUi[item.id] ?? {});
-    },
+    ...(panel.drag
+      ? {
+        hint: 'クリックしたまま照準を動かす: 描く',
+        drag: (phase, hit) => {
+          if (hit?.uv) panel.drag!(phase, ...at(hit), ...latest());
+          else if (phase === 'end') panel.drag!('end', 0, 0, ...latest());
+        },
+      } satisfies Interactable
+      : {
+        hint: 'クリック: 照準の位置を押す',
+        use: (hit) => { if (hit.uv) panel.click(...at(hit), ...latest()); },
+      } satisfies Interactable),
   };
   return (
     <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry}>
@@ -254,7 +262,9 @@ function CompatPanel3D({ item }: { item: Item }) {
         <meshBasicMaterial map={tex} toneMapped={false} />
       </mesh>
       <Html position={[0, 1.6 + PANEL_H / 2 + 0.18, 0]} center distanceFactor={8}>
-        <div className="nametag compat">{ITEM_INFO[item.kind].icon} {ITEM_INFO[item.kind].name} ・ 互換モード</div>
+        <div className={`nametag ${COMPAT_ONLY[item.kind] ? 'compat' : ''}`}>
+          {ITEM_INFO[item.kind].icon} {ITEM_INFO[item.kind].name}{COMPAT_ONLY[item.kind] && ' ・ 互換モード'}
+        </div>
       </Html>
     </group>
   );

@@ -1,13 +1,13 @@
 import { useEffect, useRef } from 'react';
 import type { Item } from '../../../shared/items.ts';
-import { useStore } from '../store.ts';
+import { useStore, get, type ItemUi } from '../store.ts';
 import { PANELS } from './panels.ts';
 
 const NO_UI = {};
 /** 描画倍率（拡大しても文字がつぶれないように） */
 export const PANEL_SCALE = 2;
 
-export function drawPanel(canvas: HTMLCanvasElement, item: Item, ui: { sel?: number }) {
+export function drawPanel(canvas: HTMLCanvasElement, item: Item, ui: ItemUi) {
   const panel = PANELS[item.kind];
   if (!panel) return;
   if (canvas.width !== panel.w * PANEL_SCALE) {
@@ -19,22 +19,39 @@ export function drawPanel(canvas: HTMLCanvasElement, item: Item, ui: { sel?: num
   panel.draw(ctx, item, ui);
 }
 
-/** アイテムの 2D 画面。interactive のときだけクリックを受け付ける */
+/** アイテムの 2D 画面。interactive のときだけ操作を受け付ける */
 export function PanelCanvas({ item, interactive }: { item: Item; interactive: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const ui = useStore((s) => s.itemUi[item.id] ?? NO_UI);
   const panel = PANELS[item.kind]!;
   useEffect(() => { drawPanel(ref.current!, item, ui); }, [item, ui]);
+
+  const toPanel = (e: React.PointerEvent | React.MouseEvent) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return [((e.clientX - r.left) / r.width) * panel.w, ((e.clientY - r.top) / r.height) * panel.h] as const;
+  };
+  // 操作の時点の最新状態を渡す（描画中に何度も更新されるため）
+  const latest = () => [get().items[item.id] ?? item, get().itemUi[item.id] ?? {}] as const;
+
+  const handlers = !interactive ? {} : panel.drag ? {
+    onPointerDown: (e: React.PointerEvent<HTMLCanvasElement>) => {
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 合成イベントなど */ }
+      panel.drag!('start', ...toPanel(e), ...latest());
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (e.buttons) panel.drag!('move', ...toPanel(e), ...latest());
+    },
+    onPointerUp: (e: React.PointerEvent<HTMLCanvasElement>) => panel.drag!('end', ...toPanel(e), ...latest()),
+  } : {
+    onClick: (e: React.MouseEvent<HTMLCanvasElement>) => panel.click(...toPanel(e), ...latest()),
+  };
+
   return (
     <canvas
       ref={ref}
-      className="panelcanvas"
+      className={`panelcanvas ${panel.drag && interactive ? 'drawable' : ''}`}
       style={{ aspectRatio: `${panel.w} / ${panel.h}` }}
-      onClick={(e) => {
-        if (!interactive) return;
-        const r = e.currentTarget.getBoundingClientRect();
-        panel.click(((e.clientX - r.left) / r.width) * panel.w, ((e.clientY - r.top) / r.height) * panel.h, item, ui);
-      }}
+      {...handlers}
     />
   );
 }

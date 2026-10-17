@@ -235,7 +235,7 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .activityhdr { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; font-weight: 700; color: var(--strong); flex: none; }
 .activity.big .activityhdr { font-size: 15px; padding: 8px 12px; }
 .activitybody { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 0 6px 6px; }
-.panelcanvas { max-width: 100%; max-height: 100%; height: 100%; width: auto; display: block; border-radius: 6px; }
+.panelcanvas { width: auto; height: auto; max-width: 100%; max-height: 100%; display: block; border-radius: 6px; }
 .activity:not(.big) .panelcanvas { pointer-events: none; }
 .tile.hittable { cursor: crosshair; }
 .tile.hittable:hover { box-shadow: inset 0 0 0 3px #f0b132; }
@@ -324,3 +324,4 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 @keyframes maphit { 30% { opacity: .3; } }
 .nametag.twod { background: #4e5058; }
 .nametag.hitflash { background: #f0b132; color: #1e1f22; }
+.panelcanvas.drawable { cursor: crosshair; touch-action: none; }

@@ -1,5 +1,6 @@
 import type { ClientMsg, ServerMsg } from '../../../shared/protocol.ts';
 import { get, set, recompute } from '../store.ts';
+import { applyDelta } from '../items/actions.ts';
 import { onHit } from '../items/effects.ts';
 
 let ws: WebSocket | null = null;
@@ -85,6 +86,9 @@ function onMessage(msg: ServerMsg) {
         };
       });
       break;
+    case 'itemAction':
+      applyDelta(msg.sid, msg.id, msg.action, msg.by);
+      return;
     case 'hit':
       if (msg.sid === get().session) onHit(msg.from, msg.to);
       return;

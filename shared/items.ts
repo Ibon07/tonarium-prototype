@@ -1,7 +1,13 @@
 // セッション内に出せるアイテム（ハードコード）。状態の更新はサーバーが権威的に行う。
 // 最終的には UGC にする想定なので、種類ごとの振る舞いはこのファイルの関数に閉じ込めておく。
 
-export type ItemKind = 'note' | 'hammer' | 'chess' | 'g2048';
+export type ItemKind = 'note' | 'hammer' | 'chess' | 'g2048' | 'canvas';
+
+/** キャンバスの描画領域（ストロークの座標はこの範囲） */
+export const CANVAS_W = 620;
+export const CANVAS_H = 450;
+/** 1本の線。color が 'erase' なら消しゴム */
+export interface Stroke { id: string; by: string; color: string; size: number; pts: number[] }
 
 export const NOTE_COLORS = ['#fde68a', '#fca5a5', '#86efac', '#93c5fd', '#d8b4fe'];
 
@@ -23,7 +29,9 @@ export type Item =
   /** チェス。ルールなし、駒を自由に動かすだけ。board[row*8+col]、row 0 が黒側（8段目） */
   | (ItemBase & { kind: 'chess'; board: (string | null)[]; last: [number, number] | null })
   /** 2048。全員で1つの盤面を操作する */
-  | (ItemBase & { kind: 'g2048'; grid: number[]; score: number; over: boolean });
+  | (ItemBase & { kind: 'g2048'; grid: number[]; score: number; over: boolean })
+  /** みんなで描けるキャンバス */
+  | (ItemBase & { kind: 'canvas'; strokes: Stroke[] });
 
 export type Dir = 'up' | 'down' | 'left' | 'right';
 
@@ -35,13 +43,21 @@ export type ItemAction =
   | { a: 'chessMove'; from: number; to: number }
   | { a: 'chessReset' }
   | { a: 'slide'; dir: Dir }
-  | { a: 'reset2048' };
+  | { a: 'reset2048' }
+  | { a: 'strokeStart'; id: string; color: string; size: number; x: number; y: number }
+  | { a: 'strokeAdd'; id: string; pts: number[] }
+  | { a: 'canvasClear' };
+
+/** 描画のように頻繁な操作は、サーバーが状態全体ではなく操作だけを配り、各クライアントが同じ関数で適用する */
+export const isDeltaAction = (act: ItemAction) =>
+  act.a === 'strokeStart' || act.a === 'strokeAdd' || act.a === 'canvasClear';
 
 export const ITEM_INFO: Record<ItemKind, { name: string; icon: string; desc: string }> = {
   note: { name: '付箋', icon: '📝', desc: '文字を書ける付箋（2D/3D）' },
   hammer: { name: 'ピコピコハンマー', icon: '🔨', desc: '拾って誰かを叩けます（2D/3D）' },
   chess: { name: 'チェス', icon: '♟️', desc: '駒を自由に動かせる盤（2D/3D）' },
   g2048: { name: '2048', icon: '🔢', desc: 'みんなで操作する2Dゲーム（3Dは互換表示）' },
+  canvas: { name: 'キャンバス', icon: '🎨', desc: 'みんなで絵を描ける（ペン・消しゴム）' },
 };
 
 // ---------- チェス ----------
@@ -124,6 +140,7 @@ export function createItem(
     case 'hammer': return { ...b, kind, holder: null };
     case 'chess': return { ...b, kind, board: chessInitial(), last: null };
     case 'g2048': return { ...b, kind, grid: g2048Initial(rng), score: 0, over: false };
+    case 'canvas': return { ...b, kind, strokes: [] };
   }
 }
 
@@ -175,6 +192,24 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
       }
       if (act.a === 'reset2048') { item.grid = g2048Initial(rng); item.score = 0; item.over = false; break; }
       return false;
+    case 'canvas': {
+      const cx = (v: number) => Math.round(Math.max(0, Math.min(CANVAS_W, v)));
+      const cy = (v: number) => Math.round(Math.max(0, Math.min(CANVAS_H, v)));
+      if (act.a === 'strokeStart') {
+        const size = Math.max(1, Math.min(40, act.size));
+        item.strokes.push({ id: act.id, by: userId, color: String(act.color).slice(0, 16), size, pts: [cx(act.x), cy(act.y)] });
+        if (item.strokes.length > 3000) item.strokes.shift();
+        break;
+      }
+      if (act.a === 'strokeAdd') {
+        const st = item.strokes.findLast((s) => s.id === act.id && s.by === userId);
+        if (!st || st.pts.length > 8000) return false;
+        for (let i = 0; i + 1 < act.pts.length; i += 2) st.pts.push(cx(act.pts[i]), cy(act.pts[i + 1]));
+        break;
+      }
+      if (act.a === 'canvasClear') { item.strokes = []; break; }
+      return false;
+    }
   }
   item.updatedBy = userId;
   return true;

@@ -1,9 +1,10 @@
 // 2D 用のアイテム画面。Canvas に描き、クリックは座標で判定する。
 // 同じ描画・クリック処理を 3D の互換モード（空間内のパネル）でも使うので、DOM に依存させない。
-import type { Dir, Item } from '../../../shared/items.ts';
-import { itemAction, setItemUi } from './actions.ts';
+import { CANVAS_H, CANVAS_W, type Dir, type Item } from '../../../shared/items.ts';
+import type { ItemUi } from '../store.ts';
+import { deltaAction, itemAction, setItemUi } from './actions.ts';
 
-type Ui = { sel?: number };
+type Ui = ItemUi;
 type Rect = [number, number, number, number];
 
 export interface Panel {
@@ -13,6 +14,8 @@ export interface Panel {
   click(x: number, y: number, item: Item, ui: Ui): void;
   /** キー操作（2D で拡大表示中のみ）。処理したら true */
   key?(key: string, item: Item): boolean;
+  /** 押したまま動かす操作（描画など）。あれば click の代わりに使う */
+  drag?(phase: 'start' | 'move' | 'end', x: number, y: number, item: Item, ui: Ui): void;
 }
 
 const FONT = '"Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif';
@@ -172,5 +175,122 @@ export const panel2048: Panel = {
   },
 };
 
+// ---------- キャンバス ----------
+const PEN_COLORS = ['#111111', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7'];
+const AREA: Rect = [10, 58, CANVAS_W, CANVAS_H];
+const SIZE_BTNS: [number, string, Rect][] = [[3, '細', [272, 12, 44, 34]], [10, '太', [320, 12, 44, 34]]];
+const ERASER: Rect = [374, 12, 100, 34];
+const CLEAR: Rect = [640 - 14 - 100, 12, 100, 34];
+const colorRect = (i: number): Rect => [16 + i * 40, 13, 32, 32];
+
+/** 描いている途中の線（送信は間引いてまとめる） */
+let active: null | { itemId: string; strokeId: string; buf: number[]; lastX: number; lastY: number; lastSend: number } = null;
+
+function flush() {
+  if (!active || !active.buf.length) return;
+  deltaAction(active.itemId, { a: 'strokeAdd', id: active.strokeId, pts: active.buf });
+  active.buf = [];
+  active.lastSend = performance.now();
+}
+
+export const canvasPanel: Panel = {
+  w: 640,
+  h: 520,
+  draw(ctx, item, ui) {
+    if (item.kind !== 'canvas') return;
+    ctx.fillStyle = '#2b2d31';
+    ctx.fillRect(0, 0, this.w, this.h);
+    const erase = !!ui.erase;
+    const color = ui.color ?? PEN_COLORS[0];
+    const size = ui.size ?? 3;
+    PEN_COLORS.forEach((c, i) => {
+      const [x, y, w] = colorRect(i);
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.arc(x + w / 2, y + w / 2, 13, 0, Math.PI * 2);
+      ctx.fill();
+      if (!erase && c === color) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x + w / 2, y + w / 2, 16, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    });
+    for (const [v, label, r] of SIZE_BTNS) button(ctx, r, label, size === v ? '#5865f2' : '#4e5058');
+    button(ctx, ERASER, '🧽 消しゴム', erase ? '#5865f2' : '#4e5058', 16);
+    button(ctx, CLEAR, '全部消す', '#da373c', 16);
+    // 描画領域
+    const [ax, ay, aw, ah] = AREA;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ax, ay, aw, ah);
+    ctx.clip();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(ax, ay, aw, ah);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const st of item.strokes) {
+      ctx.strokeStyle = st.color === 'erase' ? '#ffffff' : st.color;
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.lineWidth = st.size;
+      const p = st.pts;
+      if (p.length <= 2) {
+        ctx.beginPath();
+        ctx.arc(ax + p[0], ay + p[1], st.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
+      ctx.beginPath();
+      ctx.moveTo(ax + p[0], ay + p[1]);
+      for (let i = 2; i + 1 < p.length; i += 2) ctx.lineTo(ax + p[i], ay + p[i + 1]);
+      ctx.stroke();
+    }
+    ctx.restore();
+  },
+  click(x, y, item, ui) {
+    this.drag!('start', x, y, item, ui);
+    this.drag!('end', x, y, item, ui);
+  },
+  drag(phase, x, y, item, ui) {
+    if (item.kind !== 'canvas') return;
+    const [ax, ay] = AREA;
+    const px = x - ax;
+    const py = y - ay;
+    if (phase === 'start') {
+      // ツールバー
+      for (let i = 0; i < PEN_COLORS.length; i++)
+        if (inRect(x, y, colorRect(i))) { setItemUi(item.id, { ...ui, color: PEN_COLORS[i], erase: false }); return; }
+      for (const [v, , r] of SIZE_BTNS) if (inRect(x, y, r)) { setItemUi(item.id, { ...ui, size: v }); return; }
+      if (inRect(x, y, ERASER)) { setItemUi(item.id, { ...ui, erase: !ui.erase }); return; }
+      if (inRect(x, y, CLEAR)) { deltaAction(item.id, { a: 'canvasClear' }); return; }
+      if (!inRect(x, y, AREA)) return;
+      const strokeId = Math.random().toString(36).slice(2, 10);
+      const erase = !!ui.erase;
+      deltaAction(item.id, {
+        a: 'strokeStart', id: strokeId,
+        color: erase ? 'erase' : ui.color ?? PEN_COLORS[0],
+        size: erase ? 28 : ui.size ?? 3,
+        x: px, y: py,
+      });
+      active = { itemId: item.id, strokeId, buf: [], lastX: px, lastY: py, lastSend: performance.now() };
+      return;
+    }
+    if (!active || active.itemId !== item.id) return;
+    if (phase === 'move') {
+      if (Math.hypot(px - active.lastX, py - active.lastY) < 2) return;
+      active.buf.push(Math.round(px), Math.round(py));
+      active.lastX = px;
+      active.lastY = py;
+      if (performance.now() - active.lastSend > 50) flush();
+      return;
+    }
+    flush();
+    active = null;
+  },
+};
+
 /** 2D 画面を持つアイテム（通話画面にアクティビティとして並ぶ） */
-export const PANELS: Partial<Record<Item['kind'], Panel>> = { chess: chessPanel, g2048: panel2048 };
+export const PANELS: Partial<Record<Item['kind'], Panel>> = { chess: chessPanel, g2048: panel2048, canvas: canvasPanel };
+/** 2D 専用で、3D では互換モード（2D 画面をそのまま置く）で表示するもの */
+export const COMPAT_ONLY: Partial<Record<Item['kind'], boolean>> = { g2048: true };

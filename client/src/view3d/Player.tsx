@@ -7,7 +7,7 @@ import { send } from '../net/ws.ts';
 import { selectNote } from '../actions.ts';
 import { dropHammer, hit, moveItem } from '../items/actions.ts';
 import { bump } from '../items/effects.ts';
-import { aimAt, carrying, clampRoom, EYE, type Interactable } from './interact.ts';
+import { aimAt, aimOn, carrying, clampRoom, EYE, type Interactable } from './interact.ts';
 import { HammerModel } from './items3d.tsx';
 
 const SPEED = 4;
@@ -41,9 +41,12 @@ export function Player() {
   const { camera, gl, scene } = useThree();
   const keys = useRef<Record<string, boolean>>({});
   const look = useRef({ yaw: get().selfAvatar.ry, pitch: -0.05 });
-  const sent = useRef({ t: 0, x: NaN, z: NaN, ry: NaN });
+  // 初回は必ず送るように、前回値は「とても遠く」にしておく（NaN だと比較が常に false になり一度も送られない）
+  const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity });
   const aim = useRef<ReturnType<typeof aimAt>>(null);
   const hammerRef = useRef<THREE.Group>(null);
+  /** 押したまま描いている対象 */
+  const dragging = useRef<{ data: Interactable; obj: THREE.Object3D; hit: THREE.Intersection | null } | null>(null);
 
   useEffect(() => {
     const a = get().selfAvatar;
@@ -64,6 +67,11 @@ export function Player() {
         return;
       }
       use();
+    };
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button !== 0 || !dragging.current) return;
+      dragging.current.data.drag!('end', dragging.current.hit);
+      dragging.current = null;
     };
     const onMouseMove = (e: MouseEvent) => {
       if (document.pointerLockElement !== canvas) return;
@@ -89,6 +97,7 @@ export function Player() {
     document.addEventListener('pointerlockchange', onLock);
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
@@ -96,6 +105,7 @@ export function Player() {
       document.removeEventListener('pointerlockchange', onLock);
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
@@ -115,7 +125,12 @@ export function Player() {
       const ht = target?.data.hitTarget;
       const to = typeof ht === 'function' ? ht(target!.hit) : ht;
       if (to && to !== s.selfId && target!.hit.distance < 5) { hit(to); return; }
-      if (!target?.data.use) return;
+      if (!target?.data.use && !target?.data.drag) return;
+    }
+    if (target?.data.drag) {
+      dragging.current = { data: target.data, obj: target.obj, hit: target.hit };
+      target.data.drag('start', target.hit);
+      return;
     }
     target?.data.use?.(target.hit);
   }
@@ -170,6 +185,13 @@ export function Player() {
         c.last = now;
         moveItem(c.id, c.x, c.z, c.ry);
       }
+    }
+
+    // 押したまま照準を動かしたら、同じ物の上で描き続ける
+    const d = dragging.current;
+    if (d) {
+      const h = aimOn(d.obj, camera);
+      if (h) { d.hit = h; d.data.drag!('move', h); }
     }
 
     aim.current = aimAt(scene, camera);
