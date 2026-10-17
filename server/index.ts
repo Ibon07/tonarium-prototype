@@ -62,6 +62,14 @@ function pushChat(ch: string, from: User | null, text: string, image?: string) {
   broadcast({ t: 'chat', ch, m });
 }
 
+/** 3D から離れた人をフォローしていた人のフォローを外す。変化があれば true */
+function dropFollowersOf(u: User) {
+  let changed = false;
+  for (const f of users.values())
+    if (f.follow === u.id) { f.follow = null; changed = true; }
+  return changed;
+}
+
 /** カメラを使えなくなった人（退出・2D に切替）: 持っていたら置き、配信していたら止める */
 function releaseCameras(sid: string, u: User, at?: AvatarState) {
   for (const it of items.get(sid)!.values()) {
@@ -96,6 +104,8 @@ function leaveSession(u: User) {
     }
   }
   releaseCameras(sid, u, av);
+  dropFollowersOf(u);
+  u.follow = null;
   u.session = null;
   u.mode = '2d';
   u.micOn = false;
@@ -107,7 +117,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
   if (msg.t === 'hello') {
     state.id = msg.id;
     if (!users.has(msg.id))
-      users.set(msg.id, { id: msg.id, name: msg.name.slice(0, 24) || 'ゲスト', session: null, mode: '2d', micOn: false, sharing: false });
+      users.set(msg.id, { id: msg.id, name: msg.name.slice(0, 24) || 'ゲスト', session: null, mode: '2d', micOn: false, sharing: false, follow: null });
     if (!sockets.has(msg.id)) sockets.set(msg.id, new Set());
     sockets.get(msg.id)!.add(ws);
     send(ws, {
@@ -214,12 +224,30 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
     case 'mode': {
       if (me.mode === msg.mode) return;
       me.mode = msg.mode;
+      if (msg.mode === '3d') me.follow = null;
       if (msg.mode === '2d') {
+        dropFollowersOf(me);
         releaseCameras(sid, me, avatars.get(sid)!.get(me.id));
         if (avatars.get(sid)!.delete(me.id)) broadcast({ t: 'avatarRemove', sid, id: me.id });
       }
       broadcastUsers();
       pushChat(sessionChatKey(sid), null, `${me.name} が ${modeLabel(msg.mode)} に切り替えました`);
+      return;
+    }
+    case 'follow': {
+      const target = msg.target ? users.get(msg.target) : null;
+      if (msg.target && (!target || target.session !== sid || target.mode !== '3d' || target.id === me.id || me.mode !== '2d')) return;
+      if (me.follow === (target?.id ?? null)) return;
+      me.follow = target?.id ?? null;
+      broadcastUsers();
+      if (target) pushChat(sessionChatKey(sid), null, `${me.name} が ${target.name} をフォローしました`);
+      return;
+    }
+    case 'dropFollowers': {
+      if (dropFollowersOf(me)) {
+        broadcastUsers();
+        pushChat(sessionChatKey(sid), null, `${me.name} がフォローを解除しました`);
+      }
       return;
     }
     case 'status': {

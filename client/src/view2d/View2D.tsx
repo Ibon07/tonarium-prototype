@@ -9,7 +9,8 @@ import { dropHammer, editNote, hit, itemAction, moveItem, removeItem, spawnItem 
 import { consumeHitFx, recentlyHit } from '../items/effects.ts';
 import { camHolder, camVideos } from '../net/livekit.ts';
 import { ShareVideoHost } from '../ShareVideo.tsx';
-import { leaveSession, selectNote, setMode } from '../actions.ts';
+import { follow, leaveSession, selectNote, setMode } from '../actions.ts';
+import { placesOf } from '../spatial.ts';
 import { toggleMic, toggleShare } from '../net/livekit.ts';
 import { Avatar } from '../ui.tsx';
 
@@ -17,6 +18,7 @@ type StageTile =
   | { key: string; kind: 'stream' }
   | { key: string; kind: 'map' }
   | { key: string; kind: 'cam'; item: Item & { kind: 'camera' } }
+  | { key: string; kind: 'view'; user: User }
   | { key: string; kind: 'item'; item: Item }
   | { key: string; kind: 'user'; user: User };
 
@@ -45,6 +47,18 @@ function CamVideoHost({ id }: { id: string }) {
     return () => { camHolder.appendChild(el); void el.play().catch(() => {}); };
   }, [id, feed]);
   return <div ref={ref} className="videohost" />;
+}
+
+/** フォロー中の人の視点 */
+function ViewTile({ user, big }: { user: User; big: boolean }) {
+  const key = `view:${user.id}`;
+  return (
+    <div className={`tile streamtile ${big ? 'big' : ''}`} onClick={() => toggleFocus(key)}>
+      <CamVideoHost id={key} />
+      <div className="caption">👀 {user.name} の視点（フォロー中）</div>
+      <button className="small unfollow" onClick={(e) => { e.stopPropagation(); follow(null); }}>フォロー解除</button>
+    </div>
+  );
 }
 
 function CamTile({ item, big }: { item: Item & { kind: 'camera' }; big: boolean }) {
@@ -78,8 +92,12 @@ function UserTile({ p }: { p: User }) {
   const holding = useStore((s) => Object.values(s.items).some((i) => i.kind === 'hammer' && i.holder === p.id));
   const iHold = useStore((s) => !!heldHammer(s));
   const self = useStore((s) => s.selfId === p.id);
+  const me = useStore((s) => s.participants.find((u) => u.id === s.selfId));
   useStore((s) => s.hits[p.id]);
   const canHit = iHold && !self;
+  const canFollow = !self && me?.mode === '2d' && p.mode === '3d';
+  const following = me?.follow === p.id;
+  const followers = useStore((s) => s.participants.filter((u) => u.follow === p.id).length);
   return (
     <div
       data-uid={p.id}
@@ -91,6 +109,13 @@ function UserTile({ p }: { p: User }) {
       <div className="tilename">{micOff && '🔇 '}{p.name}</div>
       {p.mode === '3d' && <div className="tilemode">3D空間</div>}
       {holding && <div className="tilehammer" title="ピコピコハンマーを持っている">🔨</div>}
+      {followers > 0 && <div className="tilefollowers" title="フォローしている人数">👀 {followers}</div>}
+      {canFollow && (
+        <button
+          className={`small followbtn ${following ? 'on' : ''}`}
+          onClick={(e) => { e.stopPropagation(); follow(following ? null : p.id); }}
+        >{following ? 'フォロー中' : '👀 フォロー'}</button>
+      )}
     </div>
   );
 }
@@ -115,6 +140,7 @@ function StageTileView({ t, big }: { t: StageTile; big: boolean }) {
   if (t.kind === 'stream') return <StreamTile big={big} />;
   if (t.kind === 'map') return <MapTile big={big} />;
   if (t.kind === 'cam') return <CamTile item={t.item} big={big} />;
+  if (t.kind === 'view') return <ViewTile user={t.user} big={big} />;
   if (t.kind === 'item') return <ActivityTile item={t.item} big={big} />;
   return <UserTile p={t.user} />;
 }
@@ -309,6 +335,7 @@ function MiniMap({ bare = false }: { bare?: boolean }) {
   const holding = (id: string) => Object.values(items).some((i) => i.kind === 'hammer' && i.holder === id);
   const holdingCam = (id: string) => Object.values(items).some((i) => i.kind === 'camera' && i.holder === id);
   const H2 = H + 3.6;
+  const places = placesOf();
 
   return (
     <section className={bare ? 'map bare' : 'map'}>
@@ -348,10 +375,10 @@ function MiniMap({ bare = false }: { bare?: boolean }) {
           );
         })}
         {/* 2D の人は入口の外に並ぶ（3D でも同じ位置に立っている） */}
-        {in2d.map((p, i) => {
-          const s = entranceSlot(i);
+        {in2d.map((p) => {
+          const s = places.get(p.id) ?? { ...entranceSlot(0), small: false };
           return (
-            <g key={p.id} transform={`translate(${s.x} ${s.z})`} className={recentlyHit(p.id) ? 'maphit' : ''}>
+            <g key={p.id} transform={`translate(${s.x} ${s.z}) scale(${s.small ? 0.6 : 1})`} className={recentlyHit(p.id) ? 'maphit' : ''}>
               {speaking[p.id] && <circle r={0.55} className="speakring" />}
               <rect x={-0.3} y={-0.3} width={0.6} height={0.6} rx={0.1} fill={colorOf(p.id)} />
               <text y={0.95} className="label small" textAnchor="middle">{p.name}{p.id === selfId ? '(自分)' : ''}{holding(p.id) ? '🔨' : ''}</text>
@@ -359,7 +386,7 @@ function MiniMap({ bare = false }: { bare?: boolean }) {
           );
         })}
       </svg>
-      <div className="twod">2Dで参加中（入口に並んでいる）: {in2d.map((p) => p.name).join('、') || 'なし'}</div>
+      <div className="twod">2Dで参加中（入口に並ぶ・フォロー中はその人の後ろ）: {in2d.map((p) => p.name).join('、') || 'なし'}</div>
     </section>
   );
 }
@@ -370,9 +397,15 @@ export function SessionView() {
   const items = useStore((s) => s.items);
   const focus = useStore((s) => s.focus);
   const camFeeds = useStore((s) => s.camFeeds);
+  const selfId = useStore((s) => s.selfId);
   const stageRef = useRef<HTMLDivElement>(null);
   const tiles: StageTile[] = [
     ...(sharer ? [{ key: 'stream', kind: 'stream' as const }] : []),
+    // フォロー中の人の視点
+    ...participants.flatMap((u) => {
+      const me = participants.find((x) => x.id === selfId);
+      return me?.follow === u.id && camFeeds[`view:${u.id}`] ? [{ key: `view:${u.id}`, kind: 'view' as const, user: u }] : [];
+    }),
     // 届いているカメラ配信は画面共有と同じようにタイルで並べる
     ...Object.values(items).flatMap((i) => (i.kind === 'camera' && i.live && camFeeds[i.id] ? [{ key: i.id, kind: 'cam' as const, item: i }] : [])),
     { key: 'map', kind: 'map' as const },

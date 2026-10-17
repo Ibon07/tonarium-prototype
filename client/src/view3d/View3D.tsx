@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { DOOR_HALF, ROOM_HALF, entranceSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
 import { NOTE_COLORS } from '../../../shared/items.ts';
 import { useStore, get, colorOf, nameOf, heldHammer, heldCamera } from '../store.ts';
 import { shareVideoEl } from '../net/livekit.ts';
-import { selectNote } from '../actions.ts';
+import { dropFollowers, selectNote } from '../actions.ts';
+import { placesOf } from '../spatial.ts';
+import { publishView } from '../net/livekit.ts';
 import { ItemMenu } from '../items/ItemMenu.tsx';
 import { editNote, moveItem, removeItem, spawnItem } from '../items/actions.ts';
 import { bump, recentlyHit } from '../items/effects.ts';
@@ -132,7 +134,7 @@ function Screen() {
 }
 
 // ---------- 2D 参加者: 入口の外に並ぶ「紙の立ち姿」 ----------
-function Standee({ user, slot }: { user: User; slot: number }) {
+function Standee({ user }: { user: User }) {
   const speaking = useStore((s) => !!s.speaking[user.id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[user.id] === false);
   const holding = useStore((s) => Object.values(s.items).some((i) => i.kind === 'hammer' && i.holder === user.id));
@@ -167,22 +169,28 @@ function Standee({ user, slot }: { user: User; slot: number }) {
     if (holding) ctx.fillText('🔨', 196, 420);
     tex.needsUpdate = true;
   }, [user.id, user.name, holding, canvas, tex]);
-  const pos = entranceSlot(slot);
+  const pos0 = entranceSlot(0);
   useFrame((_, dt) => {
     const g = ref.current;
-    if (g) {
-      // 並び順が変わったら歩いて移動する
-      const k = Math.min(1, dt * 6);
+    const s = get();
+    // 入口の列か、フォロー中ならフォロー先の後ろ（小さくなる）へ滑らかに移動する
+    const pos = placesOf(s).get(user.id);
+    if (g && pos) {
+      const k = Math.min(1, dt * 8);
       g.position.x += (pos.x - g.position.x) * k;
       g.position.z += (pos.z - g.position.z) * k;
+      let r = (pos.small ? pos.ry : 0) - g.rotation.y;
+      r = Math.atan2(Math.sin(r), Math.cos(r));
+      g.rotation.y += r * k;
+      const sc = g.scale.x + ((pos.small ? 0.45 : 1) - g.scale.x) * k;
+      g.scale.setScalar(sc);
     }
-    const s = get();
     const b = bump(s.hits[user.id]);
     const talk = s.speaking[user.id] ? Math.abs(Math.sin(performance.now() / 120)) * 0.04 : 0;
     card.current?.scale.set(1 + 0.25 * b, 1 - 0.35 * b + talk, 1);
   });
   return (
-    <group ref={ref} position={[pos.x, 0, pos.z]} userData={{ hitTarget: user.id } satisfies Interactable}>
+    <group ref={ref} position={[pos0.x, 0, pos0.z]} userData={{ hitTarget: user.id } satisfies Interactable}>
       <mesh position-y={0.02}>
         <cylinderGeometry args={[0.28, 0.3, 0.04, 20]} />
         <meshStandardMaterial color="#2b2d31" />
@@ -213,7 +221,7 @@ function Entrance() {
   const participants = useStore((s) => s.participants);
   useStore((s) => s.hits);
   const in2d = participants.filter((p) => p.mode === '2d');
-  return <>{in2d.map((u, i) => <Standee key={u.id} user={u} slot={i} />)}</>;
+  return <>{in2d.map((u) => <Standee key={u.id} user={u} />)}</>;
 }
 
 // ---------- 他の参加者のアバター ----------
@@ -313,6 +321,34 @@ function NoteEditor() {
   );
 }
 
+/** フォローされている間、自分の視点（メインのキャンバス）を配信する */
+function ViewStreamer() {
+  const { gl } = useThree();
+  useEffect(() => {
+    let stop: (() => Promise<void>) | null = null;
+    let cancelled = false;
+    publishView(gl.domElement)
+      .then((s) => { if (cancelled) void s(); else stop = s; })
+      .catch(() => { /* 通話に未接続なら配信しない */ });
+    return () => { cancelled = true; void stop?.(); };
+  }, [gl]);
+  return null;
+}
+
+/** フォローされていることの表示 */
+function FollowNotice() {
+  const participants = useStore((s) => s.participants);
+  const selfId = useStore((s) => s.selfId);
+  const followers = participants.filter((p) => p.follow === selfId);
+  if (!followers.length) return null;
+  return (
+    <div className="follownotice">
+      👀 {followers.map((f) => f.name).join('、')} がフォロー中（あなたの視点を共有中）
+      <button className="small" onClick={dropFollowers}>フォローを解除</button>
+    </div>
+  );
+}
+
 /** カメラを持っている間のファインダー表示と、撮影時のフラッシュ */
 function Viewfinder() {
   const cam = useStore((s) => heldCamera(s));
@@ -360,6 +396,7 @@ export function View3D() {
   const items = useStore((s) => s.items);
   const locked = useStore((s) => s.locked);
   const selfId = useStore((s) => s.selfId);
+  const followed = useStore((s) => s.participants.some((p) => p.follow === s.selfId));
   const a0 = get().selfAvatar;
   return (
     <div className={`view3d ${locked ? 'locked' : ''}`}>
@@ -372,8 +409,10 @@ export function View3D() {
         {Object.values(items).map((it) => <Item3D key={it.id} item={it} />)}
         {Object.values(items).map((it) => (it.kind === 'camera' && it.live && it.operator === selfId
           ? <CameraStreamer key={`stream-${it.id}`} item={it} /> : null))}
+        {followed && <ViewStreamer />}
         <Player />
       </Canvas>
+      <FollowNotice />
       <Viewfinder />
       <Crosshair />
       <div className="tools3d">

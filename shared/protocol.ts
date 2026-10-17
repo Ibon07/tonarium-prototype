@@ -29,6 +29,8 @@ export interface User {
   mode: Mode;
   micOn: boolean;
   sharing: boolean;
+  /** 2D の人がフォローしている 3D の人（その人の少し後ろにいる扱いになり、視点の配信が見える） */
+  follow: string | null;
 }
 
 export interface ChatMessage {
@@ -65,6 +67,9 @@ export type ClientMsg =
   | { t: 'leave' }
   | { t: 'mode'; mode: Mode }
   | { t: 'status'; micOn: boolean; sharing: boolean }
+  | { t: 'follow'; target: string | null }
+  /** 自分をフォローしている人を全員解除する（3D の人が使う） */
+  | { t: 'dropFollowers' }
   | { t: 'chat'; ch: string; text: string; image?: string }
   | { t: 'avatar'; s: AvatarState }
   | { t: 'itemCreate'; kind: ItemKind; x: number; z: number; ry: number; text?: string }

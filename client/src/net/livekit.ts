@@ -5,7 +5,8 @@ import {
   Room, RoomEvent, Track, LocalVideoTrack,
   type RemoteTrack, type RemoteTrackPublication, type Participant as LkParticipant, type LocalTrackPublication,
 } from 'livekit-client';
-import { get, set } from '../store.ts';
+import { get, set, useStore } from '../store.ts';
+import { addVoice, removeAllVoices, removeVoice } from '../spatial.ts';
 import { send } from './ws.ts';
 
 export const room = new Room({ adaptiveStream: false, dynacast: true });
@@ -28,7 +29,12 @@ export const camVideos = new Map<string, HTMLVideoElement>();
 export const camHolder = document.createElement('div');
 Object.assign(camHolder.style, { position: 'fixed', left: '0', bottom: '0', width: '2px', height: '2px', opacity: '0', pointerEvents: 'none' });
 document.body.appendChild(camHolder);
-const camIdOf = (name: string | undefined) => (name?.startsWith('camera:') ? name.slice(7) : null);
+/**
+ * 映像フィードのキー: カメラアイテムは `camera:<アイテムID>` → アイテムID、
+ * フォローされた人の視点は `view:<ユーザーID>` → そのまま
+ */
+const camIdOf = (name: string | undefined) =>
+  name?.startsWith('camera:') ? name.slice(7) : name?.startsWith('view:') ? name : null;
 
 function setCamFeed(id: string, on: boolean) {
   set((s) => {
@@ -65,7 +71,7 @@ function syncParticipants() {
   }
 }
 
-function attachRemote(track: RemoteTrack, pub: RemoteTrackPublication) {
+function attachRemote(track: RemoteTrack, pub: RemoteTrackPublication, identity: string) {
   const camId = camIdOf(pub.trackName);
   if (camId && track.kind === Track.Kind.Video) {
     const el = document.createElement('video');
@@ -80,15 +86,22 @@ function attachRemote(track: RemoteTrack, pub: RemoteTrackPublication) {
   }
   if (track.kind === Track.Kind.Audio) {
     // マイク音声・配信音声とも1回だけ attach する（二重音声防止）
-    audioHost.appendChild(track.attach());
+    const el = track.attach();
+    if (track.source === Track.Source.Microphone) {
+      // マイクは空間オーディオの経路で鳴らす（Chrome では要素にもつないでおかないと音が流れないので、要素はミュート）
+      el.muted = true;
+      addVoice(identity, track.mediaStreamTrack);
+    }
+    audioHost.appendChild(el);
   } else if (track.source === Track.Source.ScreenShare) {
     track.attach(shareVideoEl);
   }
 }
 
 room
-  .on(RoomEvent.TrackSubscribed, (track, pub) => { attachRemote(track, pub); syncParticipants(); })
-  .on(RoomEvent.TrackUnsubscribed, (track, pub) => {
+  .on(RoomEvent.TrackSubscribed, (track, pub, p) => { attachRemote(track, pub, p.identity); syncViewSubscriptions(); syncParticipants(); })
+  .on(RoomEvent.TrackUnsubscribed, (track, pub, p) => {
+    if (track.source === Track.Source.Microphone) removeVoice(p.identity);
     track.detach().forEach((el) => { if (el !== shareVideoEl) el.remove(); });
     const camId = camIdOf(pub.trackName);
     if (camId) { camVideos.delete(camId); setCamFeed(camId, false); }
@@ -104,7 +117,7 @@ room
   })
   .on(RoomEvent.TrackMuted, syncParticipants)
   .on(RoomEvent.TrackUnmuted, syncParticipants)
-  .on(RoomEvent.TrackPublished, syncParticipants)
+  .on(RoomEvent.TrackPublished, () => { syncViewSubscriptions(); syncParticipants(); })
   .on(RoomEvent.TrackUnpublished, syncParticipants)
   .on(RoomEvent.ParticipantConnected, syncParticipants)
   .on(RoomEvent.ParticipantDisconnected, syncParticipants)
@@ -118,6 +131,7 @@ let generation = 0;
 function resetVoiceState() {
   audioHost.replaceChildren();
   camHolder.replaceChildren();
+  removeAllVoices();
   camVideos.clear();
   set({ camFeeds: {} });
   shareVideoEl.srcObject = null;
@@ -205,3 +219,32 @@ export async function publishCamera(itemId: string, mediaTrack: MediaStreamTrack
     track.stop();
   };
 }
+
+/** フォローされている間、自分の視点（メインの 3D キャンバス）を配信する。戻り値で止める */
+export async function publishView(canvas: HTMLCanvasElement) {
+  const mediaTrack = canvas.captureStream(15).getVideoTracks()[0];
+  const track = new LocalVideoTrack(mediaTrack, undefined, true);
+  const pub = await room.localParticipant.publishTrack(track, {
+    name: `view:${get().selfId}`,
+    source: Track.Source.Camera,
+    videoEncoding: { maxBitrate: 1_500_000, maxFramerate: 15 },
+    simulcast: false,
+  });
+  return async () => {
+    if (pub.track) await room.localParticipant.unpublishTrack(pub.track);
+    track.stop();
+  };
+}
+
+/** 視点の配信は、その人をフォローしている人だけが受信する */
+function syncViewSubscriptions() {
+  const s = get();
+  const myFollow = s.participants.find((p) => p.id === s.selfId)?.follow ?? null;
+  for (const p of room.remoteParticipants.values())
+    for (const pub of p.trackPublications.values()) {
+      if (!pub.trackName.startsWith('view:')) continue;
+      const want = myFollow === p.identity;
+      if (pub.isSubscribed !== want) pub.setSubscribed(want);
+    }
+}
+useStore.subscribe((s, prev) => { if (s.participants !== prev.participants) syncViewSubscriptions(); });

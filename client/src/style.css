@@ -347,3 +347,15 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .itemrow.disabled { opacity: .45; cursor: not-allowed; }
 .itemrow.disabled:hover { background: none; }
 .msg.cont { flex-direction: column; align-items: flex-start; gap: 0; }
+
+/* ---- フォロー ---- */
+.followbtn { position: absolute; right: 8px; bottom: 8px; background: var(--blurple); color: #fff; }
+.followbtn.on { background: var(--green); }
+.tilerow .followbtn { right: 4px; bottom: 4px; padding: 1px 6px; font-size: 11px; }
+.tilefollowers { position: absolute; left: 8px; top: 8px; font-size: 12px; background: #000a; color: #fff; padding: 1px 8px; border-radius: 4px; }
+.streamtile .unfollow { position: absolute; right: 10px; bottom: 10px; }
+.follownotice {
+  position: absolute; left: 50%; top: 58px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center;
+  background: #5865f2ee; color: #fff; padding: 6px 8px 6px 14px; border-radius: 8px; font-size: 13px; white-space: nowrap;
+}
+.view3d.locked .follownotice button { pointer-events: none; }
