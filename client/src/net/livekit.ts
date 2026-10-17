@@ -1,9 +1,11 @@
 // LiveKit 接続はアプリのルート（このモジュール）で1つだけ持つ。
 // 2D/3D の表示コンポーネントは接続に触らないので、表示切替で通話・配信が切れない。
+// セッションを移るときだけ、前のルームから切断して次のルームへつなぎ直す。
 import {
   Room, RoomEvent, Track, type RemoteTrack, type Participant as LkParticipant, type LocalTrackPublication,
 } from 'livekit-client';
 import { get, set } from '../store.ts';
+import { send } from './ws.ts';
 
 export const room = new Room({ adaptiveStream: false, dynacast: true });
 
@@ -18,7 +20,10 @@ const audioHost = document.createElement('div');
 audioHost.style.display = 'none';
 document.body.appendChild(audioHost);
 
+let reported = { micOn: false, sharing: false };
+
 function syncParticipants() {
+  if (get().voice !== 'connected') return;
   const all: LkParticipant[] = [room.localParticipant, ...room.remoteParticipants.values()];
   const speaking: Record<string, boolean> = {};
   const micOn: Record<string, boolean> = {};
@@ -33,7 +38,14 @@ function syncParticipants() {
       shareHasAudio = !!p.getTrackPublication(Track.Source.ScreenShareAudio);
     }
   }
-  set({ speaking, micOn, sharer, shareHasAudio, micEnabled: room.localParticipant.isMicrophoneEnabled });
+  const lp = room.localParticipant;
+  set({ speaking, micOn, sharer, shareHasAudio, micEnabled: lp.isMicrophoneEnabled });
+  // 他セッションの人にもミュート・配信状態が見えるようにサーバーへ伝える
+  const status = { micOn: lp.isMicrophoneEnabled, sharing: lp.isScreenShareEnabled };
+  if (status.micOn !== reported.micOn || status.sharing !== reported.sharing) {
+    reported = status;
+    send({ t: 'status', ...status });
+  }
 }
 
 function attachRemote(track: RemoteTrack) {
@@ -67,35 +79,62 @@ room
   .on(RoomEvent.ParticipantDisconnected, syncParticipants)
   .on(RoomEvent.ActiveSpeakersChanged, syncParticipants)
   .on(RoomEvent.Reconnecting, () => set({ voice: 'connecting' }))
-  .on(RoomEvent.Reconnected, () => set({ voice: 'connected' }))
-  .on(RoomEvent.Disconnected, () => set({ voice: 'off' }));
+  .on(RoomEvent.Reconnected, () => { set({ voice: 'connected' }); syncParticipants(); });
 
-export async function connectVoice() {
+/** 接続要求の世代。素早くセッションを移ったとき、古い接続結果を捨てるため */
+let generation = 0;
+
+function resetVoiceState() {
+  audioHost.replaceChildren();
+  shareVideoEl.srcObject = null;
+  reported = { micOn: false, sharing: false };
+  set({ speaking: {}, micOn: {}, sharer: null, shareHasAudio: false });
+}
+
+export async function leaveVoice() {
+  generation++;
+  await room.disconnect();
+  resetVoiceState();
+  set({ voice: 'off', voiceError: null });
+}
+
+export async function connectVoice(sid: string) {
+  const gen = ++generation;
+  await room.disconnect();
+  resetVoiceState();
+  if (gen !== generation) return;
   const s = get();
   set({ voice: 'connecting', voiceError: null });
   try {
-    const res = await fetch(`/token?id=${encodeURIComponent(s.selfId)}&name=${encodeURIComponent(s.selfName)}`);
-    const j = await res.json();
+    const q = new URLSearchParams({ id: s.selfId, name: s.selfName, session: sid });
+    const j = await (await fetch(`/token?${q}`)).json();
     if (j.error) throw new Error(j.error);
+    if (gen !== generation) return;
     await room.connect(j.url, j.token);
+    if (gen !== generation) { await room.disconnect(); return; }
     await room.startAudio();
     set({ voice: 'connected' });
   } catch (e) {
-    set({ voice: 'unavailable', voiceError: String((e as Error).message ?? e) });
+    if (gen === generation) set({ voice: 'unavailable', voiceError: String((e as Error).message ?? e) });
     return;
   }
-  try {
-    await room.localParticipant.setMicrophoneEnabled(true);
-  } catch (e) {
-    set({ voiceError: `マイクを開始できません: ${(e as Error).message}` });
+  if (get().micEnabled) {
+    try {
+      await room.localParticipant.setMicrophoneEnabled(true);
+    } catch (e) {
+      set({ micEnabled: false, voiceError: `マイクを開始できません: ${(e as Error).message}` });
+    }
   }
   syncParticipants();
 }
 
+/** 未接続中は希望設定だけを切り替える（次に入ったセッションで適用） */
 export async function toggleMic() {
+  const next = !get().micEnabled;
+  set({ micEnabled: next });
   if (get().voice !== 'connected') return;
   try {
-    await room.localParticipant.setMicrophoneEnabled(!room.localParticipant.isMicrophoneEnabled);
+    await room.localParticipant.setMicrophoneEnabled(next);
   } catch (e) {
     set({ voiceError: `マイク: ${(e as Error).message}` });
   }

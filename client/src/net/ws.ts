@@ -1,5 +1,5 @@
 import type { ClientMsg, ServerMsg } from '../../../shared/protocol.ts';
-import { get, set } from '../store.ts';
+import { get, set, recompute } from '../store.ts';
 
 let ws: WebSocket | null = null;
 let retry = 0;
@@ -11,8 +11,15 @@ export function connectWs() {
     retry = 0;
     set({ wsConnected: true });
     const s = get();
-    send({ t: 'hello', id: s.selfId, name: s.selfName, mode: s.mode });
-    if (s.mode === '3d') send({ t: 'avatar', s: s.selfAvatar });
+    send({ t: 'hello', id: s.selfId, name: s.selfName });
+    // 再接続時はセッション参加状態を復元する
+    if (s.session) {
+      send({ t: 'join', sid: s.session });
+      if (s.mode === '3d') {
+        send({ t: 'mode', mode: '3d' });
+        send({ t: 'avatar', s: s.selfAvatar });
+      }
+    }
   };
   ws.onmessage = (e) => onMessage(JSON.parse(e.data) as ServerMsg);
   ws.onclose = () => {
@@ -28,42 +35,44 @@ export function send(msg: ClientMsg) {
 function onMessage(msg: ServerMsg) {
   switch (msg.t) {
     case 'snapshot': {
-      const avatars = { ...msg.s.avatars };
-      delete avatars[get().selfId];
-      set({
-        participants: msg.s.participants,
-        chat: msg.s.chat,
-        notes: Object.fromEntries(msg.s.notes.map((n) => [n.id, n])),
-        avatars,
-      });
-      return;
+      const { guild, users, chats, notes, avatars } = msg.s;
+      const firstText = guild.categories.flatMap((c) => c.channels).find((c) => c.type === 'text');
+      set((s) => ({
+        guild,
+        users,
+        chats,
+        notesBy: Object.fromEntries(Object.entries(notes).map(([sid, list]) => [sid, Object.fromEntries(list.map((n) => [n.id, n]))])),
+        avatarsBy: avatars,
+        textChannel: s.textChannel || firstText?.id || '',
+      }));
+      break;
     }
-    case 'participants':
-      set({ participants: msg.list });
-      return;
+    case 'users':
+      set({ users: msg.list });
+      break;
     case 'chat':
-      set((s) => ({ chat: [...s.chat, msg.m].slice(-500) }));
+      set((s) => ({ chats: { ...s.chats, [msg.ch]: [...(s.chats[msg.ch] ?? []), msg.m].slice(-500) } }));
       return;
     case 'avatar':
-      if (msg.id === get().selfId) return;
-      set((s) => ({ avatars: { ...s.avatars, [msg.id]: msg.s } }));
-      return;
+      set((s) => ({ avatarsBy: { ...s.avatarsBy, [msg.sid]: { ...s.avatarsBy[msg.sid], [msg.id]: msg.s } } }));
+      break;
     case 'avatarRemove':
       set((s) => {
-        const avatars = { ...s.avatars };
-        delete avatars[msg.id];
-        return { avatars };
+        const m = { ...s.avatarsBy[msg.sid] };
+        delete m[msg.id];
+        return { avatarsBy: { ...s.avatarsBy, [msg.sid]: m } };
       });
-      return;
+      break;
     case 'note':
-      set((s) => ({ notes: { ...s.notes, [msg.note.id]: msg.note } }));
-      return;
+      set((s) => ({ notesBy: { ...s.notesBy, [msg.sid]: { ...s.notesBy[msg.sid], [msg.note.id]: msg.note } } }));
+      break;
     case 'noteDelete':
       set((s) => {
-        const notes = { ...s.notes };
-        delete notes[msg.id];
-        return { notes, selectedNote: s.selectedNote === msg.id ? null : s.selectedNote };
+        const m = { ...s.notesBy[msg.sid] };
+        delete m[msg.id];
+        return { notesBy: { ...s.notesBy, [msg.sid]: m }, selectedNote: s.selectedNote === msg.id ? null : s.selectedNote };
       });
-      return;
+      break;
   }
+  recompute();
 }

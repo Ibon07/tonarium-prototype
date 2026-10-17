@@ -1,0 +1,20 @@
+{
+  "name": "Tonarium",
+  "categories": [
+    {
+      "name": "テキストチャンネル",
+      "channels": [
+        { "id": "general", "name": "雑談", "type": "text", "topic": "なんでも話そう" },
+        { "id": "feedback", "name": "フィードバック", "type": "text", "topic": "使ってみて気付いたことを書いてください" }
+      ]
+    },
+    {
+      "name": "セッション",
+      "channels": [
+        { "id": "lounge", "name": "ラウンジ", "type": "session" },
+        { "id": "game", "name": "ゲーム配信", "type": "session" },
+        { "id": "work", "name": "作業部屋", "type": "session" }
+      ]
+    }
+  ]
+}

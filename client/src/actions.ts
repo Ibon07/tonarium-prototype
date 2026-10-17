@@ -1,15 +1,53 @@
 import type { Mode, Note } from '../../shared/protocol.ts';
 import { NOTE_COLORS } from '../../shared/protocol.ts';
-import { get, set } from './store.ts';
+import { get, set, recompute, DEFAULT_AVATAR, type View } from './store.ts';
 import { send } from './net/ws.ts';
+import { connectVoice, leaveVoice } from './net/livekit.ts';
+
+/** セッションに入る（入っていればその画面を開くだけ）。別セッションからは移動する */
+export function joinSession(sid: string) {
+  if (get().session === sid) { openView('session'); return; }
+  releaseNote();
+  set({ session: sid, mode: '2d', view: 'session', selfAvatar: DEFAULT_AVATAR });
+  recompute();
+  send({ t: 'join', sid });
+  void connectVoice(sid);
+}
+
+export function leaveSession() {
+  if (!get().session) return;
+  releaseNote();
+  set({ session: null, mode: '2d', view: 'text' });
+  recompute();
+  send({ t: 'leave' });
+  void leaveVoice();
+}
+
+export function openText(id: string) {
+  set({ textChannel: id, view: 'text' });
+  setMode('2d');
+}
+
+/** 参加中セッションの画面（通話 / 付箋ボード）を開く */
+export function openView(view: Exclude<View, 'text'>) {
+  if (!get().session) return;
+  set({ view });
+  setMode('2d');
+}
 
 export function setMode(mode: Mode) {
-  if (get().mode === mode) return;
-  const { selectedNote } = get();
-  if (selectedNote) send({ t: 'noteLock', id: selectedNote, lock: false });
-  set({ mode, selectedNote: null });
+  const s = get();
+  if (s.mode === mode || !s.session) return;
+  releaseNote();
+  set({ mode, view: s.view === 'text' ? 'session' : s.view });
   send({ t: 'mode', mode });
   if (mode === '3d') send({ t: 'avatar', s: get().selfAvatar });
+}
+
+function releaseNote() {
+  const { selectedNote } = get();
+  if (selectedNote) send({ t: 'noteLock', id: selectedNote, lock: false });
+  set({ selectedNote: null });
 }
 
 export function createNote(text: string, at?: { x: number; z: number; ry: number }) {
@@ -27,7 +65,13 @@ export function createNote(text: string, at?: { x: number; z: number; ry: number
 
 export function updateNote(id: string, patch: Partial<Pick<Note, 'text' | 'color' | 'x' | 'z' | 'ry'>>) {
   // 楽観的に手元へ反映してから送る
-  set((s) => (s.notes[id] ? { notes: { ...s.notes, [id]: { ...s.notes[id], ...patch } } } : {}));
+  const sid = get().session;
+  if (!sid) return;
+  set((s) => {
+    const n = s.notesBy[sid]?.[id];
+    return n ? { notesBy: { ...s.notesBy, [sid]: { ...s.notesBy[sid], [id]: { ...n, ...patch } } } } : {};
+  });
+  recompute();
   send({ t: 'noteUpdate', id, patch });
 }
 

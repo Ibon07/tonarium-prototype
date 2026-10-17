@@ -154,7 +154,7 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .tilename { position: absolute; left: 8px; bottom: 8px; font-size: 13px; background: #000a; padding: 2px 8px; border-radius: 4px; color: #fff; }
 .tilemode { position: absolute; right: 8px; top: 8px; font-size: 11px; font-weight: 800; background: #f0b132; color: #1e1f22; padding: 1px 6px; border-radius: 4px; }
 .controlbar { display: flex; justify-content: center; gap: 12px; flex: none; }
-.round { height: 48px; min-width: 48px; border-radius: 24px; background: #2b2d31; font-size: 18px; padding: 0 14px; }
+.round { height: 48px; min-width: 48px; border-radius: 24px; background: #2b2d31; font-size: 18px; padding: 0 14px; white-space: nowrap; }
 .round.off { background: var(--red); color: #fff; }
 .round.on { background: var(--green); }
 .round.enter3d { background: var(--blurple); color: #fff; font-size: 15px; font-weight: 700; padding: 0 20px; }
@@ -202,3 +202,20 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .noteeditor textarea { height: 72px; resize: none; color: #1c1917; border-radius: 4px; }
 .noteeditor .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .noteeditor small { color: var(--muted); }
+
+/* ---- セッション参加・切断 ---- */
+.ch.joined .chname { color: var(--strong); }
+.conn.wait { color: #f0b132; }
+.vbtns button.hangup:hover:not(:disabled) { background: var(--red); }
+.round.hangup { background: var(--red); color: #fff; }
+.tabs { display: flex; gap: 4px; margin-left: 12px; padding-left: 12px; border-left: 1px solid #ffffff1a; }
+.tabs button { background: transparent; color: var(--muted); padding: 4px 10px; }
+.tabs button:hover:not(:disabled) { background: var(--hover); color: var(--text); filter: none; }
+.tabs button.active { background: var(--active); color: var(--strong); }
+.welcome { padding: 16px 16px 8px; }
+.welcome .bigicon {
+  width: 68px; height: 68px; border-radius: 50%; background: var(--active); color: var(--strong);
+  display: flex; align-items: center; justify-content: center; font-size: 40px;
+}
+.welcome h2 { color: var(--strong); margin: 8px 0 4px; font-size: 28px; }
+.welcome .sub { font-size: 14px; white-space: normal; }

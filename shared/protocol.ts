@@ -2,10 +2,32 @@
 
 export type Mode = '2d' | '3d';
 
-export interface Participant {
+// ---- チャンネル構成（channels.json で定義） ----
+export interface ChannelDef {
   id: string;
   name: string;
+  /** text: テキストチャンネル / session: 通話・配信・3D空間を持つセッション */
+  type: 'text' | 'session';
+  /** 一覧に出す説明（任意） */
+  topic?: string;
+}
+export interface CategoryDef {
+  name: string;
+  channels: ChannelDef[];
+}
+export interface GuildConfig {
+  name: string;
+  categories: CategoryDef[];
+}
+
+/** オンラインのユーザー。session が null なら通話に入っていない */
+export interface User {
+  id: string;
+  name: string;
+  session: string | null;
   mode: Mode;
+  micOn: boolean;
+  sharing: boolean;
 }
 
 export interface ChatMessage {
@@ -38,17 +60,24 @@ export interface AvatarState {
   ry: number;
 }
 
-export interface RoomSnapshot {
-  participants: Participant[];
-  chat: ChatMessage[];
-  notes: Note[];
-  avatars: Record<string, AvatarState>;
+/** チャットの宛先キー: テキストチャンネルはそのID、セッション内チャットは `s:<セッションID>` */
+export const sessionChatKey = (sid: string) => `s:${sid}`;
+
+export interface Snapshot {
+  guild: GuildConfig;
+  users: User[];
+  chats: Record<string, ChatMessage[]>;
+  notes: Record<string, Note[]>;
+  avatars: Record<string, Record<string, AvatarState>>;
 }
 
 export type ClientMsg =
-  | { t: 'hello'; id: string; name: string; mode: Mode }
+  | { t: 'hello'; id: string; name: string }
+  | { t: 'join'; sid: string }
+  | { t: 'leave' }
   | { t: 'mode'; mode: Mode }
-  | { t: 'chat'; text: string }
+  | { t: 'status'; micOn: boolean; sharing: boolean }
+  | { t: 'chat'; ch: string; text: string }
   | { t: 'avatar'; s: AvatarState }
   | { t: 'noteCreate'; note: Pick<Note, 'text' | 'color' | 'x' | 'z' | 'ry'> }
   | { t: 'noteUpdate'; id: string; patch: Partial<Pick<Note, 'text' | 'color' | 'x' | 'z' | 'ry'>> }
@@ -56,13 +85,13 @@ export type ClientMsg =
   | { t: 'noteDelete'; id: string };
 
 export type ServerMsg =
-  | { t: 'snapshot'; s: RoomSnapshot }
-  | { t: 'participants'; list: Participant[] }
-  | { t: 'chat'; m: ChatMessage }
-  | { t: 'avatar'; id: string; s: AvatarState }
-  | { t: 'avatarRemove'; id: string }
-  | { t: 'note'; note: Note }
-  | { t: 'noteDelete'; id: string };
+  | { t: 'snapshot'; s: Snapshot }
+  | { t: 'users'; list: User[] }
+  | { t: 'chat'; ch: string; m: ChatMessage }
+  | { t: 'avatar'; sid: string; id: string; s: AvatarState }
+  | { t: 'avatarRemove'; sid: string; id: string }
+  | { t: 'note'; sid: string; note: Note }
+  | { t: 'noteDelete'; sid: string; id: string };
 
 /** 3D部屋の寸法（床は -ROOM_HALF..ROOM_HALF の正方形）。スクリーンは北壁 (z = -ROOM_HALF) */
 export const ROOM_HALF = 10;

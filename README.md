@@ -4,8 +4,9 @@
 
 ## 構成
 - `client/` Vite + React + TypeScript。3D は React Three Fiber。状態は zustand
-- `server/` Node + ws。1部屋分の状態（参加者・チャット・付箋・アバター位置）をメモリに保持し、LiveKit のトークンも発行
+- `server/` Node + ws。オンラインのユーザーと、チャンネル・セッションごとの状態（チャット・付箋・アバター位置）をメモリに保持し、LiveKit のトークンも発行
 - `shared/protocol.ts` WebSocket メッセージ型
+- `channels.json` テキストチャンネルとセッションの構成
 - 音声・画面共有は LiveKit Cloud
 
 設計上のポイント:
@@ -19,6 +20,20 @@ npm install
 cp .env.example .env   # LiveKit Cloud の URL / API Key / Secret を記入
 ```
 `.env` が未設定でも、チャット・付箋・3D は動く（通話と配信のみ無効）。
+
+## チャンネル構成の変更
+`channels.json` を編集する。カテゴリごとにチャンネルを並べ、`type` は `text`（テキストチャンネル）か `session`（通話・配信・3D空間・付箋を持つセッション）。
+```json
+{ "id": "lounge", "name": "ラウンジ", "type": "session" }
+```
+- `id` は英数字で一意に。セッションごとに別の LiveKit ルーム（`tonarium-<id>`）・3D空間・付箋・チャットになる
+- `npm run dev` 中は保存するとサーバーが再起動する（メモリ内のチャット・付箋は消える）。`npm start` の場合は再起動が必要
+
+## 使い方
+- はじめはどのセッションにも入っていない状態（テキストチャンネルだけ使える）
+- 🔊 のセッションをクリックすると参加して通話につながる。別のセッションをクリックすると移動
+- 通話中もテキストチャンネルを開ける（通話は切れない）。左下の 📞 で切断
+- マイクのミュートは未接続中でも切り替えられ、次に入ったセッションで反映される
 
 ## 開発
 ```bash

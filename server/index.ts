@@ -7,21 +7,35 @@ import { randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
-  AvatarState, ChatMessage, ClientMsg, Mode, Note, Participant, ServerMsg,
+  AvatarState, ChatMessage, ClientMsg, GuildConfig, Mode, Note, ServerMsg, User,
 } from '../shared/protocol.ts';
-import { ROOM_HALF } from '../shared/protocol.ts';
+import { ROOM_HALF, sessionChatKey } from '../shared/protocol.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
-const ROOM_NAME = 'tonarium';
 const DEV = process.argv.includes('--dev');
-const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../client/dist');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const DIST = path.join(ROOT, 'client/dist');
 
-// ---- 部屋の状態（メモリ内・1部屋のみ） ----
-const participants = new Map<string, Participant>();
+// ---- チャンネル構成（channels.json。起動時に読み込む） ----
+const guild = JSON.parse(fs.readFileSync(path.join(ROOT, 'channels.json'), 'utf-8')) as GuildConfig;
+const allChannels = guild.categories.flatMap((c) => c.channels);
+const sessionIds = new Set(allChannels.filter((c) => c.type === 'session').map((c) => c.id));
+const textIds = new Set(allChannels.filter((c) => c.type === 'text').map((c) => c.id));
+/** LiveKit 上のルーム名 */
+const livekitRoom = (sid: string) => `tonarium-${sid}`;
+
+// ---- 状態（メモリ内） ----
+const users = new Map<string, User>();
 const sockets = new Map<string, Set<WebSocket>>(); // 同一IDの複数タブに対応
-const chat: ChatMessage[] = [];
-const notes = new Map<string, Note>();
-const avatars = new Map<string, AvatarState>();
+const chats = new Map<string, ChatMessage[]>();
+const notes = new Map<string, Map<string, Note>>(); // sid -> notes
+const avatars = new Map<string, Map<string, AvatarState>>(); // sid -> avatars
+for (const id of textIds) chats.set(id, []);
+for (const sid of sessionIds) {
+  chats.set(sessionChatKey(sid), []);
+  notes.set(sid, new Map());
+  avatars.set(sid, new Map());
+}
 
 function send(ws: WebSocket, msg: ServerMsg) {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
@@ -31,59 +45,102 @@ function broadcast(msg: ServerMsg, except?: WebSocket) {
   for (const set of sockets.values())
     for (const ws of set) if (ws !== except && ws.readyState === WebSocket.OPEN) ws.send(data);
 }
-function pushChat(from: Participant | null, text: string) {
+function pushChat(ch: string, from: User | null, text: string) {
+  const list = chats.get(ch);
+  if (!list) return;
   const m: ChatMessage = { id: randomUUID(), from: from?.id ?? null, fromName: from?.name ?? '', text, at: Date.now() };
-  chat.push(m);
-  if (chat.length > 500) chat.shift();
-  broadcast({ t: 'chat', m });
+  list.push(m);
+  if (list.length > 500) list.shift();
+  broadcast({ t: 'chat', ch, m });
 }
-function broadcastParticipants() {
-  broadcast({ t: 'participants', list: [...participants.values()] });
-}
+const broadcastUsers = () => broadcast({ t: 'users', list: [...users.values()] });
 const modeLabel = (m: Mode) => (m === '3d' ? '3D' : '2D');
 const clamp = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
+
+/** セッションから抜ける（退出・別セッションへの移動・切断で共通） */
+function leaveSession(u: User) {
+  const sid = u.session;
+  if (!sid) return;
+  if (avatars.get(sid)!.delete(u.id)) broadcast({ t: 'avatarRemove', sid, id: u.id });
+  for (const n of notes.get(sid)!.values())
+    if (n.editingBy === u.id) { n.editingBy = null; broadcast({ t: 'note', sid, note: n }); }
+  u.session = null;
+  u.mode = '2d';
+  u.micOn = false;
+  u.sharing = false;
+  pushChat(sessionChatKey(sid), null, `${u.name} が退出しました`);
+}
 
 function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
   if (msg.t === 'hello') {
     state.id = msg.id;
-    const isNew = !participants.has(msg.id);
-    participants.set(msg.id, { id: msg.id, name: msg.name.slice(0, 24) || 'ゲスト', mode: msg.mode });
+    if (!users.has(msg.id))
+      users.set(msg.id, { id: msg.id, name: msg.name.slice(0, 24) || 'ゲスト', session: null, mode: '2d', micOn: false, sharing: false });
     if (!sockets.has(msg.id)) sockets.set(msg.id, new Set());
     sockets.get(msg.id)!.add(ws);
     send(ws, {
       t: 'snapshot',
       s: {
-        participants: [...participants.values()],
-        chat,
-        notes: [...notes.values()],
-        avatars: Object.fromEntries(avatars),
+        guild,
+        users: [...users.values()],
+        chats: Object.fromEntries(chats),
+        notes: Object.fromEntries([...notes].map(([sid, m]) => [sid, [...m.values()]])),
+        avatars: Object.fromEntries([...avatars].map(([sid, m]) => [sid, Object.fromEntries(m)])),
       },
     });
-    broadcastParticipants();
-    if (isNew) pushChat(null, `${participants.get(msg.id)!.name} が ${modeLabel(msg.mode)} で参加しました`);
+    broadcastUsers();
     return;
   }
-  const me = state.id ? participants.get(state.id) : undefined;
+  const me = state.id ? users.get(state.id) : undefined;
   if (!me) return;
+  const sid = me.session;
 
   switch (msg.t) {
-    case 'mode': {
-      if (me.mode === msg.mode) return;
-      me.mode = msg.mode;
-      if (msg.mode === '2d' && avatars.delete(me.id)) broadcast({ t: 'avatarRemove', id: me.id });
-      broadcastParticipants();
-      pushChat(null, `${me.name} が ${modeLabel(msg.mode)} に切り替えました`);
+    case 'join': {
+      if (!sessionIds.has(msg.sid) || sid === msg.sid) return;
+      leaveSession(me);
+      me.session = msg.sid;
+      me.mode = '2d';
+      broadcastUsers();
+      pushChat(sessionChatKey(msg.sid), null, `${me.name} が参加しました`);
+      return;
+    }
+    case 'leave': {
+      leaveSession(me);
+      broadcastUsers();
       return;
     }
     case 'chat': {
       const text = msg.text.trim().slice(0, 1000);
-      if (text) pushChat(me, text);
+      if (text) pushChat(msg.ch, me, text);
+      return;
+    }
+  }
+
+  // 以降はセッション内でのみ有効
+  if (!sid) return;
+  const sessNotes = notes.get(sid)!;
+  switch (msg.t) {
+    case 'mode': {
+      if (me.mode === msg.mode) return;
+      me.mode = msg.mode;
+      if (msg.mode === '2d' && avatars.get(sid)!.delete(me.id)) broadcast({ t: 'avatarRemove', sid, id: me.id });
+      broadcastUsers();
+      pushChat(sessionChatKey(sid), null, `${me.name} が ${modeLabel(msg.mode)} に切り替えました`);
+      return;
+    }
+    case 'status': {
+      if (me.micOn === msg.micOn && me.sharing === msg.sharing) return;
+      me.micOn = msg.micOn;
+      me.sharing = msg.sharing;
+      broadcastUsers();
       return;
     }
     case 'avatar': {
+      if (me.mode !== '3d') return;
       const s = { x: clamp(msg.s.x), z: clamp(msg.s.z), ry: msg.s.ry };
-      avatars.set(me.id, s);
-      broadcast({ t: 'avatar', id: me.id, s }, ws);
+      avatars.get(sid)!.set(me.id, s);
+      broadcast({ t: 'avatar', sid, id: me.id, s }, ws);
       return;
     }
     case 'noteCreate': {
@@ -94,13 +151,13 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
         x: clamp(msg.note.x), z: clamp(msg.note.z), ry: msg.note.ry,
         createdBy: me.id, updatedBy: me.id, updatedAt: Date.now(), editingBy: null,
       };
-      notes.set(n.id, n);
-      broadcast({ t: 'note', note: n });
-      pushChat(null, `${me.name} が付箋を追加しました（${modeLabel(me.mode)}）`);
+      sessNotes.set(n.id, n);
+      broadcast({ t: 'note', sid, note: n });
+      pushChat(sessionChatKey(sid), null, `${me.name} が付箋を追加しました（${modeLabel(me.mode)}）`);
       return;
     }
     case 'noteUpdate': {
-      const n = notes.get(msg.id);
+      const n = sessNotes.get(msg.id);
       if (!n) return;
       // 最後の変更を採用。他人が編集ロック中でも位置・内容の上書きは許す（プロトタイプの簡易方式）
       const p = msg.patch;
@@ -111,21 +168,21 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       if (p.ry !== undefined) n.ry = p.ry;
       n.updatedBy = me.id;
       n.updatedAt = Date.now();
-      broadcast({ t: 'note', note: n });
+      broadcast({ t: 'note', sid, note: n });
       return;
     }
     case 'noteLock': {
-      const n = notes.get(msg.id);
+      const n = sessNotes.get(msg.id);
       if (!n) return;
       if (msg.lock) n.editingBy = me.id;
       else if (n.editingBy === me.id) n.editingBy = null;
-      broadcast({ t: 'note', note: n });
+      broadcast({ t: 'note', sid, note: n });
       return;
     }
     case 'noteDelete': {
-      if (notes.delete(msg.id)) {
-        broadcast({ t: 'noteDelete', id: msg.id });
-        pushChat(null, `${me.name} が付箋を削除しました`);
+      if (sessNotes.delete(msg.id)) {
+        broadcast({ t: 'noteDelete', sid, id: msg.id });
+        pushChat(sessionChatKey(sid), null, `${me.name} が付箋を削除しました`);
       }
       return;
     }
@@ -138,13 +195,10 @@ function onClose(ws: WebSocket, id: string | null) {
   set?.delete(ws);
   if (set && set.size > 0) return;
   sockets.delete(id);
-  const p = participants.get(id);
-  participants.delete(id);
-  if (avatars.delete(id)) broadcast({ t: 'avatarRemove', id });
-  for (const n of notes.values())
-    if (n.editingBy === id) { n.editingBy = null; broadcast({ t: 'note', note: n }); }
-  broadcastParticipants();
-  if (p) pushChat(null, `${p.name} が退出しました`);
+  const u = users.get(id);
+  if (u) leaveSession(u);
+  users.delete(id);
+  broadcastUsers();
 }
 
 // ---- HTTP: LiveKitトークン発行 + ビルド済みクライアント配信 ----
@@ -159,13 +213,18 @@ const server = http.createServer(async (req, res) => {
     const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = process.env;
     const id = url.searchParams.get('id');
     const name = url.searchParams.get('name') ?? '';
+    const sid = url.searchParams.get('session') ?? '';
     res.setHeader('Content-Type', 'application/json');
-    if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET || !id) {
+    if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
       res.end(JSON.stringify({ error: 'LiveKit が未設定です (.env)' }));
       return;
     }
+    if (!id || !sessionIds.has(sid)) {
+      res.end(JSON.stringify({ error: '不正なリクエストです' }));
+      return;
+    }
     const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { identity: id, name, ttl: '12h' });
-    at.addGrant({ roomJoin: true, room: ROOM_NAME, canPublish: true, canSubscribe: true, canPublishData: true });
+    at.addGrant({ roomJoin: true, room: livekitRoom(sid), canPublish: true, canSubscribe: true, canPublishData: true });
     res.end(JSON.stringify({ url: LIVEKIT_URL, token: await at.toJwt() }));
     return;
   }
@@ -202,5 +261,6 @@ wss.on('connection', (ws) => {
 
 server.listen(PORT, () => {
   console.log(`server on http://localhost:${PORT}`);
+  console.log(`channels: ${allChannels.map((c) => `${c.type === 'text' ? '#' : '🔊'}${c.name}`).join(' ')}`);
   if (!process.env.LIVEKIT_URL) console.warn('LIVEKIT_* が未設定: 音声・画面共有は無効になります');
 });

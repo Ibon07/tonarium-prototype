@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
-import { ROOM_HALF, NOTE_COLORS, type Note, type Participant } from '../../../shared/protocol.ts';
+import { ROOM_HALF, NOTE_COLORS, type Note, type User } from '../../../shared/protocol.ts';
 import { useStore, colorOf, nameOf } from '../store.ts';
 import { ShareVideoHost } from '../ShareVideo.tsx';
-import { createNote, deleteNote, selectNote, setMode, updateNote } from '../actions.ts';
+import { createNote, deleteNote, leaveSession, selectNote, setMode, updateNote } from '../actions.ts';
 import { toggleMic, toggleShare } from '../net/livekit.ts';
 import { Avatar } from '../ui.tsx';
 
@@ -18,7 +18,7 @@ function StreamPanel() {
   );
 }
 
-function Tile({ p }: { p: Participant }) {
+function Tile({ p }: { p: User }) {
   const speaking = useStore((s) => !!s.speaking[p.id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[p.id] === false);
   return (
@@ -36,7 +36,7 @@ function ControlBar() {
   const sharingSelf = sharer === selfId;
   return (
     <div className="controlbar">
-      <button className={`round ${micEnabled ? '' : 'off'}`} disabled={!ok} onClick={toggleMic} title="マイク">
+      <button className={`round ${micEnabled ? '' : 'off'}`} onClick={toggleMic} title="マイク">
         {micEnabled ? '🎙' : '🔇'}
       </button>
       <button
@@ -44,6 +44,7 @@ function ControlBar() {
         onClick={toggleShare} title={sharingSelf ? '配信を停止' : '画面を配信'}
       >🖥</button>
       <button className="round enter3d" onClick={() => setMode('3d')}>🧊 3D空間に入る</button>
+      <button className="round hangup" onClick={leaveSession} title="切断">📞</button>
     </div>
   );
 }
