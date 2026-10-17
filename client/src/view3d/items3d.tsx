@@ -1,7 +1,6 @@
 // アイテムの 3D 表示。付箋・チェス・ハンマーは 3D 専用の表示を持ち、2048 は 2D 画面を空間に置く互換モード。
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, type ThreeElements } from '@react-three/fiber';
-import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { ITEM_INFO, type Item } from '../../../shared/items.ts';
 import { useStore, get, nameOf } from '../store.ts';
@@ -12,6 +11,7 @@ import { drawPanel } from '../items/PanelCanvas.tsx';
 import { carrying, type Interactable } from './interact.ts';
 import { drawText, makeCanvasTexture } from './textTexture.ts';
 import { Camera3D } from './camera3d.tsx';
+import { Label } from './Label.tsx';
 
 /** 持ち運び中なら手元の位置、そうでなければ同期された位置へ滑らかに寄せる */
 function useFollow(ref: React.RefObject<THREE.Group | null>, id: string, x: number, z: number, ry: number) {
@@ -262,11 +262,11 @@ function CompatPanel3D({ item }: { item: Item }) {
         <planeGeometry args={[w, PANEL_H]} />
         <meshBasicMaterial map={tex} toneMapped={false} />
       </mesh>
-      <Html position={[0, 1.6 + PANEL_H / 2 + 0.18, 0]} center distanceFactor={8}>
-        <div className={`nametag ${COMPAT_ONLY[item.kind] ? 'compat' : ''}`}>
-          {ITEM_INFO[item.kind].icon} {ITEM_INFO[item.kind].name}{COMPAT_ONLY[item.kind] && ' ・ 互換モード'}
-        </div>
-      </Html>
+      <Label
+        position={[0, 1.6 + PANEL_H / 2 + 0.18, 0]} height={0.16}
+        text={`${ITEM_INFO[item.kind].icon} ${ITEM_INFO[item.kind].name}${COMPAT_ONLY[item.kind] ? ' ・ 互換モード' : ''}`}
+        bg={COMPAT_ONLY[item.kind] ? 'rgba(88,101,242,0.95)' : 'rgba(0,0,0,0.75)'}
+      />
     </group>
   );
 }

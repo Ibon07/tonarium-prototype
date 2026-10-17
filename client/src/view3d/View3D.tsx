@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { DOOR_HALF, ROOM_HALF, entranceSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
 import { NOTE_COLORS } from '../../../shared/items.ts';
@@ -13,9 +12,10 @@ import { ItemMenu } from '../items/ItemMenu.tsx';
 import { editNote, moveItem, removeItem, spawnItem } from '../items/actions.ts';
 import { bump, recentlyHit } from '../items/effects.ts';
 import { drawText, makeCanvasTexture } from './textTexture.ts';
-import { EYE, type Interactable } from './interact.ts';
+import { EYE, carrying, type Interactable } from './interact.ts';
 import { Player } from './Player.tsx';
 import { HammerModel, Item3D } from './items3d.tsx';
+import { Label } from './Label.tsx';
 import { CameraModel, CameraStreamer, CamMonitor } from './camera3d.tsx';
 
 // ---------- 部屋（南壁の中央に入口） ----------
@@ -125,9 +125,7 @@ function Screen() {
         <meshBasicMaterial map={sharer ? videoTex : idle} toneMapped={false} />
       </mesh>
       {sharer && (
-        <Html position={[0, h / 2 + 0.3, 0]} center distanceFactor={10}>
-          <div className="nametag live">🔴 {nameOf(sharer)} の配信</div>
-        </Html>
+        <Label position={[0, h / 2 + 0.3, 0]} height={0.3} text={`🔴 ${nameOf(sharer)} の配信`} bg="rgba(237,66,69,0.95)" />
       )}
     </group>
   );
@@ -173,13 +171,14 @@ function Standee({ user }: { user: User }) {
   useFrame((_, dt) => {
     const g = ref.current;
     const s = get();
-    // 入口の列か、フォロー中ならフォロー先の後ろ（小さくなる）へ滑らかに移動する
-    const pos = placesOf(s).get(user.id);
+    // 入口の列・置かれた場所・フォロー先の後ろ（小さくなる）へ滑らかに移動する。運ばれている間は手元の位置
+    const carried = carrying.current?.id === `user:${user.id}` ? carrying.current : null;
+    const pos = carried ? { x: carried.x, z: carried.z, ry: carried.ry + Math.PI, small: false } : placesOf(s).get(user.id);
     if (g && pos) {
-      const k = Math.min(1, dt * 8);
+      const k = carried ? 1 : Math.min(1, dt * 8);
       g.position.x += (pos.x - g.position.x) * k;
       g.position.z += (pos.z - g.position.z) * k;
-      let r = (pos.small ? pos.ry : 0) - g.rotation.y;
+      let r = pos.ry - g.rotation.y;
       r = Math.atan2(Math.sin(r), Math.cos(r));
       g.rotation.y += r * k;
       const sc = g.scale.x + ((pos.small ? 0.45 : 1) - g.scale.x) * k;
@@ -190,7 +189,7 @@ function Standee({ user }: { user: User }) {
     card.current?.scale.set(1 + 0.25 * b, 1 - 0.35 * b + talk, 1);
   });
   return (
-    <group ref={ref} position={[pos0.x, 0, pos0.z]} userData={{ hitTarget: user.id } satisfies Interactable}>
+    <group ref={ref} position={[pos0.x, 0, pos0.z]} userData={{ hitTarget: user.id, carry: `user:${user.id}`, hint: `💻 ${user.name}（2Dで参加中）` } satisfies Interactable}>
       <mesh position-y={0.02}>
         <cylinderGeometry args={[0.28, 0.3, 0.04, 20]} />
         <meshStandardMaterial color="#2b2d31" />
@@ -208,11 +207,11 @@ function Standee({ user }: { user: User }) {
           <meshBasicMaterial color="#22c55e" />
         </mesh>
       )}
-      <Html position={[0, 1.95, 0]} center distanceFactor={8}>
-        <div className={`nametag twod ${speaking ? 'speaking' : ''} ${recentlyHit(user.id) ? 'hitflash' : ''}`}>
-          💻 {micOff && '🔇 '}{user.name}
-        </div>
-      </Html>
+      <Label
+        position={[0, 1.95, 0]} text={`💻 ${micOff ? '🔇 ' : ''}${user.name}`}
+        bg={recentlyHit(user.id) ? 'rgba(240,177,50,0.95)' : speaking ? 'rgba(35,165,90,0.95)' : 'rgba(78,80,88,0.9)'}
+        fg={recentlyHit(user.id) ? '#1e1f22' : '#ffffff'}
+      />
     </group>
   );
 }
@@ -285,9 +284,7 @@ function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
           <meshBasicMaterial color="#22c55e" />
         </mesh>
       )}
-      <Html position={[0, 2, 0]} center distanceFactor={8}>
-        <div className={`nametag ${speaking ? 'speaking' : ''}`}>{micOff && '🔇 '}{name}</div>
-      </Html>
+      <Label position={[0, 2, 0]} text={`${micOff ? '🔇 ' : ''}${name}`} bg={speaking ? 'rgba(35,165,90,0.95)' : 'rgba(0,0,0,0.75)'} />
     </group>
   );
 }

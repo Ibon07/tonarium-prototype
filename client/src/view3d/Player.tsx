@@ -5,7 +5,7 @@ import type { AvatarState } from '../../../shared/protocol.ts';
 import { get, set, heldHammer, heldCamera, nameOf } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { selectNote } from '../actions.ts';
-import { dropCamera, dropHammer, hit, moveItem, toggleLive } from '../items/actions.ts';
+import { dropCamera, dropHammer, hit, moveItem, place2d, toggleLive } from '../items/actions.ts';
 import { bump } from '../items/effects.ts';
 import { aimAt, aimOn, carrying, clampRoom, EYE, type Interactable } from './interact.ts';
 import { HammerModel } from './items3d.tsx';
@@ -33,10 +33,17 @@ function hintFor(aim: { data: Interactable; hit: THREE.Intersection } | null): s
   return parts.length ? parts.join(' ・ ') : null;
 }
 
+/** 持ち運び中の物の位置を送る（`user:<ID>` は 2D の人の立ち姿） */
+function sendCarry(c: { id: string; x: number; z: number; ry: number }) {
+  // 立ち姿はこちらを向けて置く（前向きは -Z なので、運ぶ人の向き + 180°）
+  if (c.id.startsWith('user:')) place2d(c.id.slice(5), { x: c.x, z: c.z, ry: c.ry + Math.PI });
+  else moveItem(c.id, c.x, c.z, c.ry);
+}
+
 function finishCarry() {
   const c = carrying.current;
   if (!c) return;
-  moveItem(c.id, c.x, c.z, c.ry);
+  sendCarry(c);
   carrying.current = null;
 }
 
@@ -200,7 +207,7 @@ export function Player() {
       c.ry = yaw;
       if (now - c.last > 80) {
         c.last = now;
-        moveItem(c.id, c.x, c.z, c.ry);
+        sendCarry(c);
       }
     }
 

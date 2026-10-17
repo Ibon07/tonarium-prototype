@@ -35,6 +35,9 @@ export function placesOf(s = get()): Map<string, Place> {
         ry: target.ry,
         small: true,
       });
+    } else if (u.pos) {
+      // 3D の人に運ばれた・自分で動いた・叩いて移った場所
+      out.set(u.id, { ...u.pos, small: false });
     } else {
       const p = entranceSlot(queue++);
       out.set(u.id, { x: p.x, z: p.z, ry: 0, small: false });

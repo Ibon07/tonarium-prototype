@@ -359,3 +359,22 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
   background: #5865f2ee; color: #fff; padding: 6px 8px 6px 14px; border-radius: 8px; font-size: 13px; white-space: nowrap;
 }
 .view3d.locked .follownotice button { pointer-events: none; }
+
+/* ---- マップの操作 ---- */
+.maptip {
+  position: fixed; z-index: 30; transform: translateX(-50%); width: 220px; background: var(--rail); border-radius: 8px;
+  padding: 10px; box-shadow: 0 8px 24px #000a; display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+}
+.maptiphdr { font-weight: 700; color: var(--strong); font-size: 13px; }
+.maptippreview { height: 150px; display: flex; justify-content: center; }
+.maptippreview .panelcanvas { pointer-events: none; }
+.maptipnote { color: #1c1917; border-radius: 4px; padding: 8px; font-size: 13px; white-space: pre-wrap; max-height: 120px; overflow: hidden; }
+.map .hittable, .map.hammering .hittable * { cursor: none; }
+.map .mapself { cursor: grab; }
+.map .selfring { fill: none; stroke: #fff; stroke-width: .08; stroke-dasharray: .15 .1; }
+.map.hammering svg { cursor: none; }
+.tile.hittable { cursor: none; }
+.hammercursor { position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none; }
+.hammercursor div { font-size: 34px; transform: translate(-30%, -70%) rotate(-25deg); transform-origin: 30% 90%; filter: drop-shadow(0 2px 2px #0008); }
+.hammercursor div.swing { animation: hammerswing .3s; }
+@keyframes hammerswing { 0% { transform: translate(-30%, -70%) rotate(-25deg); } 40% { transform: translate(-30%, -70%) rotate(-80deg); } 70% { transform: translate(-30%, -70%) rotate(20deg); } 100% { transform: translate(-30%, -70%) rotate(-25deg); } }

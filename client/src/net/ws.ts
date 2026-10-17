@@ -3,12 +3,15 @@ import { get, set, recompute } from '../store.ts';
 import { applyDelta } from '../items/actions.ts';
 import { onHit } from '../items/effects.ts';
 
-let ws: WebSocket | null = null;
+// 開発中のホットリロードでこのモジュールが読み直されても、接続中のソケットを使い続ける
+// （読み直した側でソケットが null になり、送信だけが黙って捨てられるのを防ぐ）
+const g = globalThis as unknown as { __tonariumWs?: WebSocket | null };
 let retry = 0;
 
 export function connectWs() {
   const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
-  ws = new WebSocket(url);
+  const ws = new WebSocket(url);
+  g.__tonariumWs = ws;
   ws.onopen = () => {
     retry = 0;
     set({ wsConnected: true });
@@ -31,6 +34,7 @@ export function connectWs() {
 }
 
 export function send(msg: ClientMsg) {
+  const ws = g.__tonariumWs;
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
 

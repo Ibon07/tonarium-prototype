@@ -5,11 +5,11 @@ import { useStore, get, set, colorOf, nameOf, heldHammer } from '../store.ts';
 import { PANELS } from '../items/panels.ts';
 import { PanelCanvas } from '../items/PanelCanvas.tsx';
 import { ItemMenu } from '../items/ItemMenu.tsx';
-import { dropHammer, editNote, hit, itemAction, moveItem, removeItem, spawnItem } from '../items/actions.ts';
+import { dropHammer, editNote, hitAndMove, itemAction, moveItem, place2d, removeItem, spawnItem } from '../items/actions.ts';
 import { consumeHitFx, recentlyHit } from '../items/effects.ts';
 import { camHolder, camVideos } from '../net/livekit.ts';
 import { ShareVideoHost } from '../ShareVideo.tsx';
-import { follow, leaveSession, selectNote, setMode } from '../actions.ts';
+import { follow, leaveSession, openView, selectNote, setMode } from '../actions.ts';
 import { placesOf } from '../spatial.ts';
 import { toggleMic, toggleShare } from '../net/livekit.ts';
 import { Avatar } from '../ui.tsx';
@@ -102,7 +102,7 @@ function UserTile({ p }: { p: User }) {
     <div
       data-uid={p.id}
       className={`tile ${speaking ? 'speaking' : ''} ${recentlyHit(p.id) ? 'hit' : ''} ${canHit ? 'hittable' : ''}`}
-      onClick={canHit ? () => hit(p.id) : undefined}
+      onClick={canHit ? () => hitAndMove(p.id) : undefined}
       title={canHit ? 'クリックで叩く' : undefined}
     >
       <Avatar id={p.id} name={p.name} size={64} />
@@ -145,19 +145,27 @@ function StageTileView({ t, big }: { t: StageTile; big: boolean }) {
   return <UserTile p={t.user} />;
 }
 
-/** 部屋にあるハンマーの一覧（拾う・手放す） */
+/** 部屋にあるハンマーの一覧（拾う・手放す）と、自分の 3D 空間での居場所 */
 function HammerBar() {
   const items = useStore((s) => s.items);
   const selfId = useStore((s) => s.selfId);
-  useStore((s) => s.participants);
+  const participants = useStore((s) => s.participants);
+  const me = participants.find((p) => p.id === selfId);
   const hammers = Object.values(items).flatMap((i) => (i.kind === 'hammer' ? [i] : []));
-  if (!hammers.length) return null;
+  const placedSelf = me?.mode === '2d' && !!me.pos && !me.follow;
+  if (!hammers.length && !placedSelf) return null;
   const iHold = hammers.some((h) => h.holder === selfId);
   return (
     <div className="hammerbar">
+      {placedSelf && (
+        <div className="hammerchip">
+          📍 3D空間の中にいます
+          <button className="small" onClick={() => place2d(selfId, null)}>入口に戻る</button>
+        </div>
+      )}
       {hammers.map((h) => (
         <div key={h.id} className="hammerchip">
-          🔨 {h.holder ? (h.holder === selfId ? '持っています — 相手のタイルをクリックで叩く' : `${nameOf(h.holder)} が持っている`) : '置いてある'}
+          🔨 {h.holder ? (h.holder === selfId ? '持っています — 相手のタイルやマップの人をクリックで叩く' : `${nameOf(h.holder)} が持っている`) : '置いてある'}
           {h.holder === null && !iHold && <button className="small" onClick={() => itemAction(h.id, { a: 'pick' })}>拾う</button>}
           {h.holder === selfId && <button className="small" onClick={dropHammer}>手放す</button>}
           {h.holder === null && <button className="small" onClick={() => removeItem(h.id)}>片付ける</button>}
@@ -296,20 +304,68 @@ function MapItem({ item }: { item: Item }) {
   );
 }
 
-/** 3D空間を上から見たマップ。アイテムはドラッグで移動できる */
+/** マップでアイテムにマウスを乗せたときの操作 */
+function MapTip({ item, onClose }: { item: Item; onClose: () => void }) {
+  const iHold = useStore((s) => !!heldHammer(s));
+  const feed = useStore((s) => s.camFeeds[item.id]);
+  const info = ITEM_INFO[item.kind];
+  const focusItem = (key: string) => { set({ focus: key }); openView('session'); onClose(); };
+  return (
+    <>
+      <div className="maptiphdr">{info.icon} {info.name}</div>
+      {PANELS[item.kind] && (
+        <>
+          <div className="maptippreview"><PanelCanvas item={item} interactive={false} /></div>
+          <button className="small primary" onClick={() => focusItem(item.id)}>フォーカス</button>
+        </>
+      )}
+      {item.kind === 'hammer' && (
+        iHold
+          ? <div className="sub">すでにハンマーを持っています</div>
+          : <button className="small primary" onClick={() => { itemAction(item.id, { a: 'pick' }); onClose(); }}>持つ</button>
+      )}
+      {item.kind === 'note' && (
+        <>
+          <div className="maptipnote" style={{ background: item.color }}>{item.text || '（空の付箋）'}</div>
+          <button className="small primary" onClick={() => { openView('board'); onClose(); }}>付箋ボードで開く</button>
+        </>
+      )}
+      {item.kind === 'camera' && (
+        item.live && feed
+          ? <button className="small primary" onClick={() => focusItem(item.id)}>配信を見る</button>
+          : <div className="sub">3D空間でのみ使えます</div>
+      )}
+    </>
+  );
+}
+
+/** 3D空間を上から見たマップ。アイテムはドラッグで移動、自分（2D）もドラッグで動ける */
 function MiniMap({ bare = false }: { bare?: boolean }) {
   const { avatars, items, participants, speaking, selfId, sharer } = useStore();
   useStore((s) => s.hits);
+  const hammer = useStore((s) => !!heldHammer(s));
   const svgRef = useRef<SVGSVGElement>(null);
-  const drag = useRef<{ id: string; ry: number; last: number } | null>(null);
+  const boxRef = useRef<HTMLElement>(null);
+  const drag = useRef<{ kind: 'item' | 'self'; id: string; ry: number; last: number; x0: number; z0: number; moved: boolean } | null>(null);
+  const [tip, setTip] = useState<{ id: string; left: number; top: number } | null>(null);
+  const hideTimer = useRef<number | undefined>(undefined);
 
-  const toRoom = (e: React.PointerEvent) => {
+  const toRoom = (e: React.PointerEvent, self = false) => {
     const svg = svgRef.current!;
     const pt = svg.createSVGPoint();
     pt.x = e.clientX; pt.y = e.clientY;
     const p = pt.matrixTransform(svg.getScreenCTM()!.inverse());
     const L = ROOM_HALF - 0.5;
-    return { x: Math.max(-L, Math.min(L, p.x)), z: Math.max(-L, Math.min(L, p.y)) };
+    // 2D の自分は入口の外の控えにも置ける
+    return { x: Math.max(-L, Math.min(L, p.x)), z: Math.max(-L, Math.min(self ? ROOM_HALF + 2.8 : L, p.y)) };
+  };
+  const sendDrag = (e: React.PointerEvent) => {
+    const d = drag.current!;
+    const p = toRoom(e, d.kind === 'self');
+    if (!d.moved && Math.hypot(p.x - d.x0, p.z - d.z0) < 0.3) return;
+    d.moved = true;
+    if (d.kind === 'self') place2d(selfId, { x: p.x, z: p.z, ry: d.ry });
+    else moveItem(d.id, p.x, p.z, d.ry);
   };
   const onMove = (e: React.PointerEvent) => {
     const d = drag.current;
@@ -317,29 +373,48 @@ function MiniMap({ bare = false }: { bare?: boolean }) {
     const now = performance.now();
     if (now - d.last < 60) return;
     d.last = now;
-    const p = toRoom(e);
-    moveItem(d.id, p.x, p.z, d.ry);
+    sendDrag(e);
   };
   const onUp = (e: React.PointerEvent) => {
-    const d = drag.current;
-    if (!d) return;
-    const p = toRoom(e);
-    moveItem(d.id, p.x, p.z, d.ry);
+    if (!drag.current) return;
+    sendDrag(e);
     drag.current = null;
   };
+  const startDrag = (e: React.PointerEvent, kind: 'item' | 'self', id: string, ry: number) => {
+    if (hammer && kind === 'self') return;
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    const p = toRoom(e, kind === 'self');
+    drag.current = { kind, id, ry, last: 0, x0: p.x, z0: p.z, moved: false };
+    setTip(null);
+  };
+  const showTip = (e: React.MouseEvent, id: string) => {
+    if (drag.current || !boxRef.current) return;
+    window.clearTimeout(hideTimer.current);
+    // マップの枠ではみ出さないよう、画面に対する位置で出す
+    const r = (e.currentTarget as Element).getBoundingClientRect();
+    setTip({ id, left: Math.min(window.innerWidth - 120, Math.max(120, r.left + r.width / 2)), top: r.bottom + 4 });
+  };
+  const hideTip = () => { hideTimer.current = window.setTimeout(() => setTip(null), 200); };
+  // ハンマーを持っている間は、マップ上の人をクリックすると叩いて、その人の前に移る
+  const hitProps = (id: string) => (hammer && id !== selfId ? {
+    onClick: () => hitAndMove(id),
+    className: 'hittable',
+  } : {});
+
   const in2d = participants.filter((p) => p.mode === '2d');
   const in3d = participants.filter((p) => p.mode === '3d');
   const H = ROOM_HALF;
-  // 誰かが持っているハンマーはその人と一緒に表示するので、床の物だけ描く
+  // 誰かが持っているハンマー・カメラはその人と一緒に表示するので、置かれている物だけ描く
   const placed = Object.values(items).filter((i) => !('holder' in i && i.holder));
   const holding = (id: string) => Object.values(items).some((i) => i.kind === 'hammer' && i.holder === id);
   const holdingCam = (id: string) => Object.values(items).some((i) => i.kind === 'camera' && i.holder === id);
   const H2 = H + 3.6;
   const places = placesOf();
+  const tipItem = tip ? items[tip.id] : undefined;
 
   return (
-    <section className={bare ? 'map bare' : 'map'}>
-      {!bare && <h3>3D空間のようす <small>（3D: {in3d.length}人 / アイテムはドラッグで移動）</small></h3>}
+    <section ref={boxRef} className={`${bare ? 'map bare' : 'map'} ${hammer ? 'hammering' : ''}`}>
+      {!bare && <h3>3D空間のようす <small>（3D: {in3d.length}人 / アイテムと自分はドラッグで移動）</small></h3>}
       <svg
         ref={svgRef} viewBox={`${-H - 0.5} ${-H - 0.5} ${2 * H + 1} ${H + H2 + 1}`}
         onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}
@@ -354,10 +429,9 @@ function MiniMap({ bare = false }: { bare?: boolean }) {
           <g
             key={it.id} transform={`translate(${it.x} ${it.z}) rotate(${(-it.ry * 180) / Math.PI})`}
             className="mapitem"
-            onPointerDown={(e) => {
-              (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-              drag.current = { id: it.id, ry: it.ry, last: 0 };
-            }}
+            onPointerDown={(e) => startDrag(e, 'item', it.id, it.ry)}
+            onMouseEnter={(e) => showTip(e, it.id)}
+            onMouseLeave={hideTip}
           >
             <MapItem item={it} />
           </g>
@@ -365,8 +439,9 @@ function MiniMap({ bare = false }: { bare?: boolean }) {
         {Object.entries(avatars).map(([id, a]) => {
           const name = participants.find((p) => p.id === id)?.name;
           if (!name || id === selfId) return null;
+          const hp = hitProps(id);
           return (
-            <g key={id} transform={`translate(${a.x} ${a.z})`} className={recentlyHit(id) ? 'maphit' : ''}>
+            <g key={id} transform={`translate(${a.x} ${a.z})`} className={`${recentlyHit(id) ? 'maphit' : ''} ${hp.className ?? ''}`} onClick={hp.onClick}>
               {speaking[id] && <circle r={0.9} className="speakring" />}
               <circle r={0.5} fill={colorOf(id)} />
               <line x1={0} y1={0} x2={-Math.sin(a.ry) * 1} y2={-Math.cos(a.ry) * 1} stroke={colorOf(id)} strokeWidth={0.15} />
@@ -374,19 +449,35 @@ function MiniMap({ bare = false }: { bare?: boolean }) {
             </g>
           );
         })}
-        {/* 2D の人は入口の外に並ぶ（3D でも同じ位置に立っている） */}
+        {/* 2D の人: 入口の列・置かれた場所・フォロー先の後ろ（3D でも同じ位置に立っている） */}
         {in2d.map((p) => {
-          const s = places.get(p.id) ?? { ...entranceSlot(0), small: false };
+          const s = places.get(p.id) ?? { ...entranceSlot(0), ry: 0, small: false };
+          const self = p.id === selfId;
+          const hp = hitProps(p.id);
           return (
-            <g key={p.id} transform={`translate(${s.x} ${s.z}) scale(${s.small ? 0.6 : 1})`} className={recentlyHit(p.id) ? 'maphit' : ''}>
+            <g
+              key={p.id} transform={`translate(${s.x} ${s.z}) scale(${s.small ? 0.6 : 1})`}
+              className={`${recentlyHit(p.id) ? 'maphit' : ''} ${self && !hammer ? 'mapself' : ''} ${hp.className ?? ''}`}
+              onClick={hp.onClick}
+              onPointerDown={self ? (e) => startDrag(e, 'self', p.id, s.ry) : undefined}
+            >
               {speaking[p.id] && <circle r={0.55} className="speakring" />}
+              {self && <rect x={-0.42} y={-0.42} width={0.84} height={0.84} rx={0.16} className="selfring" />}
               <rect x={-0.3} y={-0.3} width={0.6} height={0.6} rx={0.1} fill={colorOf(p.id)} />
-              <text y={0.95} className="label small" textAnchor="middle">{p.name}{p.id === selfId ? '(自分)' : ''}{holding(p.id) ? '🔨' : ''}</text>
+              <text y={0.95} className="label small" textAnchor="middle">{p.name}{self ? '(自分)' : ''}{holding(p.id) ? '🔨' : ''}</text>
             </g>
           );
         })}
       </svg>
-      <div className="twod">2Dで参加中（入口に並ぶ・フォロー中はその人の後ろ）: {in2d.map((p) => p.name).join('、') || 'なし'}</div>
+      {tip && tipItem && (
+        <div
+          className="maptip" style={{ left: tip.left, top: tip.top }}
+          onMouseEnter={() => window.clearTimeout(hideTimer.current)} onMouseLeave={hideTip}
+        >
+          <MapTip item={tipItem} onClose={() => setTip(null)} />
+        </div>
+      )}
+      <div className="twod">2Dで参加中: {in2d.map((p) => p.name).join('、') || 'なし'}{hammer && ' ・ 🔨 人をクリックで叩いてその前に移動'}</div>
     </section>
   );
 }

@@ -3,7 +3,7 @@ import { sessionChatKey } from '../../shared/protocol.ts';
 import { useStore, set, channelOf } from './store.ts';
 import { connectWs } from './net/ws.ts';
 import { openView, setMode } from './actions.ts';
-import { ChannelSidebar, Chat, Lightbox, MemberList } from './ui.tsx';
+import { ChannelSidebar, Chat, HammerCursor, Lightbox, MemberList } from './ui.tsx';
 import { SessionView, BoardView } from './view2d/View2D.tsx';
 import { View3D } from './view3d/View3D.tsx';
 
@@ -107,6 +107,7 @@ export function App() {
         </div>
       </div>
       <Lightbox />
+      <HammerCursor />
     </div>
   );
 }

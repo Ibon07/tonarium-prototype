@@ -31,6 +31,8 @@ export interface User {
   sharing: boolean;
   /** 2D の人がフォローしている 3D の人（その人の少し後ろにいる扱いになり、視点の配信が見える） */
   follow: string | null;
+  /** 2D の人が 3D 空間のどこかに置かれていればその位置（null なら入口の列） */
+  pos: AvatarState | null;
 }
 
 export interface ChatMessage {
@@ -70,6 +72,8 @@ export type ClientMsg =
   | { t: 'follow'; target: string | null }
   /** 自分をフォローしている人を全員解除する（3D の人が使う） */
   | { t: 'dropFollowers' }
+  /** 2D の人の位置を決める（3D の人が運ぶ、2D の本人がマップで動く・叩いて移る）。pos が null なら入口に戻る */
+  | { t: 'place2d'; target: string; pos: AvatarState | null }
   | { t: 'chat'; ch: string; text: string; image?: string }
   | { t: 'avatar'; s: AvatarState }
   | { t: 'itemCreate'; kind: ItemKind; x: number; z: number; ry: number; text?: string }

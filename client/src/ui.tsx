@@ -1,7 +1,7 @@
 // Discord 風レイアウトの共通部品（チャンネル一覧・メンバー一覧・チャット・ユーザーパネル）
 import { useEffect, useRef, useState } from 'react';
 import type { ChannelDef, ChatMessage, User } from '../../shared/protocol.ts';
-import { useStore, set, colorOf, channelOf } from './store.ts';
+import { useStore, set, colorOf, channelOf, heldHammer } from './store.ts';
 import { send } from './net/ws.ts';
 import { toggleMic, toggleShare } from './net/livekit.ts';
 import { joinSession, leaveSession, openText, setMode } from './actions.ts';
@@ -168,6 +168,30 @@ export function MemberList() {
 function ChatImage({ src }: { src?: string }) {
   if (!src) return null;
   return <img className="chatimg" src={src} alt="" onClick={() => set({ lightbox: src })} />;
+}
+
+/** 2D でハンマーを持っている間、マウスのところにハンマーを出す（クリックで振る） */
+export function HammerCursor() {
+  const on = useStore((s) => s.mode === '2d' && !!s.session && !!heldHammer(s));
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!on) return;
+    const move = (e: MouseEvent) => {
+      if (ref.current) ref.current.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+    };
+    const down = () => {
+      const el = ref.current?.firstElementChild as HTMLElement | null;
+      if (!el) return;
+      el.classList.remove('swing');
+      void el.offsetWidth; // アニメーションをやり直す
+      el.classList.add('swing');
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mousedown', down);
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mousedown', down); };
+  }, [on]);
+  if (!on) return null;
+  return <div ref={ref} className="hammercursor"><div>🔨</div></div>;
 }
 
 /** チャット画像の拡大表示 */

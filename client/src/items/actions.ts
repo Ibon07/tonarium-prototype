@@ -2,6 +2,7 @@ import { applyItemAction, type ItemAction, type ItemKind } from '../../../shared
 import { ROOM_HALF, sessionChatKey } from '../../../shared/protocol.ts';
 import { get, set, recompute, heldHammer, heldCamera, type ItemUi } from '../store.ts';
 import { send } from '../net/ws.ts';
+import { placesOf } from '../spatial.ts';
 
 const LIMIT = ROOM_HALF - 0.5;
 const clamp = (v: number) => Math.max(-LIMIT, Math.min(LIMIT, v));
@@ -112,4 +113,28 @@ export function toggleLive(id: string) {
 export function hit(to: string) {
   if (to === get().selfId || !heldHammer(get())) return;
   send({ t: 'hit', to });
+}
+
+/** 2D の人の位置を決める（null で入口に戻る） */
+export function place2d(target: string, pos: { x: number; z: number; ry: number } | null) {
+  send({ t: 'place2d', target, pos });
+}
+
+/** 2D で叩いたら、叩いた相手のすぐ前（相手の方を向いて）に移る */
+export function hitAndMove(to: string) {
+  const s = get();
+  if (!heldHammer(s) || to === s.selfId) return;
+  hit(to);
+  if (s.mode !== '2d') return;
+  const places = placesOf(s);
+  const t = places.get(to);
+  if (!t) return;
+  const me = places.get(s.selfId);
+  let dx = (me?.x ?? t.x) - t.x;
+  let dz = (me?.z ?? t.z + 1) - t.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 0.01) { dx = 0; dz = 1; } else { dx /= d; dz /= d; }
+  const x = t.x + dx * 0.8;
+  const z = t.z + dz * 0.8;
+  place2d(s.selfId, { x, z, ry: Math.atan2(-(t.x - x), -(t.z - z)) });
 }

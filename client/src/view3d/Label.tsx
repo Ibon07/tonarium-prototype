@@ -1,0 +1,46 @@
+// 3D 空間内の名札などの文字ラベル。DOM ではなく Canvas テクスチャのスプライトで描く
+// （drei の Html は 3D 表示を開いた瞬間にいる人の分が空になることがあり、撮影・配信にも写らないため）。
+import { useEffect, useMemo } from 'react';
+import * as THREE from 'three';
+
+const FONT = '"Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif';
+
+export function Label({ text, position, bg = 'rgba(0,0,0,0.75)', fg = '#ffffff', height = 0.2 }: {
+  text: string;
+  position: [number, number, number];
+  bg?: string;
+  fg?: string;
+  /** 文字の行の高さ（m） */
+  height?: number;
+}) {
+  const { tex, aspect } = useMemo(() => {
+    const size = 48;
+    const pad = 20;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d')!;
+    ctx.font = `600 ${size}px ${FONT}`;
+    const w = Math.ceil(ctx.measureText(text).width) + pad * 2;
+    const h = size + pad;
+    canvas.width = w;
+    canvas.height = h;
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, w, h, h / 2);
+    ctx.fill();
+    ctx.font = `600 ${size}px ${FONT}`;
+    ctx.fillStyle = fg;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, w / 2, h / 2 + 2);
+    const t = new THREE.CanvasTexture(canvas);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    return { tex: t, aspect: w / h };
+  }, [text, bg, fg]);
+  useEffect(() => () => tex.dispose(), [tex]);
+  return (
+    <sprite position={position} scale={[height * aspect, height, 1]} userData={{ noRay: true }} renderOrder={10}>
+      <spriteMaterial map={tex} transparent depthWrite={false} toneMapped={false} />
+    </sprite>
+  );
+}

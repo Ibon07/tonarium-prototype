@@ -106,6 +106,7 @@ function leaveSession(u: User) {
   releaseCameras(sid, u, av);
   dropFollowersOf(u);
   u.follow = null;
+  u.pos = null;
   u.session = null;
   u.mode = '2d';
   u.micOn = false;
@@ -117,7 +118,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
   if (msg.t === 'hello') {
     state.id = msg.id;
     if (!users.has(msg.id))
-      users.set(msg.id, { id: msg.id, name: msg.name.slice(0, 24) || 'ゲスト', session: null, mode: '2d', micOn: false, sharing: false, follow: null });
+      users.set(msg.id, { id: msg.id, name: msg.name.slice(0, 24) || 'ゲスト', session: null, mode: '2d', micOn: false, sharing: false, follow: null, pos: null });
     if (!sockets.has(msg.id)) sockets.set(msg.id, new Set());
     sockets.get(msg.id)!.add(ws);
     send(ws, {
@@ -224,7 +225,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
     case 'mode': {
       if (me.mode === msg.mode) return;
       me.mode = msg.mode;
-      if (msg.mode === '3d') me.follow = null;
+      if (msg.mode === '3d') { me.follow = null; me.pos = null; }
       if (msg.mode === '2d') {
         dropFollowersOf(me);
         releaseCameras(sid, me, avatars.get(sid)!.get(me.id));
@@ -241,6 +242,19 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       me.follow = target?.id ?? null;
       broadcastUsers();
       if (target) pushChat(sessionChatKey(sid), null, `${me.name} が ${target.name} をフォローしました`);
+      return;
+    }
+    case 'place2d': {
+      const target = users.get(msg.target);
+      if (!target || target.session !== sid || target.mode !== '2d') return;
+      // 3D の人は誰でも運べる。2D の人は自分だけ動かせる
+      if (me.mode !== '3d' && target.id !== me.id) return;
+      target.pos = msg.pos
+        ? { x: clamp(msg.pos.x), z: Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF + 2.8, msg.pos.z)), ry: msg.pos.ry }
+        : null;
+      // 動かされたらフォローは外れる
+      target.follow = null;
+      broadcastUsers();
       return;
     }
     case 'dropFollowers': {
