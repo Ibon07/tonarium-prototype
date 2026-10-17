@@ -1,6 +1,7 @@
 // 空間オーディオと「その人が空間のどこにいるか」の計算。
 // 3D の人はアバターの位置、2D の人は入口の外の列（フォロー中ならフォロー先の少し後ろ）にいる扱い。
 import { entranceSlot, type AvatarState, type User } from '../../shared/protocol.ts';
+import type { Item } from '../../shared/items.ts';
 import { useStore, get } from './store.ts';
 
 export interface Place { x: number; z: number; ry: number; small: boolean }
@@ -61,6 +62,26 @@ export function useNearby(): { user: User; d: number }[] {
       const p = places.get(user.id);
       const d = user.id === s.selfId ? 0 : me && p ? Math.hypot(p.x - me.x, p.z - me.z) : Infinity;
       return { user, d };
+    })
+    .sort((a, b) => a.d - b.d);
+}
+
+/** 参加中セッションのアイテムを自分から近い順に。手に持たれている物は持ち主の位置 */
+export function useNearbyItems(): { item: Item; d: number; heldBy: string | null }[] {
+  useStore((s) => s.items);
+  useStore((s) => s.participants);
+  useStore((s) => s.avatars);
+  useStore((s) => s.selfAvatar);
+  useStore((s) => s.mode);
+  const s = get();
+  const places = placesOf(s);
+  const me = places.get(s.selfId);
+  return Object.values(s.items)
+    .map((item) => {
+      const heldBy = 'holder' in item ? item.holder : null;
+      const p = heldBy ? places.get(heldBy) : item;
+      const d = me && p ? Math.hypot(p.x - me.x, p.z - me.z) : Infinity;
+      return { item, d, heldBy };
     })
     .sort((a, b) => a.d - b.d);
 }

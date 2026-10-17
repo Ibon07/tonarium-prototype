@@ -4,7 +4,7 @@ import type { ChannelDef, ChatMessage, User } from '../../shared/protocol.ts';
 import { useStore, set, colorOf, channelOf, heldHammer } from './store.ts';
 import { send } from './net/ws.ts';
 import { toggleMic, toggleShare } from './net/livekit.ts';
-import { joinSession, leaveSession, openText, setMode } from './actions.ts';
+import { follow, joinSession, leaveSession, openText, setMode } from './actions.ts';
 import { SILENT, formatDistance, useNearby } from './spatial.ts';
 
 export function Avatar({ id, name, size = 32, speaking = false }: { id: string; name: string; size?: number; speaking?: boolean }) {
@@ -29,7 +29,21 @@ function TextChannel({ ch }: { ch: ChannelDef }) {
   );
 }
 
-function VoiceMember({ u, dist, large = false }: { u: User; dist?: number; large?: boolean }) {
+/** 2D の自分から、同じセッションの 3D の人をフォローするボタン */
+export function FollowButton({ u }: { u: User }) {
+  const me = useStore((s) => s.participants.find((p) => p.id === s.selfId));
+  if (!me || me.id === u.id || me.mode !== '2d' || u.mode !== '3d' || me.session !== u.session) return null;
+  const following = me.follow === u.id;
+  return (
+    <button
+      className={`small followmini ${following ? 'on' : ''}`}
+      title={following ? 'フォローを解除' : 'フォローする（その人の後ろに付いていき、視点が見える）'}
+      onClick={(e) => { e.stopPropagation(); follow(following ? null : u.id); }}
+    >{following ? 'フォロー中' : '👀 フォロー'}</button>
+  );
+}
+
+export function VoiceMember({ u, dist, large = false }: { u: User; dist?: number; large?: boolean }) {
   // 発話は自分と同じセッションの人だけ LiveKit から分かる
   const speaking = useStore((s) => s.session === u.session && !!s.speaking[u.id]);
   const far = dist !== undefined && dist > SILENT;
@@ -40,6 +54,7 @@ function VoiceMember({ u, dist, large = false }: { u: User; dist?: number; large
       {!u.micOn && <span className="ico" title="ミュート">🔇</span>}
       {u.sharing && <span className="livebadge">LIVE</span>}
       {u.mode === '3d' && <span className="modebadge">3D</span>}
+      {dist !== undefined && <FollowButton u={u} />}
       {dist !== undefined && <span className="dist">{formatDistance(dist)}</span>}
     </div>
   );
@@ -167,6 +182,7 @@ function MemberRow({ u }: { u: User }) {
         <div className="mname">{u.name}{self && <span className="sub">（自分）</span>}</div>
         <div className="sub">{u.sharing ? '🔴 配信中' : where}</div>
       </div>
+      <FollowButton u={u} />
     </div>
   );
 }

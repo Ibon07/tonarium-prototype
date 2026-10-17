@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { DOOR_HALF, ROOM_HALF, entranceSlot, type User } from '../../../shared/protocol.ts';
 import { ITEM_INFO, NOTE_COLORS, type Item } from '../../../shared/items.ts';
 import { useStore, get, set, colorOf, nameOf, heldHammer } from '../store.ts';
@@ -10,9 +10,9 @@ import { consumeHitFx, recentlyHit } from '../items/effects.ts';
 import { camHolder, camVideos } from '../net/livekit.ts';
 import { ShareVideoHost } from '../ShareVideo.tsx';
 import { follow, leaveSession, openView, selectNote, setMode } from '../actions.ts';
-import { placesOf } from '../spatial.ts';
+import { SILENT, formatDistance, placesOf, useNearby, useNearbyItems } from '../spatial.ts';
 import { toggleMic, toggleShare } from '../net/livekit.ts';
-import { Avatar, NearbyList } from '../ui.tsx';
+import { Avatar, VoiceMember } from '../ui.tsx';
 
 type StageTile =
   | { key: string; kind: 'stream' }
@@ -137,17 +137,82 @@ function MapTile({ big }: { big: boolean }) {
   );
 }
 
-/** 参加者を自分から近い順に並べたリスト（声が届かない人の手前に区切り線） */
+/** プレイヤー一覧のフィルター（ブラウザごとに覚えておく） */
+type ListFilter = { players: boolean; hidden: Partial<Record<Item['kind'], boolean>> };
+const FILTER_KEY = 'tonarium.listFilter';
+function loadFilter(): ListFilter {
+  try {
+    const f = JSON.parse(localStorage.getItem(FILTER_KEY) ?? '');
+    return { players: f.players !== false, hidden: f.hidden ?? {} };
+  } catch {
+    return { players: true, hidden: {} };
+  }
+}
+
+/** 一覧のアイテムの行（できる操作をその場に出す） */
+function ItemRow({ item, d, heldBy }: { item: Item; d: number; heldBy: string | null }) {
+  const iHold = useStore((s) => !!heldHammer(s));
+  const feed = useStore((s) => s.camFeeds[item.id]);
+  useStore((s) => s.participants);
+  const info = ITEM_INFO[item.kind];
+  const focusItem = () => { set({ focus: item.id }); openView('session'); };
+  const label = item.kind === 'note' ? (item.text.split('\n')[0].slice(0, 16) || '（空の付箋）') : info.name;
+  return (
+    <div className={`vmember large itemrow2 ${d > SILENT ? 'far' : ''}`}>
+      <span className="itemdot">{info.icon}</span>
+      <span className="vname">{label}{heldBy && <span className="sub">（{nameOf(heldBy)} が持っている）</span>}</span>
+      {PANELS[item.kind] && <button className="small" onClick={focusItem}>フォーカス</button>}
+      {item.kind === 'hammer' && !heldBy && !iHold && <button className="small" onClick={() => itemAction(item.id, { a: 'pick' })}>持つ</button>}
+      {item.kind === 'note' && <button className="small" onClick={() => openView('board')}>開く</button>}
+      {item.kind === 'camera' && item.live && feed && <button className="small" onClick={focusItem}>配信を見る</button>}
+      <span className="dist">{heldBy === get().selfId ? '手元' : formatDistance(d)}</span>
+    </div>
+  );
+}
+
+/** 参加者とアイテムを自分から近い順に並べたリスト（声が届かない距離の手前に区切り線） */
 function PlayersTile({ big }: { big: boolean }) {
-  const n = useStore((s) => s.participants.length);
+  const users = useNearby();
+  const items = useNearbyItems();
+  const [filter, setFilter] = useState(loadFilter);
+  const update = (f: ListFilter) => {
+    setFilter(f);
+    try { localStorage.setItem(FILTER_KEY, JSON.stringify(f)); } catch { /* 保存できなくても表示は切り替える */ }
+  };
+  const kinds = [...new Set(items.map((i) => i.item.kind))];
+  type Entry = { key: string; d: number; node: React.ReactNode };
+  const entries: Entry[] = [
+    ...(filter.players ? users.map((u) => ({ key: u.user.id, d: u.d, node: <VoiceMember u={u.user} dist={u.d} large={big} /> })) : []),
+    ...items.filter((i) => !filter.hidden[i.item.kind]).map((i) => ({ key: i.item.id, d: i.d, node: <ItemRow {...i} /> })),
+  ].sort((a, b) => a.d - b.d);
+  const cut = entries.findIndex((e) => e.d > SILENT);
   return (
     <div className={`tile activity playerstile ${big ? 'big' : ''}`} onClick={big ? undefined : () => toggleFocus('players')}>
       <div className="activityhdr">
-        <span>👥 プレイヤー（{n}人・近い順）</span>
+        <span>👥 プレイヤー（{users.length}人{items.length ? `・アイテム ${items.length}` : ''}・近い順）</span>
         <div className="spacer" />
         {big && <button className="small" onClick={() => toggleFocus('players')}>縮小</button>}
       </div>
-      <div className="playerlist"><NearbyList large={big} /></div>
+      {big && (
+        <div className="listfilter">
+          <button className={`chip ${filter.players ? 'on' : ''}`} onClick={() => update({ ...filter, players: !filter.players })}>👤 プレイヤー</button>
+          {kinds.map((k) => (
+            <button
+              key={k} className={`chip ${filter.hidden[k] ? '' : 'on'}`}
+              onClick={() => update({ ...filter, hidden: { ...filter.hidden, [k]: !filter.hidden[k] } })}
+            >{ITEM_INFO[k].icon} {ITEM_INFO[k].name}</button>
+          ))}
+        </div>
+      )}
+      <div className="playerlist">
+        {entries.map((e, i) => (
+          <Fragment key={e.key}>
+            {i === cut && <div className="farline"><span>ここから先は声が届きません</span></div>}
+            {e.node}
+          </Fragment>
+        ))}
+        {!entries.length && <div className="sub">表示するものがありません（フィルターを確認）</div>}
+      </div>
     </div>
   );
 }

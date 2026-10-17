@@ -391,3 +391,16 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .playerstile:not(.big) .vmember { padding: 1px 4px; font-size: 11px; }
 .playerstile:not(.big) .vmember .av { width: 16px !important; height: 16px !important; font-size: 8px !important; }
 .playerstile.big .playerlist { max-width: 520px; width: 100%; margin: 0 auto; }
+
+/* ---- フォローボタン・一覧のアイテムとフィルター ---- */
+.followmini { padding: 1px 7px; font-size: 11px; background: var(--blurple); color: #fff; flex: none; }
+.followmini.on { background: var(--green); }
+.vmember:not(.large) .followmini:not(.on) { display: none; }
+.vmember:not(.large):hover .followmini { display: inline-block; }
+.member .followmini { margin-left: auto; }
+.itemdot { width: 32px; text-align: center; font-size: 20px; flex: none; }
+.itemrow2 .vname .sub { margin-left: 6px; display: inline; }
+.itemrow2 button.small { flex: none; }
+.listfilter { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 8px; }
+.chip { padding: 3px 10px; border-radius: 12px; font-size: 12px; background: var(--rail); color: var(--muted); }
+.chip.on { background: #404249; color: var(--strong); box-shadow: inset 0 0 0 1px #5865f2; }
