@@ -228,10 +228,17 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ url: LIVEKIT_URL, token: await at.toJwt() }));
     return;
   }
-  // npm run dev 中は古いビルドを出さず Vite の開発サーバーへ送る
+  // npm run dev 中は古いビルドを出さない。手元のブラウザなら Vite の開発サーバーへ送り、
+  // トンネル越しなど外からのアクセスには 5173 をトンネルするよう案内する
   if (DEV) {
-    res.writeHead(302, { Location: `http://localhost:5173${url.pathname}${url.search}` });
-    res.end();
+    const host = (req.headers.host ?? '').replace(/:\d+$/, '');
+    if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') {
+      res.writeHead(302, { Location: `http://localhost:5173${url.pathname}${url.search}` });
+      res.end();
+    } else {
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('npm run dev 中です。トンネルは http://localhost:5173 に向けるか、npm start で起動して 3001 をトンネルしてください。');
+    }
     return;
   }
   // 静的配信（npm start 時）

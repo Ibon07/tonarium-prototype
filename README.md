@@ -41,12 +41,22 @@ npm run dev
 ```
 http://localhost:5173 を開く。同じブラウザで別人として入るには `?as=b` のように付ける。
 
-## テスト本番（インターネット越し）
+## インターネット越しにつなぐ（cloudflared）
+cloudflared は `winget install Cloudflare.cloudflared` で入る。表示された `https://*.trycloudflare.com` を参加者に共有する。
+
+テスト本番（ビルド済みを配信。安定）:
 ```bash
-npm start                                         # ビルドして http://localhost:3001 で配信
-cloudflared tunnel --url http://localhost:3001    # 表示された https://*.trycloudflare.com を参加者に共有
+npm start
+cloudflared tunnel --url http://localhost:3001
 ```
-cloudflared は `winget install Cloudflare.cloudflared` で入る。
+
+開発中にそのまま外から試す（コードの変更がすぐ反映される）:
+```bash
+npm run dev
+cloudflared tunnel --url http://localhost:5173
+```
+`npm run dev` 中に 3001 をトンネルすると案内メッセージが出るだけなので、5173 に向けること。
+cloudflared 以外（ngrok など）を使う場合は、`.env` の `ALLOWED_HOSTS` にホストを足す（例: `ALLOWED_HOSTS=.trycloudflare.com,.ngrok-free.app`。保存すると開発サーバーが再起動する）。
 
 ## 参加者への注意
 - デスクトップ版 Chrome / Edge 推奨
