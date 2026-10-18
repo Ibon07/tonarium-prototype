@@ -384,3 +384,25 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .listfilter { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 8px; }
 .chip { padding: 3px 10px; border-radius: 12px; font-size: 12px; background: var(--rail); color: var(--muted); }
 .chip.on { background: #404249; color: var(--strong); box-shadow: inset 0 0 0 1px #5865f2; }
+
+img.av { object-fit: cover; display: block; }
+.avbtn { background: none; padding: 0; border-radius: 50%; flex: none; }
+.avbtn:hover:not(:disabled) { filter: brightness(1.2); }
+.joinicon { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 4px; }
+.joinicon .av { width: 80px; height: 80px; font-size: 34px; }
+.joinicon .noicon { background: var(--active); }
+
+.modalbg { position: fixed; inset: 0; z-index: 40; background: #000a; display: flex; align-items: center; justify-content: center; }
+.modal { background: var(--main); border-radius: 8px; padding: 20px 24px; width: min(560px, 92vw); max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 32px #000a; display: flex; flex-direction: column; gap: 10px; }
+.modal h2 { margin: 0; color: var(--strong); font-size: 20px; }
+.modal h3 { margin: 6px 0; font-size: 13px; color: var(--muted); }
+.modal .row { display: flex; gap: 10px; align-items: center; }
+.modal .row.wrap { flex-wrap: wrap; margin-top: 8px; }
+.modal .row.end { justify-content: flex-end; }
+.modal .sub { white-space: normal; }
+.av.big { width: 64px; height: 64px; font-size: 28px; }
+.av.noicon { background: var(--active); }
+.avatartex { width: 100%; aspect-ratio: 2 / 1; object-fit: contain; background: repeating-conic-gradient(#3a3c42 0 25%, #2b2d31 0 50%) 0 0 / 20px 20px; border-radius: 6px; }
+.btnlink { color: var(--text); background: var(--input); padding: 6px 12px; border-radius: 4px; text-decoration: none; font-size: 14px; }
+.btnlink:hover { filter: brightness(1.15); }
+.msgline { color: var(--green); font-size: 13px; }

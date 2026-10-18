@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { sessionChatKey } from '../../shared/protocol.ts';
 import { useStore, set, channelOf } from './store.ts';
 import { connectWs } from './net/ws.ts';
@@ -6,6 +6,8 @@ import { openView, setMode } from './actions.ts';
 import { ChannelSidebar, Chat, HammerCursor, Lightbox, MemberList } from './ui.tsx';
 import { SessionView, BoardView } from './view2d/View2D.tsx';
 import { View3D } from './view3d/View3D.tsx';
+import { iconUrl } from './icon.ts';
+import { ProfileDialog } from './Profile.tsx';
 
 function loadId() {
   try {
@@ -23,6 +25,23 @@ function JoinScreen() {
   const [name, setName] = useState(() => {
     try { return localStorage.getItem('tonarium.name') ?? ''; } catch { return ''; }
   });
+  const [icon, setIcon] = useState<string | null>(null);
+  useEffect(() => {
+    const n = name.trim();
+    if (!n) { setIcon(null); return; }
+    let alive = true;
+    const t = setTimeout(() => {
+      const url = iconUrl(n);
+      void fetch(url).then((r) => { if (alive) setIcon(r.ok ? url : null); });
+    }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [name]);
+  const [profile, setProfile] = useState(false);
+  const closeProfile = () => {
+    setProfile(false);
+    const n = name.trim();
+    void fetch(iconUrl(n)).then((r) => setIcon(r.ok ? iconUrl(n) : null));
+  };
   const join = () => {
     const n = name.trim() || 'ゲスト';
     try { localStorage.setItem('tonarium.name', n); } catch { /* ignore */ }
@@ -31,9 +50,16 @@ function JoinScreen() {
   };
   return (
     <div className="joinbg">
+      {profile && <ProfileDialog name={name} onClose={closeProfile} />}
       <div className="join">
         <h1>Tonarium へようこそ</h1>
         <p>2D と 3D を行き来できる通話ルーム（プロトタイプ）</p>
+        <div className="joinicon">
+          <button className="avbtn" title="アイコン・3D アバターを設定" onClick={() => setProfile(true)} disabled={!name.trim()}>
+            {icon ? <img className="av" src={icon} alt="" /> : <div className="av noicon">{name.trim().slice(0, 1) || '?'}</div>}
+          </button>
+          <small>{name.trim() ? 'クリックでアイコン・3D アバターを設定' : '名前を入れるとアイコン・3D アバターを設定できます'}</small>
+        </div>
         <label>表示名</label>
         <input
           autoFocus value={name} maxLength={24}

@@ -27,6 +27,10 @@ export interface User {
   follow: string | null;
   /** 2D のみ。null なら入口の列 */
   pos: AvatarState | null;
+  /** アイコンの版（更新時刻）。null ならアイコンなし */
+  icon: string | null;
+  /** 3D アバター画像・調整値の版。null ならサンプル */
+  avatar: string | null;
 }
 
 export interface ChatMessage {
@@ -67,6 +71,8 @@ export type ClientMsg =
   | { t: 'dropFollowers' }
   /** pos が null なら入口の列に戻る */
   | { t: 'place2d'; target: string; pos: AvatarState | null }
+  /** /icon・/avatar へアップロードした後に、同じ名前のオンラインの人へ反映させる */
+  | { t: 'profileUpdated' }
   | { t: 'chat'; ch: string; text: string; image?: string }
   | { t: 'avatar'; s: AvatarState }
   | { t: 'itemCreate'; kind: ItemKind; x: number; z: number; ry: number; text?: string }

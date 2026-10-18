@@ -3,7 +3,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
@@ -11,11 +11,42 @@ import type {
 } from '../shared/protocol.ts';
 import { ROOM_HALF, sessionChatKey } from '../shared/protocol.ts';
 import { ITEM_INFO, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, type Item } from '../shared/items.ts';
+import { sanitizeParams } from '../shared/avatar.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
 const DEV = process.argv.includes('--dev');
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'client/dist');
+const DATA_DIR = process.env.DATA_DIR ?? path.join(ROOT, 'data');
+const ICON_DIR = path.join(DATA_DIR, 'icons');
+const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
+fs.mkdirSync(ICON_DIR, { recursive: true });
+fs.mkdirSync(AVATAR_DIR, { recursive: true });
+
+const normalizeName = (name: string) => name.trim().slice(0, 24) || 'ゲスト';
+const nameHash = (name: string) => createHash('sha1').update(normalizeName(name)).digest('hex');
+const iconFile = (name: string) => path.join(ICON_DIR, `${nameHash(name)}.jpg`);
+const avatarImageFile = (name: string) => path.join(AVATAR_DIR, `${nameHash(name)}.img`);
+const avatarParamsFile = (name: string) => path.join(AVATAR_DIR, `${nameHash(name)}.json`);
+const mtime = (file: string) => { try { return Math.floor(fs.statSync(file).mtimeMs); } catch { return 0; } };
+const iconVersion = (name: string) => (mtime(iconFile(name)) ? String(mtime(iconFile(name))) : null);
+function avatarVersion(name: string) {
+  const v = Math.max(mtime(avatarImageFile(name)), mtime(avatarParamsFile(name)));
+  return v ? String(v) : null;
+}
+const isJpeg = (b: Buffer) => b[0] === 0xff && b[1] === 0xd8;
+const isPng = (b: Buffer) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
+
+async function readBody(req: http.IncomingMessage, limit: number) {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const c of req) {
+    size += (c as Buffer).length;
+    if (size > limit) return null;
+    chunks.push(c as Buffer);
+  }
+  return Buffer.concat(chunks);
+}
 
 const CHANNELS_FILE = process.env.CHANNELS_FILE ?? path.join(ROOT, 'channels.json');
 const guild = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf-8')) as GuildConfig;
@@ -112,7 +143,11 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
   if (msg.t === 'hello') {
     state.id = msg.id;
     if (!users.has(msg.id))
-      users.set(msg.id, { id: msg.id, name: msg.name.slice(0, 24) || 'ゲスト', session: null, mode: '2d', micOn: false, sharing: false, follow: null, pos: null });
+      users.set(msg.id, {
+        id: msg.id, name: normalizeName(msg.name), session: null, mode: '2d',
+        micOn: false, sharing: false, follow: null, pos: null,
+        icon: iconVersion(msg.name), avatar: avatarVersion(msg.name),
+      });
     if (!sockets.has(msg.id)) sockets.set(msg.id, new Set());
     sockets.get(msg.id)!.add(ws);
     send(ws, {
@@ -130,6 +165,13 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
   }
   const me = state.id ? users.get(state.id) : undefined;
   if (!me) return;
+  if (msg.t === 'profileUpdated') {
+    const icon = iconVersion(me.name);
+    const avatar = avatarVersion(me.name);
+    for (const u of users.values()) if (u.name === me.name) { u.icon = icon; u.avatar = avatar; }
+    broadcastUsers();
+    return;
+  }
   const sid = me.session;
 
   switch (msg.t) {
@@ -288,6 +330,48 @@ const MIME: Record<string, string> = {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
+  if (url.pathname === '/icon') {
+    const name = url.searchParams.get('name') ?? '';
+    if (req.method === 'POST') {
+      const body = await readBody(req, 300_000);
+      if (!body || !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
+      fs.writeFileSync(iconFile(name), body);
+      res.end(JSON.stringify({ icon: iconVersion(name) }));
+      return;
+    }
+    const file = iconFile(name);
+    if (!fs.existsSync(file)) { res.statusCode = 404; res.end(); return; }
+    res.setHeader('Content-Type', 'image/jpeg');
+    // URL に版を付けて取得するので長期キャッシュしてよい
+    res.setHeader('Cache-Control', url.searchParams.get('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
+    fs.createReadStream(file).pipe(res);
+    return;
+  }
+  if (url.pathname === '/avatar' || url.pathname === '/avatar/params') {
+    const name = url.searchParams.get('name') ?? '';
+    const isParams = url.pathname === '/avatar/params';
+    const file = isParams ? avatarParamsFile(name) : avatarImageFile(name);
+    if (req.method === 'POST') {
+      const body = await readBody(req, isParams ? 20_000 : 6_000_000);
+      if (!body) { res.statusCode = 413; res.end(); return; }
+      if (isParams) {
+        let params;
+        try { params = sanitizeParams(JSON.parse(body.toString('utf-8'))); } catch { res.statusCode = 400; res.end(); return; }
+        fs.writeFileSync(file, JSON.stringify(params));
+      } else {
+        if (!isPng(body) && !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
+        fs.writeFileSync(file, body);
+      }
+      res.end(JSON.stringify({ avatar: avatarVersion(name) }));
+      return;
+    }
+    if (!fs.existsSync(file)) { res.statusCode = 404; res.end(); return; }
+    const head = fs.readFileSync(file).subarray(0, 4);
+    res.setHeader('Content-Type', isParams ? 'application/json' : isPng(head) ? 'image/png' : 'image/jpeg');
+    res.setHeader('Cache-Control', url.searchParams.get('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
+    fs.createReadStream(file).pipe(res);
+    return;
+  }
   if (url.pathname === '/healthz') {
     res.setHeader('Content-Type', 'text/plain');
     res.end('ok');

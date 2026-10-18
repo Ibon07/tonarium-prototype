@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { DOOR_HALF, ROOM_HALF, entranceSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
@@ -16,6 +16,7 @@ import { EYE, carrying, type Interactable } from './interact.ts';
 import { Player } from './Player.tsx';
 import { HammerModel, Item3D } from './items3d.tsx';
 import { Label } from './Label.tsx';
+import { OekakiAvatar } from './OekakiAvatar.tsx';
 import { CameraModel, CameraStreamer, CamMonitor } from './camera3d.tsx';
 
 const H = ROOM_HALF;
@@ -221,8 +222,9 @@ function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[id] === false);
   const holding = useStore((s) => Object.values(s.items).some((i) => i.kind === 'hammer' && i.holder === id));
   const camera = useStore((s) => Object.values(s.items).find((i) => i.kind === 'camera' && i.holder === id));
+  const avatarV = useStore((s) => s.participants.find((p) => p.id === id)?.avatar ?? null);
   const ref = useRef<THREE.Group>(null);
-  const head = useRef<THREE.Group>(null);
+  const body = useRef<THREE.Group>(null);
   const hand = useRef<THREE.Group>(null);
   useFrame((_, dt) => {
     const g = ref.current;
@@ -235,37 +237,31 @@ function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
     g.rotation.y += d * k;
     const s = get();
     const b = bump(s.hits[id]);
-    head.current?.scale.set(1 + 0.4 * b, 1 - 0.6 * b, 1 + 0.4 * b);
-    head.current?.position.setY(1.45 - 0.14 * b);
+    body.current?.scale.set(1 + 0.3 * b, 1 - 0.45 * b, 1 + 0.3 * b);
     if (hand.current) hand.current.rotation.x = -0.4 - bump(s.swings[id], performance.now(), 350) * 1.6;
   });
   if (!name) return null;
-  const color = colorOf(id);
   return (
     <group ref={ref} position={[state.x, 0, state.z]} rotation-y={state.ry} userData={{ hitTarget: id } satisfies Interactable}>
-      <mesh position-y={0.75}>
-        <capsuleGeometry args={[0.3, 0.8, 4, 12]} />
-        <meshStandardMaterial color={color} />
-      </mesh>
-      <group ref={head} position-y={1.45}>
-        <mesh>
-          <sphereGeometry args={[0.24, 20, 16]} />
-          <meshStandardMaterial color={color} />
-        </mesh>
-        <mesh position={[0, 0.03, -0.2]}>
-          <boxGeometry args={[0.3, 0.1, 0.1]} />
-          <meshStandardMaterial color="#1c1917" />
-        </mesh>
+      <group ref={body}>
+        <Suspense fallback={null}>
+          <OekakiAvatar name={name} version={avatarV} speaking={speaking} />
+        </Suspense>
       </group>
+      {/* 板ポリのモデルは横から当てにくいので、照準用の当たり判定を別に置く */}
+      <mesh position-y={0.65}>
+        <cylinderGeometry args={[0.35, 0.35, 1.3, 12]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
       {holding && (
-        <group ref={hand} position={[0.38, 0.95, -0.1]}>
+        <group ref={hand} position={[0.32, 0.6, -0.1]}>
           <HammerModel />
         </group>
       )}
       {camera?.kind === 'camera' && (
         <>
-          <CameraModel live={camera.live} position={[0.22, 1.35, -0.32]} />
-          <CamMonitor item={camera} position={[0, 2.45, 0]} />
+          <CameraModel live={camera.live} position={[0.2, 0.9, -0.3]} />
+          <CamMonitor item={camera} position={[0, 1.95, 0]} />
         </>
       )}
       {speaking && (
@@ -274,7 +270,7 @@ function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
           <meshBasicMaterial color="#22c55e" />
         </mesh>
       )}
-      <Label position={[0, 2, 0]} text={`${micOff ? '🔇 ' : ''}${name}`} bg={speaking ? 'rgba(35,165,90,0.95)' : 'rgba(0,0,0,0.75)'} />
+      <Label position={[0, 1.3, 0]} text={`${micOff ? '🔇 ' : ''}${name}`} bg={speaking ? 'rgba(35,165,90,0.95)' : 'rgba(0,0,0,0.75)'} />
     </group>
   );
 }
