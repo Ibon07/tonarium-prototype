@@ -25,6 +25,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/token': 'http://localhost:3001',
         '/icon': 'http://localhost:3001',
+        '/avatar': 'http://localhost:3001',
         '/ws': { target: 'ws://localhost:3001', ws: true },
       },
     },

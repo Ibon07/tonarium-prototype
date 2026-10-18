@@ -21,7 +21,7 @@ export function pickIcon(name: string): Promise<string | null> {
       if (!blob) { resolve(null); return; }
       const res = await fetch(`/icon?name=${encodeURIComponent(name.trim())}`, { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg' } });
       if (!res.ok) { resolve(null); return; }
-      send({ t: 'iconUpdated' });
+      send({ t: 'profileUpdated' });
       resolve(((await res.json()) as { icon: string | null }).icon);
     };
     input.click();

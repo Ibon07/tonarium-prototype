@@ -6,7 +6,8 @@ import { openView, setMode } from './actions.ts';
 import { ChannelSidebar, Chat, HammerCursor, Lightbox, MemberList } from './ui.tsx';
 import { SessionView, BoardView } from './view2d/View2D.tsx';
 import { View3D } from './view3d/View3D.tsx';
-import { iconUrl, pickIcon } from './icon.ts';
+import { iconUrl } from './icon.ts';
+import { ProfileDialog } from './Profile.tsx';
 
 function loadId() {
   try {
@@ -35,11 +36,11 @@ function JoinScreen() {
     }, 250);
     return () => { alive = false; clearTimeout(t); };
   }, [name]);
-  const chooseIcon = async () => {
+  const [profile, setProfile] = useState(false);
+  const closeProfile = () => {
+    setProfile(false);
     const n = name.trim();
-    if (!n) return;
-    const v = await pickIcon(n);
-    if (v) setIcon(iconUrl(n, v));
+    void fetch(iconUrl(n)).then((r) => setIcon(r.ok ? iconUrl(n) : null));
   };
   const join = () => {
     const n = name.trim() || 'ゲスト';
@@ -49,14 +50,15 @@ function JoinScreen() {
   };
   return (
     <div className="joinbg">
+      {profile && <ProfileDialog name={name} onClose={closeProfile} />}
       <div className="join">
         <h1>Tonarium へようこそ</h1>
         <p>2D と 3D を行き来できる通話ルーム（プロトタイプ）</p>
         <div className="joinicon">
-          <button className="avbtn" title="アイコンを設定" onClick={() => void chooseIcon()} disabled={!name.trim()}>
+          <button className="avbtn" title="アイコン・3D アバターを設定" onClick={() => setProfile(true)} disabled={!name.trim()}>
             {icon ? <img className="av" src={icon} alt="" /> : <div className="av noicon">{name.trim().slice(0, 1) || '?'}</div>}
           </button>
-          <small>{name.trim() ? 'クリックでアイコンを設定（名前ごとに保存されます）' : '名前を入れるとアイコンを設定できます'}</small>
+          <small>{name.trim() ? 'クリックでアイコン・3D アバターを設定' : '名前を入れるとアイコン・3D アバターを設定できます'}</small>
         </div>
         <label>表示名</label>
         <input

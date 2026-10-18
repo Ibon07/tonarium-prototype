@@ -5,7 +5,8 @@ import { send } from './net/ws.ts';
 import { toggleMic, toggleShare } from './net/livekit.ts';
 import { follow, joinSession, leaveSession, openText, setMode } from './actions.ts';
 import { SILENT, formatDistance, useNearby } from './spatial.ts';
-import { iconUrl, pickIcon } from './icon.ts';
+import { iconUrl } from './icon.ts';
+import { ProfileDialog } from './Profile.tsx';
 
 export function Avatar({ id, name, size = 32, speaking = false }: { id: string; name: string; size?: number; speaking?: boolean }) {
   const icon = useStore((s) => s.users.find((u) => u.id === id)?.icon);
@@ -124,9 +125,11 @@ function VoicePanel() {
 function UserPanel() {
   const { selfId, selfName, micEnabled, mode, session } = useStore();
   const speaking = useStore((s) => !!s.speaking[s.selfId]);
+  const [profile, setProfile] = useState(false);
   return (
     <div className="userpanel">
-      <button className="avbtn" title="アイコンを変更" onClick={() => void pickIcon(selfName)}>
+      {profile && <ProfileDialog name={selfName} onClose={() => setProfile(false)} />}
+      <button className="avbtn" title="アイコン・3D アバターを設定" onClick={() => setProfile(true)}>
         <Avatar id={selfId} name={selfName} size={32} speaking={speaking} />
       </button>
       <div className="uinfo">
