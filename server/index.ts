@@ -18,7 +18,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'client/dist');
 
 // ---- チャンネル構成（channels.json。起動時に読み込む） ----
-const guild = JSON.parse(fs.readFileSync(path.join(ROOT, 'channels.json'), 'utf-8')) as GuildConfig;
+// CHANNELS_FILE で別のファイルを指定できる（デプロイ先でボリュームとして差し替える用）
+const CHANNELS_FILE = process.env.CHANNELS_FILE ?? path.join(ROOT, 'channels.json');
+const guild = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf-8')) as GuildConfig;
 const allChannels = guild.categories.flatMap((c) => c.channels);
 const sessionIds = new Set(allChannels.filter((c) => c.type === 'session').map((c) => c.id));
 const textIds = new Set(allChannels.filter((c) => c.type === 'text').map((c) => c.id));
@@ -301,6 +303,12 @@ const MIME: Record<string, string> = {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
+  // デプロイ先（Coolify など）のヘルスチェック用
+  if (url.pathname === '/healthz') {
+    res.setHeader('Content-Type', 'text/plain');
+    res.end('ok');
+    return;
+  }
   if (url.pathname === '/token') {
     const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = process.env;
     const id = url.searchParams.get('id');

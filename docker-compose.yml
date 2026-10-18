@@ -1,0 +1,25 @@
+# Coolify の「Docker Compose」ビルドパックでそのままデプロイできる構成。
+# 環境変数（LIVEKIT_*）は Coolify の画面で設定する。ドメインは Coolify が割り当て、ポート 3001 に転送する。
+services:
+  tonarium:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Coolify がドメインを作り、このサービスの 3001 番へ転送する（Coolify 以外では無視される）
+      - SERVICE_FQDN_TONARIUM_3001
+      - LIVEKIT_URL=${LIVEKIT_URL}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - SERVER_PORT=3001
+      # チャンネル構成を差し替えるときは下のボリュームと合わせて有効にする
+      # - CHANNELS_FILE=/config/channels.json
+    expose:
+      - "3001"
+    # volumes:
+    #   - ./channels.json:/config/channels.json:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
