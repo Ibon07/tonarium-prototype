@@ -5,16 +5,13 @@ import { send } from './net/ws.ts';
 import { toggleMic, toggleShare } from './net/livekit.ts';
 import { follow, joinSession, leaveSession, openText, setMode } from './actions.ts';
 import { SILENT, formatDistance, useNearby } from './spatial.ts';
+import { iconUrl, pickIcon } from './icon.ts';
 
 export function Avatar({ id, name, size = 32, speaking = false }: { id: string; name: string; size?: number; speaking?: boolean }) {
-  return (
-    <div
-      className={`av ${speaking ? 'speaking' : ''}`}
-      style={{ width: size, height: size, background: colorOf(id), fontSize: size * 0.42 }}
-    >
-      {name.slice(0, 1)}
-    </div>
-  );
+  const icon = useStore((s) => s.users.find((u) => u.id === id)?.icon);
+  const style = { width: size, height: size, background: colorOf(id), fontSize: size * 0.42 };
+  if (icon) return <img className={`av ${speaking ? 'speaking' : ''}`} style={style} src={iconUrl(name, icon)} alt="" />;
+  return <div className={`av ${speaking ? 'speaking' : ''}`} style={style}>{name.slice(0, 1)}</div>;
 }
 
 function TextChannel({ ch }: { ch: ChannelDef }) {
@@ -129,7 +126,9 @@ function UserPanel() {
   const speaking = useStore((s) => !!s.speaking[s.selfId]);
   return (
     <div className="userpanel">
-      <Avatar id={selfId} name={selfName} size={32} speaking={speaking} />
+      <button className="avbtn" title="アイコンを変更" onClick={() => void pickIcon(selfName)}>
+        <Avatar id={selfId} name={selfName} size={32} speaking={speaking} />
+      </button>
       <div className="uinfo">
         <div className="uname">{selfName}</div>
         <div className="sub">{!session ? 'オンライン' : mode === '3d' ? '3D空間にいます' : '2Dで参加中'}</div>

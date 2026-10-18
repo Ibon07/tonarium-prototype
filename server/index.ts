@@ -3,7 +3,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
@@ -16,6 +16,14 @@ const PORT = Number(process.env.SERVER_PORT ?? 3001);
 const DEV = process.argv.includes('--dev');
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'client/dist');
+const ICON_DIR = path.join(process.env.DATA_DIR ?? path.join(ROOT, 'data'), 'icons');
+fs.mkdirSync(ICON_DIR, { recursive: true });
+
+const normalizeName = (name: string) => name.trim().slice(0, 24) || 'ゲスト';
+const iconFile = (name: string) => path.join(ICON_DIR, `${createHash('sha1').update(normalizeName(name)).digest('hex')}.jpg`);
+function iconVersion(name: string) {
+  try { return String(Math.floor(fs.statSync(iconFile(name)).mtimeMs)); } catch { return null; }
+}
 
 const CHANNELS_FILE = process.env.CHANNELS_FILE ?? path.join(ROOT, 'channels.json');
 const guild = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf-8')) as GuildConfig;
@@ -112,7 +120,10 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
   if (msg.t === 'hello') {
     state.id = msg.id;
     if (!users.has(msg.id))
-      users.set(msg.id, { id: msg.id, name: msg.name.slice(0, 24) || 'ゲスト', session: null, mode: '2d', micOn: false, sharing: false, follow: null, pos: null });
+      users.set(msg.id, {
+        id: msg.id, name: normalizeName(msg.name), session: null, mode: '2d',
+        micOn: false, sharing: false, follow: null, pos: null, icon: iconVersion(msg.name),
+      });
     if (!sockets.has(msg.id)) sockets.set(msg.id, new Set());
     sockets.get(msg.id)!.add(ws);
     send(ws, {
@@ -130,6 +141,12 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
   }
   const me = state.id ? users.get(state.id) : undefined;
   if (!me) return;
+  if (msg.t === 'iconUpdated') {
+    const v = iconVersion(me.name);
+    for (const u of users.values()) if (u.name === me.name) u.icon = v;
+    broadcastUsers();
+    return;
+  }
   const sid = me.session;
 
   switch (msg.t) {
@@ -288,6 +305,31 @@ const MIME: Record<string, string> = {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
+  if (url.pathname === '/icon') {
+    const name = url.searchParams.get('name') ?? '';
+    if (req.method === 'POST') {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const c of req) {
+        size += (c as Buffer).length;
+        if (size > 300_000) { res.statusCode = 413; res.end(); return; }
+        chunks.push(c as Buffer);
+      }
+      const body = Buffer.concat(chunks);
+      // JPEG のマジックナンバー
+      if (body[0] !== 0xff || body[1] !== 0xd8) { res.statusCode = 400; res.end(); return; }
+      fs.writeFileSync(iconFile(name), body);
+      res.end(JSON.stringify({ icon: iconVersion(name) }));
+      return;
+    }
+    const file = iconFile(name);
+    if (!fs.existsSync(file)) { res.statusCode = 404; res.end(); return; }
+    res.setHeader('Content-Type', 'image/jpeg');
+    // URL に版を付けて取得するので長期キャッシュしてよい
+    res.setHeader('Cache-Control', url.searchParams.get('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
+    fs.createReadStream(file).pipe(res);
+    return;
+  }
   if (url.pathname === '/healthz') {
     res.setHeader('Content-Type', 'text/plain');
     res.end('ok');

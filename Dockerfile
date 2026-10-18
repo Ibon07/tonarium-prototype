@@ -14,6 +14,8 @@ COPY package.json tsconfig.json channels.json ./
 COPY shared ./shared
 COPY server ./server
 COPY --from=build /app/client/dist ./client/dist
+RUN mkdir -p /app/data && chown node:node /app/data
+VOLUME /app/data
 USER node
 EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

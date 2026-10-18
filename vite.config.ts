@@ -24,6 +24,7 @@ export default defineConfig(({ mode }) => {
       allowedHosts: allowedHosts(env.ALLOWED_HOSTS),
       proxy: {
         '/token': 'http://localhost:3001',
+        '/icon': 'http://localhost:3001',
         '/ws': { target: 'ws://localhost:3001', ws: true },
       },
     },

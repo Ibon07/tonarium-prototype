@@ -384,3 +384,10 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .listfilter { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 8px; }
 .chip { padding: 3px 10px; border-radius: 12px; font-size: 12px; background: var(--rail); color: var(--muted); }
 .chip.on { background: #404249; color: var(--strong); box-shadow: inset 0 0 0 1px #5865f2; }
+
+img.av { object-fit: cover; display: block; }
+.avbtn { background: none; padding: 0; border-radius: 50%; flex: none; }
+.avbtn:hover:not(:disabled) { filter: brightness(1.2); }
+.joinicon { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 4px; }
+.joinicon .av { width: 80px; height: 80px; font-size: 34px; }
+.joinicon .noicon { background: var(--active); }
