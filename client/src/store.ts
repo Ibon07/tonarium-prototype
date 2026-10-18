@@ -3,7 +3,6 @@ import type { AvatarState, ChatMessage, GuildConfig, Mode, User } from '../../sh
 import type { Item } from '../../shared/items.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
-/** メイン領域に開いているもの: テキストチャンネル / 参加中セッションの通話画面 / その付箋ボード */
 export type View = 'text' | 'session' | 'board';
 
 interface State {
@@ -13,63 +12,48 @@ interface State {
   wsConnected: boolean;
 
   guild: GuildConfig;
-  /** オンラインの全ユーザー（どのセッションにいるかを含む） */
   users: User[];
   chats: Record<string, ChatMessage[]>;
   avatarsBy: Record<string, Record<string, AvatarState>>;
   itemsBy: Record<string, Record<string, Item>>;
 
-  /** 自分が入っているセッション（null = 未接続） */
   session: string | null;
   mode: Mode;
   view: View;
   textChannel: string;
 
-  // ---- 参加中セッションから導出（recompute で更新） ----
+  // 以下は参加中セッションの分だけを recompute() で切り出したもの
   participants: User[];
-  /** 自分以外のアバター */
   avatars: Record<string, AvatarState>;
   items: Record<string, Item>;
 
-  // ---- アイテムの手元だけの状態 ----
-  /** チェスの選択中マスなど、各アイテムの見た目用の状態（同期しない） */
+  /** 同期しない手元だけの状態 */
   itemUi: Record<string, ItemUi>;
-  /** 2D の通話画面で拡大表示しているタイル（'stream' かアイテムID） */
   focus: string | null;
-  /** ハンマーで叩かれた時刻・振った時刻（ユーザーID → performance.now()） */
   hits: Record<string, number>;
   swings: Record<string, number>;
-  /** 2D の叩く演出の待ち行列 */
   hitFx: { key: number; from: string; to: string }[];
-  /** 3D でマウスをロックしているか、照準の先の説明 */
   locked: boolean;
   aimHint: string | null;
 
-  /** 自分の3D位置（2Dに戻って再度3Dに入ったとき復元） */
   selfAvatar: AvatarState;
 
-  // ---- LiveKit 由来 ----
   voice: VoiceStatus;
   voiceError: string | null;
-  /** マイクの希望設定。未接続中も切り替えられ、セッション参加時に適用する */
+  /** 希望設定。未接続中も切り替えられ、参加時に適用する */
   micEnabled: boolean;
   speaking: Record<string, boolean>;
   micOn: Record<string, boolean>;
-  /** 参加中セッションで配信中の参加者ID（同時1本） */
   sharer: string | null;
   shareHasAudio: boolean;
 
-  /** 編集中の付箋（アイテムID） */
   selectedNote: string | null;
-  /** チャットの画像を拡大表示中 */
   lightbox: string | null;
-  /** 届いているカメラ配信（アイテムID → 受信した時刻。映像要素は livekit.ts の camVideos） */
+  /** 映像要素は livekit.ts の camVideos */
   camFeeds: Record<string, number>;
-  /** 撮影したときの白いフラッシュ */
   flashAt: number;
 }
 
-/** 3D に入ると入口のすぐ内側から、スクリーンの方を向いて始まる。重ならないように少しばらす */
 export function spawnPoint(): AvatarState {
   return { x: (Math.random() - 0.5) * 5, z: 7 + Math.random() * 1.5, ry: 0 };
 }
@@ -112,14 +96,12 @@ export const useStore = create<State>(() => ({
   flashAt: 0,
 }));
 
-/** アイテムごとの手元だけの状態（チェスの選択中マス、キャンバスのペン設定など） */
 export interface ItemUi { sel?: number; color?: string; size?: number; erase?: boolean }
 
 export const set = useStore.setState;
 export const get = useStore.getState;
 
 const EMPTY: Record<string, never> = {};
-/** 全体の状態から「参加中セッション」の分を切り出す。2D/3D の各ビューはこちらだけを見る */
 export function recompute() {
   const s = get();
   const sid = s.session;
@@ -146,19 +128,16 @@ export function channelOf(id: string | null) {
   return undefined;
 }
 
-/** 参加者IDから決まるアバター色 */
 export function colorOf(id: string) {
   let h = 0;
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return `hsl(${h % 360}, 65%, 55%)`;
 }
 
-/** 自分が持っているハンマー */
 export function heldHammer(s: { items: Record<string, Item>; selfId: string }) {
   return Object.values(s.items).find((i) => i.kind === 'hammer' && i.holder === s.selfId);
 }
 
-/** 自分が持っているカメラ */
 export function heldCamera(s: { items: Record<string, Item>; selfId: string }) {
   return Object.values(s.items).find((i): i is Item & { kind: 'camera' } => i.kind === 'camera' && i.holder === s.selfId);
 }

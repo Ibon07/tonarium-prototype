@@ -7,7 +7,6 @@ import { placesOf } from '../spatial.ts';
 const LIMIT = ROOM_HALF - 0.5;
 const clamp = (v: number) => Math.max(-LIMIT, Math.min(LIMIT, v));
 
-/** 3D なら目の前、2D ならスクリーン前の空いていそうな場所に出す */
 export function spawnItem(kind: ItemKind, text?: string) {
   const s = get();
   if (!s.session) return;
@@ -19,7 +18,7 @@ export function spawnItem(kind: ItemKind, text?: string) {
   }
 }
 
-/** 付箋の文字・色を変える（入力が途切れないよう手元にすぐ反映する） */
+/** 入力が途切れないよう手元にすぐ反映してから送る */
 export function editNote(id: string, patch: { text?: string; color?: string }) {
   const sid = get().session;
   if (!sid) return;
@@ -31,7 +30,6 @@ export function editNote(id: string, patch: { text?: string; color?: string }) {
   send({ t: 'itemAction', id, action: { a: 'noteEdit', ...patch } });
 }
 
-/** 参加中セッションのチャットに画像を投稿する（撮影・キャンバス保存） */
 export function postImage(text: string, image: string) {
   const sid = get().session;
   if (sid) send({ t: 'chat', ch: sessionChatKey(sid), text, image });
@@ -60,7 +58,6 @@ export function setItemUi(id: string, ui: ItemUi) {
   set((s) => ({ itemUi: { ...s.itemUi, [id]: ui } }));
 }
 
-/** 操作だけを手元のアイテムに適用する（描画など。サーバーから届いたもの・自分の操作の両方） */
 export function applyDelta(sid: string, id: string, action: ItemAction, by: string) {
   const cur = get().itemsBy[sid]?.[id];
   if (!cur) return;
@@ -70,7 +67,6 @@ export function applyDelta(sid: string, id: string, action: ItemAction, by: stri
   if (sid === get().session) recompute();
 }
 
-/** 自分の描画操作: 手元にすぐ反映してから送る */
 export function deltaAction(id: string, action: ItemAction) {
   const s = get();
   if (!s.session) return;
@@ -78,7 +74,6 @@ export function deltaAction(id: string, action: ItemAction) {
   send({ t: 'itemAction', id, action });
 }
 
-/** 持っているハンマーを手放す。3D では目の前の床、2D では元の場所に置く */
 export function dropHammer() {
   const s = get();
   const h = heldHammer(s);
@@ -91,7 +86,6 @@ export function dropHammer() {
   }
 }
 
-/** 持っているカメラを目の前の三脚に置く。向きは今見ている方向のまま */
 export function dropCamera(pitch: number) {
   const s = get();
   const c = heldCamera(s);
@@ -115,12 +109,10 @@ export function hit(to: string) {
   send({ t: 'hit', to });
 }
 
-/** 2D の人の位置を決める（null で入口に戻る） */
 export function place2d(target: string, pos: { x: number; z: number; ry: number } | null) {
   send({ t: 'place2d', target, pos });
 }
 
-/** 2D で叩いたら、叩いた相手のすぐ前（相手の方を向いて）に移る */
 export function hitAndMove(to: string) {
   const s = get();
   if (!heldHammer(s) || to === s.selfId) return;

@@ -25,7 +25,6 @@ input, textarea {
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-thumb { background: #1a1b1e; border-radius: 4px; }
 
-/* ---- 参加画面 ---- */
 .joinbg { height: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #5865f2, #3c45a5); }
 .join {
   width: 420px; background: var(--main); border-radius: 8px; padding: 32px; box-shadow: 0 8px 24px #0006;
@@ -38,7 +37,6 @@ input, textarea {
 .join button { padding: 10px; margin-top: 8px; }
 .join small { color: var(--muted); text-align: center; }
 
-/* ---- 全体レイアウト ---- */
 .dc { display: flex; height: 100%; }
 .rail { width: 72px; background: var(--rail); padding-top: 12px; display: flex; flex-direction: column; align-items: center; flex: none; }
 .guild {
@@ -56,7 +54,6 @@ input, textarea {
 .modebadge { background: #f0b132; color: #1e1f22; font-size: 10px; font-weight: 800; padding: 1px 5px; border-radius: 4px; }
 .cat { font-size: 12px; font-weight: 700; color: var(--muted); padding: 16px 8px 4px; text-transform: uppercase; }
 
-/* ---- チャンネル一覧 ---- */
 .channels { width: 240px; background: var(--side); display: flex; flex-direction: column; flex: none; }
 .guildhdr {
   height: 48px; padding: 0 16px; display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--strong);
@@ -94,7 +91,6 @@ input, textarea {
 .uname { font-size: 14px; font-weight: 700; color: var(--strong); }
 .userpanel .av.speaking { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--green); }
 
-/* ---- メイン ---- */
 .mainarea { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--main); }
 .mainhdr {
   height: 48px; padding: 0 16px; display: flex; align-items: center; gap: 8px; flex: none;
@@ -108,14 +104,12 @@ input, textarea {
 main { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; }
 aside { width: 300px; background: var(--side); flex: none; display: flex; flex-direction: column; min-height: 0; }
 
-/* ---- メンバー一覧 ---- */
 .members { overflow-y: auto; padding: 0 8px; }
 .member { display: flex; align-items: center; gap: 12px; padding: 6px 8px; border-radius: 4px; }
 .member:hover { background: var(--hover); }
 .minfo { min-width: 0; }
 .mname { color: var(--text); font-weight: 500; }
 
-/* ---- チャット ---- */
 .chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .panelhdr { padding: 12px 16px; font-weight: 700; color: var(--strong); border-bottom: 1px solid var(--line); }
 .messages { flex: 1; overflow-y: auto; padding: 16px 0 8px; }
@@ -135,7 +129,6 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .chat.compact .sys { padding-left: 12px; }
 .chat.compact .composer { padding: 0 12px 12px; }
 
-/* ---- セッション（通話・配信） ---- */
 .session { flex: 1; display: flex; min-height: 0; gap: 0; }
 .stage { flex: 1; min-width: 0; background: #000; display: flex; flex-direction: column; padding: 16px; gap: 12px; }
 .stream { position: relative; flex: 1; min-height: 0; border-radius: 8px; overflow: hidden; background: #111; }
@@ -159,7 +152,6 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .round.on { background: var(--green); }
 .round.enter3d { background: var(--blurple); color: #fff; font-size: 15px; font-weight: 700; padding: 0 20px; }
 
-/* ---- 付箋・マップ ---- */
 .boardview { flex: 1; display: flex; gap: 16px; padding: 16px; overflow-y: auto; align-items: flex-start; flex-wrap: wrap; }
 .board { flex: 1 1 360px; }
 .addnote { display: flex; gap: 8px; }
@@ -184,7 +176,6 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .map .speakring { fill: none; stroke: var(--green); stroke-width: .2; }
 .twod { font-size: 13px; color: var(--muted); margin-top: 8px; }
 
-/* ---- 3D ---- */
 .view3d { position: absolute; inset: 0; }
 .view3d canvas { touch-action: none; }
 .addnote3d { position: absolute; right: 12px; top: 12px; }
@@ -203,7 +194,6 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .noteeditor .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .noteeditor small { color: var(--muted); }
 
-/* ---- セッション参加・切断 ---- */
 .ch.joined .chname { color: var(--strong); }
 .conn.wait { color: #f0b132; }
 .vbtns button.hangup:hover:not(:disabled) { background: var(--red); }
@@ -220,7 +210,6 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .welcome h2 { color: var(--strong); margin: 8px 0 4px; font-size: 28px; }
 .welcome .sub { font-size: 14px; white-space: normal; }
 
-/* ---- 通話画面のステージ（配信・アクティビティ・参加者） ---- */
 .tiles { flex: 1; display: flex; flex-wrap: wrap; gap: 8px; align-content: center; justify-content: center; min-height: 0; overflow-y: auto; }
 .focusarea { flex: 1; min-height: 0; display: flex; }
 .tilerow { flex: none; display: flex; gap: 8px; justify-content: center; overflow-x: auto; padding-bottom: 2px; }
@@ -268,7 +257,6 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 }
 @keyframes pico { 0% { opacity: 0; transform: scale(.5); } 30% { opacity: 1; transform: scale(1.3); } 100% { opacity: 0; transform: translateY(-20px); } }
 
-/* ---- アイテムメニュー ---- */
 .itemmenu { position: relative; }
 .itemlist {
   position: absolute; z-index: 10; width: 280px; background: var(--rail); border-radius: 8px; padding: 0 6px 6px;
@@ -287,7 +275,6 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .maptile:not(.big) svg { pointer-events: none; }
 .maptile:not(.big) .twod { display: none; }
 
-/* ---- 3D: FPS 操作 ---- */
 .crosshair {
   position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%;
   background: #fff; box-shadow: 0 0 0 2px #0008; pointer-events: none;
@@ -313,7 +300,6 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .nametag.compat { background: #5865f2; font-size: 12px; }
 .noteeditor { bottom: 48px; }
 
-/* ---- 入口・マップのアイテム ---- */
 .map .hall { fill: #2f3136; stroke: #5c5f66; stroke-width: .1; }
 .map .door { stroke: #f0b132; stroke-width: .3; }
 .map .mapitem { cursor: grab; }
@@ -326,14 +312,12 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .nametag.hitflash { background: #f0b132; color: #1e1f22; }
 .panelcanvas.drawable { cursor: crosshair; touch-action: none; }
 
-/* ---- チャット画像 ---- */
 .chatimg { display: block; max-width: min(320px, 100%); max-height: 240px; border-radius: 6px; margin-top: 4px; cursor: zoom-in; }
 .msg.cont .chatimg { margin-top: 2px; }
 .lightbox { position: fixed; inset: 0; z-index: 50; background: #000d; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
 .lightbox img { max-width: 92vw; max-height: 88vh; border-radius: 8px; box-shadow: 0 8px 32px #000; }
 .lightbox .dl { position: absolute; top: 16px; right: 16px; background: var(--blurple); color: #fff; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-weight: 700; }
 
-/* ---- カメラ ---- */
 .viewfinder { position: absolute; inset: 8% 10%; pointer-events: none; }
 .viewfinder i { position: absolute; width: 40px; height: 40px; border: 3px solid #fffc; }
 .viewfinder .tl { left: 0; top: 0; border-right: 0; border-bottom: 0; }
@@ -348,7 +332,6 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .itemrow.disabled:hover { background: none; }
 .msg.cont { flex-direction: column; align-items: flex-start; gap: 0; }
 
-/* ---- フォロー ---- */
 .followbtn { position: absolute; right: 8px; bottom: 8px; background: var(--blurple); color: #fff; }
 .followbtn.on { background: var(--green); }
 .tilerow .followbtn { right: 4px; bottom: 4px; padding: 1px 6px; font-size: 11px; }
@@ -360,7 +343,6 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 }
 .view3d.locked .follownotice button { pointer-events: none; }
 
-/* ---- マップの操作 ---- */
 .maptip {
   position: fixed; z-index: 30; transform: translateX(-50%); width: 220px; background: var(--rail); border-radius: 8px;
   padding: 10px; box-shadow: 0 8px 24px #000a; display: flex; flex-direction: column; gap: 8px; align-items: stretch;
@@ -379,7 +361,6 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .hammercursor div.swing { animation: hammerswing .3s; }
 @keyframes hammerswing { 0% { transform: translate(-30%, -70%) rotate(-25deg); } 40% { transform: translate(-30%, -70%) rotate(-80deg); } 70% { transform: translate(-30%, -70%) rotate(20deg); } 100% { transform: translate(-30%, -70%) rotate(-25deg); } }
 
-/* ---- 近い順のプレイヤーリスト ---- */
 .vmember .dist { margin-left: auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
 .vmember.far { opacity: .5; }
 .vmember.large { font-size: 15px; padding: 6px 10px; gap: 10px; color: var(--text); }
@@ -392,7 +373,6 @@ aside { width: 300px; background: var(--side); flex: none; display: flex; flex-d
 .playerstile:not(.big) .vmember .av { width: 16px !important; height: 16px !important; font-size: 8px !important; }
 .playerstile.big .playerlist { max-width: 520px; width: 100%; margin: 0 auto; }
 
-/* ---- フォローボタン・一覧のアイテムとフィルター ---- */
 .followmini { padding: 1px 7px; font-size: 11px; background: var(--blurple); color: #fff; flex: none; }
 .followmini.on { background: var(--green); }
 .vmember:not(.large) .followmini:not(.on) { display: none; }

@@ -1,4 +1,3 @@
-// Discord 風レイアウトの共通部品（チャンネル一覧・メンバー一覧・チャット・ユーザーパネル）
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ChannelDef, ChatMessage, User } from '../../shared/protocol.ts';
 import { useStore, set, colorOf, channelOf, heldHammer } from './store.ts';
@@ -18,7 +17,6 @@ export function Avatar({ id, name, size = 32, speaking = false }: { id: string; 
   );
 }
 
-// ---------- 左: チャンネル一覧 ----------
 function TextChannel({ ch }: { ch: ChannelDef }) {
   const active = useStore((s) => s.view === 'text' && s.textChannel === ch.id);
   return (
@@ -29,7 +27,6 @@ function TextChannel({ ch }: { ch: ChannelDef }) {
   );
 }
 
-/** 2D の自分から、同じセッションの 3D の人をフォローするボタン */
 export function FollowButton({ u }: { u: User }) {
   const me = useStore((s) => s.participants.find((p) => p.id === s.selfId));
   if (!me || me.id === u.id || me.mode !== '2d' || u.mode !== '3d' || me.session !== u.session) return null;
@@ -60,7 +57,6 @@ export function VoiceMember({ u, dist, large = false }: { u: User; dist?: number
   );
 }
 
-/** 参加中セッションの参加者を自分から近い順に。声が届かない距離の手前に区切り線を入れる */
 export function NearbyList({ large = false }: { large?: boolean }) {
   const list = useNearby();
   const cut = list.findIndex((x) => x.d > SILENT);
@@ -170,7 +166,6 @@ export function ChannelSidebar() {
   );
 }
 
-// ---------- 右: メンバー一覧（セッションごと） ----------
 function MemberRow({ u }: { u: User }) {
   const speaking = useStore((s) => s.session === u.session && !!s.speaking[u.id]);
   const self = useStore((s) => s.selfId === u.id);
@@ -201,13 +196,11 @@ export function MemberList() {
   );
 }
 
-// ---------- チャット ----------
 function ChatImage({ src }: { src?: string }) {
   if (!src) return null;
   return <img className="chatimg" src={src} alt="" onClick={() => set({ lightbox: src })} />;
 }
 
-/** 2D でハンマーを持っている間、マウスのところにハンマーを出す（クリックで振る） */
 export function HammerCursor() {
   const on = useStore((s) => s.mode === '2d' && !!s.session && !!heldHammer(s));
   const ref = useRef<HTMLDivElement>(null);
@@ -220,7 +213,7 @@ export function HammerCursor() {
       const el = ref.current?.firstElementChild as HTMLElement | null;
       if (!el) return;
       el.classList.remove('swing');
-      void el.offsetWidth; // アニメーションをやり直す
+      void el.offsetWidth; // reflow してアニメーションをやり直す
       el.classList.add('swing');
     };
     window.addEventListener('mousemove', move);
@@ -231,7 +224,6 @@ export function HammerCursor() {
   return <div ref={ref} className="hammercursor"><div>🔨</div></div>;
 }
 
-/** チャット画像の拡大表示 */
 export function Lightbox() {
   const src = useStore((s) => s.lightbox);
   if (!src) return null;

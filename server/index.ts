@@ -17,22 +17,18 @@ const DEV = process.argv.includes('--dev');
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'client/dist');
 
-// ---- チャンネル構成（channels.json。起動時に読み込む） ----
-// CHANNELS_FILE で別のファイルを指定できる（デプロイ先でボリュームとして差し替える用）
 const CHANNELS_FILE = process.env.CHANNELS_FILE ?? path.join(ROOT, 'channels.json');
 const guild = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf-8')) as GuildConfig;
 const allChannels = guild.categories.flatMap((c) => c.channels);
 const sessionIds = new Set(allChannels.filter((c) => c.type === 'session').map((c) => c.id));
 const textIds = new Set(allChannels.filter((c) => c.type === 'text').map((c) => c.id));
-/** LiveKit 上のルーム名 */
 const livekitRoom = (sid: string) => `tonarium-${sid}`;
 
-// ---- 状態（メモリ内） ----
 const users = new Map<string, User>();
-const sockets = new Map<string, Set<WebSocket>>(); // 同一IDの複数タブに対応
+const sockets = new Map<string, Set<WebSocket>>(); // 同じIDで複数タブを開ける
 const chats = new Map<string, ChatMessage[]>();
-const avatars = new Map<string, Map<string, AvatarState>>(); // sid -> avatars
-const items = new Map<string, Map<string, Item>>(); // sid -> items
+const avatars = new Map<string, Map<string, AvatarState>>();
+const items = new Map<string, Map<string, Item>>();
 for (const id of textIds) chats.set(id, []);
 for (const sid of sessionIds) {
   chats.set(sessionChatKey(sid), []);
@@ -48,7 +44,7 @@ function broadcast(msg: ServerMsg, except?: WebSocket) {
   for (const set of sockets.values())
     for (const ws of set) if (ws !== except && ws.readyState === WebSocket.OPEN) ws.send(data);
 }
-/** 1チャンネルに保持する画像の数（古いものは本文だけ残す。途中参加時のスナップショットが重くならないように） */
+/** 途中参加のスナップショットが重くならないよう、古い画像は捨てる */
 const MAX_IMAGES = 40;
 
 function pushChat(ch: string, from: User | null, text: string, image?: string) {
@@ -64,7 +60,6 @@ function pushChat(ch: string, from: User | null, text: string, image?: string) {
   broadcast({ t: 'chat', ch, m });
 }
 
-/** 3D から離れた人をフォローしていた人のフォローを外す。変化があれば true */
 function dropFollowersOf(u: User) {
   let changed = false;
   for (const f of users.values())
@@ -72,7 +67,6 @@ function dropFollowersOf(u: User) {
   return changed;
 }
 
-/** カメラを使えなくなった人（退出・2D に切替）: 持っていたら置き、配信していたら止める */
 function releaseCameras(sid: string, u: User, at?: AvatarState) {
   for (const it of items.get(sid)!.values()) {
     if (it.kind !== 'camera') continue;
@@ -90,14 +84,12 @@ const broadcastUsers = () => broadcast({ t: 'users', list: [...users.values()] }
 const modeLabel = (m: Mode) => (m === '3d' ? '3D' : '2D');
 const clamp = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
 
-/** セッションから抜ける（退出・別セッションへの移動・切断で共通） */
 function leaveSession(u: User) {
   const sid = u.session;
   if (!sid) return;
   const av = avatars.get(sid)!.get(u.id);
   if (avatars.get(sid)!.delete(u.id)) broadcast({ t: 'avatarRemove', sid, id: u.id });
   for (const it of items.get(sid)!.values()) {
-    // 編集中の付箋は解放し、持っていたハンマーはその場（3Dにいればアバターの位置）に落とす
     if (it.kind === 'note' && it.editingBy === u.id) { it.editingBy = null; broadcast({ t: 'item', sid, item: it }); }
     if (it.kind === 'hammer' && it.holder === u.id) {
       it.holder = null;
@@ -157,7 +149,6 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
     }
     case 'chat': {
       const text = msg.text.trim().slice(0, 1000);
-      // 画像は JPEG/PNG の data URL で 2MB まで
       const image = typeof msg.image === 'string' && /^data:image\/(jpeg|png);base64,/.test(msg.image) && msg.image.length < 2_000_000
         ? msg.image : undefined;
       if (text || image) pushChat(msg.ch, me, text, image);
@@ -165,7 +156,6 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
     }
   }
 
-  // 以降はセッション内でのみ有効
   if (!sid) return;
   const sessItems = items.get(sid)!;
   switch (msg.t) {
@@ -200,10 +190,8 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
     case 'itemAction': {
       const it = sessItems.get(msg.id);
       if (!it) return;
-      // 手に持てるのは1人1つまで。カメラは 3D の人だけが持てる・配信できる
       if (msg.action.a === 'pick' && [...sessItems.values()].some((h) => isHandheld(h) && 'holder' in h && h.holder === me.id)) return;
       if (it.kind === 'camera' && (msg.action.a === 'pick' || (msg.action.a === 'camLive' && msg.action.on)) && me.mode !== '3d') return;
-      // 配信できるカメラは1人1台。別のカメラで配信を始めたら前のものは止める
       if (it.kind === 'camera' && msg.action.a === 'camLive' && msg.action.on)
         for (const other of sessItems.values())
           if (other !== it && other.kind === 'camera' && other.live && other.operator === me.id) {
@@ -212,7 +200,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
           }
       if (msg.action.a === 'drop') { msg.action.x = clamp(msg.action.x); msg.action.z = clamp(msg.action.z); }
       if (!applyItemAction(it, msg.action, me.id, Math.random)) return;
-      // 描画などは操作だけを配る（送り主は手元で適用済み）
+      // 送り主は手元で適用済み
       if (isDeltaAction(msg.action)) broadcast({ t: 'itemAction', sid, id: it.id, action: msg.action, by: me.id }, ws);
       else broadcast({ t: 'item', sid, item: it });
       return;
@@ -249,12 +237,10 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
     case 'place2d': {
       const target = users.get(msg.target);
       if (!target || target.session !== sid || target.mode !== '2d') return;
-      // 3D の人は誰でも運べる。2D の人は自分だけ動かせる
       if (me.mode !== '3d' && target.id !== me.id) return;
       target.pos = msg.pos
         ? { x: clamp(msg.pos.x), z: Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF + 2.8, msg.pos.z)), ry: msg.pos.ry }
         : null;
-      // 動かされたらフォローは外れる
       target.follow = null;
       broadcastUsers();
       return;
@@ -295,7 +281,6 @@ function onClose(ws: WebSocket, id: string | null) {
   broadcastUsers();
 }
 
-// ---- HTTP: LiveKitトークン発行 + ビルド済みクライアント配信 ----
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.woff2': 'font/woff2',
@@ -303,7 +288,6 @@ const MIME: Record<string, string> = {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
-  // デプロイ先（Coolify など）のヘルスチェック用
   if (url.pathname === '/healthz') {
     res.setHeader('Content-Type', 'text/plain');
     res.end('ok');
@@ -328,8 +312,7 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ url: LIVEKIT_URL, token: await at.toJwt() }));
     return;
   }
-  // npm run dev 中は古いビルドを出さない。手元のブラウザなら Vite の開発サーバーへ送り、
-  // トンネル越しなど外からのアクセスには 5173 をトンネルするよう案内する
+  // dev 中は古い client/dist を出さない。手元のブラウザは Vite へ、トンネル越しには 5173 を案内する
   if (DEV) {
     const host = (req.headers.host ?? '').replace(/:\d+$/, '');
     if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') {
@@ -341,7 +324,6 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
-  // 静的配信（npm start 時）
   let file = path.join(DIST, decodeURIComponent(url.pathname));
   if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory())
     file = path.join(DIST, 'index.html');
@@ -351,7 +333,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   res.setHeader('Content-Type', MIME[path.extname(file)] ?? 'application/octet-stream');
-  // assets/ はハッシュ付きなので長期キャッシュ可。index.html は毎回取り直させる
+  // assets/ はハッシュ付き。index.html は毎回取り直させる
   res.setHeader('Cache-Control', file.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache');
   fs.createReadStream(file).pipe(res);
 });

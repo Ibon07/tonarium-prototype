@@ -1,7 +1,3 @@
-# Tonarium プロトタイプ: クライアントをビルドし、Node サーバー 1 つで配信する
-# （HTTP・WebSocket・LiveKit トークン発行がすべて同じポート）
-
-# ---- ビルド ----
 FROM node:24-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -9,12 +5,10 @@ RUN npm ci
 COPY . .
 RUN npx vite build
 
-# ---- 実行 ----
 FROM node:24-slim
 WORKDIR /app
 ENV NODE_ENV=production \
     SERVER_PORT=3001
-# サーバーは TypeScript を tsx でそのまま動かす（プロトタイプなのでビルド工程を増やさない）
 COPY --from=build /app/node_modules ./node_modules
 COPY package.json tsconfig.json channels.json ./
 COPY shared ./shared

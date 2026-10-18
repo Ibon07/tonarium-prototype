@@ -1,4 +1,3 @@
-// カメラアイテムの 3D 表示と配信
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, type ThreeElements } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
@@ -12,7 +11,7 @@ import { carrying, type Interactable } from './interact.ts';
 
 type CameraItem = Item & { kind: 'camera' };
 
-/** レンズが -Z を向いたカメラ */
+/** レンズは -Z 向き */
 export function CameraModel({ live, ...props }: ThreeElements['group'] & { live: boolean }) {
   return (
     <group {...props}>
@@ -32,7 +31,6 @@ export function CameraModel({ live, ...props }: ThreeElements['group'] & { live:
   );
 }
 
-/** 配信映像のモニター（見る人の方を向く） */
 export function CamMonitor({ item, position }: { item: CameraItem; position: [number, number, number] }) {
   const selfId = useStore((s) => s.selfId);
   const feed = useStore((s) => s.camFeeds[item.id]);
@@ -44,7 +42,7 @@ export function CamMonitor({ item, position }: { item: CameraItem; position: [nu
     }
     const el = camVideos.get(item.id);
     return el ? new THREE.VideoTexture(el) : null;
-    // feed が変わったら（受信し直したら）作り直す
+    // 受信し直したら作り直す
   }, [own, item.id, feed]);
   useEffect(() => {
     if (tex) tex.colorSpace = THREE.SRGBColorSpace;
@@ -70,7 +68,6 @@ export function CamMonitor({ item, position }: { item: CameraItem; position: [nu
   );
 }
 
-/** 三脚に置かれたカメラ（誰かが持っている間は持ち主の手に出る） */
 export function Camera3D({ item }: { item: CameraItem }) {
   const ref = useRef<THREE.Group>(null);
   const model = useRef<THREE.Group>(null);
@@ -98,7 +95,6 @@ export function Camera3D({ item }: { item: CameraItem }) {
   };
   return (
     <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry} userData={data}>
-      {/* 三脚 */}
       {[0, 1, 2].map((i) => {
         const a = (i / 3) * Math.PI * 2;
         return (
@@ -116,7 +112,6 @@ export function Camera3D({ item }: { item: CameraItem }) {
   );
 }
 
-/** 自分が配信中のカメラ: 別のレンダラーで視点を描き、その映像を LiveKit で配信する */
 export function CameraStreamer({ item }: { item: CameraItem }) {
   const renderer = useMemo(() => makeRenderer(640, 360), []);
   const last = useRef(0);
@@ -158,7 +153,6 @@ export function CameraStreamer({ item }: { item: CameraItem }) {
   return null;
 }
 
-/** 配信中・撮影可能な状態をまとめた説明（手に持っているとき） */
 export function cameraHelp(item: CameraItem) {
   return `📷 クリック: 撮影 ・ L: 配信${item.live ? 'を止める' : 'を始める'} ・ Q: 三脚に置く`;
 }

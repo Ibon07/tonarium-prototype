@@ -4,7 +4,7 @@ import { useStore, get, type ItemUi } from '../store.ts';
 import { PANELS } from './panels.ts';
 
 const NO_UI = {};
-/** 描画倍率（拡大しても文字がつぶれないように） */
+/** 拡大しても文字がつぶれないように */
 export const PANEL_SCALE = 2;
 
 export function drawPanel(canvas: HTMLCanvasElement, item: Item, ui: ItemUi) {
@@ -19,7 +19,6 @@ export function drawPanel(canvas: HTMLCanvasElement, item: Item, ui: ItemUi) {
   panel.draw(ctx, item, ui);
 }
 
-/** アイテムの 2D 画面。interactive のときだけ操作を受け付ける */
 export function PanelCanvas({ item, interactive }: { item: Item; interactive: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const ui = useStore((s) => s.itemUi[item.id] ?? NO_UI);
@@ -30,7 +29,7 @@ export function PanelCanvas({ item, interactive }: { item: Item; interactive: bo
     const r = e.currentTarget.getBoundingClientRect();
     return [((e.clientX - r.left) / r.width) * panel.w, ((e.clientY - r.top) / r.height) * panel.h] as const;
   };
-  // 操作の時点の最新状態を渡す（描画中に何度も更新されるため）
+  // 描画中は何度も更新されるので、操作時点の最新状態を渡す
   const latest = () => [get().items[item.id] ?? item, get().itemUi[item.id] ?? {}] as const;
 
   const handlers = !interactive ? {} : panel.drag ? {

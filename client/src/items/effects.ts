@@ -2,7 +2,6 @@ import { get, set } from '../store.ts';
 
 let audio: AudioContext | null = null;
 
-/** ピコッという音（WebAudio で合成） */
 export function playPico() {
   try {
     audio ??= new AudioContext();
@@ -21,7 +20,6 @@ export function playPico() {
   } catch { /* 音が出せない環境では無視 */ }
 }
 
-/** シャッター音（ノイズを短く鳴らす） */
 export function playShutter() {
   try {
     audio ??= new AudioContext();
@@ -41,7 +39,6 @@ export function playShutter() {
 
 let fxKey = 0;
 
-/** サーバーから叩いた通知が来た（自分が叩いた場合も含む） */
 export function onHit(from: string, to: string) {
   const now = performance.now();
   set((s) => ({
@@ -58,7 +55,7 @@ export function consumeHitFx(key: number) {
   set((s) => ({ hitFx: s.hitFx.filter((f) => f.key !== key) }));
 }
 
-/** 叩かれてからの経過に応じた 0..1..0 の値（へこみ量など） */
+/** 経過に応じて 0 → 1 → 0 */
 export function bump(at: number | undefined, now = performance.now(), dur = 450) {
   if (at === undefined) return 0;
   const t = (now - at) / dur;

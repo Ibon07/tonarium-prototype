@@ -18,7 +18,6 @@ const SENS = 0.0025;
 const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
 
-/** 照準の先の物から、画面に出す説明を作る */
 function hintFor(aim: { data: Interactable; hit: THREE.Intersection } | null): string | null {
   if (carrying.current) return 'クリック / G: ここに置く';
   const s = get();
@@ -33,9 +32,9 @@ function hintFor(aim: { data: Interactable; hit: THREE.Intersection } | null): s
   return parts.length ? parts.join(' ・ ') : null;
 }
 
-/** 持ち運び中の物の位置を送る（`user:<ID>` は 2D の人の立ち姿） */
+/** `user:<ID>` は 2D の人の立ち姿 */
 function sendCarry(c: { id: string; x: number; z: number; ry: number }) {
-  // 立ち姿はこちらを向けて置く（前向きは -Z なので、運ぶ人の向き + 180°）
+  // 立ち姿の前は -Z なので、運ぶ人の方を向けるには +180°
   if (c.id.startsWith('user:')) place2d(c.id.slice(5), { x: c.x, z: c.z, ry: c.ry + Math.PI });
   else moveItem(c.id, c.x, c.z, c.ry);
 }
@@ -47,16 +46,14 @@ function finishCarry() {
   carrying.current = null;
 }
 
-/** 一人称カメラ・移動・照準での操作 */
 export function Player() {
   const { camera, gl, scene } = useThree();
   const keys = useRef<Record<string, boolean>>({});
   const look = useRef({ yaw: get().selfAvatar.ry, pitch: -0.05 });
-  // 初回は必ず送るように、前回値は「とても遠く」にしておく（NaN だと比較が常に false になり一度も送られない）
+  // NaN だと比較が常に false になり一度も送られないので Infinity
   const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity });
   const aim = useRef<ReturnType<typeof aimAt>>(null);
   const hammerRef = useRef<THREE.Group>(null);
-  /** 押したまま描いている対象 */
   const dragging = useRef<{ data: Interactable; obj: THREE.Object3D; hit: THREE.Intersection | null } | null>(null);
 
   useEffect(() => {
@@ -75,7 +72,7 @@ export function Player() {
     const onMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       if (document.pointerLockElement !== canvas) {
-        // ロックしていないときのキャンバスのクリックは「操作開始」だけ
+        // ロック前のクリックは操作開始だけ
         if (e.target === canvas) { selectNote(null); void canvas.requestPointerLock(); }
         return;
       }
@@ -102,7 +99,6 @@ export function Player() {
         }
       }
       if (e.code === 'KeyQ') { dropHammer(); dropCamera(look.current.pitch); }
-      // カメラ: 手に持っていればそれを、なければ照準の先の三脚のカメラを操作する
       const aimedCam = () => {
         const id = aim.current?.data.carry;
         const it = id ? get().items[id] : undefined;
@@ -136,12 +132,10 @@ export function Player() {
     };
   }, [camera, gl]);
 
-  /** クリック: 持ち運び中なら置く。ハンマーを持っていれば叩く。それ以外は照準の先を操作 */
   function use() {
     if (carrying.current) { finishCarry(); return; }
     const s = get();
     const target = aim.current;
-    // カメラを持っている間のクリックは撮影
     const cam = heldCamera(s);
     if (cam) { takePhoto(cam); return; }
     if (heldHammer(s)) {
@@ -159,7 +153,7 @@ export function Player() {
     target?.data.use?.(target.hit);
   }
 
-  // 開発時だけ: マウスロックできない環境（自動テストなど）から照準操作を試すための口
+  // 開発時のテスト用（マウスロックできない環境から操作する）
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     (window as unknown as Record<string, unknown>).__t3d = {
@@ -174,7 +168,6 @@ export function Player() {
   useFrame((_, dt) => {
     const s = get();
     const { yaw, pitch } = look.current;
-    // 叩かれたら少し揺れる
     const shake = bump(s.hits[s.selfId]);
     camera.rotation.set(pitch - shake * 0.15, yaw + Math.sin(performance.now() / 30) * shake * 0.03, 0);
     camera.position.y = EYE - shake * 0.12;
@@ -199,7 +192,6 @@ export function Player() {
       send({ t: 'avatar', s: a });
     }
 
-    // 持ち運び中の物は目の前 2m に置き、こちらを向ける
     const c = carrying.current;
     if (c) {
       c.x = clampRoom(x - Math.sin(yaw) * 2);
@@ -211,7 +203,6 @@ export function Player() {
       }
     }
 
-    // 押したまま照準を動かしたら、同じ物の上で描き続ける
     const d = dragging.current;
     if (d) {
       const h = aimOn(d.obj, camera);
@@ -222,7 +213,6 @@ export function Player() {
     const hint = hintFor(aim.current);
     if (hint !== s.aimHint) set({ aimHint: hint });
 
-    // 手に持ったハンマー（画面右下）
     const h = hammerRef.current;
     if (h) {
       h.visible = !!heldHammer(s);

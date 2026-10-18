@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 
-/** 日本語を含む文字列を Canvas に描いてテクスチャ化する（フォントはブラウザ任せ） */
 export function drawText(
   canvas: HTMLCanvasElement,
   lines: { text: string; color?: string; size?: number }[] | string,
@@ -18,7 +17,7 @@ export function drawText(
     ctx.fillStyle = item.color ?? opts.fg ?? '#222';
     ctx.textBaseline = 'top';
     for (const para of item.text.split('\n')) {
-      // 1文字ずつ詰めて折り返す（日本語向けの簡易版）
+      // 日本語は単語区切りがないので1文字ずつ折り返す
       let line = '';
       for (const ch of para) {
         if (ctx.measureText(line + ch).width > canvas.width - pad * 2) {
