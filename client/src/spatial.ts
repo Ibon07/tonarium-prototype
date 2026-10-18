@@ -1,12 +1,10 @@
-// 空間オーディオと「その人が空間のどこにいるか」の計算。
-// 3D の人はアバターの位置、2D の人は入口の外の列（フォロー中ならフォロー先の少し後ろ）にいる扱い。
 import { entranceSlot, type AvatarState, type User } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
 import { useStore, get } from './store.ts';
 
 export interface Place { x: number; z: number; ry: number; small: boolean }
 
-/** 参加中セッションでの各参加者の位置（3D の表示・マップ・音で共通） */
+/** 3D 表示・マップ・音で共通の、各参加者の位置 */
 export function placesOf(s = get()): Map<string, Place> {
   const out = new Map<string, Place>();
   const avatarOf = (id: string): AvatarState | undefined =>
@@ -16,7 +14,6 @@ export function placesOf(s = get()): Map<string, Place> {
     const a = avatarOf(u.id);
     if (a) out.set(u.id, { ...a, small: false });
   }
-  // フォロー中の 2D の人は、フォロー先の後ろに少しずつずらして並ぶ
   const followers = new Map<string, User[]>();
   let queue = 0;
   for (const u of s.participants) {
@@ -37,7 +34,6 @@ export function placesOf(s = get()): Map<string, Place> {
         small: true,
       });
     } else if (u.pos) {
-      // 3D の人に運ばれた・自分で動いた・叩いて移った場所
       out.set(u.id, { ...u.pos, small: false });
     } else {
       const p = entranceSlot(queue++);
@@ -47,9 +43,7 @@ export function placesOf(s = get()): Map<string, Place> {
   return out;
 }
 
-/** 参加中セッションの参加者を自分から近い順に（自分が先頭、距離 0） */
 export function useNearby(): { user: User; d: number }[] {
-  // 位置に関わる状態が変わったら並べ直す
   useStore((s) => s.participants);
   useStore((s) => s.avatars);
   useStore((s) => s.selfAvatar);
@@ -66,7 +60,6 @@ export function useNearby(): { user: User; d: number }[] {
     .sort((a, b) => a.d - b.d);
 }
 
-/** 参加中セッションのアイテムを自分から近い順に。手に持たれている物は持ち主の位置 */
 export function useNearbyItems(): { item: Item; d: number; heldBy: string | null }[] {
   useStore((s) => s.items);
   useStore((s) => s.participants);
@@ -88,20 +81,18 @@ export function useNearbyItems(): { item: Item; d: number; heldBy: string | null
 
 export const formatDistance = (d: number) => (d === 0 ? '自分' : !Number.isFinite(d) ? '—' : d < 10 ? `${d.toFixed(1)}m` : `${Math.round(d)}m`);
 
-// ---------- 空間オーディオ ----------
-const FULL = 2; // この距離までは等倍
-export const SILENT = 12; // この距離で無音
+const FULL = 2;
+export const SILENT = 12;
 
 let ctx: AudioContext | null = null;
 const voices = new Map<string, { gain: GainNode; pan: StereoPannerNode; source: MediaStreamAudioSourceNode }>();
 
-/** ユーザー操作の中で呼んで、音を出せるようにしておく */
+/** AudioContext はユーザー操作の中で再開しないと鳴らない */
 export function resumeAudio() {
   ctx ??= new AudioContext();
   void ctx.resume();
 }
 
-/** 相手のマイク音声を空間オーディオの経路につなぐ */
 export function addVoice(identity: string, track: MediaStreamTrack) {
   removeVoice(identity);
   ctx ??= new AudioContext();
@@ -132,7 +123,6 @@ function update() {
   const s = get();
   const places = placesOf(s);
   const me = places.get(s.selfId);
-  // 左右の振り分けは 3D の人と、フォロー中の 2D の人だけ
   const directional = s.mode === '3d' || !!(s.participants.find((p) => p.id === s.selfId)?.follow);
   for (const [id, v] of voices) {
     const p = places.get(id);
@@ -153,5 +143,5 @@ function update() {
 
 setInterval(update, 100);
 
-// 開発時だけ: 位置と音量の計算を確かめるための口
+// 開発時のデバッグ用
 if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__spatial = { placesOf, voices };

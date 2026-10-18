@@ -3,7 +3,6 @@ import { ITEM_INFO, ONLY_3D, type ItemKind } from '../../../shared/items.ts';
 import { useStore } from '../store.ts';
 import { spawnItem } from './actions.ts';
 
-/** アイテムを出すメニュー（2D の操作バーと 3D のオーバーレイで共用） */
 export function ItemMenu({ className = '', up = false }: { className?: string; up?: boolean }) {
   const [open, setOpen] = useState(false);
   const mode = useStore((s) => s.mode);

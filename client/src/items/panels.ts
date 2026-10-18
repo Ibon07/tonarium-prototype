@@ -1,5 +1,4 @@
-// 2D 用のアイテム画面。Canvas に描き、クリックは座標で判定する。
-// 同じ描画・クリック処理を 3D の互換モード（空間内のパネル）でも使うので、DOM に依存させない。
+// 3D の互換モードでも同じ描画・クリック処理を使うため、DOM ではなく Canvas に描く
 import { CANVAS_H, CANVAS_W, type Dir, type Item } from '../../../shared/items.ts';
 import type { ItemUi } from '../store.ts';
 import { deltaAction, itemAction, postImage, setItemUi } from './actions.ts';
@@ -12,9 +11,9 @@ export interface Panel {
   h: number;
   draw(ctx: CanvasRenderingContext2D, item: Item, ui: Ui): void;
   click(x: number, y: number, item: Item, ui: Ui): void;
-  /** キー操作（2D で拡大表示中のみ）。処理したら true */
+  /** 2D で拡大表示中のみ。処理したら true */
   key?(key: string, item: Item): boolean;
-  /** 押したまま動かす操作（描画など）。あれば click の代わりに使う */
+  /** あれば click の代わりに使う */
   drag?(phase: 'start' | 'move' | 'end', x: number, y: number, item: Item, ui: Ui): void;
 }
 
@@ -33,7 +32,6 @@ function button(ctx: CanvasRenderingContext2D, [x, y, w, h]: Rect, label: string
   ctx.fillText(label, x + w / 2, y + h / 2 + 1);
 }
 
-// ---------- チェス ----------
 const GLYPH: Record<string, string> = { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟' };
 const SQ = 56;
 const BX = 16;
@@ -84,7 +82,6 @@ export const chessPanel: Panel = {
   },
 };
 
-/** 1回目のクリックで駒を選び、2回目で移動（ルールなし）。3D の盤でも同じ処理を使う */
 export function chessSelect(item: Item, ui: Ui, i: number) {
   if (item.kind !== 'chess') return;
   const sel = ui.sel;
@@ -100,7 +97,6 @@ export function chessSelect(item: Item, ui: Ui, i: number) {
   setItemUi(item.id, {});
 }
 
-// ---------- 2048 ----------
 const TILE_BG: Record<number, string> = {
   0: '#3a3c42', 2: '#eee4da', 4: '#ede0c8', 8: '#f2b179', 16: '#f59563', 32: '#f67c5f', 64: '#f65e3b',
   128: '#edcf72', 256: '#edcc61', 512: '#edc850', 1024: '#edc53f', 2048: '#edc22e',
@@ -175,7 +171,6 @@ export const panel2048: Panel = {
   },
 };
 
-// ---------- キャンバス ----------
 const PEN_COLORS = ['#111111', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7'];
 const AREA: Rect = [10, 58, CANVAS_W, CANVAS_H];
 const SIZE_BTNS: [number, string, Rect][] = [[3, '細', [272, 12, 44, 34]], [10, '太', [320, 12, 44, 34]]];
@@ -184,7 +179,6 @@ const SAVE: Rect = [468, 12, 70, 34];
 const CLEAR: Rect = [544, 12, 84, 34];
 const colorRect = (i: number): Rect => [16 + i * 40, 13, 32, 32];
 
-/** 描いている途中の線（送信は間引いてまとめる） */
 let active: null | { itemId: string; strokeId: string; buf: number[]; lastX: number; lastY: number; lastSend: number } = null;
 
 function flush() {
@@ -234,7 +228,6 @@ export const canvasPanel: Panel = {
     const px = x - ax;
     const py = y - ay;
     if (phase === 'start') {
-      // ツールバー
       for (let i = 0; i < PEN_COLORS.length; i++)
         if (inRect(x, y, colorRect(i))) { setItemUi(item.id, { ...ui, color: PEN_COLORS[i], erase: false }); return; }
       for (const [v, , r] of SIZE_BTNS) if (inRect(x, y, r)) { setItemUi(item.id, { ...ui, size: v }); return; }
@@ -267,7 +260,6 @@ export const canvasPanel: Panel = {
   },
 };
 
-/** 描画領域（白地と線）を (ox, oy) を左上に描く */
 function drawStrokes(ctx: CanvasRenderingContext2D, item: Item, ox: number, oy: number) {
   if (item.kind !== 'canvas') return;
   const ax = ox;
@@ -303,7 +295,6 @@ function drawStrokes(ctx: CanvasRenderingContext2D, item: Item, ox: number, oy: 
   }
 }
 
-/** キャンバスの絵を画像にしてセッションのチャットに投稿する */
 function saveCanvas(item: Item) {
   const cv = document.createElement('canvas');
   cv.width = CANVAS_W * 2;
@@ -314,7 +305,5 @@ function saveCanvas(item: Item) {
   postImage('🎨 キャンバスを保存しました', cv.toDataURL('image/jpeg', 0.85));
 }
 
-/** 2D 画面を持つアイテム（通話画面にアクティビティとして並ぶ） */
 export const PANELS: Partial<Record<Item['kind'], Panel>> = { chess: chessPanel, g2048: panel2048, canvas: canvasPanel };
-/** 2D 専用で、3D では互換モード（2D 画面をそのまま置く）で表示するもの */
 export const COMPAT_ONLY: Partial<Record<Item['kind'], boolean>> = { g2048: true };

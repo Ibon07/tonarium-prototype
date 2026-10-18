@@ -27,7 +27,7 @@ const toggleFocus = (key: string) => set((s) => ({ focus: s.focus === key ? null
 
 function StreamTile({ big }: { big: boolean }) {
   const sharer = useStore((s) => s.sharer);
-  useStore((s) => s.participants); // 名前解決のため購読
+  useStore((s) => s.participants); // nameOf() 用に購読
   return (
     <div className={`tile streamtile ${big ? 'big' : ''}`} onClick={() => toggleFocus('stream')}>
       <ShareVideoHost className="videohost" />
@@ -36,7 +36,6 @@ function StreamTile({ big }: { big: boolean }) {
   );
 }
 
-/** 受信したカメラ配信の <video> をタイルの中に移して表示する */
 function CamVideoHost({ id }: { id: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const feed = useStore((s) => s.camFeeds[id]);
@@ -50,7 +49,6 @@ function CamVideoHost({ id }: { id: string }) {
   return <div ref={ref} className="videohost" />;
 }
 
-/** フォロー中の人の視点 */
 function ViewTile({ user, big }: { user: User; big: boolean }) {
   const key = `view:${user.id}`;
   return (
@@ -121,7 +119,6 @@ function UserTile({ p }: { p: User }) {
   );
 }
 
-/** 3D空間を上から見たマップ。2D からも空間のようすが分かるように、ステージに常に置く */
 function MapTile({ big }: { big: boolean }) {
   const n3d = useStore((s) => s.participants.filter((p) => p.mode === '3d').length);
   return (
@@ -137,7 +134,6 @@ function MapTile({ big }: { big: boolean }) {
   );
 }
 
-/** プレイヤー一覧のフィルター（ブラウザごとに覚えておく） */
 type ListFilter = { players: boolean; hidden: Partial<Record<Item['kind'], boolean>> };
 const FILTER_KEY = 'tonarium.listFilter';
 function loadFilter(): ListFilter {
@@ -149,7 +145,6 @@ function loadFilter(): ListFilter {
   }
 }
 
-/** 一覧のアイテムの行（できる操作をその場に出す） */
 function ItemRow({ item, d, heldBy }: { item: Item; d: number; heldBy: string | null }) {
   const iHold = useStore((s) => !!heldHammer(s));
   const feed = useStore((s) => s.camFeeds[item.id]);
@@ -170,14 +165,13 @@ function ItemRow({ item, d, heldBy }: { item: Item; d: number; heldBy: string | 
   );
 }
 
-/** 参加者とアイテムを自分から近い順に並べたリスト（声が届かない距離の手前に区切り線） */
 function PlayersTile({ big }: { big: boolean }) {
   const users = useNearby();
   const items = useNearbyItems();
   const [filter, setFilter] = useState(loadFilter);
   const update = (f: ListFilter) => {
     setFilter(f);
-    try { localStorage.setItem(FILTER_KEY, JSON.stringify(f)); } catch { /* 保存できなくても表示は切り替える */ }
+    try { localStorage.setItem(FILTER_KEY, JSON.stringify(f)); } catch { /* ignore */ }
   };
   const kinds = [...new Set(items.map((i) => i.item.kind))];
   type Entry = { key: string; d: number; node: React.ReactNode };
@@ -227,7 +221,6 @@ function StageTileView({ t, big }: { t: StageTile; big: boolean }) {
   return <UserTile p={t.user} />;
 }
 
-/** 部屋にあるハンマーの一覧（拾う・手放す）と、自分の 3D 空間での居場所 */
 function HammerBar() {
   const items = useStore((s) => s.items);
   const selfId = useStore((s) => s.selfId);
@@ -257,7 +250,6 @@ function HammerBar() {
   );
 }
 
-/** 叩いたときにハンマーが相手のタイルへ飛んでいく演出 */
 function HitFxLayer({ stage }: { stage: React.RefObject<HTMLDivElement | null> }) {
   const fx = useStore((s) => s.hitFx);
   return (
@@ -359,7 +351,6 @@ function NoteBoard() {
   );
 }
 
-/** マップ上のアイテムの描き方 */
 function MapItem({ item }: { item: Item }) {
   if (item.kind === 'note') {
     return (
@@ -386,7 +377,6 @@ function MapItem({ item }: { item: Item }) {
   );
 }
 
-/** マップでアイテムにマウスを乗せたときの操作 */
 function MapTip({ item, onClose }: { item: Item; onClose: () => void }) {
   const iHold = useStore((s) => !!heldHammer(s));
   const feed = useStore((s) => s.camFeeds[item.id]);
@@ -421,7 +411,6 @@ function MapTip({ item, onClose }: { item: Item; onClose: () => void }) {
   );
 }
 
-/** 3D空間を上から見たマップ。アイテムはドラッグで移動、自分（2D）もドラッグで動ける */
 function MiniMap({ bare = false }: { bare?: boolean }) {
   const { avatars, items, participants, speaking, selfId, sharer } = useStore();
   useStore((s) => s.hits);
@@ -438,7 +427,7 @@ function MiniMap({ bare = false }: { bare?: boolean }) {
     pt.x = e.clientX; pt.y = e.clientY;
     const p = pt.matrixTransform(svg.getScreenCTM()!.inverse());
     const L = ROOM_HALF - 0.5;
-    // 2D の自分は入口の外の控えにも置ける
+    // 2D の自分は入口の外にも置ける
     return { x: Math.max(-L, Math.min(L, p.x)), z: Math.max(-L, Math.min(self ? ROOM_HALF + 2.8 : L, p.y)) };
   };
   const sendDrag = (e: React.PointerEvent) => {
@@ -472,12 +461,11 @@ function MiniMap({ bare = false }: { bare?: boolean }) {
   const showTip = (e: React.MouseEvent, id: string) => {
     if (drag.current || !boxRef.current) return;
     window.clearTimeout(hideTimer.current);
-    // マップの枠ではみ出さないよう、画面に対する位置で出す
+    // マップの枠は overflow: hidden なので、画面基準の位置で出す
     const r = (e.currentTarget as Element).getBoundingClientRect();
     setTip({ id, left: Math.min(window.innerWidth - 120, Math.max(120, r.left + r.width / 2)), top: r.bottom + 4 });
   };
   const hideTip = () => { hideTimer.current = window.setTimeout(() => setTip(null), 200); };
-  // ハンマーを持っている間は、マップ上の人をクリックすると叩いて、その人の前に移る
   const hitProps = (id: string) => (hammer && id !== selfId ? {
     onClick: () => hitAndMove(id),
     className: 'hittable',
@@ -486,7 +474,6 @@ function MiniMap({ bare = false }: { bare?: boolean }) {
   const in2d = participants.filter((p) => p.mode === '2d');
   const in3d = participants.filter((p) => p.mode === '3d');
   const H = ROOM_HALF;
-  // 誰かが持っているハンマー・カメラはその人と一緒に表示するので、置かれている物だけ描く
   const placed = Object.values(items).filter((i) => !('holder' in i && i.holder));
   const holding = (id: string) => Object.values(items).some((i) => i.kind === 'hammer' && i.holder === id);
   const holdingCam = (id: string) => Object.values(items).some((i) => i.kind === 'camera' && i.holder === id);
@@ -531,7 +518,6 @@ function MiniMap({ bare = false }: { bare?: boolean }) {
             </g>
           );
         })}
-        {/* 2D の人: 入口の列・置かれた場所・フォロー先の後ろ（3D でも同じ位置に立っている） */}
         {in2d.map((p) => {
           const s = places.get(p.id) ?? { ...entranceSlot(0), ry: 0, small: false };
           const self = p.id === selfId;
@@ -574,12 +560,10 @@ export function SessionView() {
   const stageRef = useRef<HTMLDivElement>(null);
   const tiles: StageTile[] = [
     ...(sharer ? [{ key: 'stream', kind: 'stream' as const }] : []),
-    // フォロー中の人の視点
     ...participants.flatMap((u) => {
       const me = participants.find((x) => x.id === selfId);
       return me?.follow === u.id && camFeeds[`view:${u.id}`] ? [{ key: `view:${u.id}`, kind: 'view' as const, user: u }] : [];
     }),
-    // 届いているカメラ配信は画面共有と同じようにタイルで並べる
     ...Object.values(items).flatMap((i) => (i.kind === 'camera' && i.live && camFeeds[i.id] ? [{ key: i.id, kind: 'cam' as const, item: i }] : [])),
     { key: 'map', kind: 'map' as const },
     { key: 'players', kind: 'players' as const },
@@ -589,7 +573,6 @@ export function SessionView() {
   const focused = tiles.find((t) => t.key === focus && t.kind !== 'user');
   const focusedItem = focused?.kind === 'item' ? focused.item : null;
 
-  // 拡大中のアクティビティにキー操作を渡す（2048 の矢印キーなど）
   useEffect(() => {
     if (!focusedItem) return;
     const panel = PANELS[focusedItem.kind];

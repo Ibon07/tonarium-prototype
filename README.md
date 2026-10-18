@@ -87,6 +87,24 @@ cloudflared tunnel --url http://localhost:5173
 `npm run dev` 中に 3001 をトンネルすると案内メッセージが出るだけなので、5173 に向けること。
 cloudflared 以外（ngrok など）を使う場合は、`.env` の `ALLOWED_HOSTS` にホストを足す（例: `ALLOWED_HOSTS=.trycloudflare.com,.ngrok-free.app`。保存すると開発サーバーが再起動する）。
 
+## Coolify にデプロイする
+リポジトリに `Dockerfile` と `docker-compose.yml` があるので、Coolify でそのまま動く。
+
+1. Coolify で新しいリソースを作り、このリポジトリ（ブランチ）を選ぶ。ビルドパックは **Docker Compose**（`docker-compose.yml`）
+2. 環境変数に `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` を設定する
+3. ドメインを設定する（`SERVICE_FQDN_TONARIUM_3001` によりポート 3001 に転送される。自動で付かなければ Coolify の画面でサービスのドメインに `https://<ドメイン>:3001` の形で指定）
+4. デプロイ。`/healthz` がヘルスチェックに使われる
+
+メモ:
+- HTTP・WebSocket（`/ws`）・LiveKit トークン（`/token`）はすべて同じポート。HTTPS は Coolify（Traefik）が付けるので、マイク・画面共有もそのまま使える
+- 状態（チャット・アイテムなど）はメモリ内だけなので、再デプロイ・再起動で消える。インスタンスは 1 つで動かすこと（複数にすると部屋が分かれる）
+- チャンネル構成を本番だけ変えたいときは、`docker-compose.yml` のコメントにある `CHANNELS_FILE` とボリュームを使う
+- Dockerfile だけで使う場合（Coolify の Dockerfile ビルドパックや手元）:
+  ```bash
+  docker build -t tonarium .
+  docker run --rm -p 3001:3001 -e LIVEKIT_URL=... -e LIVEKIT_API_KEY=... -e LIVEKIT_API_SECRET=... tonarium
+  ```
+
 ## 参加者への注意
 - デスクトップ版 Chrome / Edge 推奨
 - 配信の音声: タブ共有ならタブ音声、Windows で画面全体を共有すると PC の音声も流れる（ウィンドウ単位の共有では音声なし）

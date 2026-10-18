@@ -1,5 +1,4 @@
-// 3D 空間内の名札などの文字ラベル。DOM ではなく Canvas テクスチャのスプライトで描く
-// （drei の Html は 3D 表示を開いた瞬間にいる人の分が空になることがあり、撮影・配信にも写らないため）。
+// drei の Html は 3D を開いた瞬間にいる人の分が空になることがあり、撮影・配信にも写らないので、スプライトで描く
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 
@@ -10,7 +9,7 @@ export function Label({ text, position, bg = 'rgba(0,0,0,0.75)', fg = '#ffffff',
   position: [number, number, number];
   bg?: string;
   fg?: string;
-  /** 文字の行の高さ（m） */
+  /** m */
   height?: number;
 }) {
   const { tex, aspect } = useMemo(() => {

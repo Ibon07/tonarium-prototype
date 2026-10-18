@@ -1,4 +1,3 @@
-// アイテムの 3D 表示。付箋・チェス・ハンマーは 3D 専用の表示を持ち、2048 は 2D 画面を空間に置く互換モード。
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, type ThreeElements } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -13,7 +12,6 @@ import { drawText, makeCanvasTexture } from './textTexture.ts';
 import { Camera3D } from './camera3d.tsx';
 import { Label } from './Label.tsx';
 
-/** 持ち運び中なら手元の位置、そうでなければ同期された位置へ滑らかに寄せる */
 function useFollow(ref: React.RefObject<THREE.Group | null>, id: string, x: number, z: number, ry: number) {
   useFrame((_, dt) => {
     const g = ref.current;
@@ -33,7 +31,6 @@ const removable = (item: Item): Interactable => ({
   remove: () => removeItem(item.id),
 });
 
-// ---------- 付箋 ----------
 const NOTE_Y = 1.5;
 
 function Note3D({ item }: { item: Item & { kind: 'note' } }) {
@@ -54,7 +51,7 @@ function Note3D({ item }: { item: Item & { kind: 'note' } }) {
   const data: Interactable = {
     ...removable(item),
     hint: 'クリック: 編集',
-    // 文字を打てるようにマウスのロックを外して編集欄を出す
+    // 文字を打てるようにマウスのロックを外す
     use: () => { selectNote(item.id); document.exitPointerLock(); },
   };
   return (
@@ -87,8 +84,7 @@ function Note3D({ item }: { item: Item & { kind: 'note' } }) {
   );
 }
 
-// ---------- ピコピコハンマー ----------
-/** 柄が +Y 方向、頭が Z 方向を向いたハンマー */
+/** 柄が +Y、頭が Z 方向 */
 export function HammerModel(props: ThreeElements['group']) {
   return (
     <group {...props}>
@@ -117,7 +113,6 @@ export function HammerModel(props: ThreeElements['group']) {
 function Hammer3D({ item }: { item: Item & { kind: 'hammer' } }) {
   const ref = useRef<THREE.Group>(null);
   useFollow(ref, item.id, item.x, item.z, item.ry);
-  // 誰かが持っている間は床には出さない（持ち主の手に出る）
   if (item.holder) return null;
   const data: Interactable = {
     ...removable(item),
@@ -127,7 +122,7 @@ function Hammer3D({ item }: { item: Item & { kind: 'hammer' } }) {
   return (
     <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry} userData={data}>
       <HammerModel position={[0, 0.12, 0.3]} rotation-x={-Math.PI / 2} />
-      {/* 拾いやすいように当たり判定を大きめに */}
+      {/* 拾いやすいよう大きめの当たり判定 */}
       <mesh position={[0, 0.15, 0]}>
         <boxGeometry args={[0.5, 0.3, 0.9]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
@@ -136,7 +131,6 @@ function Hammer3D({ item }: { item: Item & { kind: 'hammer' } }) {
   );
 }
 
-// ---------- チェス ----------
 const SQ = 0.2;
 const TABLE_Y = 0.78;
 const PIECE_H: Record<string, number> = { P: 0.13, R: 0.16, N: 0.18, B: 0.2, Q: 0.23, K: 0.26 };
@@ -176,7 +170,7 @@ function Chess3D({ item }: { item: Item & { kind: 'chess' } }) {
   const sqData = (i: number): Interactable => ({ use: pick(i), hint: 'クリック: 駒を選ぶ / 動かす' });
   return (
     <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry}>
-      {/* 机（持ち運び・片付けはここに照準を合わせる） */}
+      {/* 持ち運び・片付けは机に照準を合わせる */}
       <group userData={{ ...removable(item), hint: '♟ チェス' } satisfies Interactable}>
         <mesh position-y={TABLE_Y - 0.03}>
           <boxGeometry args={[1.9, 0.06, 1.9]} />
@@ -210,7 +204,6 @@ function Chess3D({ item }: { item: Item & { kind: 'chess' } }) {
   );
 }
 
-// ---------- 互換モード: 2D 画面をそのまま空間に置く ----------
 const PANEL_H = 1.8;
 
 function CompatPanel3D({ item }: { item: Item }) {
@@ -230,7 +223,6 @@ function CompatPanel3D({ item }: { item: Item }) {
     tex.needsUpdate = true;
   }, [item, ui, canvas, tex]);
   const w = (PANEL_H * panel.w) / panel.h;
-  // 照準が当たったパネル上の位置を、2D 画面のその位置の操作として渡す
   const at = (hit: THREE.Intersection) => [hit.uv!.x * panel.w, (1 - hit.uv!.y) * panel.h] as const;
   const latest = () => [get().items[item.id] ?? item, get().itemUi[item.id] ?? {}] as const;
   const data: Interactable = {

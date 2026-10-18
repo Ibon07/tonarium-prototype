@@ -102,7 +102,6 @@ export function App() {
               : mode === '3d' ? <View3D />
               : view === 'session' ? <SessionView /> : <BoardView />}
           </main>
-          {/* テキストチャンネルではメンバー一覧、セッション内ではそのセッションのチャット */}
           <aside>{textView ? <MemberList /> : sessionChat}</aside>
         </div>
       </div>

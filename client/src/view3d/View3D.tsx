@@ -18,7 +18,6 @@ import { HammerModel, Item3D } from './items3d.tsx';
 import { Label } from './Label.tsx';
 import { CameraModel, CameraStreamer, CamMonitor } from './camera3d.tsx';
 
-// ---------- 部屋（南壁の中央に入口） ----------
 const H = ROOM_HALF;
 const WALL_H = 4;
 const DOOR_H = 2.6;
@@ -33,7 +32,6 @@ function Box({ p, s, color }: { p: [number, number, number]; s: [number, number,
   );
 }
 
-/** 入口の上の看板（部屋の内側に向ける） */
 function DoorSign() {
   const tex = useMemo(() => {
     const { canvas, tex: t } = makeCanvasTexture(1024, 128);
@@ -70,11 +68,9 @@ function RoomMesh() {
       <Box p={[0, WALL_H / 2, -H]} s={[2 * H, WALL_H, 0.2]} color="#80848e" />
       <Box p={[-H, WALL_H / 2, 0]} s={[0.2, WALL_H, 2 * H]} color="#80848e" />
       <Box p={[H, WALL_H / 2, 0]} s={[0.2, WALL_H, 2 * H]} color="#80848e" />
-      {/* 南壁: 入口の左右と上 */}
       <Box p={[-(DOOR_HALF + side / 2), WALL_H / 2, H]} s={[side, WALL_H, 0.2]} color="#80848e" />
       <Box p={[DOOR_HALF + side / 2, WALL_H / 2, H]} s={[side, WALL_H, 0.2]} color="#80848e" />
       <Box p={[0, (WALL_H + DOOR_H) / 2, H]} s={[2 * DOOR_HALF, WALL_H - DOOR_H, 0.2]} color="#80848e" />
-      {/* 入口の外（2D の人が並ぶ控えの場所） */}
       <mesh rotation-x={-Math.PI / 2} position={[0, 0.002, H + HALL / 2]}>
         <planeGeometry args={[2 * DOOR_HALF + 1.6, HALL]} />
         <meshStandardMaterial color="#3f4147" />
@@ -87,7 +83,6 @@ function RoomMesh() {
   );
 }
 
-// ---------- 共有スクリーン（2D と同じ <video> を VideoTexture で表示） ----------
 function Screen() {
   const sharer = useStore((s) => s.sharer);
   useStore((s) => s.participants);
@@ -131,7 +126,6 @@ function Screen() {
   );
 }
 
-// ---------- 2D 参加者: 入口の外に並ぶ「紙の立ち姿」 ----------
 function Standee({ user }: { user: User }) {
   const speaking = useStore((s) => !!s.speaking[user.id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[user.id] === false);
@@ -142,7 +136,6 @@ function Standee({ user }: { user: User }) {
   useEffect(() => {
     const ctx = canvas.getContext('2d')!;
     ctx.clearRect(0, 0, 256, 512);
-    // 紙の人型: 丸い頭と胴体
     ctx.fillStyle = '#f2f3f5';
     ctx.beginPath();
     ctx.roundRect(28, 150, 200, 340, 60);
@@ -171,7 +164,6 @@ function Standee({ user }: { user: User }) {
   useFrame((_, dt) => {
     const g = ref.current;
     const s = get();
-    // 入口の列・置かれた場所・フォロー先の後ろ（小さくなる）へ滑らかに移動する。運ばれている間は手元の位置
     const carried = carrying.current?.id === `user:${user.id}` ? carrying.current : null;
     const pos = carried ? { x: carried.x, z: carried.z, ry: carried.ry + Math.PI, small: false } : placesOf(s).get(user.id);
     if (g && pos) {
@@ -195,7 +187,7 @@ function Standee({ user }: { user: User }) {
         <meshStandardMaterial color="#2b2d31" />
       </mesh>
       <group ref={card}>
-        {/* 紙なので両面に貼る（部屋の中＝ -Z 側を向く） */}
+        {/* 部屋の中（-Z）を向ける */}
         <mesh position-y={0.85} rotation-y={Math.PI}>
           <planeGeometry args={[0.85, 1.7]} />
           <meshBasicMaterial map={tex} transparent alphaTest={0.5} side={THREE.DoubleSide} toneMapped={false} />
@@ -223,7 +215,6 @@ function Entrance() {
   return <>{in2d.map((u) => <Standee key={u.id} user={u} />)}</>;
 }
 
-// ---------- 他の参加者のアバター ----------
 function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
   const name = useStore((s) => s.participants.find((p) => p.id === id)?.name);
   const speaking = useStore((s) => !!s.speaking[id]);
@@ -243,7 +234,6 @@ function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
     d = Math.atan2(Math.sin(d), Math.cos(d));
     g.rotation.y += d * k;
     const s = get();
-    // 叩かれたら頭が一瞬へこんで戻る
     const b = bump(s.hits[id]);
     head.current?.scale.set(1 + 0.4 * b, 1 - 0.6 * b, 1 + 0.4 * b);
     head.current?.position.setY(1.45 - 0.14 * b);
@@ -289,7 +279,6 @@ function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
   );
 }
 
-// ---------- DOM オーバーレイ ----------
 function NoteEditor() {
   const id = useStore((s) => s.selectedNote);
   const note = useStore((s) => (id ? s.items[id] : undefined));
@@ -318,7 +307,6 @@ function NoteEditor() {
   );
 }
 
-/** フォローされている間、自分の視点（メインのキャンバス）を配信する */
 function ViewStreamer() {
   const { gl } = useThree();
   useEffect(() => {
@@ -332,7 +320,6 @@ function ViewStreamer() {
   return null;
 }
 
-/** フォローされていることの表示 */
 function FollowNotice() {
   const participants = useStore((s) => s.participants);
   const selfId = useStore((s) => s.selfId);
@@ -346,7 +333,6 @@ function FollowNotice() {
   );
 }
 
-/** カメラを持っている間のファインダー表示と、撮影時のフラッシュ */
 function Viewfinder() {
   const cam = useStore((s) => heldCamera(s));
   const flashAt = useStore((s) => s.flashAt);

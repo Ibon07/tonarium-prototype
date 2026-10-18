@@ -3,8 +3,7 @@ import { get, set, recompute } from '../store.ts';
 import { applyDelta } from '../items/actions.ts';
 import { onHit } from '../items/effects.ts';
 
-// 開発中のホットリロードでこのモジュールが読み直されても、接続中のソケットを使い続ける
-// （読み直した側でソケットが null になり、送信だけが黙って捨てられるのを防ぐ）
+// HMR でこのモジュールが読み直されても同じソケットを使う（新しい側で送信が黙って捨てられるのを防ぐ）
 const g = globalThis as unknown as { __tonariumWs?: WebSocket | null };
 let retry = 0;
 
@@ -17,7 +16,6 @@ export function connectWs() {
     set({ wsConnected: true });
     const s = get();
     send({ t: 'hello', id: s.selfId, name: s.selfName });
-    // 再接続時はセッション参加状態を復元する
     if (s.session) {
       send({ t: 'join', sid: s.session });
       if (s.mode === '3d') {
@@ -72,7 +70,7 @@ function onMessage(msg: ServerMsg) {
     case 'item':
       set((s) => {
         let item = msg.item;
-        // 自分が入力中の付箋は、遅れて返ってくる自分の変更で文字を巻き戻さない
+        // 入力中の付箋は、遅れて返ってくる自分の変更で巻き戻さない
         const cur = s.itemsBy[msg.sid]?.[item.id];
         if (item.kind === 'note' && cur?.kind === 'note' && s.selectedNote === item.id && item.updatedBy === s.selfId)
           item = { ...item, text: cur.text };

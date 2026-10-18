@@ -1,19 +1,15 @@
-// セッション内に出せるアイテム（ハードコード）。状態の更新はサーバーが権威的に行う。
-// 最終的には UGC にする想定なので、種類ごとの振る舞いはこのファイルの関数に閉じ込めておく。
 
 export type ItemKind = 'note' | 'hammer' | 'chess' | 'g2048' | 'canvas' | 'camera';
 
-/** キャンバスの描画領域（ストロークの座標はこの範囲） */
 export const CANVAS_W = 620;
 export const CANVAS_H = 450;
-/** 1本の線。color が 'erase' なら消しゴム */
+/** color が 'erase' なら消しゴム */
 export interface Stroke { id: string; by: string; color: string; size: number; pts: number[] }
 
 export const NOTE_COLORS = ['#fde68a', '#fca5a5', '#86efac', '#93c5fd', '#d8b4fe'];
 
 interface ItemBase {
   id: string;
-  /** 3D空間での床上の位置と向き */
   x: number;
   z: number;
   ry: number;
@@ -22,25 +18,16 @@ interface ItemBase {
 }
 
 export type Item =
-  /** 付箋。編集中の人がいれば editingBy（簡易ロック、表示のみ） */
   | (ItemBase & { kind: 'note'; text: string; color: string; editingBy: string | null })
-  /** ピコピコハンマー。持てるのは1本につき1人 */
   | (ItemBase & { kind: 'hammer'; holder: string | null })
-  /** チェス。ルールなし、駒を自由に動かすだけ。board[row*8+col]、row 0 が黒側（8段目） */
+  /** board[row * 8 + col]。row 0 が黒の 8 段目 */
   | (ItemBase & { kind: 'chess'; board: (string | null)[]; last: [number, number] | null })
-  /** 2048。全員で1つの盤面を操作する */
   | (ItemBase & { kind: 'g2048'; grid: number[]; score: number; over: boolean })
-  /** みんなで描けるキャンバス */
   | (ItemBase & { kind: 'canvas'; strokes: Stroke[] })
-  /**
-   * カメラ（3D 専用）。手に持つか、三脚に置く（置いたときの向きは ry と pitch）。
-   * live 中は operator のブラウザがカメラの視点を描いて配信する
-   */
+  /** live 中は operator のブラウザがカメラ視点を描いて配信する */
   | (ItemBase & { kind: 'camera'; holder: string | null; pitch: number; live: boolean; operator: string | null });
 
-/** 手に持つアイテム（1人1つまで） */
 export const isHandheld = (i: Item) => i.kind === 'hammer' || i.kind === 'camera';
-/** 3D でしか出せない・持てないアイテム */
 export const ONLY_3D: Partial<Record<ItemKind, boolean>> = { camera: true };
 
 export type Dir = 'up' | 'down' | 'left' | 'right';
@@ -59,7 +46,7 @@ export type ItemAction =
   | { a: 'strokeAdd'; id: string; pts: number[] }
   | { a: 'canvasClear' };
 
-/** 描画のように頻繁な操作は、サーバーが状態全体ではなく操作だけを配り、各クライアントが同じ関数で適用する */
+/** 頻繁な操作はアイテム全体ではなく操作だけを配り、各クライアントが applyItemAction で適用する */
 export const isDeltaAction = (act: ItemAction) =>
   act.a === 'strokeStart' || act.a === 'strokeAdd' || act.a === 'canvasClear';
 
@@ -72,7 +59,6 @@ export const ITEM_INFO: Record<ItemKind, { name: string; icon: string; desc: str
   camera: { name: 'カメラ', icon: '📷', desc: '撮影とライブ配信（3D でのみ出せる）' },
 };
 
-// ---------- チェス ----------
 const BACK = ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R'];
 export function chessInitial(): (string | null)[] {
   const b: (string | null)[] = Array(64).fill(null);
@@ -85,7 +71,6 @@ export function chessInitial(): (string | null)[] {
   return b;
 }
 
-// ---------- 2048 ----------
 function spawnTile(grid: number[], rng: () => number) {
   const empty = grid.map((v, i) => (v ? -1 : i)).filter((i) => i >= 0);
   if (!empty.length) return;
@@ -99,7 +84,6 @@ export function g2048Initial(rng: () => number) {
   return grid;
 }
 
-/** 1列を左に寄せて合体させる */
 function slideLine(line: number[]): { out: number[]; gained: number } {
   const vals = line.filter((v) => v);
   const out: number[] = [];
@@ -116,7 +100,7 @@ function slideLine(line: number[]): { out: number[]; gained: number } {
 }
 
 function lineIndices(dir: Dir, k: number): number[] {
-  // 各方向について「寄せる側から順」のマス番号
+  // 寄せる側の端から順のマス番号
   const idx = [0, 1, 2, 3];
   switch (dir) {
     case 'left': return idx.map((i) => k * 4 + i);
@@ -142,7 +126,6 @@ function canMove(grid: number[]) {
   return (['up', 'down', 'left', 'right'] as Dir[]).some((d) => slide2048(grid, d).moved);
 }
 
-// ---------- 共通 ----------
 export function createItem(
   kind: ItemKind, base: Omit<ItemBase, 'updatedBy'>, rng: () => number,
 ): Item {
@@ -157,7 +140,7 @@ export function createItem(
   }
 }
 
-/** アクションを適用する（item を書き換える）。変化があれば true */
+/** item を書き換える。変化があれば true */
 export function applyItemAction(item: Item, act: ItemAction, userId: string, rng: () => number): boolean {
   switch (item.kind) {
     case 'note':
@@ -176,7 +159,6 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
     case 'camera':
       if (act.a === 'pick' && item.holder === null) {
         item.holder = userId;
-        // 他の人が配信していたカメラを拾ったら配信は止める
         if (item.live && item.operator !== userId) { item.live = false; item.operator = null; }
         break;
       }

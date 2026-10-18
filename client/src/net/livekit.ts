@@ -1,6 +1,4 @@
-// LiveKit 接続はアプリのルート（このモジュール）で1つだけ持つ。
-// 2D/3D の表示コンポーネントは接続に触らないので、表示切替で通話・配信が切れない。
-// セッションを移るときだけ、前のルームから切断して次のルームへつなぎ直す。
+// 接続はここで1つだけ持ち、2D/3D の表示切替では切らない。セッションを移るときだけつなぎ直す。
 import {
   Room, RoomEvent, Track, LocalVideoTrack,
   type RemoteTrack, type RemoteTrackPublication, type Participant as LkParticipant, type LocalTrackPublication,
@@ -11,28 +9,23 @@ import { send } from './ws.ts';
 
 export const room = new Room({ adaptiveStream: false, dynacast: true });
 
-/** 配信映像を表示する唯一の <video>。2D パネルと 3D スクリーン (VideoTexture) の両方がこれを使う */
+/** 2D パネルと 3D スクリーン (VideoTexture) で共有する唯一の <video>（二重再生を防ぐ） */
 export const shareVideoEl = document.createElement('video');
 shareVideoEl.muted = true;
 shareVideoEl.playsInline = true;
 shareVideoEl.autoplay = true;
 
-/** 音声要素の置き場（表示とは無関係に常駐） */
 const audioHost = document.createElement('div');
 audioHost.style.display = 'none';
 document.body.appendChild(audioHost);
 
 let reported = { micOn: false, sharing: false };
 
-/** カメラアイテムの配信映像（アイテムID → 受信用の <video>）。トラック名は `camera:<アイテムID>` */
 export const camVideos = new Map<string, HTMLVideoElement>();
 export const camHolder = document.createElement('div');
 Object.assign(camHolder.style, { position: 'fixed', left: '0', bottom: '0', width: '2px', height: '2px', opacity: '0', pointerEvents: 'none' });
 document.body.appendChild(camHolder);
-/**
- * 映像フィードのキー: カメラアイテムは `camera:<アイテムID>` → アイテムID、
- * フォローされた人の視点は `view:<ユーザーID>` → そのまま
- */
+/** 映像フィードのキー: `camera:<アイテムID>` はアイテムID、`view:<ユーザーID>` はそのまま */
 const camIdOf = (name: string | undefined) =>
   name?.startsWith('camera:') ? name.slice(7) : name?.startsWith('view:') ? name : null;
 
@@ -63,7 +56,7 @@ function syncParticipants() {
   }
   const lp = room.localParticipant;
   set({ speaking, micOn, sharer, shareHasAudio, micEnabled: lp.isMicrophoneEnabled });
-  // 他セッションの人にもミュート・配信状態が見えるようにサーバーへ伝える
+  // 他セッションの人にも見えるようにサーバーへ伝える
   const status = { micOn: lp.isMicrophoneEnabled, sharing: lp.isScreenShareEnabled };
   if (status.micOn !== reported.micOn || status.sharing !== reported.sharing) {
     reported = status;
@@ -85,10 +78,9 @@ function attachRemote(track: RemoteTrack, pub: RemoteTrackPublication, identity:
     return;
   }
   if (track.kind === Track.Kind.Audio) {
-    // マイク音声・配信音声とも1回だけ attach する（二重音声防止）
     const el = track.attach();
     if (track.source === Track.Source.Microphone) {
-      // マイクは空間オーディオの経路で鳴らす（Chrome では要素にもつないでおかないと音が流れないので、要素はミュート）
+      // 空間オーディオで鳴らす。Chrome では要素にもつながないと音が流れないので、要素はミュートして残す
       el.muted = true;
       addVoice(identity, track.mediaStreamTrack);
     }
@@ -125,7 +117,7 @@ room
   .on(RoomEvent.Reconnecting, () => set({ voice: 'connecting' }))
   .on(RoomEvent.Reconnected, () => { set({ voice: 'connected' }); syncParticipants(); });
 
-/** 接続要求の世代。素早くセッションを移ったとき、古い接続結果を捨てるため */
+/** 素早くセッションを移ったとき、古い接続結果を捨てるための世代 */
 let generation = 0;
 
 function resetVoiceState() {
@@ -176,7 +168,6 @@ export async function connectVoice(sid: string) {
   syncParticipants();
 }
 
-/** 未接続中は希望設定だけを切り替える（次に入ったセッションで適用） */
 export async function toggleMic() {
   const next = !get().micEnabled;
   set({ micEnabled: next });
@@ -205,7 +196,6 @@ export async function toggleShare() {
   syncParticipants();
 }
 
-/** カメラアイテムの視点を配信する。戻り値で配信を止める */
 export async function publishCamera(itemId: string, mediaTrack: MediaStreamTrack) {
   const track = new LocalVideoTrack(mediaTrack, undefined, true);
   const pub = await room.localParticipant.publishTrack(track, {
@@ -220,7 +210,6 @@ export async function publishCamera(itemId: string, mediaTrack: MediaStreamTrack
   };
 }
 
-/** フォローされている間、自分の視点（メインの 3D キャンバス）を配信する。戻り値で止める */
 export async function publishView(canvas: HTMLCanvasElement) {
   const mediaTrack = canvas.captureStream(15).getVideoTracks()[0];
   const track = new LocalVideoTrack(mediaTrack, undefined, true);
@@ -236,7 +225,6 @@ export async function publishView(canvas: HTMLCanvasElement) {
   };
 }
 
-/** 視点の配信は、その人をフォローしている人だけが受信する */
 function syncViewSubscriptions() {
   const s = get();
   const myFollow = s.participants.find((p) => p.id === s.selfId)?.follow ?? null;
