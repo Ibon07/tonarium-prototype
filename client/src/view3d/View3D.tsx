@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { ROOM_HALF, spawnSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
+import { ROOM_HALF, jumpHeight, spawnSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
 import { NOTE_COLORS } from '../../../shared/items.ts';
 import { useStore, get, colorOf, nameOf, heldHammer, heldCamera, worldKindOf } from '../store.ts';
 import { shareVideoEl } from '../net/livekit.ts';
@@ -133,14 +133,17 @@ function Avatar3D({ id, state, self = false }: { id: string; state: AvatarState;
   const ref = useRef<THREE.Group>(null);
   const body = useRef<THREE.Group>(null);
   const hand = useRef<THREE.Group>(null);
+  // 途中から見えた人の過去のジャンプは再生しない
+  const jump = useRef({ n: state.jump ?? 0, at: -Infinity });
   useFrame((_, dt) => {
     const g = ref.current;
     if (!g) return;
     const k = Math.min(1, dt * 10);
     g.position.x += (state.x - g.position.x) * k;
     g.position.z += (state.z - g.position.z) * k;
-    // ジャンプは速いので少し強めに追う
-    g.position.y += ((state.y ?? 0) - g.position.y) * Math.min(1, dt * 18);
+    const j = jump.current;
+    if ((state.jump ?? 0) !== j.n) { j.n = state.jump ?? 0; j.at = performance.now(); }
+    g.position.y = jumpHeight(performance.now() - j.at);
     let d = state.ry - g.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     g.rotation.y += d * k;

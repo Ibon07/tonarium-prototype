@@ -66,8 +66,21 @@ export interface AvatarState {
   ry: number;
   /** 3D の人の顔の上下の向き（上向きが正） */
   pitch?: number;
-  /** ジャンプ中の足元の高さ（m） */
-  y?: number;
+  /**
+   * 跳んだ回数。高さは送らず、増えたのを見た側が受け取った瞬間から jumpHeight で放物線を描く
+   * （途中の高さを送ると、届く間隔のむらでカクつく）
+   */
+  jump?: number;
+}
+
+/** 初速 4.2m/s・重力 12m/s² で 0.7m ほど跳ぶ */
+const JUMP_V = 4.2;
+const GRAVITY = 12;
+/** 跳んでから ms 経ったときの足元の高さ（m） */
+export function jumpHeight(ms: number) {
+  const t = ms / 1000;
+  if (!(t > 0 && t < (2 * JUMP_V) / GRAVITY)) return 0;
+  return JUMP_V * t - (GRAVITY * t * t) / 2;
 }
 
 export interface Snapshot {

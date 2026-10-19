@@ -483,7 +483,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       const s: AvatarState = {
         x: clamp(msg.s.x), z: clamp(msg.s.z), ry: msg.s.ry,
         pitch: Math.max(-1.5, Math.min(1.5, Number(msg.s.pitch) || 0)),
-        y: Math.max(0, Math.min(3, Number(msg.s.y) || 0)),
+        jump: Math.max(0, Math.floor(Number(msg.s.jump) || 0)),
       };
       avatars.get(sid)!.set(me.id, s);
       broadcast({ t: 'avatar', sid, id: me.id, s }, ws);
