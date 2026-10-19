@@ -1,5 +1,6 @@
 import type { Item, ItemAction, ItemKind, MediaInit } from './items.ts';
 import type { WorldKind } from './worlds.ts';
+import type { DiceRoll } from './dice.ts';
 
 export type Mode = '2d' | '3d';
 
@@ -56,6 +57,8 @@ export interface ChatMessage {
   to?: string[];
   /** イベントで強調する相手（つんつんされた人など） */
   about?: string;
+  /** サイコロの結果。シークレットのとき本人以外には results が null */
+  dice?: DiceRoll;
 }
 
 export interface ChatMedia { kind: 'image' | 'video'; url: string; w: number; h: number }

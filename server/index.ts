@@ -4,7 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
@@ -16,6 +16,7 @@ import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, createItem, isDeltaA
 import { sanitizeParams } from '../shared/avatar.ts';
 import { VOICE_RANGE, computePlaces } from '../shared/places.ts';
 import { SOUNDS } from '../shared/sounds.ts';
+import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts';
 import { getOgp } from './ogp.ts';
 import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
@@ -121,12 +122,12 @@ function chatMedia(m: ChatMedia | undefined): ChatMedia | undefined {
   return { kind, url: m.url, w: size(m.w), h: size(m.h) };
 }
 
-function pushChat(sid: string, from: User | null, text: string, opt: { scope?: ChatScope; image?: string; media?: ChatMedia; to?: string[]; about?: string } = {}) {
+function pushChat(sid: string, from: User | null, text: string, opt: { scope?: ChatScope; image?: string; media?: ChatMedia; to?: string[]; about?: string; dice?: DiceRoll } = {}) {
   const list = chats.get(sid);
   if (!list) return;
   const m: ChatMessage = {
     id: randomUUID(), from: from?.id ?? null, fromName: from?.name ?? '', text, at: Date.now(), scope: opt.scope ?? 'all',
-    ...(opt.image ? { image: opt.image } : {}), ...(opt.media ? { media: opt.media } : {}), ...(opt.to ? { to: opt.to } : {}), ...(opt.about ? { about: opt.about } : {}),
+    ...(opt.image ? { image: opt.image } : {}), ...(opt.media ? { media: opt.media } : {}), ...(opt.to ? { to: opt.to } : {}), ...(opt.about ? { about: opt.about } : {}), ...(opt.dice ? { dice: opt.dice } : {}),
   };
   list.push(m);
   if (list.length > 500) list.shift();
@@ -139,6 +140,27 @@ function pushChat(sid: string, from: User | null, text: string, opt: { scope?: C
 }
 
 const event = (sid: string, text: string, about?: string) => pushChat(sid, null, text, { about });
+
+const lastRoll = new Map<string, number>();
+/** 結果はここで決める。チャットへは転がり終わってから出し、演出より先にばれないようにする */
+function rollDice(sid: string, me: User, it: Item & { kind: 'dice' }, sides: unknown, count: unknown, secret: boolean) {
+  const n = Math.floor(Number(count));
+  if (!isDieSides(sides) || !(n >= 1 && n <= DICE_MAX)) return;
+  if (Date.now() - (lastRoll.get(me.id) ?? 0) < 600) return;
+  lastRoll.set(me.id, Date.now());
+  const results = Array.from({ length: n }, () => randomInt(1, sides + 1));
+  const roll: DiceRoll = { id: randomUUID(), by: me.id, sides, count: n, results, secret, at: Date.now() };
+  it.roll = secret ? { ...roll, results: null } : roll;
+  it.updatedBy = me.id;
+  broadcast({ t: 'item', sid, item: it });
+  setTimeout(() => {
+    if (me.session !== sid) return;
+    if (!secret) { pushChat(sid, me, '', { dice: roll }); return; }
+    pushChat(sid, me, '', { dice: roll, to: [me.id] });
+    const others = [...users.values()].filter((u) => u.session === sid && u.id !== me.id).map((u) => u.id);
+    if (others.length) pushChat(sid, me, '', { dice: { ...roll, results: null }, to: others });
+  }, ROLL_MS);
+}
 
 /** 声の範囲チャットの宛先：送信時点で VOICE_RANGE 以内にいる同じワールドの人 */
 function nearIds(sid: string, me: User) {
@@ -413,6 +435,10 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
             other.live = false; other.operator = null;
             broadcast({ t: 'item', sid, item: other });
           }
+      if (it.kind === 'dice' && msg.action.a === 'diceRoll') {
+        rollDice(sid, me, it, msg.action.sides, msg.action.count, !!msg.action.secret);
+        return;
+      }
       if (msg.action.a === 'drop') Object.assign(msg.action, placeIn(sid, msg.action.x, msg.action.z, 0.3));
       if (!applyItemAction(it, msg.action, me.id, Math.random)) return;
       // 送り主は手元で適用済み
