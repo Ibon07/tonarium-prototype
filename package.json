@@ -8,11 +8,13 @@
     "start": "vite build && tsx server/index.ts",
     "livekit": "docker compose -f docker-compose.dev.yml up -d",
     "livekit:stop": "docker compose -f docker-compose.dev.yml down",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:chess": "tsx --test shared/chess.test.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
+    "chess.js": "^1.4.0",
     "dotenv": "^18.0.8",
     "livekit-client": "^2.23.0",
     "livekit-server-sdk": "^2.19.1",

@@ -1,3 +1,4 @@
+import { chessView, chessLegalMoves, squareIndex } from '../../../shared/chess.ts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Html } from '@react-three/drei';
 import { useFrame, type ThreeElements } from '@react-three/fiber';
@@ -9,7 +10,7 @@ import { YouTubePlayer, youTubeDuration } from '../youtube.tsx';
 import { youTubeThumb } from '../media.ts';
 import { selectNote } from '../actions.ts';
 import { itemAction, removeItem } from '../items/actions.ts';
-import { COMPAT_ONLY, PANELS, chessSelect } from '../items/panels.ts';
+import { COMPAT_ONLY, PANELS, chessSelect, chessPromote, chessReset, PROMOTIONS } from '../items/panels.ts';
 import { drawPanel } from '../items/PanelCanvas.tsx';
 import { carrying, type Interactable } from './interact.ts';
 import { drawText, makeCanvasTexture } from './textTexture.ts';
@@ -166,14 +167,38 @@ function ChessPiece({ code }: { code: string }) {
 function Chess3D({ item }: { item: Item & { kind: 'chess' } }) {
   const ref = useRef<THREE.Group>(null);
   useFollow(ref, item.id, item.x, item.z, item.ry);
-  const sel = useStore((s) => s.itemUi[item.id]?.sel);
+  const ui = useStore((s) => s.itemUi[item.id]);
+  const active = ui?.chessRevision === item.chess.revision;
+  const sel = active ? ui?.sel : undefined;
+  const view = chessView(item.chess);
+  const legal = sel === undefined ? [] : chessLegalMoves(item.chess, sel);
+  const promoting = active && ui?.promotionTo !== undefined;
+  const reset = () => {
+    const it = get().items[item.id];
+    if (it) chessReset(it, get().itemUi[item.id] ?? {});
+  };
   const pick = (i: number) => () => {
     const it = get().items[item.id];
     if (it) chessSelect(it, get().itemUi[item.id] ?? {}, i);
   };
-  const sqData = (i: number): Interactable => ({ use: pick(i), hint: 'クリック: 駒を選ぶ / 動かす' });
+  const sqData = (i: number): Interactable => ({ use: pick(i), hint: view.over ? view.status : `${view.status} · クリック: 駒を選ぶ / 動かす` });
   return (
     <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry}>
+      <Label text={view.status} position={[0, 1.5, 0]} height={0.17} />
+      <Label text={promoting ? '昇格する駒を選択 ↓' : active && ui?.chessMessage ? ui.chessMessage : '手番の駒は誰でも操作できます'} position={[0, 1.28, 0]} height={0.09} />
+      {promoting ? PROMOTIONS.map(([promotion, label], index) => (
+        <group key={promotion} position={[(index - 1.5) * 0.46, TABLE_Y, 1.12]}
+          userData={{ use: () => {
+            const it = get().items[item.id];
+            if (it) chessPromote(it, get().itemUi[item.id] ?? {}, promotion);
+          }, hint: `${label}に昇格` } satisfies Interactable}>
+          <mesh><boxGeometry args={[0.43, 0.08, 0.25]} /><meshStandardMaterial color="#476b8c" /></mesh>
+          <Label text={label} position={[0, 0.14, 0]} height={0.07} />
+        </group>
+      )) : <group position={[0, TABLE_Y, 1.12]} userData={{ use: reset, hint: ui?.resetConfirm ? 'もう一度クリックして初期化' : '新しい対局を始める' } satisfies Interactable}>
+        <mesh><boxGeometry args={[0.8, 0.08, 0.25]} /><meshStandardMaterial color="#476b8c" /></mesh>
+        <Label text={ui?.resetConfirm ? '初期化する？ クリックで確定' : '新しい対局'} position={[0, 0.14, 0]} height={0.08} />
+      </group>}
       {/* 持ち運び・片付けは机に照準を合わせる */}
       <group userData={{ ...removable(item), hint: '♟ チェス' } satisfies Interactable}>
         <mesh position-y={TABLE_Y - 0.03}>
@@ -193,7 +218,7 @@ function Chess3D({ item }: { item: Item & { kind: 'chess' } }) {
         const lx = (c - 3.5) * SQ;
         const lz = (r - 3.5) * SQ;
         const isLast = item.last && (item.last[0] === i || item.last[1] === i);
-        const color = sel === i ? '#5865f2' : isLast ? ((r + c) % 2 ? '#aaa23a' : '#cdd26a') : (r + c) % 2 ? '#b58863' : '#f0d9b5';
+        const color = view.check && code === `${view.turn}K` ? '#d96a59' : sel === i ? '#608bb0' : legal.some(m => squareIndex(m.to) === i) ? '#6d9e90' : isLast ? ((r + c) % 2 ? '#aaa23a' : '#cdd26a') : (r + c) % 2 ? '#b58863' : '#f0d9b5';
         return (
           <group key={i} position={[lx, TABLE_Y, lz]} userData={sqData(i)}>
             <mesh position-y={0.01}>

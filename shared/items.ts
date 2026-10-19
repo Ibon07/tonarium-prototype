@@ -1,3 +1,4 @@
+import { newChess, chessBoard, playChess, type ChessState, type Promotion } from './chess.ts';
 
 export type ItemKind = 'note' | 'hammer' | 'chess' | 'g2048' | 'canvas' | 'camera' | 'image' | 'video' | 'youtube';
 
@@ -33,7 +34,7 @@ export type Item =
   | (ItemBase & { kind: 'note'; text: string; color: string; editingBy: string | null })
   | (ItemBase & { kind: 'hammer'; holder: string | null })
   /** board[row * 8 + col]。row 0 が黒の 8 段目 */
-  | (ItemBase & { kind: 'chess'; board: (string | null)[]; last: [number, number] | null })
+  | (ItemBase & { kind: 'chess'; chess: ChessState; board: (string | null)[]; last: [number, number] | null })
   | (ItemBase & { kind: 'g2048'; grid: number[]; score: number; over: boolean })
   | (ItemBase & { kind: 'canvas'; strokes: Stroke[] })
   /** live 中は operator のブラウザがカメラ視点を描いて配信する */
@@ -53,7 +54,7 @@ export type ItemAction =
   | { a: 'pick' }
   | { a: 'drop'; x: number; z: number; ry: number; pitch?: number }
   | { a: 'camLive'; on: boolean }
-  | { a: 'chessMove'; from: number; to: number }
+  | { a: 'chessMove'; from: number; to: number; revision: number; promotion?: Promotion }
   | { a: 'chessReset' }
   | { a: 'slide'; dir: Dir }
   | { a: 'reset2048' }
@@ -182,7 +183,7 @@ export function createItem(
       return { ...b, kind, videoId: media.videoId, title: String(media.title ?? '').slice(0, 200), clock };
     case 'note': return { ...b, kind, text: '', color: NOTE_COLORS[Math.floor(rng() * NOTE_COLORS.length)], editingBy: null };
     case 'hammer': return { ...b, kind, holder: null };
-    case 'chess': return { ...b, kind, board: chessInitial(), last: null };
+    case 'chess': return { ...b, kind, chess: newChess(), board: chessInitial(), last: null };
     case 'g2048': return { ...b, kind, grid: g2048Initial(rng), score: 0, over: false };
     case 'canvas': return { ...b, kind, strokes: [] };
     case 'camera': return { ...b, kind, holder: null, pitch: 0, live: false, operator: null };
@@ -239,14 +240,19 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
       return false;
     case 'chess':
       if (act.a === 'chessMove') {
-        const { from, to } = act;
-        if (from === to || from < 0 || from > 63 || to < 0 || to > 63 || !item.board[from]) return false;
-        item.board[to] = item.board[from];
-        item.board[from] = null;
-        item.last = [from, to];
+        const next = playChess(item.chess, act.from, act.to, act.revision, act.promotion);
+        if (!next) return false;
+        item.chess = next;
+        item.board = chessBoard(next);
+        item.last = [act.from, act.to];
         break;
       }
-      if (act.a === 'chessReset') { item.board = chessInitial(); item.last = null; break; }
+      if (act.a === 'chessReset') {
+        item.chess = newChess(item.chess.revision + 1);
+        item.board = chessBoard(item.chess);
+        item.last = null;
+        break;
+      }
       return false;
     case 'g2048':
       if (act.a === 'slide') {

@@ -150,7 +150,7 @@ export const useStore = create<State>(() => ({
   flashAt: 0,
 }));
 
-export interface ItemUi { sel?: number; color?: string; size?: number; erase?: boolean }
+export interface ItemUi { sel?: number; chessRevision?: number; promotionTo?: number; chessMessage?: string; resetConfirm?: boolean; color?: string; size?: number; erase?: boolean }
 
 export const set = useStore.setState;
 export const get = useStore.getState;
