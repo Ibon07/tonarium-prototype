@@ -9,7 +9,7 @@
     "livekit": "docker compose -f docker-compose.dev.yml up -d",
     "livekit:stop": "docker compose -f docker-compose.dev.yml down",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test:chess": "tsx --test shared/chess.test.ts"
+    "test:chess": "tsx --test shared/chess.test.ts server/chess-ai.test.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

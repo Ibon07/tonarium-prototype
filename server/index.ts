@@ -1,3 +1,4 @@
+import { scheduleChessAiReply } from './chess-ai.ts';
 import 'dotenv/config';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -391,6 +392,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       // 送り主は手元で適用済み
       if (isDeltaAction(msg.action)) broadcast({ t: 'itemAction', sid, id: it.id, action: msg.action, by: me.id }, ws);
       else broadcast({ t: 'item', sid, item: it });
+      if (it.kind === 'chessAi') scheduleChessAiReply(it, () => sessItems.get(it.id), () => broadcast({ t: 'item', sid, item: it }));
       return;
     }
     case 'hit': {

@@ -164,13 +164,14 @@ function ChessPiece({ code }: { code: string }) {
   );
 }
 
-function Chess3D({ item }: { item: Item & { kind: 'chess' } }) {
+function Chess3D({ item }: { item: Item & { kind: 'chess' | 'chessAi' } }) {
   const ref = useRef<THREE.Group>(null);
   useFollow(ref, item.id, item.x, item.z, item.ry);
   const ui = useStore((s) => s.itemUi[item.id]);
   const active = ui?.chessRevision === item.chess.revision;
   const sel = active ? ui?.sel : undefined;
   const view = chessView(item.chess);
+  const status = item.kind === 'chessAi' && view.turn === 'b' && !view.over ? 'AIが考えています…' : view.status;
   const legal = sel === undefined ? [] : chessLegalMoves(item.chess, sel);
   const promoting = active && ui?.promotionTo !== undefined;
   const reset = () => {
@@ -184,8 +185,8 @@ function Chess3D({ item }: { item: Item & { kind: 'chess' } }) {
   const sqData = (i: number): Interactable => ({ use: pick(i), hint: view.over ? view.status : `${view.status} · クリック: 駒を選ぶ / 動かす` });
   return (
     <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry}>
-      <Label text={view.status} position={[0, 1.5, 0]} height={0.17} />
-      <Label text={promoting ? '昇格する駒を選択 ↓' : active && ui?.chessMessage ? ui.chessMessage : '手番の駒は誰でも操作できます'} position={[0, 1.28, 0]} height={0.09} />
+      <Label text={status} position={[0, 1.5, 0]} height={0.17} />
+      <Label text={promoting ? '昇格する駒を選択 ↓' : active && ui?.chessMessage ? ui.chessMessage : item.kind === 'chessAi' ? '白：みんな / 黒：AI' : '手番の駒は誰でも操作できます'} position={[0, 1.28, 0]} height={0.09} />
       {promoting ? PROMOTIONS.map(([promotion, label], index) => (
         <group key={promotion} position={[(index - 1.5) * 0.46, TABLE_Y, 1.12]}
           userData={{ use: () => {
@@ -200,7 +201,7 @@ function Chess3D({ item }: { item: Item & { kind: 'chess' } }) {
         <Label text={ui?.resetConfirm ? '初期化する？ クリックで確定' : '新しい対局'} position={[0, 0.14, 0]} height={0.08} />
       </group>}
       {/* 持ち運び・片付けは机に照準を合わせる */}
-      <group userData={{ ...removable(item), hint: '♟ チェス' } satisfies Interactable}>
+      <group userData={{ ...removable(item), hint: ITEM_INFO[item.kind].name } satisfies Interactable}>
         <mesh position-y={TABLE_Y - 0.03}>
           <boxGeometry args={[1.9, 0.06, 1.9]} />
           <meshStandardMaterial color="#5b3a1e" />
@@ -447,6 +448,7 @@ export function Item3D({ item }: { item: Item }) {
     case 'note': return <Note3D item={item} />;
     case 'hammer': return <Hammer3D item={item} />;
     case 'camera': return <Camera3D item={item} />;
+    case 'chessAi':
     case 'chess': return <Chess3D item={item} />;
     default: return PANELS[item.kind] ? <CompatPanel3D item={item} /> : null;
   }

@@ -1,6 +1,6 @@
 import { chessView, chessLegalMoves, squareIndex, type Promotion } from '../../../shared/chess.ts';
 // 3D の互換モードでも同じ描画・クリック処理を使うため、DOM ではなく Canvas に描く
-import { CANVAS_H, CANVAS_W, type Dir, type Item } from '../../../shared/items.ts';
+import { CANVAS_H, CANVAS_W, isChessItem, type Dir, type Item } from '../../../shared/items.ts';
 import type { ItemUi } from '../store.ts';
 import { deltaAction, itemAction, postImage, setItemUi } from './actions.ts';
 
@@ -44,7 +44,7 @@ export const chessPanel: Panel = {
   w: 480,
   h: 688,
   draw(ctx, item, ui) {
-    if (item.kind !== 'chess') return;
+    if (!isChessItem(item)) return;
     const view = chessView(item.chess);
     const active = ui.chessRevision === item.chess.revision;
     const sel = active ? ui.sel : undefined;
@@ -55,15 +55,15 @@ export const chessPanel: Panel = {
     ctx.font = `700 22px ${FONT}`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('♟ チェス', 16, 28);
+    ctx.fillText(item.kind === 'chessAi' ? '♟ チェスAI' : '♟ チェス', 16, 28);
     button(ctx, CHESS_RESET, ui.resetConfirm ? '本当に初期化？' : '新しい対局', '#4e5058', 15);
     ctx.fillStyle = view.check || view.over ? '#ffd27c' : '#f2f3f5';
     ctx.font = `700 20px ${FONT}`;
     ctx.textAlign = 'left';
-    ctx.fillText(view.status, 16, 65);
+    ctx.fillText(item.kind === 'chessAi' && view.turn === 'b' && !view.over ? 'AIが考えています…' : view.status, 16, 65);
     ctx.font = `13px ${FONT}`;
     ctx.fillStyle = '#b5bac1';
-    ctx.fillText('参加登録なし · 手番の色の駒を誰でも動かせます', 16, 90);
+    ctx.fillText(item.kind === 'chessAi' ? '白：みんなで操作 / 黒：AI（自動で応手）' : '参加登録なし · 手番の色の駒を誰でも動かせます', 16, 90);
     for (let i = 0; i < 64; i++) {
       const r = Math.floor(i / 8);
       const c = i % 8;
@@ -119,7 +119,7 @@ export const chessPanel: Panel = {
     ctx.fillText('キャスリング・アンパッサン・昇格に対応 / 引き分けは自動判定', 16, 668);
   },
   click(x, y, item, ui) {
-    if (item.kind !== 'chess') return;
+    if (!isChessItem(item)) return;
     if (inRect(x, y, CHESS_RESET)) { chessReset(item, ui); return; }
     if (ui.chessRevision === item.chess.revision && ui.promotionTo !== undefined) {
       const choice = PROMOTIONS.findIndex((_, i) => inRect(x, y, [16 + i * 113, 596, 107, 32]));
@@ -139,15 +139,15 @@ export function chessReset(item: Item, ui: Ui) {
 }
 
 export function chessPromote(item: Item, ui: Ui, promotion: Promotion) {
-  if (item.kind !== 'chess' || ui.chessRevision !== item.chess.revision || ui.sel === undefined || ui.promotionTo === undefined) return;
+  if (!isChessItem(item) || ui.chessRevision !== item.chess.revision || ui.sel === undefined || ui.promotionTo === undefined) return;
   itemAction(item.id, { a: 'chessMove', from: ui.sel, to: ui.promotionTo, promotion, revision: item.chess.revision });
   setItemUi(item.id, {});
 }
 
 export function chessSelect(item: Item, ui: Ui, i: number) {
-  if (item.kind !== 'chess') return;
+  if (!isChessItem(item)) return;
   const view = chessView(item.chess);
-  if (view.over) return;
+  if (view.over || (item.kind === 'chessAi' && view.turn === 'b')) return;
   const sel = ui.chessRevision === item.chess.revision ? ui.sel : undefined;
   const nextUi = { chessRevision: item.chess.revision };
   if (sel === i) { setItemUi(item.id, {}); return; }
@@ -380,5 +380,5 @@ function saveCanvas(item: Item) {
   postImage('🎨 キャンバスを保存しました', cv.toDataURL('image/jpeg', 0.85));
 }
 
-export const PANELS: Partial<Record<Item['kind'], Panel>> = { chess: chessPanel, g2048: panel2048, canvas: canvasPanel };
+export const PANELS: Partial<Record<Item['kind'], Panel>> = { chess: chessPanel, chessAi: chessPanel, g2048: panel2048, canvas: canvasPanel };
 export const COMPAT_ONLY: Partial<Record<Item['kind'], boolean>> = { g2048: true };
