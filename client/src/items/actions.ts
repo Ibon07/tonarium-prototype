@@ -1,5 +1,5 @@
 import { applyItemAction, type ItemAction, type ItemKind, type MediaInit } from '../../../shared/items.ts';
-import { ROOM_HALF, type AvatarState } from '../../../shared/protocol.ts';
+import { ROOM_HALF, spawnSlot, type AvatarState } from '../../../shared/protocol.ts';
 import { approach } from '../../../shared/places.ts';
 import { get, set, recompute, heldHammer, heldCamera, type ItemUi } from '../store.ts';
 import { send } from '../net/ws.ts';
@@ -9,15 +9,14 @@ const LIMIT = ROOM_HALF - 0.5;
 const clamp = (v: number) => Math.max(-LIMIT, Math.min(LIMIT, v));
 export const clampRoomPos = (p: AvatarState): AvatarState => ({ ...p, x: clamp(p.x), z: clamp(p.z) });
 
-/** 自分の前に出す。2D で入口の列にいるときは入口の内側に出す */
+/** 自分の前に出す */
 export function spawnItem(kind: ItemKind, text?: string, media?: MediaInit) {
   const s = get();
   if (!s.session) return;
-  const me = placesOf(s).get(s.selfId) ?? { x: 0, z: ROOM_HALF, ry: 0 };
+  const me = placesOf(s).get(s.selfId) ?? { ...spawnSlot(0), ry: 0 };
   const gap = s.mode === '3d' ? 2.2 : 1.2;
-  let x = me.x - Math.sin(me.ry) * gap;
-  let z = me.z - Math.cos(me.ry) * gap;
-  if (z > LIMIT) { x = me.x; z = ROOM_HALF - 1.5; }
+  const x = me.x - Math.sin(me.ry) * gap;
+  const z = me.z - Math.cos(me.ry) * gap;
   send({ t: 'itemCreate', kind, text, media, x: clamp(x), z: clamp(z), ry: me.ry });
 }
 

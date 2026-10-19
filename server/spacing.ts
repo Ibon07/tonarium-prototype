@@ -21,7 +21,7 @@ function bodies(users: User[], avatars: Map<string, AvatarState>, items: Iterabl
 
 /**
  * 置かれている 2D の人を、重なっている相手から押し出す。動いた人がいれば true。
- * 入口の列（pos が null）と、ついていっている間は対象外
+ * スポーンエリアにいる人（pos が null）と、ついていっている間は対象外
  */
 export function pushApart2D(
   users: User[], avatars: Map<string, AvatarState>, items: Iterable<Item>,

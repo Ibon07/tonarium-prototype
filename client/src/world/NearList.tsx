@@ -255,6 +255,9 @@ export function NearList() {
   const mode = useStore((s) => s.mode);
   const me = useStore((s) => s.participants.find((p) => p.id === s.selfId));
   const players = usePlayers();
+  // 自分についてきている人は、ほかの人と同じく自分の行の子として並べる
+  const followers = players.filter((e) => e.user.follow === selfId).map((e) => ({ ...e, band: 'mid' as const, child: true }));
+  const others = players.filter((e) => e.user.follow !== selfId);
   const items = useItemsNear();
   const [menu, setMenu] = useState<Menu | null>(null);
   const [picker, setPicker] = useState<DOMRect | null>(null);
@@ -264,6 +267,12 @@ export function NearList() {
     const t = setInterval(() => tick((n) => n + 1), 250);
     return () => clearInterval(t);
   }, []);
+  const playerRow = (e: PlayerEntry) => (
+    <PlayerRow
+      key={e.user.id} e={e} menuOpen={menu?.kind === 'user' && menu.id === e.user.id}
+      onMenu={(rect) => setMenu(menu?.id === e.user.id ? null : { kind: 'user', id: e.user.id, rect })}
+    />
+  );
   const fold = (left: boolean) => set((s) => { const f = { ...s.folded, left }; save('tonarium.folded', f); return { folded: f }; });
 
   if (folded) {
@@ -290,15 +299,8 @@ export function NearList() {
           <span className="pill dark">あなた</span>
           <span className="pill">{mode.toUpperCase()}</span>
         </div>
-        <Bands
-          list={players}
-          render={(e) => (
-            <PlayerRow
-              key={e.user.id} e={e} menuOpen={menu?.kind === 'user' && menu.id === e.user.id}
-              onMenu={(rect) => setMenu(menu?.id === e.user.id ? null : { kind: 'user', id: e.user.id, rect })}
-            />
-          )}
-        />
+        {followers.map(playerRow)}
+        <Bands list={others} render={playerRow} />
         {!players.length && <div className="empty">まだ誰もいません</div>}
       </div>
       <div className="psplit" aria-hidden="true"><span /></div>

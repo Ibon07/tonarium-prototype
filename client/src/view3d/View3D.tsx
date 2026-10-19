@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { ROOM_HALF, entranceSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
+import { ROOM_HALF, spawnSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
 import { NOTE_COLORS } from '../../../shared/items.ts';
 import { useStore, get, colorOf, nameOf, heldHammer, heldCamera, worldKindOf } from '../store.ts';
 import { shareVideoEl } from '../net/livekit.ts';
@@ -64,13 +64,13 @@ function Screen() {
   );
 }
 
-/** 2D で参加している人。3D の人と同じアバターで、入口の列・置かれた場所・ついていく相手の後ろに立つ */
+/** 2D で参加している人。3D の人と同じアバターで、スポーンエリア・置かれた場所・ついていく相手の後ろに立つ */
 function Standee({ user }: { user: User }) {
   const speaking = useStore((s) => !!s.speaking[user.id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[user.id] === false);
   const ref = useRef<THREE.Group>(null);
   const card = useRef<THREE.Group>(null);
-  const pos0 = entranceSlot(0);
+  const pos0 = spawnSlot(0);
   useFrame((_, dt) => {
     const g = ref.current;
     const s = get();

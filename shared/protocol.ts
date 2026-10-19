@@ -24,7 +24,7 @@ export interface User {
   micOn: boolean;
   sharing: boolean;
   follow: string | null;
-  /** 2D のみ。null なら入口の列 */
+  /** 2D のみ。null ならスポーンエリア */
   pos: AvatarState | null;
   /** アイコンの版（更新時刻）。null ならアイコンなし */
   icon: string | null;
@@ -93,7 +93,7 @@ export type ClientMsg =
   | { t: 'status'; micOn: boolean; sharing: boolean }
   | { t: 'follow'; target: string | null }
   | { t: 'dropFollowers' }
-  /** pos が null なら入口の列に戻る */
+  /** pos が null ならスポーンエリアに戻る */
   | { t: 'place2d'; target: string; pos: AvatarState | null }
   /** /icon・/avatar・/profile へ保存した後に、同じ名前のオンラインの人へ反映させる */
   | { t: 'profileUpdated' }
@@ -136,11 +136,13 @@ export type ServerMsg =
   | { t: 'friendRequest'; from: string; fromName: string }
   | { t: 'friends'; names: string[] };
 
-/** 床は -ROOM_HALF..ROOM_HALF。スクリーンは北壁 (z = -ROOM_HALF)、入口は南壁 */
+/** 床は -ROOM_HALF..ROOM_HALF。スクリーンは北壁 (z = -ROOM_HALF) */
 export const ROOM_HALF = 10;
-export const DOOR_HALF = 1.5;
-export function entranceSlot(i: number) {
-  const r = Math.floor(i / 3);
-  const c = i % 3;
-  return { x: (c - 1) * 0.95, z: ROOM_HALF + 0.9 + r * 0.9 };
+/** 入ってきた人が現れる丸いエリア。家具を置かない */
+export const SPAWN = { x: 0, z: 6.5, r: 1.6 };
+/** スポーンエリアの i 番目の立ち位置。ひまわりの種の並びで、人が増えても重ならない */
+export function spawnSlot(i: number) {
+  const r = 0.45 * Math.sqrt(i);
+  const a = i * 2.39996;
+  return { x: SPAWN.x + Math.sin(a) * r, z: SPAWN.z + Math.cos(a) * r };
 }

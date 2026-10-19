@@ -183,12 +183,7 @@ function placeIn(sid: string, x: number, z: number, r: number) {
   const p = pushOut(clamp(x), clamp(z), r, solidsOf(sid));
   return { x: clamp(p.x), z: clamp(p.z) };
 }
-/** 2D の人は入口の外（廊下）にも置ける */
-function clamp2d(sid: string, p: AvatarState): AvatarState {
-  const z = Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF + 2.8, p.z));
-  if (z > ROOM_HALF - 0.5) return { x: clamp(p.x), z, ry: p.ry };
-  return { ...placeIn(sid, p.x, z, PERSON_R), ry: p.ry };
-}
+const clamp2d = (sid: string, p: AvatarState): AvatarState => ({ ...placeIn(sid, p.x, p.z, PERSON_R), ry: p.ry });
 
 function leaveSession(u: User) {
   const sid = u.session;
@@ -439,7 +434,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       me.mode = msg.mode;
       if (msg.mode === '3d') { me.follow = null; me.pos = null; }
       if (msg.mode === '2d') {
-        // 入口の列には戻さず、3D でいた場所にとどまる
+        // スポーンエリアには戻さず、3D でいた場所にとどまる
         const av = avatars.get(sid)!.get(me.id);
         me.pos = av ? { ...av } : null;
         dropFollowersOf(me);

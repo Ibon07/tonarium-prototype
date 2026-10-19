@@ -1,13 +1,11 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
-import { DOOR_HALF, ROOM_HALF } from '../../../shared/protocol.ts';
+import { ROOM_HALF, SPAWN } from '../../../shared/protocol.ts';
 import { CAFE, CAFE_TABLE_R, type WorldKind } from '../../../shared/worlds.ts';
 import { makeCanvasTexture } from './textTexture.ts';
 
 const H = ROOM_HALF;
 const WALL_H = 4;
-const DOOR_H = 2.6;
-const HALL = 3.2; // 入口の外の奥行き
 
 type V3 = [number, number, number];
 
@@ -29,37 +27,30 @@ function Cyl({ p, r, h, color, r2 = r, seg = 24 }: { p: V3; r: number; h: number
   );
 }
 
-interface Palette { floor: string; wall: string; hall: string; hallWall: string; sign: string; signInk: string }
+interface Palette { floor: string; wall: string; spawn: string }
 const PALETTES: Record<WorldKind, Palette> = {
-  room: { floor: '#565961', wall: '#80848e', hall: '#3f4147', hallWall: '#6d717a', sign: '#f0b132', signInk: '#1e1f22' },
-  cafe: { floor: '#8a5a3b', wall: '#eadcc4', hall: '#5b3e2b', hallWall: '#c9b394', sign: '#3b2a20', signInk: '#f4e6cf' },
+  room: { floor: '#565961', wall: '#80848e', spawn: '#7fb3ff' },
+  cafe: { floor: '#8a5a3b', wall: '#eadcc4', spawn: '#ffd28a' },
 };
 
-function DoorSign({ pal }: { pal: Palette }) {
-  const tex = useMemo(() => {
-    const { canvas, tex: t } = makeCanvasTexture(1024, 128);
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = pal.sign;
-    ctx.fillRect(0, 0, 1024, 128);
-    ctx.fillStyle = pal.signInk;
-    ctx.font = '800 64px "Segoe UI", "Noto Sans JP", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('🚪 入口 ・ 2Dで参加中の人', 512, 68);
-    t.needsUpdate = true;
-    return t;
-  }, [pal]);
+/** 入ってきた人が現れる丸いエリア */
+function SpawnArea({ color }: { color: string }) {
   return (
-    <mesh position={[0, DOOR_H + 0.4, H - 0.11]} rotation-y={Math.PI}>
-      <planeGeometry args={[3.2, 0.4]} />
-      <meshBasicMaterial map={tex} toneMapped={false} />
-    </mesh>
+    <group position={[SPAWN.x, 0, SPAWN.z]} userData={{ noRay: true }}>
+      <mesh rotation-x={-Math.PI / 2} position-y={0.006}>
+        <circleGeometry args={[SPAWN.r, 48]} />
+        <meshBasicMaterial color={color} transparent opacity={0.16} depthWrite={false} />
+      </mesh>
+      <mesh rotation-x={-Math.PI / 2} position-y={0.008}>
+        <ringGeometry args={[SPAWN.r - 0.06, SPAWN.r, 64]} />
+        <meshBasicMaterial color={color} transparent opacity={0.8} depthWrite={false} />
+      </mesh>
+    </group>
   );
 }
 
-/** 壁・入口・廊下。どのワールドも同じ形で、色だけ変える */
+/** 床と壁。どのワールドも同じ形で、色だけ変える */
 function Shell({ pal, floor }: { pal: Palette; floor?: THREE.Texture }) {
-  const side = H - DOOR_HALF;
   return (
     <>
       <mesh rotation-x={-Math.PI / 2}>
@@ -67,19 +58,10 @@ function Shell({ pal, floor }: { pal: Palette; floor?: THREE.Texture }) {
         <meshStandardMaterial color={floor ? '#ffffff' : pal.floor} map={floor ?? null} roughness={0.85} />
       </mesh>
       <Box p={[0, WALL_H / 2, -H]} s={[2 * H, WALL_H, 0.2]} color={pal.wall} />
+      <Box p={[0, WALL_H / 2, H]} s={[2 * H, WALL_H, 0.2]} color={pal.wall} />
       <Box p={[-H, WALL_H / 2, 0]} s={[0.2, WALL_H, 2 * H]} color={pal.wall} />
       <Box p={[H, WALL_H / 2, 0]} s={[0.2, WALL_H, 2 * H]} color={pal.wall} />
-      <Box p={[-(DOOR_HALF + side / 2), WALL_H / 2, H]} s={[side, WALL_H, 0.2]} color={pal.wall} />
-      <Box p={[DOOR_HALF + side / 2, WALL_H / 2, H]} s={[side, WALL_H, 0.2]} color={pal.wall} />
-      <Box p={[0, (WALL_H + DOOR_H) / 2, H]} s={[2 * DOOR_HALF, WALL_H - DOOR_H, 0.2]} color={pal.wall} />
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.002, H + HALL / 2]}>
-        <planeGeometry args={[2 * DOOR_HALF + 1.6, HALL]} />
-        <meshStandardMaterial color={pal.hall} />
-      </mesh>
-      <Box p={[-(DOOR_HALF + 0.9), DOOR_H / 2, H + HALL / 2]} s={[0.15, DOOR_H, HALL]} color={pal.hallWall} />
-      <Box p={[DOOR_HALF + 0.9, DOOR_H / 2, H + HALL / 2]} s={[0.15, DOOR_H, HALL]} color={pal.hallWall} />
-      <Box p={[0, DOOR_H / 2, H + HALL]} s={[2 * DOOR_HALF + 1.95, DOOR_H, 0.15]} color={pal.hallWall} />
-      <DoorSign pal={pal} />
+      <SpawnArea color={pal.spawn} />
     </>
   );
 }
@@ -283,8 +265,7 @@ function Cafe() {
       {/* スクリーンの裏にはかけない */}
       {[-1, 1].map((sx) => <Box key={sx} p={[sx * (H + 4.6) / 2, 0.55, -H + 0.13]} s={[H - 4.6, 1.1, 0.06]} color="#7a5038" />)}
       <Box p={[H - 0.13, 0.55, 0]} s={[0.06, 1.1, 2 * H]} color="#7a5038" />
-      <Box p={[-(DOOR_HALF + (H - DOOR_HALF) / 2), 0.55, H - 0.13]} s={[H - DOOR_HALF, 1.1, 0.06]} color="#7a5038" />
-      <Box p={[DOOR_HALF + (H - DOOR_HALF) / 2, 0.55, H - 0.13]} s={[H - DOOR_HALF, 1.1, 0.06]} color="#7a5038" />
+      <Box p={[0, 0.55, H - 0.13]} s={[2 * H, 1.1, 0.06]} color="#7a5038" />
       <mesh rotation-x={Math.PI / 2} position-y={WALL_H}>
         <planeGeometry args={[2 * H, 2 * H]} />
         <meshStandardMaterial color="#6b4a36" />
