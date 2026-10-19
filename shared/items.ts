@@ -1,5 +1,6 @@
+import { newChess, chessBoard, playChess, type ChessState, type Promotion } from './chess.ts';
 
-export type ItemKind = 'note' | 'hammer' | 'chess' | 'g2048' | 'canvas' | 'camera' | 'image' | 'video' | 'youtube';
+export type ItemKind = 'note' | 'hammer' | 'chess' | 'chessAi' | 'g2048' | 'canvas' | 'camera' | 'image' | 'video' | 'youtube';
 
 /**
  * みんなで同じ位置を再生するための時計。at（サーバー時刻 ms）の時点で base 秒目。
@@ -33,7 +34,7 @@ export type Item =
   | (ItemBase & { kind: 'note'; text: string; color: string; editingBy: string | null })
   | (ItemBase & { kind: 'hammer'; holder: string | null })
   /** board[row * 8 + col]。row 0 が黒の 8 段目 */
-  | (ItemBase & { kind: 'chess'; board: (string | null)[]; last: [number, number] | null })
+  | (ItemBase & { kind: 'chess' | 'chessAi'; chess: ChessState; board: (string | null)[]; last: [number, number] | null })
   | (ItemBase & { kind: 'g2048'; grid: number[]; score: number; over: boolean })
   | (ItemBase & { kind: 'canvas'; strokes: Stroke[] })
   /** live 中は operator のブラウザがカメラ視点を描いて配信する */
@@ -41,6 +42,9 @@ export type Item =
   | (ItemBase & { kind: 'image'; url: string; w: number; h: number })
   | (ItemBase & { kind: 'video'; url: string; w: number; h: number; clock: MediaClock })
   | (ItemBase & { kind: 'youtube'; videoId: string; title: string; clock: MediaClock });
+
+export type ChessItem = Extract<Item, { kind: 'chess' | 'chessAi' }>;
+export const isChessItem = (item: Item): item is ChessItem => item.kind === 'chess' || item.kind === 'chessAi';
 
 export const isHandheld = (i: Item) => i.kind === 'hammer' || i.kind === 'camera';
 export const ONLY_3D: Partial<Record<ItemKind, boolean>> = { camera: true };
@@ -53,7 +57,7 @@ export type ItemAction =
   | { a: 'pick' }
   | { a: 'drop'; x: number; z: number; ry: number; pitch?: number }
   | { a: 'camLive'; on: boolean }
-  | { a: 'chessMove'; from: number; to: number }
+  | { a: 'chessMove'; from: number; to: number; revision: number; promotion?: Promotion }
   | { a: 'chessReset' }
   | { a: 'slide'; dir: Dir }
   | { a: 'reset2048' }
@@ -86,6 +90,7 @@ export const ITEM_INFO: Record<ItemKind, ItemInfo> = {
   note: { name: '付箋', mark: '付', tint: '#FBF1C4', ink: '#7A5B0E', desc: '文字を書いて置いておける付箋。2D ではウィンドウで、3D では空間の板として読み書きできる。', genre: 'ツール', in2d: true, in3d: true },
   hammer: { name: 'ピコピコハンマー', mark: '槌', tint: '#FBE3D2', ink: '#A24A16', desc: '手に持って誰かを叩ける。叩くと相手の前に移動する。', genre: 'あそび', in2d: true, in3d: true },
   chess: { name: 'チェス', mark: '♟', tint: '#E3E7F6', ink: '#2F4A9C', desc: '3D では立体のチェス盤、2D ではパネルの UI で遊べる。', genre: 'ゲーム', in2d: true, in3d: true },
+  chessAi: { name: 'チェスAI', mark: '♟AI', tint: '#DFEEE8', ink: '#2E6E4E', desc: '白はあなた、黒はAI。みんなで白の駒を動かしてAIと対戦できる。', genre: 'ゲーム', in2d: true, in3d: true },
   g2048: { name: '2048', mark: '2048', tint: '#F4EBCF', ink: '#7A5B0E', desc: 'みんなで操作するパズル。3D では互換表示のパネルになる。', genre: 'ゲーム', in2d: true, in3d: false },
   canvas: { name: 'キャンバス', mark: '画', tint: '#F6E4EC', ink: '#9A3A62', desc: 'みんなで絵を描ける。ペンと消しゴム付き。', genre: 'ツール', in2d: true, in3d: true },
   camera: { name: 'カメラ', mark: '写', tint: '#E5F0E9', ink: '#2E6E4E', desc: '3D 空間で写真を撮ったりライブ配信したりできる。ライブは 2D からも見られる。', genre: 'ツール', in2d: false, in3d: true },
@@ -182,7 +187,8 @@ export function createItem(
       return { ...b, kind, videoId: media.videoId, title: String(media.title ?? '').slice(0, 200), clock };
     case 'note': return { ...b, kind, text: '', color: NOTE_COLORS[Math.floor(rng() * NOTE_COLORS.length)], editingBy: null };
     case 'hammer': return { ...b, kind, holder: null };
-    case 'chess': return { ...b, kind, board: chessInitial(), last: null };
+    case 'chessAi':
+    case 'chess': return { ...b, kind, chess: newChess(), board: chessInitial(), last: null };
     case 'g2048': return { ...b, kind, grid: g2048Initial(rng), score: 0, over: false };
     case 'canvas': return { ...b, kind, strokes: [] };
     case 'camera': return { ...b, kind, holder: null, pitch: 0, live: false, operator: null };
@@ -237,16 +243,23 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
         break;
       }
       return false;
+    case 'chessAi':
     case 'chess':
       if (act.a === 'chessMove') {
-        const { from, to } = act;
-        if (from === to || from < 0 || from > 63 || to < 0 || to > 63 || !item.board[from]) return false;
-        item.board[to] = item.board[from];
-        item.board[from] = null;
-        item.last = [from, to];
+        if (item.kind === 'chessAi' && item.chess.fen.split(' ')[1] !== 'w') return false;
+        const next = playChess(item.chess, act.from, act.to, act.revision, act.promotion);
+        if (!next) return false;
+        item.chess = next;
+        item.board = chessBoard(next);
+        item.last = [act.from, act.to];
         break;
       }
-      if (act.a === 'chessReset') { item.board = chessInitial(); item.last = null; break; }
+      if (act.a === 'chessReset') {
+        item.chess = newChess(item.chess.revision + 1);
+        item.board = chessBoard(item.chess);
+        item.last = null;
+        break;
+      }
       return false;
     case 'g2048':
       if (act.a === 'slide') {
