@@ -1,4 +1,4 @@
-import type { ChatScope, Mode } from '../../shared/protocol.ts';
+import type { ChatMedia, ChatScope, Mode } from '../../shared/protocol.ts';
 import { approach } from '../../shared/places.ts';
 import { clampRoomPos } from './items/actions.ts';
 import { get, set, recompute, spawnPoint, save, nameOf, type Notice } from './store.ts';
@@ -123,9 +123,9 @@ export async function report(target: string, reason: string) {
   return res.ok;
 }
 
-export function sendChat(text: string, scope: ChatScope, image?: string) {
-  if (!get().session || (!text.trim() && !image)) return;
-  send({ t: 'chat', text, scope, image });
+export function sendChat(text: string, scope: ChatScope, image?: string, media?: ChatMedia) {
+  if (!get().session || (!text.trim() && !image && !media)) return;
+  send({ t: 'chat', text, scope, image, media });
 }
 
 export const playSound = (id: string) => send({ t: 'sound', id });
@@ -135,7 +135,7 @@ export function markNoticesRead() {
 }
 
 let noticeSeq = 0;
-export function pushNotice(kind: Notice['kind'], from: string, fromName = nameOf(from)) {
+export function pushNotice(kind: Notice['kind'], from: string, fromName = nameOf(from), key?: string) {
   if (get().blocked.includes(fromName)) return;
-  set((s) => ({ notices: [{ id: ++noticeSeq, kind, from, fromName, at: Date.now(), unread: true }, ...s.notices].slice(0, 30) }));
+  set((s) => ({ notices: [{ id: ++noticeSeq, kind, from, fromName, key, at: Date.now(), unread: true }, ...s.notices].slice(0, 30) }));
 }

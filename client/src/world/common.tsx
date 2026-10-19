@@ -104,7 +104,9 @@ export function windowKeyOf(item: Item, camFeeds: Record<string, number>) {
 }
 
 export const itemLabel = (item: Item) =>
-  item.kind === 'note' ? (item.text.split('\n')[0].slice(0, 16) || '付箋（空）') : ITEM_INFO[item.kind].name;
+  item.kind === 'note' ? (item.text.split('\n')[0].slice(0, 16) || '付箋（空）')
+    : item.kind === 'youtube' && item.title ? item.title.slice(0, 24)
+    : ITEM_INFO[item.kind].name;
 
 export function ChatImage({ src }: { src?: string }) {
   if (!src) return null;

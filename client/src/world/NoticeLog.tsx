@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatMessage, ChatScope } from '../../../shared/protocol.ts';
 import { VOICE_RANGE } from '../../../shared/places.ts';
-import { useStore, set, save, colorOf, type Notice } from '../store.ts';
+import { useStore, set, save, colorOf, isBroadcast, type Notice } from '../store.ts';
 import { friendAccept, goNear, markNoticesRead, poke, sendChat, setViewLive } from '../actions.ts';
 import { Icon } from './Icon.tsx';
-import { ChatImage, Face } from './common.tsx';
+import { ChatImage, Face, itemLabel } from './common.tsx';
+import { openWindow } from './windows.ts';
+import { canItemize, itemizeMessage, uploadMedia } from '../media.ts';
 import { Linkified, OgpCard, firstUrl } from './Links.tsx';
 
 const NO_CHAT: ChatMessage[] = [];
@@ -27,10 +29,15 @@ const NOTICE_TEXT: Record<Notice['kind'], string> = {
   hit: ' にピコピコハンマーで叩かれました',
   friend: ' からフレンド申請が届きました',
   live: ' が視点のライブをリクエストしました',
+  attention: ' が注目を集めています',
 };
 
 function NoticeRow({ n }: { n: Notice }) {
-  const reply = n.kind === 'poke'
+  const target = useStore((s) => (n.key ? s.items[n.key.slice(n.key.indexOf(':') + 1)] : undefined));
+  const text = n.kind === 'attention' ? (target ? ` が「${itemLabel(target)}」に注目を集めています` : ' が注目を集めていたもの（片付けられました）') : NOTICE_TEXT[n.kind];
+  const reply = n.kind === 'attention'
+    ? <button className="ib reply" disabled={!target} onClick={() => n.key && openWindow(n.key)}>開く</button>
+    : n.kind === 'poke'
     ? <button className="ib reply" onClick={() => poke(n.from)}>つんつん返す</button>
     : n.kind === 'hit'
       ? <button className="ib reply" onClick={() => goNear(n.from)}>そばにいく</button>
@@ -41,7 +48,7 @@ function NoticeRow({ n }: { n: Notice }) {
     <div className={`notice ${n.unread ? 'unread' : ''}`}>
       <Face id={n.from} name={n.fromName} size={28} />
       <div className="ntext">
-        <span><b>{n.fromName}</b>{NOTICE_TEXT[n.kind]}</span>
+        <span><b>{n.fromName}</b>{text}</span>
         <span className="sub">{time(n.at)}</span>
       </div>
       {n.unread && <span className="unreaddot" aria-label="未読" />}
@@ -61,15 +68,13 @@ function Composer() {
     sendChat(text, scope);
     setText('');
   };
+  const broadcast = useStore((s) => isBroadcast(s));
+  const placeholder = scope === 'near' && broadcast ? 'ブロードキャスト中：全員に届きます' : cur.placeholder;
   const attach = async (file: File | undefined) => {
     if (!file) return;
-    const img = await createImageBitmap(file);
-    const k = Math.min(1, 1280 / Math.max(img.width, img.height));
-    const c = document.createElement('canvas');
-    c.width = Math.round(img.width * k);
-    c.height = Math.round(img.height * k);
-    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
-    sendChat(text, scope, c.toDataURL('image/jpeg', 0.85));
+    const media = await uploadMedia(file);
+    if (!media) return;
+    sendChat(text, scope, undefined, media);
     setText('');
   };
   return (
@@ -86,11 +91,11 @@ function Composer() {
         ))}
       </div>
       <form className="composer" onSubmit={submit}>
-        <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { void attach(e.target.files?.[0]); e.target.value = ''; }} />
-        <button type="button" className="ib square" aria-label="画像を添付" title="画像を添付" onClick={() => fileRef.current?.click()}><Icon name="attach" size={18} /></button>
+        <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm" hidden onChange={(e) => { void attach(e.target.files?.[0]); e.target.value = ''; }} />
+        <button type="button" className="ib square" aria-label="画像・動画を添付" title="画像（10MB まで）・動画（50MB まで）を添付" onClick={() => fileRef.current?.click()}><Icon name="attach" size={18} /></button>
         <label htmlFor="chatinput" className="sr">メッセージ</label>
         <input
-          id="chatinput" value={text} placeholder={cur.placeholder} onChange={(e) => setText(e.target.value)}
+          id="chatinput" value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && e.nativeEvent.isComposing) e.preventDefault(); }}
         />
         <button type="submit" className="primary square" aria-label="送信"><Icon name="send" size={18} /></button>
@@ -114,6 +119,13 @@ function LogLine({ m, selfId }: { m: ChatMessage; selfId: string }) {
         {m.text && <span className="ltext"><Linkified text={m.text} /></span>}
         {firstUrl(m.text) && <OgpCard url={firstUrl(m.text)!} />}
         <ChatImage src={m.image} />
+        {m.media?.kind === 'image' && <ChatImage src={m.media.url} />}
+        {m.media?.kind === 'video' && <video className="chatvideo" src={m.media.url} controls preload="metadata" playsInline />}
+        {canItemize(m) && (
+          <button className="ib itemize" onClick={() => void itemizeMessage(m)} title="目の前にアイテムとして出す">
+            <Icon name="box" size={12} />アイテムにする
+          </button>
+        )}
       </div>
     </div>
   );

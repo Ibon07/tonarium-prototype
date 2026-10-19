@@ -7,6 +7,9 @@ import { volumeFrom } from '../spatial.ts';
 import { playPoke, playSynth } from '../world/sounds.ts';
 import { resendViewing } from '../world/windows.ts';
 
+/** 注目を集めたアイテムが光っている時間 */
+export const ATTENTION_MS = 10_000;
+
 // HMR でこのモジュールが読み直されても同じソケットを使う（新しい側で送信が黙って捨てられるのを防ぐ）
 const g = globalThis as unknown as { __tonariumWs?: WebSocket | null };
 let retry = 0;
@@ -44,8 +47,10 @@ export function send(msg: ClientMsg) {
 function onMessage(msg: ServerMsg) {
   switch (msg.t) {
     case 'snapshot': {
-      const { guild, users, chats, avatars, items, friends } = msg.s;
+      const { guild, users, chats, avatars, items, friends, broadcast, now } = msg.s;
       set({
+        broadcast,
+        serverOffset: now - Date.now(),
         guild,
         users,
         chats,
@@ -110,6 +115,16 @@ function onMessage(msg: ServerMsg) {
     case 'sound':
       if (msg.sid !== get().session) return;
       if (!get().blocked.includes(get().users.find((u) => u.id === msg.from)?.name ?? '')) playSynth(msg.id, volumeFrom(msg.from));
+      return;
+    case 'attention': {
+      if (msg.sid !== get().session) return;
+      const id = msg.key.slice(msg.key.indexOf(':') + 1);
+      set((s) => ({ attention: { ...s.attention, [id]: performance.now() + ATTENTION_MS } }));
+      if (msg.from !== get().selfId) pushNotice('attention', msg.from, undefined, msg.key);
+      return;
+    }
+    case 'broadcast':
+      set((s) => ({ broadcast: { ...s.broadcast, [msg.sid]: msg.on } }));
       return;
     case 'liveRequest':
       if (msg.sid === get().session) pushNotice('live', msg.from);

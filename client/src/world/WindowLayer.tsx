@@ -12,10 +12,15 @@ import { distanceTo, formatDistance, placesOf } from '../spatial.ts';
 import { Icon } from './Icon.tsx';
 import { ItemMark, Viewers, itemLabel } from './common.tsx';
 import { closeWindow, moveWindow, raiseWindow, toggleMax } from './windows.ts';
+import { AvatarView } from './Portraits.tsx';
+import { MediaControls, VideoHost, videoEls } from '../mediaSync.tsx';
+import { YouTubePlayer, youTubeDuration } from '../youtube.tsx';
+import { send } from '../net/ws.ts';
 
 const BAR = 40;
-type Kind = 'video' | 'panel' | 'note';
-interface Resolved { kind: Kind; dark: boolean; title: string; sub: string; item?: Item; body: React.ReactNode; aspect?: number; width: number }
+type Kind = 'video' | 'panel' | 'note' | 'media' | 'face';
+/** noMax: 最大化しない（顔はアバターのキャンバスの下に隠れてしまうため） */
+interface Resolved { kind: Kind; dark: boolean; title: string; sub: string; item?: Item; body: React.ReactNode; aspect?: number; width: number; noMax?: boolean }
 
 function CamVideoHost({ id }: { id: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -73,6 +78,16 @@ function useResolved(key: string, compact: boolean): Resolved | null {
       ),
     };
   }
+  if (key.startsWith('face:')) {
+    const u = s.participants.find((p) => p.id === key.slice(5));
+    if (!u) return null;
+    const self = u.id === s.selfId;
+    return {
+      kind: 'face', dark: false, title: self ? `${u.name}（あなた）` : u.name, sub: self ? `${u.mode.toUpperCase()} で参加中` : at(u.id),
+      width: 480, aspect: 4 / 3, noMax: true,
+      body: <div className={`facewin ${s.speaking[u.id] ? 'speaking' : ''}`}><AvatarView u={u} speaking={!!s.speaking[u.id]} /></div>,
+    };
+  }
   const id = key.slice(key.indexOf(':') + 1);
   const item = s.items[id];
   if (!item) return null;
@@ -82,6 +97,21 @@ function useResolved(key: string, compact: boolean): Resolved | null {
     return {
       kind: 'video', dark: true, item, title: `${ITEM_INFO.camera.name} — ${nameOf(item.operator)} のライブ`, sub, width: 480, aspect: 16 / 9,
       body: <><CamVideoHost id={id} /><span className="onlive"><i />LIVE</span></>,
+    };
+  }
+  if (item.kind === 'image') {
+    return { kind: 'media', dark: true, item, title: '画像', sub, width: 560, aspect: item.w / item.h, body: <img className="mediaimg" src={item.url} alt="" /> };
+  }
+  if (item.kind === 'video') {
+    return {
+      kind: 'media', dark: true, item, title: '動画', sub, width: 560, aspect: item.w / item.h,
+      body: <><VideoHost id={item.id} /><MediaControls item={item} duration={() => videoEls.get(item.id)?.duration ?? NaN} /></>,
+    };
+  }
+  if (item.kind === 'youtube') {
+    return {
+      kind: 'media', dark: true, item, title: item.title || 'YouTube', sub, width: 640, aspect: 16 / 9,
+      body: <><YouTubePlayer item={item} volume={() => 1} /><MediaControls item={item} duration={() => youTubeDuration(item.id)} /></>,
     };
   }
   if (item.kind === 'note') return { kind: 'note', dark: false, item, title: itemLabel(item), sub, width: 320, body: <NoteBody note={item} /> };
@@ -107,7 +137,7 @@ function WindowFrame({ win, region, simple, z, compact = false }: {
   const gone = !r;
   useEffect(() => { if (gone) closeWindow(win.key); }, [gone, win.key]);
   if (!r) return null;
-  const max = maxWin === win.key;
+  const max = maxWin === win.key && !r.noMax;
   const createdBy = r.item ? { id: r.item.createdBy, name: nameOf(r.item.createdBy) } : undefined;
 
   // カンタンモードは使える範囲いっぱいに、フリーモードは既定の幅で置く
@@ -120,7 +150,7 @@ function WindowFrame({ win, region, simple, z, compact = false }: {
       width = Math.min(region.w, (region.h - BAR) * r.aspect);
       height = width / r.aspect + BAR;
     } else width = Math.min(region.w, 420);
-  } else if (r.aspect && r.kind === 'video') height = width / r.aspect + BAR;
+  } else if (r.aspect && r.kind !== 'panel') height = width / r.aspect + BAR;
 
   const style: React.CSSProperties = max && !compact
     ? { position: 'fixed', left: 0, top: 0, width, height, zIndex: 44 }
@@ -162,14 +192,25 @@ function WindowFrame({ win, region, simple, z, compact = false }: {
   return max && !compact ? createPortal(frame, document.body) : frame;
 }
 
+function AttentionButton({ keyName }: { keyName: string }) {
+  const [cool, setCool] = useState(false);
+  return (
+    <button
+      className="ib wbtn" disabled={cool} title="注目を集める（ほかの人のリストでしばらく光る）" aria-label="注目を集める"
+      onClick={() => { send({ t: 'attention', key: keyName }); setCool(true); setTimeout(() => setCool(false), 3000); }}
+    ><Icon name="sparkle" size={15} /></button>
+  );
+}
+
 function WinButtons({ win, r, max }: { win: Win; r: Resolved; max: boolean }) {
   return (
     <>
         <Viewers keyName={win.key} dark={r.dark} />
+        {r.item && /^(item|cam):/.test(win.key) && <AttentionButton keyName={win.key} />}
         {r.item && r.kind !== 'video' && (
           <button className="ib wbtn" aria-label="しまう" title="アイテムをしまう" onClick={() => removeItem(r.item!.id)}><Icon name="trash" size={14} /></button>
         )}
-        <button className="ib wbtn" onClick={() => toggleMax(win.key)} aria-label={max ? '元のサイズに戻す' : '拡大（画面全体に表示）'}><Icon name="maximize" size={14} /></button>
+        {!r.noMax && <button className="ib wbtn" onClick={() => toggleMax(win.key)} aria-label={max ? '元のサイズに戻す' : '拡大（画面全体に表示）'}><Icon name="maximize" size={14} /></button>}
         <button className="ib wbtn" onClick={() => closeWindow(win.key)} aria-label="消す"><Icon name="close" size={14} /></button>
     </>
   );
