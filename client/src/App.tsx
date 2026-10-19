@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
-import { sessionChatKey } from '../../shared/protocol.ts';
-import { useStore, set, channelOf } from './store.ts';
+import { useStore, set } from './store.ts';
 import { connectWs } from './net/ws.ts';
-import { openView, setMode } from './actions.ts';
-import { ChannelSidebar, Chat, HammerCursor, Lightbox, MemberList } from './ui.tsx';
-import { SessionView, BoardView } from './view2d/View2D.tsx';
-import { View3D } from './view3d/View3D.tsx';
 import { iconUrl } from './icon.ts';
 import { ProfileDialog } from './Profile.tsx';
+import { HammerCursor, Lightbox } from './world/common.tsx';
+import { WorldSelect } from './world/WorldSelect.tsx';
+import { WorldScreen } from './world/WorldScreen.tsx';
 
 function loadId() {
   try {
@@ -52,17 +50,18 @@ function JoinScreen() {
     <div className="joinbg">
       {profile && <ProfileDialog name={name} onClose={closeProfile} />}
       <div className="join">
+        <span className="wmark big">ト</span>
         <h1>Tonarium へようこそ</h1>
-        <p>2D と 3D を行き来できる通話ルーム（プロトタイプ）</p>
+        <p>2D と 3D を行き来できるワールド（プロトタイプ）</p>
         <div className="joinicon">
           <button className="avbtn" title="アイコン・3D アバターを設定" onClick={() => setProfile(true)} disabled={!name.trim()}>
             {icon ? <img className="av" src={icon} alt="" /> : <div className="av noicon">{name.trim().slice(0, 1) || '?'}</div>}
           </button>
-          <small>{name.trim() ? 'クリックでアイコン・3D アバターを設定' : '名前を入れるとアイコン・3D アバターを設定できます'}</small>
+          <small>{name.trim() ? 'クリックでアイコン・3D アバター・自己紹介を設定' : '名前を入れるとプロフィールを設定できます'}</small>
         </div>
-        <label>表示名</label>
+        <label htmlFor="joinname">表示名</label>
         <input
-          autoFocus value={name} maxLength={24}
+          id="joinname" autoFocus value={name} maxLength={24}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && join()}
         />
@@ -73,66 +72,15 @@ function JoinScreen() {
   );
 }
 
-const TOPIC_3D = 'クリックで操作開始 ・ マウス: 視点 ・ 照準で操作 ・ Esc: カーソルを出す';
-
-function MainHeader() {
-  const { mode, view, textChannel, session } = useStore();
-  if (view === 'text' || !session) {
-    const ch = channelOf(textChannel);
-    return (
-      <div className="mainhdr">
-        <span className="chicon">#</span>
-        <b>{ch?.name}</b>
-        {ch?.topic && <span className="topic">{ch.topic}</span>}
-      </div>
-    );
-  }
-  return (
-    <div className="mainhdr">
-      <span className="chicon">🔊</span>
-      <b>{channelOf(session)?.name}</b>
-      {mode === '2d' ? (
-        <div className="tabs">
-          <button className={view === 'session' ? 'active' : ''} onClick={() => openView('session')}>通話</button>
-          <button className={view === 'board' ? 'active' : ''} onClick={() => openView('board')}>付箋ボード</button>
-        </div>
-      ) : (
-        <span className="topic">{TOPIC_3D}</span>
-      )}
-      <div className="spacer" />
-      <div className="modeswitch">
-        <button className={mode === '2d' ? 'active' : ''} onClick={() => setMode('2d')}>2D</button>
-        <button className={mode === '3d' ? 'active' : ''} onClick={() => setMode('3d')}>3D</button>
-      </div>
-    </div>
-  );
-}
-
 export function App() {
-  const { joined, mode, view, textChannel, session } = useStore();
+  const joined = useStore((s) => s.joined);
+  const session = useStore((s) => s.session);
   if (!joined) return <JoinScreen />;
-  const textView = view === 'text' || !session;
-  const textName = `#${channelOf(textChannel)?.name ?? ''}`;
-  const sessionChat = session ? (
-    <Chat compact ch={sessionChatKey(session)} title={`🔊 ${channelOf(session)?.name ?? ''} のチャット`} />
-  ) : null;
   return (
-    <div className="dc">
-      <nav className="rail"><div className="guild" title="Tonarium">T</div></nav>
-      <ChannelSidebar />
-      <div className="mainarea">
-        <MainHeader />
-        <div className="mainbody">
-          <main>
-            {textView ? <Chat key={textChannel} ch={textChannel} title={textName} />
-              : mode === '3d' ? <View3D />
-              : view === 'session' ? <SessionView /> : <BoardView />}
-          </main>
-          <aside>{textView ? <MemberList /> : sessionChat}</aside>
-        </div>
-      </div>
+    <>
+      {session ? <WorldScreen /> : <WorldSelect />}
       <Lightbox />
       <HammerCursor />
-    </div>
+    </>
   );
 }

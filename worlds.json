@@ -1,0 +1,8 @@
+{
+  "name": "Tonarium",
+  "worlds": [
+    { "id": "lounge", "name": "ラウンジ", "topic": "ゆっくり話そう" },
+    { "id": "game", "name": "ゲーム配信", "topic": "画面共有でゲームを見せ合う" },
+    { "id": "work", "name": "作業部屋", "topic": "もくもく作業" }
+  ]
+}

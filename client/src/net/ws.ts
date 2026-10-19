@@ -2,6 +2,10 @@ import type { ClientMsg, ServerMsg } from '../../../shared/protocol.ts';
 import { get, set, recompute } from '../store.ts';
 import { applyDelta } from '../items/actions.ts';
 import { onHit } from '../items/effects.ts';
+import { pushNotice } from '../actions.ts';
+import { volumeFrom } from '../spatial.ts';
+import { playPoke, playSynth } from '../world/sounds.ts';
+import { resendViewing } from '../world/windows.ts';
 
 // HMR でこのモジュールが読み直されても同じソケットを使う（新しい側で送信が黙って捨てられるのを防ぐ）
 const g = globalThis as unknown as { __tonariumWs?: WebSocket | null };
@@ -22,6 +26,7 @@ export function connectWs() {
         send({ t: 'mode', mode: '3d' });
         send({ t: 'avatar', s: s.selfAvatar });
       }
+      resendViewing();
     }
   };
   ws.onmessage = (e) => onMessage(JSON.parse(e.data) as ServerMsg);
@@ -39,23 +44,22 @@ export function send(msg: ClientMsg) {
 function onMessage(msg: ServerMsg) {
   switch (msg.t) {
     case 'snapshot': {
-      const { guild, users, chats, avatars, items } = msg.s;
-      const firstText = guild.categories.flatMap((c) => c.channels).find((c) => c.type === 'text');
-      set((s) => ({
+      const { guild, users, chats, avatars, items, friends } = msg.s;
+      set({
         guild,
         users,
         chats,
+        friends,
         avatarsBy: avatars,
         itemsBy: Object.fromEntries(Object.entries(items).map(([sid, list]) => [sid, Object.fromEntries(list.map((n) => [n.id, n]))])),
-        textChannel: s.textChannel || firstText?.id || '',
-      }));
+      });
       break;
     }
     case 'users':
       set({ users: msg.list });
       break;
     case 'chat':
-      set((s) => ({ chats: { ...s.chats, [msg.ch]: [...(s.chats[msg.ch] ?? []), msg.m].slice(-500) } }));
+      set((s) => ({ chats: { ...s.chats, [msg.sid]: [...(s.chats[msg.sid] ?? []), msg.m].slice(-500) } }));
       return;
     case 'avatar':
       set((s) => ({ avatarsBy: { ...s.avatarsBy, [msg.sid]: { ...s.avatarsBy[msg.sid], [msg.id]: msg.s } } }));
@@ -83,7 +87,6 @@ function onMessage(msg: ServerMsg) {
         delete m[msg.id];
         return {
           itemsBy: { ...s.itemsBy, [msg.sid]: m },
-          focus: s.focus === msg.id ? null : s.focus,
           selectedNote: s.selectedNote === msg.id ? null : s.selectedNote,
         };
       });
@@ -92,7 +95,30 @@ function onMessage(msg: ServerMsg) {
       applyDelta(msg.sid, msg.id, msg.action, msg.by);
       return;
     case 'hit':
-      if (msg.sid === get().session) onHit(msg.from, msg.to);
+      if (msg.sid !== get().session) return;
+      onHit(msg.from, msg.to);
+      if (msg.to === get().selfId) pushNotice('hit', msg.from);
+      return;
+    case 'poke': {
+      if (msg.sid !== get().session) return;
+      const from = get().users.find((u) => u.id === msg.from);
+      if (from && get().blocked.includes(from.name)) return;
+      set((s) => ({ pokes: { ...s.pokes, [msg.to]: performance.now() } }));
+      if (msg.to === get().selfId) { pushNotice('poke', msg.from); playPoke(); }
+      return;
+    }
+    case 'sound':
+      if (msg.sid !== get().session) return;
+      if (!get().blocked.includes(get().users.find((u) => u.id === msg.from)?.name ?? '')) playSynth(msg.id, volumeFrom(msg.from));
+      return;
+    case 'liveRequest':
+      if (msg.sid === get().session) pushNotice('live', msg.from);
+      return;
+    case 'friendRequest':
+      pushNotice('friend', msg.from, msg.fromName);
+      return;
+    case 'friends':
+      set({ friends: msg.names });
       return;
   }
   recompute();

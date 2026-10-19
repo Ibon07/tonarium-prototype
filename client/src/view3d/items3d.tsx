@@ -256,7 +256,7 @@ function CompatPanel3D({ item }: { item: Item }) {
       </mesh>
       <Label
         position={[0, 1.6 + PANEL_H / 2 + 0.18, 0]} height={0.16}
-        text={`${ITEM_INFO[item.kind].icon} ${ITEM_INFO[item.kind].name}${COMPAT_ONLY[item.kind] ? ' ・ 互換モード' : ''}`}
+        text={`${ITEM_INFO[item.kind].name}${COMPAT_ONLY[item.kind] ? ' ・ 互換モード' : ''}`}
         bg={COMPAT_ONLY[item.kind] ? 'rgba(88,101,242,0.95)' : 'rgba(0,0,0,0.75)'}
       />
     </group>
