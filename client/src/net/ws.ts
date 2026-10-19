@@ -30,6 +30,8 @@ export function connectWs() {
         send({ t: 'avatar', s: s.selfAvatar });
       }
       resendViewing();
+      // 切断でサーバー側の状態は消えるが、通話はつながったままなので送り直さないと全員からミュート扱いになる
+      if (s.voice === 'connected') send({ t: 'status', micOn: !!s.micOn[s.selfId], sharing: s.sharer === s.selfId });
     }
   };
   ws.onmessage = (e) => onMessage(JSON.parse(e.data) as ServerMsg);
