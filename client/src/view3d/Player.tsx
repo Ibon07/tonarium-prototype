@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import type { AvatarState } from '../../../shared/protocol.ts';
+import { jumpHeight, type AvatarState } from '../../../shared/protocol.ts';
 import { get, set, heldHammer, heldCamera, nameOf, solidsOf } from '../store.ts';
 import { pushOut } from '../../../shared/worlds.ts';
 import { send } from '../net/ws.ts';
@@ -16,9 +16,6 @@ import { cameraHelp } from './camera3d.tsx';
 const SPEED = 4;
 const BODY_R = 0.3;
 const SENS = 0.0025;
-/** 初速 4.2m/s・重力 12m/s² で 0.7m ほど跳ぶ */
-const JUMP = 4.2;
-const GRAVITY = 12;
 
 const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
@@ -56,8 +53,8 @@ export function Player() {
   const keys = useRef<Record<string, boolean>>({});
   const look = useRef({ yaw: get().selfAvatar.ry, pitch: -0.05 });
   // NaN だと比較が常に false になり一度も送られないので Infinity
-  const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, y: Infinity });
-  const jump = useRef({ y: 0, vy: 0 });
+  const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, jump: 0 });
+  const jump = useRef({ n: get().selfAvatar.jump ?? 0, at: -Infinity });
   const aim = useRef<ReturnType<typeof aimAt>>(null);
   const hammerRef = useRef<THREE.Group>(null);
   const dragging = useRef<{ data: Interactable; obj: THREE.Object3D; hit: THREE.Intersection | null } | null>(null);
@@ -100,7 +97,8 @@ export function Player() {
       if (e.code === 'Escape') selectNote(null);
       if (e.code === 'Space') {
         e.preventDefault();
-        if (jump.current.y <= 0) jump.current.vy = JUMP;
+        const j = jump.current;
+        if (jumpHeight(performance.now() - j.at) <= 0) { j.n++; j.at = performance.now(); }
       }
       if (e.code === 'KeyG') {
         if (carrying.current) finishCarry();
@@ -187,12 +185,7 @@ export function Player() {
     const shake = bump(s.hits[s.selfId]);
     camera.rotation.set(pitch - shake * 0.15, yaw + Math.sin(performance.now() / 30) * shake * 0.03, 0);
     const j = jump.current;
-    if (j.y > 0 || j.vy > 0) {
-      j.vy -= GRAVITY * Math.min(dt, 0.05);
-      j.y = Math.max(0, j.y + j.vy * Math.min(dt, 0.05));
-      if (j.y === 0) j.vy = 0;
-    }
-    camera.position.y = EYE + j.y - shake * 0.12;
+    camera.position.y = EYE + jumpHeight(performance.now() - j.at) - shake * 0.12;
 
     const k = keys.current;
     const f = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0);
@@ -214,13 +207,13 @@ export function Player() {
     const x = camera.position.x;
     const z = camera.position.z;
     const st = sent.current;
-    // 跳んでいる間は細かく送らないと、ほかの人からは動きがカクつく
-    const interval = j.y > 0 ? 50 : 100;
+    const jumped = j.n !== st.jump;
     const changed = Math.abs(x - st.x) > 0.01 || Math.abs(z - st.z) > 0.01 || Math.abs(yaw - st.ry) > 0.01
-      || Math.abs(pitch - st.pitch) > 0.03 || Math.abs(j.y - st.y) > 0.02;
-    if (now - st.t > interval && changed) {
-      Object.assign(st, { t: now, x, z, ry: yaw, pitch, y: j.y });
-      const a: AvatarState = { x, z, ry: yaw, pitch, y: j.y };
+      || Math.abs(pitch - st.pitch) > 0.03;
+    // 跳んだことは待たずに送る（相手の放物線が遅れて始まらないように）
+    if (jumped || (now - st.t > 100 && changed)) {
+      Object.assign(st, { t: now, x, z, ry: yaw, pitch, jump: j.n });
+      const a: AvatarState = { x, z, ry: yaw, pitch, jump: j.n };
       set({ selfAvatar: a });
       send({ t: 'avatar', s: a });
     }

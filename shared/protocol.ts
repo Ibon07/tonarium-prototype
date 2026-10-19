@@ -1,5 +1,6 @@
 import type { Item, ItemAction, ItemKind, MediaInit } from './items.ts';
 import type { WorldKind } from './worlds.ts';
+import type { DiceRoll } from './dice.ts';
 
 export type Mode = '2d' | '3d';
 
@@ -24,7 +25,7 @@ export interface User {
   micOn: boolean;
   sharing: boolean;
   follow: string | null;
-  /** 2D のみ。null なら入口の列 */
+  /** 2D のみ。null ならスポーンエリア */
   pos: AvatarState | null;
   /** アイコンの版（更新時刻）。null ならアイコンなし */
   icon: string | null;
@@ -56,6 +57,8 @@ export interface ChatMessage {
   to?: string[];
   /** イベントで強調する相手（つんつんされた人など） */
   about?: string;
+  /** サイコロの結果。シークレットのとき本人以外には results が null */
+  dice?: DiceRoll;
 }
 
 export interface ChatMedia { kind: 'image' | 'video'; url: string; w: number; h: number }
@@ -66,8 +69,21 @@ export interface AvatarState {
   ry: number;
   /** 3D の人の顔の上下の向き（上向きが正） */
   pitch?: number;
-  /** ジャンプ中の足元の高さ（m） */
-  y?: number;
+  /**
+   * 跳んだ回数。高さは送らず、増えたのを見た側が受け取った瞬間から jumpHeight で放物線を描く
+   * （途中の高さを送ると、届く間隔のむらでカクつく）
+   */
+  jump?: number;
+}
+
+/** 初速 4.2m/s・重力 12m/s² で 0.7m ほど跳ぶ */
+const JUMP_V = 4.2;
+const GRAVITY = 12;
+/** 跳んでから ms 経ったときの足元の高さ（m） */
+export function jumpHeight(ms: number) {
+  const t = ms / 1000;
+  if (!(t > 0 && t < (2 * JUMP_V) / GRAVITY)) return 0;
+  return JUMP_V * t - (GRAVITY * t * t) / 2;
 }
 
 export interface Snapshot {
@@ -93,7 +109,7 @@ export type ClientMsg =
   | { t: 'status'; micOn: boolean; sharing: boolean }
   | { t: 'follow'; target: string | null }
   | { t: 'dropFollowers' }
-  /** pos が null なら入口の列に戻る */
+  /** pos が null ならスポーンエリアに戻る */
   | { t: 'place2d'; target: string; pos: AvatarState | null }
   /** /icon・/avatar・/profile へ保存した後に、同じ名前のオンラインの人へ反映させる */
   | { t: 'profileUpdated' }
@@ -136,11 +152,13 @@ export type ServerMsg =
   | { t: 'friendRequest'; from: string; fromName: string }
   | { t: 'friends'; names: string[] };
 
-/** 床は -ROOM_HALF..ROOM_HALF。スクリーンは北壁 (z = -ROOM_HALF)、入口は南壁 */
+/** 床は -ROOM_HALF..ROOM_HALF。スクリーンは北壁 (z = -ROOM_HALF) */
 export const ROOM_HALF = 10;
-export const DOOR_HALF = 1.5;
-export function entranceSlot(i: number) {
-  const r = Math.floor(i / 3);
-  const c = i % 3;
-  return { x: (c - 1) * 0.95, z: ROOM_HALF + 0.9 + r * 0.9 };
+/** 入ってきた人が現れる丸いエリア。家具を置かない */
+export const SPAWN = { x: 0, z: 6.5, r: 1.6 };
+/** スポーンエリアの i 番目の立ち位置。ひまわりの種の並びで、人が増えても重ならない */
+export function spawnSlot(i: number) {
+  const r = 0.45 * Math.sqrt(i);
+  const a = i * 2.39996;
+  return { x: SPAWN.x + Math.sin(a) * r, z: SPAWN.z + Math.cos(a) * r };
 }

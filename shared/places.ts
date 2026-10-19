@@ -1,4 +1,4 @@
-import { entranceSlot, type AvatarState, type User } from './protocol.ts';
+import { spawnSlot, type AvatarState, type User } from './protocol.ts';
 
 export interface Place { x: number; z: number; ry: number; small: boolean }
 
@@ -36,7 +36,7 @@ export function computePlaces(participants: User[], avatarOf: (id: string) => Av
     } else if (u.pos) {
       out.set(u.id, { ...u.pos, small: false });
     } else {
-      const p = entranceSlot(queue++);
+      const p = spawnSlot(queue++);
       out.set(u.id, { x: p.x, z: p.z, ry: 0, small: false });
     }
   }

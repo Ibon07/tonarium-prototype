@@ -1,6 +1,7 @@
 import { newChess, chessBoard, playChess, type ChessState, type Promotion } from './chess.ts';
+import type { DiceRoll, DieSides } from './dice.ts';
 
-export type ItemKind = 'note' | 'hammer' | 'chess' | 'chessAi' | 'g2048' | 'canvas' | 'camera' | 'image' | 'video' | 'youtube';
+export type ItemKind = 'note' | 'hammer' | 'chess' | 'chessAi' | 'g2048' | 'canvas' | 'camera' | 'image' | 'video' | 'youtube' | 'dice';
 
 /**
  * みんなで同じ位置を再生するための時計。at（サーバー時刻 ms）の時点で base 秒目。
@@ -41,7 +42,9 @@ export type Item =
   | (ItemBase & { kind: 'camera'; holder: string | null; pitch: number; live: boolean; operator: string | null })
   | (ItemBase & { kind: 'image'; url: string; w: number; h: number })
   | (ItemBase & { kind: 'video'; url: string; w: number; h: number; clock: MediaClock })
-  | (ItemBase & { kind: 'youtube'; videoId: string; title: string; clock: MediaClock });
+  | (ItemBase & { kind: 'youtube'; videoId: string; title: string; clock: MediaClock })
+  /** 振るのはサーバー（結果を決めてチャットにも残す）。roll は最後に振った回 */
+  | (ItemBase & { kind: 'dice'; roll: DiceRoll | null });
 
 export type ChessItem = Extract<Item, { kind: 'chess' | 'chessAi' }>;
 export const isChessItem = (item: Item): item is ChessItem => item.kind === 'chess' || item.kind === 'chessAi';
@@ -66,7 +69,8 @@ export type ItemAction =
   | { a: 'canvasClear' }
   | { a: 'mediaPlay'; pos: number }
   | { a: 'mediaPause'; pos: number }
-  | { a: 'mediaSeek'; pos: number };
+  | { a: 'mediaSeek'; pos: number }
+  | { a: 'diceRoll'; sides: DieSides; count: number; secret: boolean };
 
 /** 頻繁な操作はアイテム全体ではなく操作だけを配り、各クライアントが applyItemAction で適用する */
 export const isDeltaAction = (act: ItemAction) =>
@@ -96,6 +100,7 @@ export const ITEM_INFO: Record<ItemKind, ItemInfo> = {
   camera: { name: 'カメラ', mark: '写', tint: '#E5F0E9', ink: '#2E6E4E', desc: '3D 空間で写真を撮ったりライブ配信したりできる。ライブは 2D からも見られる。', genre: 'ツール', in2d: false, in3d: true },
   image: { name: '画像', mark: '絵', tint: '#E4EEF7', ink: '#2F5E8C', desc: '貼り付けた画像。', genre: 'メディア', in2d: true, in3d: true, media: true },
   video: { name: '動画', mark: '動', tint: '#EFE4F6', ink: '#6A3A8C', desc: '貼り付けた動画。みんなで同じところを再生する。', genre: 'メディア', in2d: true, in3d: true, media: true },
+  dice: { name: 'サイコロ', mark: '賽', tint: '#F3E6D3', ink: '#7A4A22', desc: 'TRPG 用のサイコロ（d4〜d100、最大10個）。3D では木の器の中を転がり、結果はチャットに残る。シークレットで振ると結果は自分だけに見える。', genre: 'あそび', in2d: true, in3d: true },
   youtube: { name: 'YouTube', mark: 'YT', tint: '#FBE1DE', ink: '#B3261E', desc: 'YouTube の動画。みんなで同じところを再生する。', genre: 'メディア', in2d: true, in3d: true, media: true },
 };
 
@@ -192,6 +197,7 @@ export function createItem(
     case 'g2048': return { ...b, kind, grid: g2048Initial(rng), score: 0, over: false };
     case 'canvas': return { ...b, kind, strokes: [] };
     case 'camera': return { ...b, kind, holder: null, pitch: 0, live: false, operator: null };
+    case 'dice': return { ...b, kind, roll: null };
   }
 }
 
@@ -300,6 +306,9 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
       if (act.a === 'canvasClear') { item.strokes = []; break; }
       return false;
     }
+    // 結果はサーバーが決める（server の rollDice）
+    case 'dice':
+      return false;
   }
   item.updatedBy = userId;
   return true;

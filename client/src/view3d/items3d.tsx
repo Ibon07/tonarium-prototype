@@ -16,25 +16,8 @@ import { carrying, type Interactable } from './interact.ts';
 import { drawText, makeCanvasTexture } from './textTexture.ts';
 import { Camera3D } from './camera3d.tsx';
 import { Label } from './Label.tsx';
-
-function useFollow(ref: React.RefObject<THREE.Group | null>, id: string, x: number, z: number, ry: number) {
-  useFrame((_, dt) => {
-    const g = ref.current;
-    if (!g) return;
-    const c = carrying.current?.id === id ? carrying.current : null;
-    const k = c ? 1 : Math.min(1, dt * 12);
-    g.position.x += ((c?.x ?? x) - g.position.x) * k;
-    g.position.z += ((c?.z ?? z) - g.position.z) * k;
-    let r = (c?.ry ?? ry) - g.rotation.y;
-    r = Math.atan2(Math.sin(r), Math.cos(r));
-    g.rotation.y += r * k;
-  });
-}
-
-const removable = (item: Item): Interactable => ({
-  carry: item.id,
-  remove: () => removeItem(item.id),
-});
+import { removable, useFollow } from './itemHelpers.ts';
+import { Dice3D } from './dice3d.tsx';
 
 const NOTE_Y = 1.5;
 
@@ -450,6 +433,7 @@ export function Item3D({ item }: { item: Item }) {
     case 'camera': return <Camera3D item={item} />;
     case 'chessAi':
     case 'chess': return <Chess3D item={item} />;
+    case 'dice': return <Dice3D item={item} />;
     default: return PANELS[item.kind] ? <CompatPanel3D item={item} /> : null;
   }
 }

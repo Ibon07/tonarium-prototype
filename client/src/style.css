@@ -370,6 +370,33 @@ img.av { object-fit: cover; display: block; }
 .winbody { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
 .win.k-video .winbody { background: #1E1F24; }
 .win.k-panel .winbody { padding: 8px; background: var(--paper); }
+.win.k-dice .winbody { background: var(--paper); }
+.dicewin { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+.dicetray { min-height: 120px; display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 10px; padding: 14px; border-radius: 14px;
+  background: radial-gradient(ellipse at 50% 40%, #b98258, #7a4e30 75%); box-shadow: inset 0 4px 14px rgba(0, 0, 0, .35); }
+.dicetray .sub { color: #f4e6cf; }
+.die2d { width: 46px; height: 46px; display: grid; place-items: center; font: 800 18px/1 "Zen Maru Gothic", sans-serif; border-radius: 9px; box-shadow: 0 3px 6px rgba(0, 0, 0, .3); }
+.die2d.d4 { clip-path: polygon(50% 0, 100% 100%, 0 100%); border-radius: 0; padding-top: 14px; }
+.die2d.d8 { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); border-radius: 0; }
+.die2d.d10, .die2d.d100 { clip-path: polygon(50% 0, 100% 45%, 50% 100%, 0 45%); border-radius: 0; }
+.die2d.d12 { clip-path: polygon(50% 0, 100% 38%, 82% 100%, 18% 100%, 0 38%); border-radius: 0; padding-top: 4px; }
+.die2d.d20 { clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); border-radius: 0; }
+.die2d.d100 b { font-size: 14px; }
+.die2d.spin { animation-name: diespin; animation-timing-function: cubic-bezier(.15, .6, .3, 1); animation-fill-mode: both; }
+@keyframes diespin { from { transform: rotate(0) scale(.85); } 70% { transform: rotate(900deg) scale(1.08); } to { transform: rotate(1080deg) scale(1); } }
+.dicesum { text-align: center; font-size: 13px; min-height: 20px; }
+.dicesum .dtotal { font-size: 18px; color: var(--accent); }
+.dicesides { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.dside { height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line2); font-weight: 700; font-size: 12px; }
+.dside.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dicerow { display: flex; align-items: center; gap: 10px; }
+.dcount { display: inline-flex; align-items: center; gap: 6px; }
+.dcount .ib { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line2); }
+.dcount b { min-width: 34px; text-align: center; font-size: 13px; }
+.dsecret { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.droll { margin-left: auto; }
+.logdice { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 13px; }
+.logdice .lnum { min-width: 20px; padding: 0 5px; height: 20px; border-radius: 5px; display: inline-grid; place-items: center; font-weight: 700; font-size: 12px; }
 .videohost, .videohost video { width: 100%; height: 100%; }
 .videohost video { object-fit: contain; display: block; }
 .onlive { position: absolute; top: 10px; left: 10px; display: flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px; background: var(--live); color: #fff; font-size: 11px; font-weight: 700; }

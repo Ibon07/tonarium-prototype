@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { AvatarState, ChatMessage, GuildConfig, Mode, User } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
 import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
+import type { DieSides } from '../../shared/dice.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
 export type WinMode = 'simple' | 'free';
@@ -42,6 +43,8 @@ interface State {
   switching: { to: Mode; dur: number } | null;
   /** 疑似ローディングの長さの倍率（手元に保存） */
   loadScale: number;
+  /** サイコロを振る種類・個数（手元に保存） */
+  dice: { sides: DieSides; count: number; secret: boolean };
   /** 視点のライブを頼んだ相手。始まったらウィンドウを開く */
   liveRequested: string | null;
   /** サーバー時刻 - 手元の時刻（動画の再生位置をそろえる） */
@@ -129,6 +132,7 @@ export const useStore = create<State>(() => ({
   liveRequested: null,
   switching: null,
   loadScale: load('tonarium.loadScale', 1),
+  dice: load('tonarium.dice', { sides: 6 as DieSides, count: 2, secret: false }),
   notices: [],
   friends: [],
   blocked: load('tonarium.blocked', []),

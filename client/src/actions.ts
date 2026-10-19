@@ -29,7 +29,7 @@ export function setMode(mode: Mode) {
   const s = get();
   if (s.mode === mode || !s.session) return;
   selectNote(null);
-  // 3D には 2D でいた場所から入る（入口の列にいたなら入口の内側）
+  // 3D には 2D でいた場所から入る（スポーンエリアにいたならその場所）
   if (mode === '3d') {
     const p = placesOf(s).get(s.selfId);
     if (p) set({ selfAvatar: clampRoomPos({ x: p.x, z: p.z, ry: p.ry }) });

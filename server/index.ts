@@ -4,7 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
@@ -16,6 +16,7 @@ import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, createItem, isDeltaA
 import { sanitizeParams } from '../shared/avatar.ts';
 import { VOICE_RANGE, computePlaces } from '../shared/places.ts';
 import { SOUNDS } from '../shared/sounds.ts';
+import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts';
 import { getOgp } from './ogp.ts';
 import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
@@ -121,12 +122,12 @@ function chatMedia(m: ChatMedia | undefined): ChatMedia | undefined {
   return { kind, url: m.url, w: size(m.w), h: size(m.h) };
 }
 
-function pushChat(sid: string, from: User | null, text: string, opt: { scope?: ChatScope; image?: string; media?: ChatMedia; to?: string[]; about?: string } = {}) {
+function pushChat(sid: string, from: User | null, text: string, opt: { scope?: ChatScope; image?: string; media?: ChatMedia; to?: string[]; about?: string; dice?: DiceRoll } = {}) {
   const list = chats.get(sid);
   if (!list) return;
   const m: ChatMessage = {
     id: randomUUID(), from: from?.id ?? null, fromName: from?.name ?? '', text, at: Date.now(), scope: opt.scope ?? 'all',
-    ...(opt.image ? { image: opt.image } : {}), ...(opt.media ? { media: opt.media } : {}), ...(opt.to ? { to: opt.to } : {}), ...(opt.about ? { about: opt.about } : {}),
+    ...(opt.image ? { image: opt.image } : {}), ...(opt.media ? { media: opt.media } : {}), ...(opt.to ? { to: opt.to } : {}), ...(opt.about ? { about: opt.about } : {}), ...(opt.dice ? { dice: opt.dice } : {}),
   };
   list.push(m);
   if (list.length > 500) list.shift();
@@ -139,6 +140,27 @@ function pushChat(sid: string, from: User | null, text: string, opt: { scope?: C
 }
 
 const event = (sid: string, text: string, about?: string) => pushChat(sid, null, text, { about });
+
+const lastRoll = new Map<string, number>();
+/** 結果はここで決める。チャットへは転がり終わってから出し、演出より先にばれないようにする */
+function rollDice(sid: string, me: User, it: Item & { kind: 'dice' }, sides: unknown, count: unknown, secret: boolean) {
+  const n = Math.floor(Number(count));
+  if (!isDieSides(sides) || !(n >= 1 && n <= DICE_MAX)) return;
+  if (Date.now() - (lastRoll.get(me.id) ?? 0) < 600) return;
+  lastRoll.set(me.id, Date.now());
+  const results = Array.from({ length: n }, () => randomInt(1, sides + 1));
+  const roll: DiceRoll = { id: randomUUID(), by: me.id, sides, count: n, results, secret, at: Date.now() };
+  it.roll = secret ? { ...roll, results: null } : roll;
+  it.updatedBy = me.id;
+  broadcast({ t: 'item', sid, item: it });
+  setTimeout(() => {
+    if (me.session !== sid) return;
+    if (!secret) { pushChat(sid, me, '', { dice: roll }); return; }
+    pushChat(sid, me, '', { dice: roll, to: [me.id] });
+    const others = [...users.values()].filter((u) => u.session === sid && u.id !== me.id).map((u) => u.id);
+    if (others.length) pushChat(sid, me, '', { dice: { ...roll, results: null }, to: others });
+  }, ROLL_MS);
+}
 
 /** 声の範囲チャットの宛先：送信時点で VOICE_RANGE 以内にいる同じワールドの人 */
 function nearIds(sid: string, me: User) {
@@ -183,12 +205,7 @@ function placeIn(sid: string, x: number, z: number, r: number) {
   const p = pushOut(clamp(x), clamp(z), r, solidsOf(sid));
   return { x: clamp(p.x), z: clamp(p.z) };
 }
-/** 2D の人は入口の外（廊下）にも置ける */
-function clamp2d(sid: string, p: AvatarState): AvatarState {
-  const z = Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF + 2.8, p.z));
-  if (z > ROOM_HALF - 0.5) return { x: clamp(p.x), z, ry: p.ry };
-  return { ...placeIn(sid, p.x, z, PERSON_R), ry: p.ry };
-}
+const clamp2d = (sid: string, p: AvatarState): AvatarState => ({ ...placeIn(sid, p.x, p.z, PERSON_R), ry: p.ry });
 
 function leaveSession(u: User) {
   const sid = u.session;
@@ -418,6 +435,10 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
             other.live = false; other.operator = null;
             broadcast({ t: 'item', sid, item: other });
           }
+      if (it.kind === 'dice' && msg.action.a === 'diceRoll') {
+        rollDice(sid, me, it, msg.action.sides, msg.action.count, !!msg.action.secret);
+        return;
+      }
       if (msg.action.a === 'drop') Object.assign(msg.action, placeIn(sid, msg.action.x, msg.action.z, 0.3));
       if (!applyItemAction(it, msg.action, me.id, Math.random)) return;
       // 送り主は手元で適用済み
@@ -439,7 +460,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       me.mode = msg.mode;
       if (msg.mode === '3d') { me.follow = null; me.pos = null; }
       if (msg.mode === '2d') {
-        // 入口の列には戻さず、3D でいた場所にとどまる
+        // スポーンエリアには戻さず、3D でいた場所にとどまる
         const av = avatars.get(sid)!.get(me.id);
         me.pos = av ? { ...av } : null;
         dropFollowersOf(me);
@@ -488,7 +509,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       const s: AvatarState = {
         x: clamp(msg.s.x), z: clamp(msg.s.z), ry: msg.s.ry,
         pitch: Math.max(-1.5, Math.min(1.5, Number(msg.s.pitch) || 0)),
-        y: Math.max(0, Math.min(3, Number(msg.s.y) || 0)),
+        jump: Math.max(0, Math.floor(Number(msg.s.jump) || 0)),
       };
       avatars.get(sid)!.set(me.id, s);
       broadcast({ t: 'avatar', sid, id: me.id, s }, ws);

@@ -16,9 +16,10 @@ import { AvatarView } from './Portraits.tsx';
 import { MediaControls, VideoHost, videoEls } from '../mediaSync.tsx';
 import { YouTubePlayer, youTubeDuration } from '../youtube.tsx';
 import { send } from '../net/ws.ts';
+import { DiceBody } from './DiceBody.tsx';
 
 const BAR = 40;
-type Kind = 'video' | 'panel' | 'note' | 'media' | 'face';
+type Kind = 'video' | 'panel' | 'note' | 'media' | 'face' | 'dice';
 /** noMax: 最大化しない（顔はアバターのキャンバスの下に隠れてしまうため） */
 interface Resolved { kind: Kind; dark: boolean; title: string; sub: string; item?: Item; body: React.ReactNode; aspect?: number; width: number; noMax?: boolean }
 
@@ -114,6 +115,7 @@ function useResolved(key: string, compact: boolean): Resolved | null {
       body: <><YouTubePlayer item={item} volume={() => 1} /><MediaControls item={item} duration={() => youTubeDuration(item.id)} /></>,
     };
   }
+  if (item.kind === 'dice') return { kind: 'dice', dark: false, item, title: ITEM_INFO.dice.name, sub, width: 400, body: <DiceBody item={item} interactive={!compact} /> };
   if (item.kind === 'note') return { kind: 'note', dark: false, item, title: itemLabel(item), sub, width: 320, body: <NoteBody note={item} /> };
   const panel = PANELS[item.kind];
   if (!panel) return null;

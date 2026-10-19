@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatMessage, ChatScope } from '../../../shared/protocol.ts';
 import { VOICE_RANGE } from '../../../shared/places.ts';
+import { DICE_COLORS, diceLabel, type DiceRoll } from '../../../shared/dice.ts';
 import { useStore, set, save, colorOf, isBroadcast, type Notice } from '../store.ts';
 import { friendAccept, goNear, markNoticesRead, poke, sendChat, setViewLive } from '../actions.ts';
 import { Icon } from './Icon.tsx';
@@ -104,6 +105,18 @@ function Composer() {
   );
 }
 
+function DiceLine({ roll }: { roll: DiceRoll }) {
+  const c = DICE_COLORS[roll.sides];
+  if (!roll.results) return <span className="logdice">🎲 シークレットで {diceLabel(roll.sides, roll.count)} を振りました</span>;
+  return (
+    <span className="logdice">
+      🎲 {diceLabel(roll.sides, roll.count)}{roll.secret && '（シークレット・あなただけ）'}：
+      {roll.results.map((v, i) => <span key={i} className="lnum" style={{ background: c.bg, color: c.ink }}>{v}</span>)}
+      {roll.results.length > 1 && <>＝ <b>{roll.results.reduce((a, b) => a + b, 0)}</b></>}
+    </span>
+  );
+}
+
 function LogLine({ m, selfId }: { m: ChatMessage; selfId: string }) {
   if (m.from === null) return <div className={`logevent ${m.about === selfId ? 'hi' : ''}`}>{m.text}</div>;
   return (
@@ -116,6 +129,7 @@ function LogLine({ m, selfId }: { m: ChatMessage; selfId: string }) {
           {m.scope === 'announce' && <span className="scopebadge announce">アナウンス</span>}
           <span className="sub">{time(m.at)}</span>
         </div>
+        {m.dice && <DiceLine roll={m.dice} />}
         {m.text && <span className="ltext"><Linkified text={m.text} /></span>}
         {firstUrl(m.text) && <OgpCard url={firstUrl(m.text)!} />}
         <ChatImage src={m.image} />
