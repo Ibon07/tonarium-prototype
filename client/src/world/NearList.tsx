@@ -101,6 +101,7 @@ function ItemRow({ item, d, band, heldBy, onMenu, menuOpen }: {
   const selfId = useStore((s) => s.selfId);
   useStore((s) => s.participants);
   const key = windowKeyOf(item, camFeeds);
+  const attn = useStore((s) => (s.attention[item.id] ?? 0) > performance.now());
   const open = useIsOpen(key ?? '');
   const label = itemLabel(item);
   if (band === 'far') {
@@ -113,7 +114,7 @@ function ItemRow({ item, d, band, heldBy, onMenu, menuOpen }: {
   const big = band === 'near';
   const status = heldBy ? (heldBy === selfId ? 'あなたが持っています' : `${nameOf(heldBy)} が持っています`) : '';
   return (
-    <div className={`prow item ${big ? 'big' : ''} ${open ? 'winon' : ''} ${menuOpen ? 'menuon' : ''}`}>
+    <div className={`prow item ${big ? 'big' : ''} ${open ? 'winon' : ''} ${menuOpen ? 'menuon' : ''} ${attn ? 'attn' : ''}`}>
       <button className="pmain" data-popanchor onClick={(ev) => (key ? openWindow(key) : onMenu(ev.currentTarget.getBoundingClientRect()))}>
         <ItemMark item={item} size={big ? 32 : 22} />
         <span className="ptext">
@@ -202,7 +203,7 @@ export const pickProfile = (id: string) => set({ profileOf: id });
 
 function ItemPicker({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
   const mode = useStore((s) => s.mode);
-  const kinds = Object.keys(ITEM_INFO) as ItemKind[];
+  const kinds = (Object.keys(ITEM_INFO) as ItemKind[]).filter((k) => !ITEM_INFO[k].media);
   const [sel, setSel] = useState<ItemKind>('chess');
   const info = ITEM_INFO[sel];
   const disabledOf = (k: ItemKind) => !!ONLY_3D[k] && mode !== '3d';

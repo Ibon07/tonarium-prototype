@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SOUNDS } from '../../../shared/sounds.ts';
-import { useStore, set, nameOf, worldOf } from '../store.ts';
+import { useStore, get, set, nameOf, worldOf, isBroadcast } from '../store.ts';
+import { send } from '../net/ws.ts';
 import { dropFollowers, follow, leaveSession, playSound, requestLive, setViewLive, switchMode } from '../actions.ts';
 import { dropHammer, place2d } from '../items/actions.ts';
 import { consumeHitFx } from '../items/effects.ts';
@@ -17,18 +18,22 @@ import { WindowLayer } from './WindowLayer.tsx';
 import { ProfileCard } from './ProfileCard.tsx';
 import { PortraitCanvas } from './Portraits.tsx';
 import { ConfirmOpen } from './Links.tsx';
+import { shareFiles, shareYouTube, youTubeId } from '../media.ts';
+import { MediaSync } from '../mediaSync.tsx';
 import { closeWindow, openWindow, setWinMode } from './windows.ts';
 
 function WorldBadge() {
   const world = useStore((s) => worldOf(s.session));
   const selfName = useStore((s) => s.selfName);
   const wsConnected = useStore((s) => s.wsConnected);
+  const broadcast = useStore((s) => isBroadcast(s));
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const [profile, setProfile] = useState(false);
   return (
     <div className="worldbadge">
       <img className="wmark" src="/brand/mark.png" alt="" />
       <span className="wname">{world?.name}</span>
+      {broadcast && <span className="bcpill" title="ブロードキャストモード：距離に関係なく声が届きます"><Icon name="megaphone" size={12} />ブロードキャスト</span>}
       {!wsConnected && <span className="reconn">再接続中…</span>}
       <span className="vline" />
       <button
@@ -37,6 +42,12 @@ function WorldBadge() {
       ><Icon name="settings" size={18} /></button>
       {menu && (
         <Popover anchor={menu} side="down" onClose={() => setMenu(null)} className="settings">
+          <span className="menutitle">ワールドの設定</span>
+          <label className="switchrow">
+            <span><b>ブロードキャストモード</b><span className="sub wrap">距離に関係なく全員の声が聞こえ、声の範囲のチャットも全員に届く（全員に反映）</span></span>
+            <input type="checkbox" role="switch" checked={broadcast} onChange={(e) => send({ t: 'broadcast', on: e.target.checked })} />
+          </label>
+          <span className="menusep" />
           <button className="ib menuitem" onClick={() => { setProfile(true); setMenu(null); }}><Icon name="user" />プロフィールを編集</button>
           <button className="ib menuitem" onClick={() => { setMenu(null); leaveSession(); }}><Icon name="leave" />ワールドを移動</button>
         </Popover>
@@ -205,6 +216,83 @@ function HitFxLayer({ root }: { root: React.RefObject<HTMLDivElement | null> }) 
   );
 }
 
+const isTyping = (t: EventTarget | null) =>
+  t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+const mediaFiles = (list: FileList | undefined | null) => [...(list ?? [])].filter((f) => /^(image|video)\//.test(f.type));
+
+/**
+ * Ctrl+V・ドラッグ＆ドロップで画像・動画・YouTube を共有する。
+ * 3D では目の前にアイテムとして出してチャットにも投稿、2D ではチャットに投稿するだけ
+ */
+function useMediaInput() {
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    let depth = 0;
+    const asItem = () => get().mode === '3d';
+    const onPaste = (e: ClipboardEvent) => {
+      const files = mediaFiles(e.clipboardData?.files);
+      if (files.length) { e.preventDefault(); void shareFiles(files, asItem()); return; }
+      if (isTyping(e.target)) return;
+      const id = youTubeId(e.clipboardData?.getData('text') ?? '');
+      if (id) { e.preventDefault(); void shareYouTube(id, asItem()); }
+    };
+    const wanted = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].some((t) => t === 'Files' || t === 'text/uri-list' || t === 'text/plain');
+    const onEnter = (e: DragEvent) => { if (wanted(e)) { depth++; setDragging(true); } };
+    const onLeave = () => { depth = Math.max(0, depth - 1); if (!depth) setDragging(false); };
+    const onOver = (e: DragEvent) => { if (wanted(e)) e.preventDefault(); };
+    const onDrop = (e: DragEvent) => {
+      depth = 0;
+      setDragging(false);
+      if (!e.dataTransfer) return;
+      const files = mediaFiles(e.dataTransfer.files);
+      const text = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
+      const id = youTubeId(text);
+      if (!files.length && !id) return;
+      e.preventDefault();
+      if (files.length) void shareFiles(files, asItem());
+      else if (id) void shareYouTube(id, asItem());
+    };
+    window.addEventListener('paste', onPaste);
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('paste', onPaste);
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, []);
+  return dragging;
+}
+
+function DropHint() {
+  const mode = useStore((s) => s.mode);
+  return (
+    <div className="drophint" aria-hidden="true">
+      <div>
+        <Icon name="image" size={36} stroke={1.6} />
+        <b>{mode === '3d' ? 'ドロップすると目の前にアイテムとして置きます' : 'ドロップするとチャットに投稿します'}</b>
+        <span>画像 10MB・動画（MP4/WebM）50MB まで。YouTube のリンクも OK</span>
+      </div>
+    </div>
+  );
+}
+
+function Toast() {
+  const toast = useStore((s) => s.toast);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => tick((n) => n + 1), 4000 - (Date.now() - toast.at) + 20);
+    return () => clearTimeout(t);
+  }, [toast]);
+  if (!toast || Date.now() - toast.at > 4000) return null;
+  return <div className="toast" role="status">{toast.text}</div>;
+}
+
 /** 頼んだ視点のライブが届いたら開く */
 function useOpenRequestedLive() {
   const requested = useStore((s) => s.liveRequested);
@@ -218,6 +306,7 @@ function useOpenRequestedLive() {
 
 export function WorldScreen() {
   useOpenRequestedLive();
+  const dragging = useMediaInput();
   const mode = useStore((s) => s.mode);
   const locked = useStore((s) => s.locked);
   const folded = useStore((s) => s.folded);
@@ -235,6 +324,9 @@ export function WorldScreen() {
         <StatusChips />
         <Dock />
       </div>
+      <MediaSync />
+      <Toast />
+      {dragging && <DropHint />}
       <SwitchLoading />
       <ConfirmClose />
       <ConfirmOpen />

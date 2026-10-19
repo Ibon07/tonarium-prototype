@@ -1,5 +1,17 @@
 
-export type ItemKind = 'note' | 'hammer' | 'chess' | 'g2048' | 'canvas' | 'camera';
+export type ItemKind = 'note' | 'hammer' | 'chess' | 'g2048' | 'canvas' | 'camera' | 'image' | 'video' | 'youtube';
+
+/**
+ * みんなで同じ位置を再生するための時計。at（サーバー時刻 ms）の時点で base 秒目。
+ * 再生中なら今の位置は base + 経過秒
+ */
+export interface MediaClock { playing: boolean; base: number; at: number }
+export const clockTime = (c: MediaClock, serverNow: number) => (c.playing ? c.base + Math.max(0, serverNow - c.at) / 1000 : c.base);
+
+/** アップロードした画像・動画は /media/ に置かれる */
+export const MEDIA_URL_RE = /^\/media\/[0-9a-f-]{36}\.(jpg|png|gif|webp|mp4|webm)$/;
+export const YOUTUBE_ID_RE = /^[\w-]{11}$/;
+export type MediaInit = { url: string; w: number; h: number } | { videoId: string; title: string };
 
 export const CANVAS_W = 620;
 export const CANVAS_H = 450;
@@ -25,7 +37,10 @@ export type Item =
   | (ItemBase & { kind: 'g2048'; grid: number[]; score: number; over: boolean })
   | (ItemBase & { kind: 'canvas'; strokes: Stroke[] })
   /** live 中は operator のブラウザがカメラ視点を描いて配信する */
-  | (ItemBase & { kind: 'camera'; holder: string | null; pitch: number; live: boolean; operator: string | null });
+  | (ItemBase & { kind: 'camera'; holder: string | null; pitch: number; live: boolean; operator: string | null })
+  | (ItemBase & { kind: 'image'; url: string; w: number; h: number })
+  | (ItemBase & { kind: 'video'; url: string; w: number; h: number; clock: MediaClock })
+  | (ItemBase & { kind: 'youtube'; videoId: string; title: string; clock: MediaClock });
 
 export const isHandheld = (i: Item) => i.kind === 'hammer' || i.kind === 'camera';
 export const ONLY_3D: Partial<Record<ItemKind, boolean>> = { camera: true };
@@ -44,7 +59,10 @@ export type ItemAction =
   | { a: 'reset2048' }
   | { a: 'strokeStart'; id: string; color: string; size: number; x: number; y: number }
   | { a: 'strokeAdd'; id: string; pts: number[] }
-  | { a: 'canvasClear' };
+  | { a: 'canvasClear' }
+  | { a: 'mediaPlay'; pos: number }
+  | { a: 'mediaPause'; pos: number }
+  | { a: 'mediaSeek'; pos: number };
 
 /** 頻繁な操作はアイテム全体ではなく操作だけを配り、各クライアントが applyItemAction で適用する */
 export const isDeltaAction = (act: ItemAction) =>
@@ -60,6 +78,8 @@ export interface ItemInfo {
   genre: string;
   in2d: boolean;
   in3d: boolean;
+  /** 貼り付け・ドロップ・チャットから出すもの（所持アイテムには出さない） */
+  media?: boolean;
 }
 
 export const ITEM_INFO: Record<ItemKind, ItemInfo> = {
@@ -69,6 +89,9 @@ export const ITEM_INFO: Record<ItemKind, ItemInfo> = {
   g2048: { name: '2048', mark: '2048', tint: '#F4EBCF', ink: '#7A5B0E', desc: 'みんなで操作するパズル。3D では互換表示のパネルになる。', genre: 'ゲーム', in2d: true, in3d: false },
   canvas: { name: 'キャンバス', mark: '画', tint: '#F6E4EC', ink: '#9A3A62', desc: 'みんなで絵を描ける。ペンと消しゴム付き。', genre: 'ツール', in2d: true, in3d: true },
   camera: { name: 'カメラ', mark: '写', tint: '#E5F0E9', ink: '#2E6E4E', desc: '3D 空間で写真を撮ったりライブ配信したりできる。ライブは 2D からも見られる。', genre: 'ツール', in2d: false, in3d: true },
+  image: { name: '画像', mark: '絵', tint: '#E4EEF7', ink: '#2F5E8C', desc: '貼り付けた画像。', genre: 'メディア', in2d: true, in3d: true, media: true },
+  video: { name: '動画', mark: '動', tint: '#EFE4F6', ink: '#6A3A8C', desc: '貼り付けた動画。みんなで同じところを再生する。', genre: 'メディア', in2d: true, in3d: true, media: true },
+  youtube: { name: 'YouTube', mark: 'YT', tint: '#FBE1DE', ink: '#B3261E', desc: 'YouTube の動画。みんなで同じところを再生する。', genre: 'メディア', in2d: true, in3d: true, media: true },
 };
 
 const BACK = ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R'];
@@ -138,11 +161,25 @@ function canMove(grid: number[]) {
   return (['up', 'down', 'left', 'right'] as Dir[]).some((d) => slide2048(grid, d).moved);
 }
 
+/** 画像・動画・YouTube は media が必要。合わなければ null */
 export function createItem(
-  kind: ItemKind, base: Omit<ItemBase, 'updatedBy'>, rng: () => number,
-): Item {
+  kind: ItemKind, base: Omit<ItemBase, 'updatedBy'>, rng: () => number, media?: MediaInit,
+): Item | null {
   const b = { ...base, updatedBy: base.createdBy };
+  const clock: MediaClock = { playing: false, base: 0, at: 0 };
+  const size = (n: number) => Math.max(1, Math.min(10000, Math.round(Number(n) || 1)));
   switch (kind) {
+    case 'image':
+    case 'video': {
+      if (!media || !('url' in media) || !MEDIA_URL_RE.test(media.url)) return null;
+      const isVideo = /\.(mp4|webm)$/.test(media.url);
+      if (isVideo !== (kind === 'video')) return null;
+      const m = { url: media.url, w: size(media.w), h: size(media.h) };
+      return kind === 'image' ? { ...b, kind, ...m } : { ...b, kind, ...m, clock };
+    }
+    case 'youtube':
+      if (!media || !('videoId' in media) || !YOUTUBE_ID_RE.test(media.videoId)) return null;
+      return { ...b, kind, videoId: media.videoId, title: String(media.title ?? '').slice(0, 200), clock };
     case 'note': return { ...b, kind, text: '', color: NOTE_COLORS[Math.floor(rng() * NOTE_COLORS.length)], editingBy: null };
     case 'hammer': return { ...b, kind, holder: null };
     case 'chess': return { ...b, kind, board: chessInitial(), last: null };
@@ -224,6 +261,14 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
       }
       if (act.a === 'reset2048') { item.grid = g2048Initial(rng); item.score = 0; item.over = false; break; }
       return false;
+    case 'video':
+    case 'youtube': {
+      if (act.a !== 'mediaPlay' && act.a !== 'mediaPause' && act.a !== 'mediaSeek') return false;
+      const pos = Math.max(0, Number(act.pos) || 0);
+      const playing = act.a === 'mediaPlay' ? true : act.a === 'mediaPause' ? false : item.clock.playing;
+      item.clock = { playing, base: pos, at: Date.now() };
+      break;
+    }
     case 'canvas': {
       const cx = (v: number) => Math.round(Math.max(0, Math.min(CANVAS_W, v)));
       const cy = (v: number) => Math.round(Math.max(0, Math.min(CANVAS_H, v)));

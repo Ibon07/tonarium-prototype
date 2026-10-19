@@ -6,7 +6,7 @@ export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
 export type WinMode = 'simple' | 'free';
 /** ウィンドウのキー: share（画面共有）/ cam:<アイテムID> / view:<ユーザーID> / item:<アイテムID> */
 export interface Win { key: string; x: number; y: number }
-export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live'; from: string; fromName: string; at: number; unread: boolean }
+export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention'; from: string; key?: string; fromName: string; at: number; unread: boolean }
 
 interface State {
   selfId: string;
@@ -43,6 +43,12 @@ interface State {
   loadScale: number;
   /** 視点のライブを頼んだ相手。始まったらウィンドウを開く */
   liveRequested: string | null;
+  /** サーバー時刻 - 手元の時刻（動画の再生位置をそろえる） */
+  serverOffset: number;
+  broadcast: Record<string, boolean>;
+  /** 注目を集めているアイテム ID → 光らせる期限（performance.now） */
+  attention: Record<string, number>;
+  toast: { text: string; at: number } | null;
   /** 開く前に確認している外部 URL */
   openUrl: string | null;
   /** プロフィールを開いている相手 */
@@ -113,6 +119,10 @@ export const useStore = create<State>(() => ({
   confirmClose: null,
   profileOf: null,
   openUrl: null,
+  serverOffset: 0,
+  broadcast: {},
+  attention: {},
+  toast: null,
   liveRequested: null,
   switching: null,
   loadScale: load('tonarium.loadScale', 1),
@@ -179,4 +189,11 @@ export function heldHammer(s: { items: Record<string, Item>; selfId: string }) {
 
 export function heldCamera(s: { items: Record<string, Item>; selfId: string }) {
   return Object.values(s.items).find((i): i is Item & { kind: 'camera' } => i.kind === 'camera' && i.holder === s.selfId);
+}
+
+export const serverNow = () => Date.now() + get().serverOffset;
+export const isBroadcast = (s = get()) => !!(s.session && s.broadcast[s.session]);
+
+export function showToast(text: string) {
+  set({ toast: { text, at: Date.now() } });
 }

@@ -7,14 +7,16 @@ import { createHash, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
-  AvatarState, ChatMessage, ChatScope, ClientMsg, GuildConfig, Mode, ServerMsg, User,
+  AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, GuildConfig, Mode, ServerMsg, User,
 } from '../shared/protocol.ts';
 import { ROOM_HALF } from '../shared/protocol.ts';
-import { ITEM_INFO, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, type Item } from '../shared/items.ts';
+import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, type Item } from '../shared/items.ts';
 import { sanitizeParams } from '../shared/avatar.ts';
 import { VOICE_RANGE, computePlaces } from '../shared/places.ts';
 import { SOUNDS } from '../shared/sounds.ts';
 import { getOgp } from './ogp.ts';
+import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
+import { freeSpot, itemRadius, pushApart2D } from './spacing.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
 const DEV = process.argv.includes('--dev');
@@ -26,7 +28,7 @@ const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
 const PROFILE_DIR = path.join(DATA_DIR, 'profiles');
 const FRIENDS_FILE = path.join(DATA_DIR, 'friends.json');
 const REPORTS_FILE = path.join(DATA_DIR, 'reports.log');
-for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR]) fs.mkdirSync(d, { recursive: true });
+for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR]) fs.mkdirSync(d, { recursive: true });
 
 const normalizeName = (name: string) => name.trim().slice(0, 24) || 'ゲスト';
 const nameHash = (name: string) => createHash('sha1').update(normalizeName(name)).digest('hex');
@@ -83,6 +85,8 @@ const sockets = new Map<string, Set<WebSocket>>(); // 同じIDで複数タブを
 const chats = new Map<string, ChatMessage[]>();
 const avatars = new Map<string, Map<string, AvatarState>>();
 const items = new Map<string, Map<string, Item>>();
+const broadcastMode = new Map<string, boolean>();
+const lastAttention = new Map<string, number>();
 for (const sid of sessionIds) {
   chats.set(sid, []);
   avatars.set(sid, new Map());
@@ -106,12 +110,19 @@ const idsByName = (name: string) => [...users.values()].filter((u) => u.name ===
 /** 途中参加のスナップショットが重くならないよう、古い画像は捨てる */
 const MAX_IMAGES = 40;
 
-function pushChat(sid: string, from: User | null, text: string, opt: { scope?: ChatScope; image?: string; to?: string[]; about?: string } = {}) {
+function chatMedia(m: ChatMedia | undefined): ChatMedia | undefined {
+  if (!m || typeof m.url !== 'string' || !MEDIA_URL_RE.test(m.url) || !mediaExists(m.url)) return undefined;
+  const kind = /\.(mp4|webm)$/.test(m.url) ? 'video' : 'image';
+  const size = (n: number) => Math.max(1, Math.min(10000, Math.round(Number(n) || 1)));
+  return { kind, url: m.url, w: size(m.w), h: size(m.h) };
+}
+
+function pushChat(sid: string, from: User | null, text: string, opt: { scope?: ChatScope; image?: string; media?: ChatMedia; to?: string[]; about?: string } = {}) {
   const list = chats.get(sid);
   if (!list) return;
   const m: ChatMessage = {
     id: randomUUID(), from: from?.id ?? null, fromName: from?.name ?? '', text, at: Date.now(), scope: opt.scope ?? 'all',
-    ...(opt.image ? { image: opt.image } : {}), ...(opt.to ? { to: opt.to } : {}), ...(opt.about ? { about: opt.about } : {}),
+    ...(opt.image ? { image: opt.image } : {}), ...(opt.media ? { media: opt.media } : {}), ...(opt.to ? { to: opt.to } : {}), ...(opt.about ? { about: opt.about } : {}),
   };
   list.push(m);
   if (list.length > 500) list.shift();
@@ -127,6 +138,7 @@ const event = (sid: string, text: string, about?: string) => pushChat(sid, null,
 
 /** 声の範囲チャットの宛先：送信時点で VOICE_RANGE 以内にいる同じワールドの人 */
 function nearIds(sid: string, me: User) {
+  if (broadcastMode.get(sid)) return [...users.values()].filter((u) => u.session === sid).map((u) => u.id);
   const places = computePlaces([...users.values()].filter((u) => u.session === sid), (id) => avatars.get(sid)!.get(id));
   const p = places.get(me.id);
   if (!p) return [me.id];
@@ -161,6 +173,8 @@ function broadcastUsers() {
 }
 const modeLabel = (m: Mode) => (m === '3d' ? '3D' : '2D');
 const clamp = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
+/** 2D の人は入口の外（廊下）にも置ける */
+const clamp2d = (p: AvatarState): AvatarState => ({ x: clamp(p.x), z: Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF + 2.8, p.z)), ry: p.ry });
 
 function leaveSession(u: User) {
   const sid = u.session;
@@ -207,6 +221,8 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
         avatars: Object.fromEntries([...avatars].map(([sid, m]) => [sid, Object.fromEntries(m)])),
         items: Object.fromEntries([...items].map(([sid, m]) => [sid, [...m.values()]])),
         friends: friendsOf(normalizeName(msg.name)),
+        broadcast: Object.fromEntries(broadcastMode),
+        now: Date.now(),
       },
     });
     broadcastUsers();
@@ -264,8 +280,9 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       const text = String(msg.text ?? '').trim().slice(0, 1000);
       const image = typeof msg.image === 'string' && /^data:image\/(jpeg|png);base64,/.test(msg.image) && msg.image.length < 2_000_000
         ? msg.image : undefined;
+      const media = chatMedia(msg.media);
       const scope: ChatScope = msg.scope === 'near' || msg.scope === 'announce' ? msg.scope : 'all';
-      if (text || image) pushChat(sid, me, text, { scope, image, to: scope === 'near' ? nearIds(sid, me) : undefined });
+      if (text || image || media) pushChat(sid, me, text, { scope, image, media, to: scope === 'near' ? nearIds(sid, me) : undefined });
       return;
     }
     case 'viewing': {
@@ -280,6 +297,26 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       if (!target || target.session !== sid || target.id === me.id) return;
       broadcast({ t: 'poke', sid, from: me.id, to: target.id });
       event(sid, `${me.name} が ${target.name} をつんつんしました`, target.id);
+      return;
+    }
+    case 'attention': {
+      const key = String(msg.key ?? '');
+      const it = sessItems.get(key.slice(key.indexOf(':') + 1));
+      if (!it || !/^(item|cam):/.test(key)) return;
+      // 連打で通知が埋まらないように
+      if (Date.now() - (lastAttention.get(me.id) ?? 0) < 3000) return;
+      lastAttention.set(me.id, Date.now());
+      broadcast({ t: 'attention', sid, from: me.id, key });
+      const name = it.kind === 'youtube' && it.title ? it.title : ITEM_INFO[it.kind].name;
+      event(sid, `${me.name} が「${name}」に注目を集めています`);
+      return;
+    }
+    case 'broadcast': {
+      const on = !!msg.on;
+      if ((broadcastMode.get(sid) ?? false) === on) return;
+      broadcastMode.set(sid, on);
+      broadcast({ t: 'broadcast', sid, on });
+      event(sid, on ? `${me.name} がブロードキャストモードをオンにしました（距離に関係なく声が届きます）` : `${me.name} がブロードキャストモードをオフにしました`);
       return;
     }
     case 'liveRequest': {
@@ -304,9 +341,20 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
     case 'itemCreate': {
       if (!(msg.kind in ITEM_INFO)) return;
       if (ONLY_3D[msg.kind] && me.mode !== '3d') return;
+      if (msg.media && 'url' in msg.media && !mediaExists(msg.media.url)) return;
+      let at = { x: clamp(msg.x), z: clamp(msg.z) };
+      // 2D は細かい位置を選べないので、出す瞬間だけ空いている場所へずらす
+      if (me.mode === '2d') {
+        const probe = createItem(msg.kind, { id: '', x: 0, z: 0, ry: 0, createdBy: me.id }, Math.random, msg.media);
+        if (probe) {
+          at = freeSpot(at.x, at.z, itemRadius(probe), [...users.values()].filter((u) => u.session === sid), avatars.get(sid)!,
+            sessItems.values(), (x, z) => ({ x: clamp(x), z: clamp(z) }));
+        }
+      }
       const it = createItem(msg.kind, {
-        id: randomUUID(), x: clamp(msg.x), z: clamp(msg.z), ry: msg.ry, createdBy: me.id,
-      }, Math.random);
+        id: randomUUID(), x: at.x, z: at.z, ry: msg.ry, createdBy: me.id,
+      }, Math.random, msg.media);
+      if (!it) return;
       if (it.kind === 'note' && msg.text) it.text = msg.text.slice(0, 300);
       sessItems.set(it.id, it);
       broadcast({ t: 'item', sid, item: it });
@@ -382,9 +430,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       const target = users.get(msg.target);
       if (!target || target.session !== sid || target.mode !== '2d') return;
       if (me.mode !== '3d' && target.id !== me.id) return;
-      target.pos = msg.pos
-        ? { x: clamp(msg.pos.x), z: Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF + 2.8, msg.pos.z)), ry: msg.pos.ry }
-        : null;
+      target.pos = msg.pos ? clamp2d(msg.pos) : null;
       target.follow = null;
       broadcastUsers();
       return;
@@ -489,6 +535,17 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ bio: bioOf(name) }));
     return;
   }
+  if (url.pathname === '/media' && req.method === 'POST') {
+    res.setHeader('Content-Type', 'application/json');
+    const r = await saveMedia(req);
+    if ('error' in r) res.statusCode = r.status;
+    res.end(JSON.stringify(r));
+    return;
+  }
+  if (url.pathname.startsWith('/media/')) {
+    serveMedia(req, res, url.pathname);
+    return;
+  }
   if (url.pathname === '/ogp') {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'public, max-age=3600');
@@ -574,6 +631,16 @@ wss.on('connection', (ws) => {
   });
   ws.on('close', () => onClose(ws, state.id));
 });
+
+// 2D の人が他の人やアイテムと重なっていたら押し出す
+setInterval(() => {
+  let moved = false;
+  for (const sid of sessionIds) {
+    const here = [...users.values()].filter((u) => u.session === sid);
+    if (here.some((u) => u.mode === '2d' && u.pos && !u.follow)) moved = pushApart2D(here, avatars.get(sid)!, items.get(sid)!.values(), clamp2d) || moved;
+  }
+  if (moved) broadcastUsers();
+}, 200);
 
 server.listen(PORT, () => {
   console.log(`server on http://localhost:${PORT}`);

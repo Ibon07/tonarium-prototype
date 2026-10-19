@@ -33,6 +33,7 @@ export default defineConfig(({ mode }) => {
         '/profile': 'http://localhost:3001',
         '/report': 'http://localhost:3001',
         '/ogp': 'http://localhost:3001',
+        '/media': 'http://localhost:3001',
         '/ws': { target: 'ws://localhost:3001', ws: true },
       },
     },

@@ -13,7 +13,7 @@ import { bump, recentlyHit } from '../items/effects.ts';
 import { drawText, makeCanvasTexture } from './textTexture.ts';
 import { EYE, carrying, type Interactable } from './interact.ts';
 import { Player } from './Player.tsx';
-import { HammerModel, Item3D } from './items3d.tsx';
+import { AttentionGlow, HammerModel, Item3D } from './items3d.tsx';
 import { Label } from './Label.tsx';
 import { OekakiAvatar } from './OekakiAvatar.tsx';
 import { CameraModel, CameraStreamer, CamMonitor } from './camera3d.tsx';
@@ -347,6 +347,7 @@ export function View3D() {
         {Object.entries(avatars).map(([id, s]) => <Avatar3D key={id} id={id} state={s} />)}
         <Avatar3D id={selfId} state={selfAvatar} self />
         {Object.values(items).map((it) => <Item3D key={it.id} item={it} />)}
+        {Object.values(items).map((it) => <AttentionGlow key={`attn-${it.id}`} item={it} />)}
         {Object.values(items).map((it) => (it.kind === 'camera' && it.live && it.operator === selfId
           ? <CameraStreamer key={`stream-${it.id}`} item={it} /> : null))}
         {viewLive && <ViewStreamer />}

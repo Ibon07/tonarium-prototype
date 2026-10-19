@@ -1,7 +1,7 @@
 import type { User } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
 import { VOICE_RANGE, computePlaces, type Place } from '../../shared/places.ts';
-import { useStore, get } from './store.ts';
+import { useStore, get, isBroadcast } from './store.ts';
 
 export type { Place };
 
@@ -60,8 +60,16 @@ export const SILENT = VOICE_RANGE;
 
 const falloff = (d: number) => (1 - Math.min(1, Math.max(0, (d - FULL) / (SILENT - FULL)))) ** 2;
 
-/** 効果音などをその人の位置から鳴らすときの音量 */
-export const volumeFrom = (id: string) => (id === get().selfId ? 1 : falloff(distanceTo(id)));
+/** 効果音などをその人の位置から鳴らすときの音量。ブロードキャストモードでは距離に関係なく等倍 */
+export const volumeFrom = (id: string) => (id === get().selfId || isBroadcast() ? 1 : falloff(distanceTo(id)));
+
+/** 空間に置かれた物（動画など）の音量 */
+export function volumeAt(x: number, z: number) {
+  const s = get();
+  if (isBroadcast(s)) return 1;
+  const me = placesOf(s).get(s.selfId);
+  return me ? falloff(Math.hypot(x - me.x, z - me.z)) : 0;
+}
 
 const blockedIds = (s = get()) => new Set(s.users.filter((u) => s.blocked.includes(u.name)).map((u) => u.id));
 
@@ -106,6 +114,7 @@ function update() {
   const me = places.get(s.selfId);
   const directional = s.mode === '3d' || !!(s.participants.find((p) => p.id === s.selfId)?.follow);
   const blocked = blockedIds(s);
+  const bc = isBroadcast(s);
   for (const [id, v] of voices) {
     const p = places.get(id);
     let g = 0;
@@ -114,7 +123,7 @@ function update() {
       const dx = p.x - me.x;
       const dz = p.z - me.z;
       const d = Math.hypot(dx, dz);
-      g = falloff(d);
+      g = bc ? 1 : falloff(d);
       if (directional && d > 0.3) pan = ((dx * Math.cos(me.ry) - dz * Math.sin(me.ry)) / d) * 0.8;
     }
     v.gain.gain.setTargetAtTime(g, ctx.currentTime, 0.08);

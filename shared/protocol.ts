@@ -1,4 +1,4 @@
-import type { Item, ItemAction, ItemKind } from './items.ts';
+import type { Item, ItemAction, ItemKind, MediaInit } from './items.ts';
 
 export type Mode = '2d' | '3d';
 
@@ -43,8 +43,10 @@ export interface ChatMessage {
   from: string | null;
   fromName: string;
   text: string;
-  /** data URL */
+  /** data URL（写真・キャンバスの保存など） */
   image?: string;
+  /** アップロードした画像・動画 */
+  media?: ChatMedia;
   at: number;
   scope: ChatScope;
   /** near の宛先 */
@@ -52,6 +54,8 @@ export interface ChatMessage {
   /** イベントで強調する相手（つんつんされた人など） */
   about?: string;
 }
+
+export interface ChatMedia { kind: 'image' | 'video'; url: string; w: number; h: number }
 
 export interface AvatarState {
   x: number;
@@ -66,6 +70,10 @@ export interface Snapshot {
   avatars: Record<string, Record<string, AvatarState>>;
   items: Record<string, Item[]>;
   friends: string[];
+  /** ワールドごとのブロードキャストモード（距離に関係なく音が聞こえる） */
+  broadcast: Record<string, boolean>;
+  /** 再生位置をそろえるためのサーバー時刻 */
+  now: number;
 }
 
 export type ClientMsg =
@@ -80,7 +88,7 @@ export type ClientMsg =
   | { t: 'place2d'; target: string; pos: AvatarState | null }
   /** /icon・/avatar・/profile へ保存した後に、同じ名前のオンラインの人へ反映させる */
   | { t: 'profileUpdated' }
-  | { t: 'chat'; text: string; image?: string; scope: ChatScope }
+  | { t: 'chat'; text: string; image?: string; media?: ChatMedia; scope: ChatScope }
   | { t: 'avatar'; s: AvatarState }
   | { t: 'viewing'; keys: string[] }
   | { t: 'poke'; to: string }
@@ -90,7 +98,10 @@ export type ClientMsg =
   /** ついていっている相手に視点のライブを頼む */
   | { t: 'liveRequest'; to: string }
   | { t: 'viewLive'; on: boolean }
-  | { t: 'itemCreate'; kind: ItemKind; x: number; z: number; ry: number; text?: string }
+  | { t: 'itemCreate'; kind: ItemKind; x: number; z: number; ry: number; text?: string; media?: MediaInit }
+  /** key はウィンドウのキー（item:<id> / cam:<id>） */
+  | { t: 'attention'; key: string }
+  | { t: 'broadcast'; on: boolean }
   | { t: 'itemRemove'; id: string }
   | { t: 'itemMove'; id: string; x: number; z: number; ry: number }
   | { t: 'itemAction'; id: string; action: ItemAction }
@@ -109,6 +120,8 @@ export type ServerMsg =
   | { t: 'poke'; sid: string; from: string; to: string }
   | { t: 'sound'; sid: string; from: string; id: string }
   | { t: 'liveRequest'; sid: string; from: string }
+  | { t: 'attention'; sid: string; from: string; key: string }
+  | { t: 'broadcast'; sid: string; on: boolean }
   | { t: 'friendRequest'; from: string; fromName: string }
   | { t: 'friends'; names: string[] };
 

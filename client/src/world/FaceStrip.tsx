@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChatMessage, User } from '../../../shared/protocol.ts';
-import { useStore, set, save, heldHammer } from '../store.ts';
+import { useStore, get, set, save, heldHammer } from '../store.ts';
 import { formatDistance } from '../spatial.ts';
 import { recentlyHit } from '../items/effects.ts';
 import { Icon } from './Icon.tsx';
 import { Badge3D, Face, usePlayers, type PlayerEntry } from './common.tsx';
 import { AvatarView } from './Portraits.tsx';
-import { pickUser } from './NearList.tsx';
-import { toggleFromList, useIsOpen } from './windows.ts';
+import { pickProfile, pickUser } from './NearList.tsx';
+import { openWindow, toggleFromList, useIsOpen } from './windows.ts';
 
 const NEAR_MAX = 4;
 const MID_MAX = 3;
@@ -51,7 +51,14 @@ function PokeFx({ at, small = false }: { at: number; small?: boolean }) {
   );
 }
 
-function BigFace({ u, d, self = false }: { u: User; d: number; self?: boolean }) {
+/** 顔を押すと、その人をウィンドウのように中央に大きく出す（ハンマーを持っていれば叩く） */
+function clickFace(id: string) {
+  const s = get();
+  if (s.mode === '2d' && heldHammer(s) && id !== s.selfId) pickUser(id);
+  else openWindow(`face:${id}`);
+}
+
+function BigFace({ u, d, self = false, width }: { u: User; d: number; self?: boolean; width?: number }) {
   const poked = usePoked(u.id);
   const speaking = useStore((s) => !!s.speaking[u.id]);
   const sharer = useStore((s) => s.sharer);
@@ -64,11 +71,12 @@ function BigFace({ u, d, self = false }: { u: User; d: number; self?: boolean })
   return (
     <div
       className={`bigface ${poked ? 'poked' : ''} ${self ? 'self' : ''} ${speaking ? 'speaking' : ''} ${open && live ? 'watching' : ''} ${recentlyHit(u.id) ? 'hit' : ''} ${canHit ? 'hittable' : ''}`}
-      data-uid={u.id}
+      data-uid={u.id} style={width ? { width, flexBasis: width } : undefined}
     >
       <AvatarView u={u} speaking={speaking} />
       {poked && <PokeFx at={poked} />}
-      <button className="faceclick" onClick={() => pickUser(u.id)} aria-label={canHit ? `${u.name} を叩く` : `${u.name} のプロフィール`} />
+      <button className="faceclick" onClick={() => clickFace(u.id)} aria-label={canHit ? `${u.name} を叩く` : `${u.name} を大きく表示`} />
+      <button className="faceprofile" onClick={() => pickProfile(u.id)} aria-label={`${u.name} のプロフィール`} title="プロフィール"><Icon name="more" size={14} /></button>
       <div className="facebadges">
         {u.mode === '3d' && <Badge3D />}
         {live && (
@@ -94,8 +102,8 @@ function MidFace({ p }: { p: PlayerEntry }) {
   const poked = usePoked(p.user.id);
   return (
     <button
-      className={`midface ${poked ? 'poked' : ''}`} data-uid={p.user.id} onClick={() => pickUser(p.user.id)}
-      title={`${p.user.name} · ${formatDistance(p.d)}`} aria-label={`${p.user.name} のプロフィール`}
+      className={`midface ${poked ? 'poked' : ''}`} data-uid={p.user.id} onClick={() => clickFace(p.user.id)}
+      title={`${p.user.name} · ${formatDistance(p.d)}`} aria-label={`${p.user.name} を大きく表示`}
     >
       <AvatarView u={p.user} speaking={false} small />
       <span className="mf"><Face id={p.user.id} name={p.user.name} size={16} ring="0 0 0 1.5px #fff" /></span>
@@ -105,9 +113,41 @@ function MidFace({ p }: { p: PlayerEntry }) {
   );
 }
 
+/** タイルがいちばん大きくなる列数を選ぶ */
+function gridTile(n: number, w: number, h: number, gap = 12) {
+  let best = 0;
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const tw = Math.min((w - (cols - 1) * gap) / cols, ((h - (rows - 1) * gap) / rows) * (4 / 3));
+    best = Math.max(best, tw);
+  }
+  return Math.max(96, Math.min(420, Math.floor(best)));
+}
+
+/** ウィンドウを開いていないときは、声が届く人を画面中央に並べる（ビデオ通話のギャラリー風） */
+function FaceGrid({ list }: { list: { user: User; d: number; self?: boolean }[] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 800, h: 500 });
+  useLayoutEffect(() => {
+    const el = ref.current!;
+    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const tile = gridTile(list.length, size.w, size.h);
+  return (
+    <div ref={ref} className="facegrid" aria-label="声が届く人">
+      <div className="facegridin">
+        {list.map((x) => <BigFace key={x.user.id} u={x.user} d={x.d} self={x.self} width={tile} />)}
+      </div>
+    </div>
+  );
+}
+
 export function FaceStrip() {
   const players = usePlayers();
   const folded = useStore((s) => s.folded.faces);
+  const noWindows = useStore((s) => s.windows.length === 0 && s.mode === '2d');
   const me = useStore((s) => s.participants.find((p) => p.id === s.selfId));
   const near = players.filter((p) => p.band === 'near');
   const mid = players.filter((p) => p.band === 'mid');
@@ -124,6 +164,7 @@ export function FaceStrip() {
       </div>
     );
   }
+  if (noWindows) return <FaceGrid list={[{ user: me, d: 0, self: true }, ...near, ...mid]} />;
   const rest = mid.slice(MID_MAX);
   return (
     <div className="facestrip">
