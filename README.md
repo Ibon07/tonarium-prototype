@@ -8,7 +8,7 @@
 - `server/` Node + ws。オンラインのユーザーと、ワールドごとの状態（チャット・アイテム・アバター位置）をメモリに保持し、LiveKit のトークンも発行
 - `shared/protocol.ts` WebSocket メッセージ型、`shared/places.ts` 位置と距離（クライアントとサーバーで共用）
 - `worlds.json` ワールドの構成
-- 音声・画面共有は LiveKit Cloud
+- 音声・画面共有は LiveKit。本番は Coolify で自前の `livekit-server` を一緒に動かし、手元では Docker で開発用の LiveKit を動かす
 
 設計上のポイント:
 - LiveKit 接続は `client/src/net/livekit.ts` に1つだけあり、2D/3D の表示コンポーネントとは無関係に生きている → 表示切替で通話・配信が切れない
@@ -18,9 +18,11 @@
 ## セットアップ
 ```bash
 npm install
-cp .env.example .env   # LiveKit Cloud の URL / API Key / Secret を記入
+cp .env.example .env   # 手元の LiveKit（devkey / secret）を使う設定になっている
+npm run livekit        # 開発用の LiveKit を Docker で起動（Docker Desktop が必要。止めるときは npm run livekit:stop）
 ```
-`.env` が未設定でも、チャット・アイテム・3D は動く（通話と配信のみ無効）。
+LiveKit が動いていなくても、チャット・アイテム・3D は動く（通話と配信のみ無効。画面のドックの上に理由が出る）。
+LiveKit Cloud を使う場合は `.env` の `LIVEKIT_*` をそのプロジェクトの値にする。
 
 ## ワールド構成の変更
 `worlds.json` を編集する。
@@ -101,26 +103,38 @@ npm run dev
 cloudflared tunnel --url http://localhost:5173
 ```
 `npm run dev` 中に 3001 をトンネルすると案内メッセージが出るだけなので、5173 に向けること。
+手元の LiveKit（`ws://localhost:7880`）にはトンネル越しの人はつながらない（音声・映像は UDP で直接やりとりするため）。外の人と通話まで試すときは Coolify にデプロイするか、`.env` を LiveKit Cloud の値にする。
 cloudflared 以外（ngrok など）を使う場合は、`.env` の `ALLOWED_HOSTS` にホストを足す（例: `ALLOWED_HOSTS=.trycloudflare.com,.ngrok-free.app`。保存すると開発サーバーが再起動する）。
 
 ## Coolify にデプロイする
 リポジトリに `Dockerfile` と `docker-compose.yml` があるので、Coolify でそのまま動く。
 
-1. Coolify で新しいリソースを作り、このリポジトリ（ブランチ）を選ぶ。ビルドパックは **Docker Compose**（`docker-compose.yml`）
-2. 環境変数に `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` を設定する
-3. ドメインを設定する（`SERVICE_FQDN_TONARIUM_3001` によりポート 3001 に転送される。自動で付かなければ Coolify の画面でサービスのドメインに `https://<ドメイン>:3001` の形で指定）
-4. デプロイ。`/healthz` がヘルスチェックに使われる
+アプリ（`tonarium`）と LiveKit（`livekit`）の 2 つのサービスが立つ。
+
+1. サーバーのファイアウォール（VPS のセキュリティグループなど）で **TCP 7881・UDP 7882・UDP 3478** を開ける（LiveKit の音声・映像と TURN。Coolify の外の設定）
+2. DNS で LiveKit 用のサブドメイン（例: `livekit.example.com`）をサーバーに向ける
+3. Coolify で新しいリソースを作り、このリポジトリ（ブランチ）を選ぶ。ビルドパックは **Docker Compose**（`docker-compose.yml`）
+4. 環境変数を設定する
+   - `LIVEKIT_DOMAIN`: LiveKit 用のサブドメイン（`livekit.example.com`。`https://` は付けない）
+   - `LIVEKIT_API_KEY`: 好きな文字列（例: `tonarium`）
+   - `LIVEKIT_API_SECRET`: 32 文字以上のランダムな文字列（例: `openssl rand -base64 32` の結果）
+5. ドメインを設定する
+   - `tonarium` サービス: アプリのドメイン（`SERVICE_FQDN_TONARIUM_3001` によりポート 3001 に転送。自動で付かなければ `https://<ドメイン>:3001` の形で指定）
+   - `livekit` サービス: `https://<LIVEKIT_DOMAIN>:7880`（シグナリングの wss がここを通る）
+6. デプロイ。`/healthz` がヘルスチェックに使われる。通話に入れないときは、ドックの上に出る理由と `livekit` サービスのログを見る
 
 メモ:
 - HTTP・WebSocket（`/ws`）・LiveKit トークン（`/token`）はすべて同じポート。HTTPS は Coolify（Traefik）が付けるので、マイク・画面共有もそのまま使える
 - アイコン・3D アバター・自己紹介・フレンド・通報は `tonarium-data` ボリューム（`/app/data`）に保存されるので再デプロイしても残る。それ以外の状態（チャット・アイテムなど）はメモリ内だけなので、再デプロイ・再起動で消える。インスタンスは 1 つで動かすこと（複数にすると部屋が分かれる）
-- 同じ LiveKit プロジェクトを開発と本番で使うと、同じワールド ID 同士で通話・画面共有がつながる。分けたいときは LiveKit プロジェクトを別にする
+- LiveKit の設定は `docker-compose.yml` の `LIVEKIT_CONFIG` にある。サーバーの外向きの IP は自動で調べる（`use_external_ip`）。社内ネットワークなど UDP が通らない人向けには TURN（UDP 3478）も動く
+- LiveKit Cloud に戻すときは、`livekit` サービスを消して `tonarium` の `LIVEKIT_URL` を Cloud の URL にする
 - ワールド構成を本番だけ変えたいときは、`docker-compose.yml` のコメントにある `WORLDS_FILE` とボリュームを使う
 - Dockerfile だけで使う場合（Coolify の Dockerfile ビルドパックや手元）:
   ```bash
   docker build -t tonarium .
   docker run --rm -p 3001:3001 -e LIVEKIT_URL=... -e LIVEKIT_API_KEY=... -e LIVEKIT_API_SECRET=... tonarium
   ```
+  （この場合 LiveKit は別に用意する）
 
 ## 参加者への注意
 - デスクトップ版 Chrome / Edge 推奨

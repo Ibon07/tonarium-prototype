@@ -138,6 +138,19 @@ export async function leaveVoice() {
   set({ voice: 'off', voiceError: null });
 }
 
+/** 接続失敗は「WebSocket エラー」としか出ないので、LiveKit の確認用 API で理由を聞き直す */
+async function explainConnectError(url: string, token: string) {
+  try {
+    const res = await fetch(`${url.replace(/^ws/, 'http').replace(/\/$/, '')}/rtc/validate?access_token=${encodeURIComponent(token)}`);
+    if (res.status === 429) return 'LiveKit の利用上限に達しています（接続時間など）';
+    if (res.status === 401) return 'LiveKit のキーが合っていません（LIVEKIT_API_KEY / SECRET を確認）';
+    if (res.ok) return null;
+    return `LiveKit に接続できません（${res.status}）`;
+  } catch {
+    return `LiveKit サーバー（${url}）に届きません。起動しているか、URL を確認してください`;
+  }
+}
+
 export async function connectVoice(sid: string) {
   const gen = ++generation;
   await room.disconnect();
@@ -150,7 +163,11 @@ export async function connectVoice(sid: string) {
     const j = await (await fetch(`/token?${q}`)).json();
     if (j.error) throw new Error(j.error);
     if (gen !== generation) return;
-    await room.connect(j.url, j.token);
+    try {
+      await room.connect(j.url, j.token);
+    } catch (e) {
+      throw new Error(await explainConnectError(j.url, j.token) ?? (e as Error).message);
+    }
     if (gen !== generation) { await room.disconnect(); return; }
     await room.startAudio();
     set({ voice: 'connected' });

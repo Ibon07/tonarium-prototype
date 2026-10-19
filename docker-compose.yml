@@ -5,7 +5,8 @@ services:
     environment:
       # Coolify がドメインを割り当てて 3001 番へ転送する
       - SERVICE_FQDN_TONARIUM_3001
-      - LIVEKIT_URL=${LIVEKIT_URL}
+      # ブラウザが直接つなぐ LiveKit の URL（下の livekit サービスに割り当てたドメイン）
+      - LIVEKIT_URL=wss://${LIVEKIT_DOMAIN}
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
       - SERVER_PORT=3001
@@ -21,6 +22,34 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+
+  # 自前の LiveKit（通話・画面共有・ライブ）。シグナリング（wss）は Coolify のドメイン経由で 7880 番へ、
+  # 音声・映像は下の ports でサーバーに直接届く
+  livekit:
+    image: livekit/livekit-server:v1.13.7
+    restart: unless-stopped
+    environment:
+      - SERVICE_FQDN_LIVEKIT_7880
+      - "LIVEKIT_KEYS=${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+      - |
+        LIVEKIT_CONFIG=
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: true
+        turn:
+          enabled: true
+          domain: ${LIVEKIT_DOMAIN}
+          udp_port: 3478
+        logging:
+          level: info
+    expose:
+      - "7880"
+    ports:
+      - "7881:7881/tcp"
+      - "7882:7882/udp"
+      - "3478:3478/udp"
 
 volumes:
   tonarium-data:
