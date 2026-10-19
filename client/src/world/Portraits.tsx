@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import type { User } from '../../../shared/protocol.ts';
 import { colorOf } from '../store.ts';
 import { OekakiAvatar } from '../view3d/OekakiAvatar.tsx';
+import { pitchOf } from '../spatial.ts';
 
 /** 各 View は自分の枠だけ描くので、枠が動いたあとに残像が出ないよう毎フレーム全体を消す */
 function ClearAll() {
@@ -73,7 +74,7 @@ export function AvatarView({ u, speaking, small = false }: { u: User; speaking: 
         onUpdate={(c) => c.lookAt(0, small ? 1.02 : 0.95, 0)}
       />
       <Suspense fallback={null}>
-        <OekakiAvatar name={u.name} version={u.avatar} speaking={speaking} />
+        <OekakiAvatar name={u.name} version={u.avatar} speaking={speaking} look={() => pitchOf(u.id)} />
       </Suspense>
     </View>
   );

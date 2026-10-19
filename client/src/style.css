@@ -52,7 +52,7 @@ input:focus, textarea:focus { border-color: var(--accent); }
 .joinnotice ul { margin: 0; padding-left: 1.2em; }
 .dotbg { background-color: var(--ground); background-image: radial-gradient(var(--dots) 1px, transparent 1px); background-size: 22px 22px; }
 
-/* 参加画面・ワールド選択 */
+/* 参加画面・セッション選択 */
 .joinbg, .worldselect { min-height: 100%; background-color: var(--ground); background-image: radial-gradient(var(--dots) 1px, transparent 1px); background-size: 22px 22px; }
 .joinbg { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 16px; }
 .join {
@@ -126,6 +126,11 @@ img.av { object-fit: cover; display: block; }
 .menutitle { padding: 4px 12px 2px; font-size: 11px; font-weight: 700; color: var(--muted); }
 .menuitem { height: 40px; border-radius: 10px; padding: 0 12px; font-size: 13px; justify-content: flex-start; gap: 10px; width: 100%; }
 .menusep { height: 1px; background: var(--line2); margin: 4px 6px; }
+.wctop .wkind { margin-right: auto; }
+.wkind { font-size: 11px; font-weight: 700; color: var(--muted); border: 1px solid var(--line2); border-radius: 999px; padding: 1px 8px; }
+.worldpick { display: grid; gap: 6px; padding: 4px 6px; }
+.wpick { height: auto; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line2); text-align: left; font-size: 13px; }
+.wpick.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 
 /* ワールド画面 */
 .world { position: fixed; inset: 0; overflow: hidden; background-color: var(--ground); background-image: radial-gradient(var(--dots) 1px, transparent 1px); background-size: 22px 22px; }

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n server,client \"tsx watch --include worlds.json server/index.ts --dev\" \"vite\"",
+    "dev": "concurrently -k -n server,client \"tsx watch --include sessions.json server/index.ts --dev\" \"vite\"",
     "build": "vite build",
     "start": "vite build && tsx server/index.ts",
     "livekit": "docker compose -f docker-compose.dev.yml up -d",
