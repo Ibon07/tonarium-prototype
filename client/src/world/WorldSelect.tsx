@@ -15,7 +15,7 @@ export function WorldSelect() {
   return (
     <div className="worldselect">
       <header className="wshead">
-        <span className="wmark">ト</span>
+        <img className="wmark" src="/brand/mark.png" alt="" />
         <h1>{guild.name}</h1>
         {!wsConnected && <span className="reconn">接続中…</span>}
         <span className="spacer" />

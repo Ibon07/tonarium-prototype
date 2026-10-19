@@ -549,6 +549,16 @@ const server = http.createServer(async (req, res) => {
     res.end('client not built. run `npm run dev` and open http://localhost:5173');
     return;
   }
+  if (file.endsWith('index.html')) {
+    // OGP 用に、アクセスされたドメインの絶対 URL を埋める（Coolify の前段が付ける X-Forwarded-* を優先）
+    const proto = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim();
+    const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost').split(',')[0].trim();
+    const origin = /^[\w.:[\]-]+$/.test(host) ? `${proto === 'https' ? 'https' : 'http'}://${host}` : '';
+    res.setHeader('Content-Type', MIME['.html']);
+    res.setHeader('Cache-Control', 'no-cache');
+    res.end(fs.readFileSync(file, 'utf-8').replaceAll('__ORIGIN__', origin));
+    return;
+  }
   res.setHeader('Content-Type', MIME[path.extname(file)] ?? 'application/octet-stream');
   // assets/ はハッシュ付き。index.html は毎回取り直させる
   res.setHeader('Cache-Control', file.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache');

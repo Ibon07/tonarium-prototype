@@ -40,16 +40,21 @@ input:focus, textarea:focus { border-color: var(--accent); }
 .reconn { font-size: 11px; color: var(--danger); font-weight: 700; }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: rgba(38, 38, 46, .16); border-radius: 4px; }
-.wmark {
-  width: 30px; height: 30px; border-radius: 10px; background: var(--accent); color: #fff; flex: none;
-  display: flex; align-items: center; justify-content: center; font-family: "Zen Maru Gothic", sans-serif; font-weight: 700;
+.wmark { width: 32px; height: 32px; flex: none; object-fit: contain; }
+.joinlogo { display: flex; justify-content: center; margin: -4px 0 0; }
+.joinlogo img { width: 220px; max-width: 70%; height: auto; display: block; }
+.joinnotice {
+  width: min(420px, 100%); margin-top: 14px; padding: 16px 20px; border-radius: 18px; font-size: 12px; line-height: 1.7;
+  background: rgba(255, 253, 249, .78); border: 1px solid var(--line2); color: var(--ink2);
 }
-.wmark.big { width: 52px; height: 52px; border-radius: 16px; font-size: 24px; align-self: center; }
+.joinnotice h2 { font-size: 13px; margin-bottom: 6px; }
+.joinnotice p { margin: 0 0 6px; }
+.joinnotice ul { margin: 0; padding-left: 1.2em; }
 .dotbg { background-color: var(--ground); background-image: radial-gradient(var(--dots) 1px, transparent 1px); background-size: 22px 22px; }
 
 /* 参加画面・ワールド選択 */
 .joinbg, .worldselect { min-height: 100%; background-color: var(--ground); background-image: radial-gradient(var(--dots) 1px, transparent 1px); background-size: 22px 22px; }
-.joinbg { display: flex; align-items: center; justify-content: center; padding: 16px; }
+.joinbg { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 16px; }
 .join {
   width: min(420px, 100%); background: var(--paper); border-radius: 24px; padding: 32px; box-shadow: var(--shadow);
   display: flex; flex-direction: column; gap: 10px;

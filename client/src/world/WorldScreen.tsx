@@ -27,7 +27,7 @@ function WorldBadge() {
   const [profile, setProfile] = useState(false);
   return (
     <div className="worldbadge">
-      <span className="wmark">ト</span>
+      <img className="wmark" src="/brand/mark.png" alt="" />
       <span className="wname">{world?.name}</span>
       {!wsConnected && <span className="reconn">再接続中…</span>}
       <span className="vline" />

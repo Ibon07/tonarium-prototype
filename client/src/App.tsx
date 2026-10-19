@@ -50,8 +50,7 @@ function JoinScreen() {
     <div className="joinbg">
       {profile && <ProfileDialog name={name} onClose={closeProfile} />}
       <div className="join">
-        <span className="wmark big">ト</span>
-        <h1>Tonarium へようこそ</h1>
+        <h1 className="joinlogo"><img src="/brand/logo.png" alt="Tonarium" /></h1>
         <p>2D と 3D を行き来できるワールド（プロトタイプ）</p>
         <div className="joinicon">
           <button className="avbtn" title="アイコン・3D アバターを設定" onClick={() => setProfile(true)} disabled={!name.trim()}>
@@ -68,6 +67,17 @@ function JoinScreen() {
         <button className="primary" onClick={join}>はじめる</button>
         <small>推奨: デスクトップ版 Chrome / Edge</small>
       </div>
+      <aside className="joinnotice" aria-label="このサイトについて">
+        <h2>このサイトについて</h2>
+        <p>
+          Tonarium は、ユーザー体験を試すためだけに作ったプロトタイプです。パフォーマンスやセキュリティなど、
+          本来考えるべきことはすべて後回しにしています。試験が終わったら、データも含めてすべて破棄します。
+        </p>
+        <ul>
+          <li>名前・アイコン・チャットなどは誰でも見られます。個人情報や大切な情報は入力しないでください</li>
+          <li>小さな VPS で動いています。たくさんのタブで入る、大きな画像を何度も送るなど、負荷をかけすぎないようにお願いします</li>
+        </ul>
+      </aside>
     </div>
   );
 }

@@ -1,3 +1,5 @@
+<p align="center"><img src="client/public/brand/logo.png" alt="Tonarium" width="360"></p>
+
 # Tonarium Prototype
 
 2D（リスト・ウィンドウ・チャット・通話・配信視聴）と 3D（空間）を同じワールドのまま行き来できる体験検証用プロトタイプ。本番では捨てる前提。
@@ -8,6 +10,7 @@
 - `server/` Node + ws。オンラインのユーザーと、ワールドごとの状態（チャット・アイテム・アバター位置）をメモリに保持し、LiveKit のトークンも発行
 - `shared/protocol.ts` WebSocket メッセージ型、`shared/places.ts` 位置と距離（クライアントとサーバーで共用）
 - `worlds.json` ワールドの構成
+- `client/public/brand/` ロゴ・ファビコン・OGP 画像。OGP の絶対 URL は、サーバーが `index.html` を返すときにアクセスされたドメインで埋める（`__ORIGIN__`）
 - 音声・画面共有は LiveKit。本番は Coolify で自前の `livekit-server` を一緒に動かし、手元では Docker で開発用の LiveKit を動かす
 
 設計上のポイント:
