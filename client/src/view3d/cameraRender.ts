@@ -38,9 +38,16 @@ export function renderCamera(renderer: THREE.WebGLRenderer, item: Item & { kind:
   const hidden: THREE.Object3D[] = [];
   const model = cameraModels.get(item.id);
   if (model?.visible) { model.visible = false; hidden.push(model); }
-  scene.traverse((o) => { if (o.userData.firstPerson && o.visible) { o.visible = false; hidden.push(o); } });
+  const shown: THREE.Object3D[] = [];
+  // 手に持って撮るときは自分の頭の中から撮ることになるので、自分の体は出さない
+  const showSelf = item.holder !== get().selfId;
+  scene.traverse((o) => {
+    if (o.userData.firstPerson && o.visible) { o.visible = false; hidden.push(o); }
+    if (showSelf && o.userData.selfBody && !o.visible) { o.visible = true; shown.push(o); }
+  });
   renderer.render(scene, viewCam);
   for (const o of hidden) o.visible = true;
+  for (const o of shown) o.visible = false;
 }
 
 export function makeRenderer(w: number, h: number) {

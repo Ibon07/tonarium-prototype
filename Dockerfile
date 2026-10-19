@@ -10,7 +10,7 @@ WORKDIR /app
 ENV NODE_ENV=production \
     SERVER_PORT=3001
 COPY --from=build /app/node_modules ./node_modules
-COPY package.json tsconfig.json channels.json ./
+COPY package.json tsconfig.json worlds.json ./
 COPY shared ./shared
 COPY server ./server
 COPY --from=build /app/client/dist ./client/dist

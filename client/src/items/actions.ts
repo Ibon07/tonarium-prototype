@@ -1,21 +1,24 @@
 import { applyItemAction, type ItemAction, type ItemKind } from '../../../shared/items.ts';
-import { ROOM_HALF, sessionChatKey } from '../../../shared/protocol.ts';
+import { ROOM_HALF, type AvatarState } from '../../../shared/protocol.ts';
+import { approach } from '../../../shared/places.ts';
 import { get, set, recompute, heldHammer, heldCamera, type ItemUi } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { placesOf } from '../spatial.ts';
 
 const LIMIT = ROOM_HALF - 0.5;
 const clamp = (v: number) => Math.max(-LIMIT, Math.min(LIMIT, v));
+export const clampRoomPos = (p: AvatarState): AvatarState => ({ ...p, x: clamp(p.x), z: clamp(p.z) });
 
+/** 自分の前に出す。2D で入口の列にいるときは入口の内側に出す */
 export function spawnItem(kind: ItemKind, text?: string) {
   const s = get();
   if (!s.session) return;
-  if (s.mode === '3d') {
-    const a = s.selfAvatar;
-    send({ t: 'itemCreate', kind, text, x: clamp(a.x - Math.sin(a.ry) * 2.2), z: clamp(a.z - Math.cos(a.ry) * 2.2), ry: a.ry });
-  } else {
-    send({ t: 'itemCreate', kind, text, x: (Math.random() - 0.5) * 10, z: -3 + (Math.random() - 0.5) * 4, ry: 0 });
-  }
+  const me = placesOf(s).get(s.selfId) ?? { x: 0, z: ROOM_HALF, ry: 0 };
+  const gap = s.mode === '3d' ? 2.2 : 1.2;
+  let x = me.x - Math.sin(me.ry) * gap;
+  let z = me.z - Math.cos(me.ry) * gap;
+  if (z > LIMIT) { x = me.x; z = ROOM_HALF - 1.5; }
+  send({ t: 'itemCreate', kind, text, x: clamp(x), z: clamp(z), ry: me.ry });
 }
 
 /** 入力が途切れないよう手元にすぐ反映してから送る */
@@ -31,8 +34,7 @@ export function editNote(id: string, patch: { text?: string; color?: string }) {
 }
 
 export function postImage(text: string, image: string) {
-  const sid = get().session;
-  if (sid) send({ t: 'chat', ch: sessionChatKey(sid), text, image });
+  if (get().session) send({ t: 'chat', text, image, scope: 'all' });
 }
 
 export function removeItem(id: string) {
@@ -120,13 +122,5 @@ export function hitAndMove(to: string) {
   if (s.mode !== '2d') return;
   const places = placesOf(s);
   const t = places.get(to);
-  if (!t) return;
-  const me = places.get(s.selfId);
-  let dx = (me?.x ?? t.x) - t.x;
-  let dz = (me?.z ?? t.z + 1) - t.z;
-  const d = Math.hypot(dx, dz);
-  if (d < 0.01) { dx = 0; dz = 1; } else { dx /= d; dz /= d; }
-  const x = t.x + dx * 0.8;
-  const z = t.z + dz * 0.8;
-  place2d(s.selfId, { x, z, ry: Math.atan2(-(t.x - x), -(t.z - z)) });
+  if (t) place2d(s.selfId, approach(places.get(s.selfId), t, 0.8));
 }

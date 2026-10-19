@@ -5,11 +5,10 @@ import { DOOR_HALF, ROOM_HALF, entranceSlot, type AvatarState, type User } from 
 import { NOTE_COLORS } from '../../../shared/items.ts';
 import { useStore, get, colorOf, nameOf, heldHammer, heldCamera } from '../store.ts';
 import { shareVideoEl } from '../net/livekit.ts';
-import { dropFollowers, selectNote } from '../actions.ts';
+import { selectNote } from '../actions.ts';
 import { placesOf } from '../spatial.ts';
 import { publishView } from '../net/livekit.ts';
-import { ItemMenu } from '../items/ItemMenu.tsx';
-import { editNote, moveItem, removeItem, spawnItem } from '../items/actions.ts';
+import { editNote, moveItem, removeItem } from '../items/actions.ts';
 import { bump, recentlyHit } from '../items/effects.ts';
 import { drawText, makeCanvasTexture } from './textTexture.ts';
 import { EYE, carrying, type Interactable } from './interact.ts';
@@ -127,40 +126,12 @@ function Screen() {
   );
 }
 
+/** 2D で参加している人。3D の人と同じアバターで、入口の列・置かれた場所・ついていく相手の後ろに立つ */
 function Standee({ user }: { user: User }) {
   const speaking = useStore((s) => !!s.speaking[user.id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[user.id] === false);
-  const holding = useStore((s) => Object.values(s.items).some((i) => i.kind === 'hammer' && i.holder === user.id));
   const ref = useRef<THREE.Group>(null);
   const card = useRef<THREE.Group>(null);
-  const { canvas, tex } = useMemo(() => makeCanvasTexture(256, 512), []);
-  useEffect(() => {
-    const ctx = canvas.getContext('2d')!;
-    ctx.clearRect(0, 0, 256, 512);
-    ctx.fillStyle = '#f2f3f5';
-    ctx.beginPath();
-    ctx.roundRect(28, 150, 200, 340, 60);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(128, 100, 84, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = colorOf(user.id);
-    ctx.beginPath();
-    ctx.arc(128, 100, 72, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.roundRect(42, 168, 172, 308, 50);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.font = '700 76px "Segoe UI", "Noto Sans JP", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(user.name.slice(0, 1), 128, 104);
-    ctx.font = '64px "Segoe UI Emoji", sans-serif';
-    ctx.fillText('💻', 128, 300);
-    if (holding) ctx.fillText('🔨', 196, 420);
-    tex.needsUpdate = true;
-  }, [user.id, user.name, holding, canvas, tex]);
   const pos0 = entranceSlot(0);
   useFrame((_, dt) => {
     const g = ref.current;
@@ -178,22 +149,19 @@ function Standee({ user }: { user: User }) {
       g.scale.setScalar(sc);
     }
     const b = bump(s.hits[user.id]);
-    const talk = s.speaking[user.id] ? Math.abs(Math.sin(performance.now() / 120)) * 0.04 : 0;
-    card.current?.scale.set(1 + 0.25 * b, 1 - 0.35 * b + talk, 1);
+    card.current?.scale.set(1 + 0.3 * b, 1 - 0.45 * b, 1 + 0.3 * b);
   });
   return (
     <group ref={ref} position={[pos0.x, 0, pos0.z]} userData={{ hitTarget: user.id, carry: `user:${user.id}`, hint: `💻 ${user.name}（2Dで参加中）` } satisfies Interactable}>
-      <mesh position-y={0.02}>
-        <cylinderGeometry args={[0.28, 0.3, 0.04, 20]} />
-        <meshStandardMaterial color="#2b2d31" />
-      </mesh>
       <group ref={card}>
-        {/* 部屋の中（-Z）を向ける */}
-        <mesh position-y={0.85} rotation-y={Math.PI}>
-          <planeGeometry args={[0.85, 1.7]} />
-          <meshBasicMaterial map={tex} transparent alphaTest={0.5} side={THREE.DoubleSide} toneMapped={false} />
-        </mesh>
+        <Suspense fallback={null}>
+          <OekakiAvatar name={user.name} version={user.avatar} speaking={speaking} />
+        </Suspense>
       </group>
+      <mesh position-y={0.65}>
+        <cylinderGeometry args={[0.35, 0.35, 1.3, 12]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
       {speaking && (
         <mesh rotation-x={-Math.PI / 2} position-y={0.05}>
           <ringGeometry args={[0.32, 0.42, 32]} />
@@ -201,7 +169,7 @@ function Standee({ user }: { user: User }) {
         </mesh>
       )}
       <Label
-        position={[0, 1.95, 0]} text={`💻 ${micOff ? '🔇 ' : ''}${user.name}`}
+        position={[0, 1.3, 0]} text={`2D ${micOff ? '🔇 ' : ''}${user.name}`}
         bg={recentlyHit(user.id) ? 'rgba(240,177,50,0.95)' : speaking ? 'rgba(35,165,90,0.95)' : 'rgba(78,80,88,0.9)'}
         fg={recentlyHit(user.id) ? '#1e1f22' : '#ffffff'}
       />
@@ -216,7 +184,8 @@ function Entrance() {
   return <>{in2d.map((u) => <Standee key={u.id} user={u} />)}</>;
 }
 
-function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
+/** self は一人称では見えないので隠しておき、カメラで撮るときだけ表示する（renderCamera） */
+function Avatar3D({ id, state, self = false }: { id: string; state: AvatarState; self?: boolean }) {
   const name = useStore((s) => s.participants.find((p) => p.id === id)?.name);
   const speaking = useStore((s) => !!s.speaking[id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[id] === false);
@@ -242,7 +211,10 @@ function Avatar3D({ id, state }: { id: string; state: AvatarState }) {
   });
   if (!name) return null;
   return (
-    <group ref={ref} position={[state.x, 0, state.z]} rotation-y={state.ry} userData={{ hitTarget: id } satisfies Interactable}>
+    <group
+      ref={ref} position={[state.x, 0, state.z]} rotation-y={state.ry} visible={!self}
+      userData={self ? { noRay: true, selfBody: true } : ({ hitTarget: id } satisfies Interactable)}
+    >
       <group ref={body}>
         <Suspense fallback={null}>
           <OekakiAvatar name={name} version={avatarV} speaking={speaking} />
@@ -316,19 +288,6 @@ function ViewStreamer() {
   return null;
 }
 
-function FollowNotice() {
-  const participants = useStore((s) => s.participants);
-  const selfId = useStore((s) => s.selfId);
-  const followers = participants.filter((p) => p.follow === selfId);
-  if (!followers.length) return null;
-  return (
-    <div className="follownotice">
-      👀 {followers.map((f) => f.name).join('、')} がフォロー中（あなたの視点を共有中）
-      <button className="small" onClick={dropFollowers}>フォローを解除</button>
-    </div>
-  );
-}
-
 function Viewfinder() {
   const cam = useStore((s) => heldCamera(s));
   const flashAt = useStore((s) => s.flashAt);
@@ -375,7 +334,8 @@ export function View3D() {
   const items = useStore((s) => s.items);
   const locked = useStore((s) => s.locked);
   const selfId = useStore((s) => s.selfId);
-  const followed = useStore((s) => s.participants.some((p) => p.follow === s.selfId));
+  const selfAvatar = useStore((s) => s.selfAvatar);
+  const viewLive = useStore((s) => !!s.participants.find((p) => p.id === s.selfId)?.viewLive);
   const a0 = get().selfAvatar;
   return (
     <div className={`view3d ${locked ? 'locked' : ''}`}>
@@ -385,19 +345,15 @@ export function View3D() {
         <Screen />
         <Entrance />
         {Object.entries(avatars).map(([id, s]) => <Avatar3D key={id} id={id} state={s} />)}
+        <Avatar3D id={selfId} state={selfAvatar} self />
         {Object.values(items).map((it) => <Item3D key={it.id} item={it} />)}
         {Object.values(items).map((it) => (it.kind === 'camera' && it.live && it.operator === selfId
           ? <CameraStreamer key={`stream-${it.id}`} item={it} /> : null))}
-        {followed && <ViewStreamer />}
+        {viewLive && <ViewStreamer />}
         <Player />
       </Canvas>
-      <FollowNotice />
       <Viewfinder />
       <Crosshair />
-      <div className="tools3d">
-        <button className="primary" onClick={() => spawnItem('note')}>＋ 付箋</button>
-        <ItemMenu />
-      </div>
       <NoteEditor />
     </div>
   );

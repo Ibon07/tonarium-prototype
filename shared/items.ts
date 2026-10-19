@@ -50,13 +50,25 @@ export type ItemAction =
 export const isDeltaAction = (act: ItemAction) =>
   act.a === 'strokeStart' || act.a === 'strokeAdd' || act.a === 'canvasClear';
 
-export const ITEM_INFO: Record<ItemKind, { name: string; icon: string; desc: string }> = {
-  note: { name: '付箋', icon: '📝', desc: '文字を書ける付箋（2D/3D）' },
-  hammer: { name: 'ピコピコハンマー', icon: '🔨', desc: '拾って誰かを叩けます（2D/3D）' },
-  chess: { name: 'チェス', icon: '♟️', desc: '駒を自由に動かせる盤（2D/3D）' },
-  g2048: { name: '2048', icon: '🔢', desc: 'みんなで操作する2Dゲーム（3Dは互換表示）' },
-  canvas: { name: 'キャンバス', icon: '🎨', desc: 'みんなで絵を描ける（ペン・消しゴム）' },
-  camera: { name: 'カメラ', icon: '📷', desc: '撮影とライブ配信（3D でのみ出せる）' },
+export interface ItemInfo {
+  name: string;
+  /** リストやウィンドウに出す 1〜4 文字のマーク */
+  mark: string;
+  tint: string;
+  ink: string;
+  desc: string;
+  genre: string;
+  in2d: boolean;
+  in3d: boolean;
+}
+
+export const ITEM_INFO: Record<ItemKind, ItemInfo> = {
+  note: { name: '付箋', mark: '付', tint: '#FBF1C4', ink: '#7A5B0E', desc: '文字を書いて置いておける付箋。2D ではウィンドウで、3D では空間の板として読み書きできる。', genre: 'ツール', in2d: true, in3d: true },
+  hammer: { name: 'ピコピコハンマー', mark: '槌', tint: '#FBE3D2', ink: '#A24A16', desc: '手に持って誰かを叩ける。叩くと相手の前に移動する。', genre: 'あそび', in2d: true, in3d: true },
+  chess: { name: 'チェス', mark: '♟', tint: '#E3E7F6', ink: '#2F4A9C', desc: '3D では立体のチェス盤、2D ではパネルの UI で遊べる。', genre: 'ゲーム', in2d: true, in3d: true },
+  g2048: { name: '2048', mark: '2048', tint: '#F4EBCF', ink: '#7A5B0E', desc: 'みんなで操作するパズル。3D では互換表示のパネルになる。', genre: 'ゲーム', in2d: true, in3d: false },
+  canvas: { name: 'キャンバス', mark: '画', tint: '#F6E4EC', ink: '#9A3A62', desc: 'みんなで絵を描ける。ペンと消しゴム付き。', genre: 'ツール', in2d: true, in3d: true },
+  camera: { name: 'カメラ', mark: '写', tint: '#E5F0E9', ink: '#2E6E4E', desc: '3D 空間で写真を撮ったりライブ配信したりできる。ライブは 2D からも見られる。', genre: 'ツール', in2d: false, in3d: true },
 };
 
 const BACK = ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R'];

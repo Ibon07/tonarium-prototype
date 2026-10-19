@@ -167,6 +167,12 @@ export function Player() {
 
   useFrame((_, dt) => {
     const s = get();
+    if (s.teleport) {
+      camera.position.x = s.teleport.x;
+      camera.position.z = s.teleport.z;
+      look.current.yaw = s.teleport.ry;
+      set({ teleport: null });
+    }
     const { yaw, pitch } = look.current;
     const shake = bump(s.hits[s.selfId]);
     camera.rotation.set(pitch - shake * 0.15, yaw + Math.sin(performance.now() / 30) * shake * 0.03, 0);

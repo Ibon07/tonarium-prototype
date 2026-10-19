@@ -1,0 +1,11 @@
+/** サウンドボードの効果音。音はクライアントで合成するのでファイルは無い */
+export const SOUNDS = [
+  { id: 'clap', name: '拍手' },
+  { id: 'laugh', name: 'わはは' },
+  { id: 'wow', name: 'おお〜' },
+  { id: 'drum', name: 'ドラム' },
+  { id: 'bell', name: 'チャイム' },
+  { id: 'boo', name: 'ブブー' },
+] as const;
+
+export type SoundId = (typeof SOUNDS)[number]['id'];
