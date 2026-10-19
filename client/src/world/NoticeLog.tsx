@@ -14,7 +14,7 @@ const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digi
 
 const SCOPES: { scope: ChatScope; label: string; title: string; placeholder: string }[] = [
   { scope: 'near', label: '声の範囲', title: `声の届く範囲（〜${VOICE_RANGE}m）に送信`, placeholder: `声の届く範囲（〜${VOICE_RANGE}m）に送信` },
-  { scope: 'all', label: '全体', title: 'ワールド全体に送信', placeholder: 'ワールド全体に送信' },
+  { scope: 'all', label: '全体', title: 'セッション全体に送信', placeholder: 'セッション全体に送信' },
   { scope: 'announce', label: 'アナウンス', title: '通知の上に固定されるお知らせとして送信', placeholder: 'アナウンスを送信（全員の通知に固定されます）' },
 ];
 

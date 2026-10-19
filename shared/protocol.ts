@@ -1,16 +1,19 @@
 import type { Item, ItemAction, ItemKind, MediaInit } from './items.ts';
+import type { WorldKind } from './worlds.ts';
 
 export type Mode = '2d' | '3d';
 
-/** ワールド＝ 1 つのセッション（通話・配信・3D 空間・アイテムを持つ） */
-export interface WorldDef {
+/** セッション（通話・配信・アイテムを持ち、ワールド＝ 3D 空間を 1 つ読み込む） */
+export interface SessionDef {
   id: string;
   name: string;
   topic?: string;
+  /** 最初に読み込むワールド。省略時は room */
+  world?: WorldKind;
 }
 export interface GuildConfig {
   name: string;
-  worlds: WorldDef[];
+  sessions: SessionDef[];
 }
 
 export interface User {
@@ -61,6 +64,10 @@ export interface AvatarState {
   x: number;
   z: number;
   ry: number;
+  /** 3D の人の顔の上下の向き（上向きが正） */
+  pitch?: number;
+  /** ジャンプ中の足元の高さ（m） */
+  y?: number;
 }
 
 export interface Snapshot {
@@ -72,6 +79,8 @@ export interface Snapshot {
   friends: string[];
   /** ワールドごとのブロードキャストモード（距離に関係なく音が聞こえる） */
   broadcast: Record<string, boolean>;
+  /** セッションごとの今のワールド */
+  world: Record<string, WorldKind>;
   /** 再生位置をそろえるためのサーバー時刻 */
   now: number;
 }
@@ -102,6 +111,7 @@ export type ClientMsg =
   /** key はウィンドウのキー（item:<id> / cam:<id>） */
   | { t: 'attention'; key: string }
   | { t: 'broadcast'; on: boolean }
+  | { t: 'world'; world: WorldKind }
   | { t: 'itemRemove'; id: string }
   | { t: 'itemMove'; id: string; x: number; z: number; ry: number }
   | { t: 'itemAction'; id: string; action: ItemAction }
@@ -122,6 +132,7 @@ export type ServerMsg =
   | { t: 'liveRequest'; sid: string; from: string }
   | { t: 'attention'; sid: string; from: string; key: string }
   | { t: 'broadcast'; sid: string; on: boolean }
+  | { t: 'world'; sid: string; world: WorldKind }
   | { t: 'friendRequest'; from: string; fromName: string }
   | { t: 'friends'; names: string[] };
 

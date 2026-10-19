@@ -7,6 +7,8 @@ import { DEFAULT_PARAMS, sanitizeParams, type AvatarParams } from '../../../shar
 import { avatarParamsUrl, avatarTextureUrl } from '../avatar.ts';
 
 const MODEL = '/oekaki/avatar.glb';
+const X_AXIS = new THREE.Vector3(1, 0, 0);
+const tiltQ = new THREE.Quaternion();
 useGLTF.preload(MODEL);
 
 const TEXTURED = new Set([
@@ -40,7 +42,8 @@ function baseAnimation(p: AvatarParams) {
 }
 
 /** モデルは +Z 向きなので、こちらの「前 = -Z」に合わせて回してある */
-export function OekakiAvatar({ name, version, speaking }: { name: string; version: string | null; speaking: boolean }) {
+/** look は顔の上下の向き（ラジアン、上向きが正）を返す */
+export function OekakiAvatar({ name, version, speaking, look }: { name: string; version: string | null; speaking: boolean; look?: () => number }) {
   const { scene, animations } = useGLTF(MODEL);
   const clone = useMemo(() => scene.clone(), [scene]);
   const { nodes } = useGraph(clone);
@@ -92,8 +95,15 @@ export function OekakiAvatar({ name, version, speaking }: { name: string; versio
     return () => { action.stop(); };
   }, [params, mixer, nodes]);
 
+  const tilt = useRef(0);
+  // 顔の板はもともと回転が付いているので、その上に傾きを掛ける
+  const faceBase = useMemo(() => [nodes.Head_Front, nodes.Head_Back].filter(Boolean).map((o) => ({ o, q: o.quaternion.clone() })), [nodes]);
   useFrame((_, dt) => {
     mixer.update(dt);
+    // Head は体ごとの親でアニメーションも付いているので、顔の板だけを傾ける。モデルは +Z 向きなので上を向くのは -X 回転
+    tilt.current += ((look?.() ?? 0) - tilt.current) * Math.min(1, dt * 10);
+    tiltQ.setFromAxisAngle(X_AXIS, -Math.max(-0.7, Math.min(0.7, tilt.current * 0.8)));
+    for (const f of faceBase) f.o.quaternion.copy(tiltQ).multiply(f.q);
     const f = face.current;
     if (!f) return;
     // 話している間は口を開け、それ以外はときどきまばたき

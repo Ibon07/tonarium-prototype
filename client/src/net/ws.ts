@@ -47,9 +47,10 @@ export function send(msg: ClientMsg) {
 function onMessage(msg: ServerMsg) {
   switch (msg.t) {
     case 'snapshot': {
-      const { guild, users, chats, avatars, items, friends, broadcast, now } = msg.s;
+      const { guild, users, chats, avatars, items, friends, broadcast, world, now } = msg.s;
       set({
         broadcast,
+        worldBy: world,
         serverOffset: now - Date.now(),
         guild,
         users,
@@ -125,6 +126,9 @@ function onMessage(msg: ServerMsg) {
     }
     case 'broadcast':
       set((s) => ({ broadcast: { ...s.broadcast, [msg.sid]: msg.on } }));
+      return;
+    case 'world':
+      set((s) => ({ worldBy: { ...s.worldBy, [msg.sid]: msg.world } }));
       return;
     case 'liveRequest':
       if (msg.sid === get().session) pushNotice('live', msg.from);

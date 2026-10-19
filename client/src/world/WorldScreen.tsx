@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SOUNDS } from '../../../shared/sounds.ts';
-import { useStore, get, set, nameOf, worldOf, isBroadcast } from '../store.ts';
+import { WORLDS, WORLD_KINDS } from '../../../shared/worlds.ts';
+import { useStore, get, set, nameOf, sessionOf, isBroadcast, worldKindOf } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { dropFollowers, follow, leaveSession, playSound, requestLive, setViewLive, switchMode } from '../actions.ts';
 import { dropHammer, place2d } from '../items/actions.ts';
@@ -23,10 +24,11 @@ import { MediaSync } from '../mediaSync.tsx';
 import { closeWindow, openWindow, setWinMode } from './windows.ts';
 
 function WorldBadge() {
-  const world = useStore((s) => worldOf(s.session));
+  const world = useStore((s) => sessionOf(s.session));
   const selfName = useStore((s) => s.selfName);
   const wsConnected = useStore((s) => s.wsConnected);
   const broadcast = useStore((s) => isBroadcast(s));
+  const kind = useStore((s) => worldKindOf(s));
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const [profile, setProfile] = useState(false);
   return (
@@ -42,14 +44,26 @@ function WorldBadge() {
       ><Icon name="settings" size={18} /></button>
       {menu && (
         <Popover anchor={menu} side="down" onClose={() => setMenu(null)} className="settings">
-          <span className="menutitle">ワールドの設定</span>
+          <span className="menutitle">セッションの設定</span>
           <label className="switchrow">
             <span><b>ブロードキャストモード</b><span className="sub wrap">距離に関係なく全員の声が聞こえ、声の範囲のチャットも全員に届く（全員に反映）</span></span>
             <input type="checkbox" role="switch" checked={broadcast} onChange={(e) => send({ t: 'broadcast', on: e.target.checked })} />
           </label>
           <span className="menusep" />
+          <span className="menutitle">ワールド（全員に反映）</span>
+          <div className="worldpick" role="radiogroup" aria-label="ワールド">
+            {WORLD_KINDS.map((k) => (
+              <button
+                key={k} role="radio" aria-checked={k === kind} className={`ib wpick ${k === kind ? 'on' : ''}`}
+                onClick={() => send({ t: 'world', world: k })}
+              >
+                <b>{WORLDS[k].name}</b><span className="sub wrap">{WORLDS[k].desc}</span>
+              </button>
+            ))}
+          </div>
+          <span className="menusep" />
           <button className="ib menuitem" onClick={() => { setProfile(true); setMenu(null); }}><Icon name="user" />プロフィールを編集</button>
-          <button className="ib menuitem" onClick={() => { setMenu(null); leaveSession(); }}><Icon name="leave" />ワールドを移動</button>
+          <button className="ib menuitem" onClick={() => { setMenu(null); leaveSession(); }}><Icon name="leave" />セッションを移動</button>
         </Popover>
       )}
       {profile && createPortal(<ProfileDialog name={selfName} onClose={() => setProfile(false)} />, document.body)}
@@ -98,7 +112,7 @@ function Dock() {
       <button className="dk mode" disabled={!!switching} onClick={() => switchMode(mode === '2d' ? '3d' : '2d')} title={mode === '2d' ? '3D 空間に入る' : '2D に戻る'}>
         <Icon name={mode === '2d' ? 'cube' : 'flat'} size={20} />{mode === '2d' ? '3D' : '2D'}
       </button>
-      <button className="dk leave" onClick={leaveSession} aria-label="切断" title="切断（ワールド選択に戻る）"><Icon name="leave" size={22} /></button>
+      <button className="dk leave" onClick={leaveSession} aria-label="切断" title="切断（セッション選択に戻る）"><Icon name="leave" size={22} /></button>
       {sb && <Soundboard anchor={sb} onClose={() => setSb(null)} />}
     </div>
   );
@@ -148,7 +162,7 @@ function StatusChips() {
 
 function SwitchLoading() {
   const switching = useStore((s) => s.switching);
-  const world = useStore((s) => worldOf(s.session));
+  const world = useStore((s) => sessionOf(s.session));
   if (!switching) return null;
   const to3d = switching.to === '3d';
   return (

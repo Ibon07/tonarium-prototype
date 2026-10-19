@@ -10,6 +10,11 @@ export function placesOf(s = get()): Map<string, Place> {
   return computePlaces(s.participants, (id) => (id === s.selfId ? (s.mode === '3d' ? s.selfAvatar : undefined) : s.avatars[id]));
 }
 
+/** 3D の人の顔の上下。自分は手元の値が新しい */
+export function pitchOf(id: string, s = get()) {
+  return (id === s.selfId ? (s.mode === '3d' ? s.selfAvatar.pitch : 0) : s.avatars[id]?.pitch) ?? 0;
+}
+
 export function distanceTo(id: string, s = get()) {
   const places = placesOf(s);
   const me = places.get(s.selfId);

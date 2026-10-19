@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { AvatarState, ChatMessage, GuildConfig, Mode, User } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
+import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
 export type WinMode = 'simple' | 'free';
@@ -46,6 +47,7 @@ interface State {
   /** サーバー時刻 - 手元の時刻（動画の再生位置をそろえる） */
   serverOffset: number;
   broadcast: Record<string, boolean>;
+  worldBy: Record<string, WorldKind>;
   /** 注目を集めているアイテム ID → 光らせる期限（performance.now） */
   attention: Record<string, number>;
   toast: { text: string; at: number } | null;
@@ -101,7 +103,7 @@ export const useStore = create<State>(() => ({
   selfName: '',
   joined: false,
   wsConnected: false,
-  guild: { name: 'Tonarium', worlds: [] },
+  guild: { name: 'Tonarium', sessions: [] },
   users: [],
   chats: {},
   avatarsBy: {},
@@ -121,6 +123,7 @@ export const useStore = create<State>(() => ({
   openUrl: null,
   serverOffset: 0,
   broadcast: {},
+  worldBy: {},
   attention: {},
   toast: null,
   liveRequested: null,
@@ -173,8 +176,8 @@ export function nameOf(id: string | null) {
   return get().users.find((p) => p.id === id)?.name ?? '（退出済み）';
 }
 
-export function worldOf(id: string | null) {
-  return id ? get().guild.worlds.find((w) => w.id === id) : undefined;
+export function sessionOf(id: string | null) {
+  return id ? get().guild.sessions.find((w) => w.id === id) : undefined;
 }
 
 export function colorOf(id: string) {
@@ -193,6 +196,8 @@ export function heldCamera(s: { items: Record<string, Item>; selfId: string }) {
 
 export const serverNow = () => Date.now() + get().serverOffset;
 export const isBroadcast = (s = get()) => !!(s.session && s.broadcast[s.session]);
+export const worldKindOf = (s = get(), sid = s.session): WorldKind => (sid && s.worldBy[sid]) || 'room';
+export const solidsOf = (s = get()) => WORLDS[worldKindOf(s)].solids;
 
 export function showToast(text: string) {
   set({ toast: { text, at: Date.now() } });

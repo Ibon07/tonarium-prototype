@@ -1,0 +1,8 @@
+{
+  "name": "Tonarium",
+  "sessions": [
+    { "id": "lounge", "name": "ラウンジ", "topic": "ゆっくり話そう", "world": "cafe" },
+    { "id": "game", "name": "ゲーム配信", "topic": "画面共有でゲームを見せ合う", "world": "room" },
+    { "id": "work", "name": "作業部屋", "topic": "もくもく作業", "world": "room" }
+  ]
+}

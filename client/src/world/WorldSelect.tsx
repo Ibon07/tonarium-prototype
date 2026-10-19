@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../store.ts';
+import { WORLDS } from '../../../shared/worlds.ts';
 import { joinSession } from '../actions.ts';
 import { ProfileDialog } from '../Profile.tsx';
 import { Face } from './common.tsx';
@@ -11,6 +12,7 @@ export function WorldSelect() {
   const selfName = useStore((s) => s.selfName);
   const friends = useStore((s) => s.friends);
   const wsConnected = useStore((s) => s.wsConnected);
+  const worldBy = useStore((s) => s.worldBy);
   const [profile, setProfile] = useState(false);
   return (
     <div className="worldselect">
@@ -24,9 +26,9 @@ export function WorldSelect() {
           <span><b>{selfName}</b><span className="sub">プロフィールを編集</span></span>
         </button>
       </header>
-      <h2 className="wsh2">ワールドを選ぶ</h2>
+      <h2 className="wsh2">セッションを選ぶ</h2>
       <div className="worldcards">
-        {guild.worlds.map((w) => {
+        {guild.sessions.map((w) => {
           const here = users.filter((u) => u.session === w.id);
           const live = here.find((u) => u.sharing);
           const friendsHere = here.filter((u) => friends.includes(u.name));
@@ -34,6 +36,7 @@ export function WorldSelect() {
             <button key={w.id} className="worldcard" onClick={() => joinSession(w.id)}>
               <div className="wctop">
                 <h3>{w.name}</h3>
+                <span className="wkind">{WORLDS[worldBy[w.id] ?? 'room'].name}</span>
                 {live && <span className="livechip"><i />LIVE</span>}
               </div>
               {w.topic && <p>{w.topic}</p>}

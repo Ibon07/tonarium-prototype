@@ -10,12 +10,12 @@ services:
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
       - SERVER_PORT=3001
-      # - WORLDS_FILE=/config/worlds.json
+      # - SESSIONS_FILE=/config/sessions.json
     expose:
       - "3001"
     volumes:
       - tonarium-data:/app/data
-    #   - ./worlds.json:/config/worlds.json:ro
+    #   - ./sessions.json:/config/sessions.json:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s

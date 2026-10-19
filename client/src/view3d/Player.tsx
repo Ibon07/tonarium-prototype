@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { AvatarState } from '../../../shared/protocol.ts';
-import { get, set, heldHammer, heldCamera, nameOf } from '../store.ts';
+import { get, set, heldHammer, heldCamera, nameOf, solidsOf } from '../store.ts';
+import { pushOut } from '../../../shared/worlds.ts';
 import { send } from '../net/ws.ts';
 import { selectNote } from '../actions.ts';
 import { dropCamera, dropHammer, hit, moveItem, place2d, toggleLive } from '../items/actions.ts';
@@ -13,7 +14,11 @@ import { takePhoto, world } from './cameraRender.ts';
 import { cameraHelp } from './camera3d.tsx';
 
 const SPEED = 4;
+const BODY_R = 0.3;
 const SENS = 0.0025;
+/** 初速 4.2m/s・重力 12m/s² で 0.7m ほど跳ぶ */
+const JUMP = 4.2;
+const GRAVITY = 12;
 
 const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
@@ -51,7 +56,8 @@ export function Player() {
   const keys = useRef<Record<string, boolean>>({});
   const look = useRef({ yaw: get().selfAvatar.ry, pitch: -0.05 });
   // NaN だと比較が常に false になり一度も送られないので Infinity
-  const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity });
+  const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, y: Infinity });
+  const jump = useRef({ y: 0, vy: 0 });
   const aim = useRef<ReturnType<typeof aimAt>>(null);
   const hammerRef = useRef<THREE.Group>(null);
   const dragging = useRef<{ data: Interactable; obj: THREE.Object3D; hit: THREE.Intersection | null } | null>(null);
@@ -92,6 +98,10 @@ export function Player() {
       if (isTyping(e.target)) return;
       keys.current[e.code] = true;
       if (e.code === 'Escape') selectNote(null);
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (jump.current.y <= 0) jump.current.vy = JUMP;
+      }
       if (e.code === 'KeyG') {
         if (carrying.current) finishCarry();
         else if (aim.current?.data.carry) {
@@ -176,7 +186,13 @@ export function Player() {
     const { yaw, pitch } = look.current;
     const shake = bump(s.hits[s.selfId]);
     camera.rotation.set(pitch - shake * 0.15, yaw + Math.sin(performance.now() / 30) * shake * 0.03, 0);
-    camera.position.y = EYE - shake * 0.12;
+    const j = jump.current;
+    if (j.y > 0 || j.vy > 0) {
+      j.vy -= GRAVITY * Math.min(dt, 0.05);
+      j.y = Math.max(0, j.y + j.vy * Math.min(dt, 0.05));
+      if (j.y === 0) j.vy = 0;
+    }
+    camera.position.y = EYE + j.y - shake * 0.12;
 
     const k = keys.current;
     const f = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0);
@@ -186,14 +202,25 @@ export function Player() {
       camera.position.x = clampRoom(camera.position.x + (-Math.sin(yaw) * f + Math.cos(yaw) * r) * step);
       camera.position.z = clampRoom(camera.position.z + (-Math.cos(yaw) * f - Math.sin(yaw) * r) * step);
     }
+    // ワールドの切り替えやテレポートで家具の中に入ったときも、ここで外へ出る
+    const solids = solidsOf(s);
+    if (solids.length) {
+      const p = pushOut(camera.position.x, camera.position.z, BODY_R, solids);
+      camera.position.x = clampRoom(p.x);
+      camera.position.z = clampRoom(p.z);
+    }
 
     const now = performance.now();
     const x = camera.position.x;
     const z = camera.position.z;
     const st = sent.current;
-    if (now - st.t > 100 && (Math.abs(x - st.x) > 0.01 || Math.abs(z - st.z) > 0.01 || Math.abs(yaw - st.ry) > 0.01)) {
-      Object.assign(st, { t: now, x, z, ry: yaw });
-      const a: AvatarState = { x, z, ry: yaw };
+    // 跳んでいる間は細かく送らないと、ほかの人からは動きがカクつく
+    const interval = j.y > 0 ? 50 : 100;
+    const changed = Math.abs(x - st.x) > 0.01 || Math.abs(z - st.z) > 0.01 || Math.abs(yaw - st.ry) > 0.01
+      || Math.abs(pitch - st.pitch) > 0.03 || Math.abs(j.y - st.y) > 0.02;
+    if (now - st.t > interval && changed) {
+      Object.assign(st, { t: now, x, z, ry: yaw, pitch, y: j.y });
+      const a: AvatarState = { x, z, ry: yaw, pitch, y: j.y };
       set({ selfAvatar: a });
       send({ t: 'avatar', s: a });
     }

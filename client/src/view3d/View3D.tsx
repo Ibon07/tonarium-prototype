@@ -1,12 +1,12 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { DOOR_HALF, ROOM_HALF, entranceSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
+import { ROOM_HALF, entranceSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
 import { NOTE_COLORS } from '../../../shared/items.ts';
-import { useStore, get, colorOf, nameOf, heldHammer, heldCamera } from '../store.ts';
+import { useStore, get, colorOf, nameOf, heldHammer, heldCamera, worldKindOf } from '../store.ts';
 import { shareVideoEl } from '../net/livekit.ts';
 import { selectNote } from '../actions.ts';
-import { placesOf } from '../spatial.ts';
+import { pitchOf, placesOf } from '../spatial.ts';
 import { publishView } from '../net/livekit.ts';
 import { editNote, moveItem, removeItem } from '../items/actions.ts';
 import { bump, recentlyHit } from '../items/effects.ts';
@@ -17,71 +17,9 @@ import { AttentionGlow, HammerModel, Item3D } from './items3d.tsx';
 import { Label } from './Label.tsx';
 import { OekakiAvatar } from './OekakiAvatar.tsx';
 import { CameraModel, CameraStreamer, CamMonitor } from './camera3d.tsx';
+import { WORLD_BG, WorldMesh } from './worlds3d.tsx';
 
 const H = ROOM_HALF;
-const WALL_H = 4;
-const DOOR_H = 2.6;
-const HALL = 3.2; // 入口の外の奥行き
-
-function Box({ p, s, color }: { p: [number, number, number]; s: [number, number, number]; color: string }) {
-  return (
-    <mesh position={p}>
-      <boxGeometry args={s} />
-      <meshStandardMaterial color={color} />
-    </mesh>
-  );
-}
-
-function DoorSign() {
-  const tex = useMemo(() => {
-    const { canvas, tex: t } = makeCanvasTexture(1024, 128);
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = '#f0b132';
-    ctx.fillRect(0, 0, 1024, 128);
-    ctx.fillStyle = '#1e1f22';
-    ctx.font = '800 64px "Segoe UI", "Noto Sans JP", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('🚪 入口 ・ 2Dで参加中の人', 512, 68);
-    t.needsUpdate = true;
-    return t;
-  }, []);
-  return (
-    <mesh position={[0, DOOR_H + 0.4, H - 0.11]} rotation-y={Math.PI}>
-      <planeGeometry args={[3.2, 0.4]} />
-      <meshBasicMaterial map={tex} toneMapped={false} />
-    </mesh>
-  );
-}
-
-function RoomMesh() {
-  const side = (H - DOOR_HALF);
-  return (
-    <>
-      <ambientLight intensity={1.4} />
-      <directionalLight position={[5, 10, 5]} intensity={1.2} />
-      <mesh rotation-x={-Math.PI / 2}>
-        <planeGeometry args={[2 * H, 2 * H]} />
-        <meshStandardMaterial color="#565961" />
-      </mesh>
-      <gridHelper args={[2 * H, 20, '#5c5f66', '#4a4d54']} position-y={0.005} userData={{ noRay: true }} />
-      <Box p={[0, WALL_H / 2, -H]} s={[2 * H, WALL_H, 0.2]} color="#80848e" />
-      <Box p={[-H, WALL_H / 2, 0]} s={[0.2, WALL_H, 2 * H]} color="#80848e" />
-      <Box p={[H, WALL_H / 2, 0]} s={[0.2, WALL_H, 2 * H]} color="#80848e" />
-      <Box p={[-(DOOR_HALF + side / 2), WALL_H / 2, H]} s={[side, WALL_H, 0.2]} color="#80848e" />
-      <Box p={[DOOR_HALF + side / 2, WALL_H / 2, H]} s={[side, WALL_H, 0.2]} color="#80848e" />
-      <Box p={[0, (WALL_H + DOOR_H) / 2, H]} s={[2 * DOOR_HALF, WALL_H - DOOR_H, 0.2]} color="#80848e" />
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.002, H + HALL / 2]}>
-        <planeGeometry args={[2 * DOOR_HALF + 1.6, HALL]} />
-        <meshStandardMaterial color="#3f4147" />
-      </mesh>
-      <Box p={[-(DOOR_HALF + 0.9), DOOR_H / 2, H + HALL / 2]} s={[0.15, DOOR_H, HALL]} color="#6d717a" />
-      <Box p={[DOOR_HALF + 0.9, DOOR_H / 2, H + HALL / 2]} s={[0.15, DOOR_H, HALL]} color="#6d717a" />
-      <Box p={[0, DOOR_H / 2, H + HALL]} s={[2 * DOOR_HALF + 1.95, DOOR_H, 0.15]} color="#6d717a" />
-      <DoorSign />
-    </>
-  );
-}
 
 function Screen() {
   const sharer = useStore((s) => s.sharer);
@@ -201,6 +139,8 @@ function Avatar3D({ id, state, self = false }: { id: string; state: AvatarState;
     const k = Math.min(1, dt * 10);
     g.position.x += (state.x - g.position.x) * k;
     g.position.z += (state.z - g.position.z) * k;
+    // ジャンプは速いので少し強めに追う
+    g.position.y += ((state.y ?? 0) - g.position.y) * Math.min(1, dt * 18);
     let d = state.ry - g.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     g.rotation.y += d * k;
@@ -217,7 +157,7 @@ function Avatar3D({ id, state, self = false }: { id: string; state: AvatarState;
     >
       <group ref={body}>
         <Suspense fallback={null}>
-          <OekakiAvatar name={name} version={avatarV} speaking={speaking} />
+          <OekakiAvatar name={name} version={avatarV} speaking={speaking} look={() => pitchOf(id)} />
         </Suspense>
       </group>
       {/* 板ポリのモデルは横から当てにくいので、照準用の当たり判定を別に置く */}
@@ -322,7 +262,7 @@ function Crosshair() {
       {recentlyHit(get().selfId) && <div className="hitme">ピコッ!</div>}
       <div className="keyhelp">
         {locked
-          ? <>WASD: 移動 ・ マウス: 視点 ・ クリック: 操作 ・ G: 持ち運ぶ ・ X: 片付ける{holding && ' ・ Q: 手に持った物を置く'} ・ Esc: カーソルを出す</>
+          ? <>WASD: 移動 ・ Space: ジャンプ ・ マウス: 視点 ・ クリック: 操作 ・ G: 持ち運ぶ ・ X: 片付ける{holding && ' ・ Q: 手に持った物を置く'} ・ Esc: カーソルを出す</>
           : <>画面をクリックすると操作を始めます（マウスで視点・照準で操作）</>}
       </div>
     </>
@@ -336,12 +276,13 @@ export function View3D() {
   const selfId = useStore((s) => s.selfId);
   const selfAvatar = useStore((s) => s.selfAvatar);
   const viewLive = useStore((s) => !!s.participants.find((p) => p.id === s.selfId)?.viewLive);
+  const world = useStore((s) => worldKindOf(s));
   const a0 = get().selfAvatar;
   return (
     <div className={`view3d ${locked ? 'locked' : ''}`}>
       <Canvas camera={{ fov: 70, near: 0.05, far: 100, position: [a0.x, EYE, a0.z] }}>
-        <color attach="background" args={['#2b2d31']} />
-        <RoomMesh />
+        <color attach="background" args={[WORLD_BG[world]]} />
+        <WorldMesh kind={world} />
         <Screen />
         <Entrance />
         {Object.entries(avatars).map(([id, s]) => <Avatar3D key={id} id={id} state={s} />)}
