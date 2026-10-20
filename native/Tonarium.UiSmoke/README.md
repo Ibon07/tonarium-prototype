@@ -1,0 +1,62 @@
+# Native UI normal-flow smoke
+
+Run against an isolated development server with KokoSync enabled:
+
+```powershell
+dotnet run --project native/Tonarium.UiSmoke -- http://localhost:3015 native/Tonarium.UiSmoke/results
+```
+
+The suite uses the production `MainWindow`, `HomeView`, `RoomView`, item windows and profile windows. It sends real text-input and Enter-key events, raises real button Click events, and verifies resulting operations against a second native network client. Unique session and profile names avoid modifying existing content. Remembered login identity is not changed; generated test sessions are retained for inspection.
+
+It renders Skia screenshots of login, all seven home navigation destinations, group/event creation, the event calendar, session creation, room/chat, inventory, note editing, social DM, profiles, 1000×640 minimum room/home layouts, 150% DPI and the return home. `result.json` lists network/control assertions and persistent controls that extend outside each window. Scrollable content is intentionally excluded from the outer-window bounds assertion.
+
+The portrait probe checks the original Oekaki model/animation channel counts, live idle pixel changes, speaking, a networked look-pitch update, server-backed custom texture upload, and ordinary manifest parameter changes. It exports deterministic normal/blink/speaking/pose images, animation frames and a five-second idle CPU/memory/raster-cost sample. Speaking is stimulated through the portrait's explicit media-state override; microphone transport is covered by the separate media smoke.
+
+To encode the recorded original-model frames as a GIF, install Pillow and run:
+
+```powershell
+python -m pip install --target native/Tonarium.UiSmoke/.tools Pillow
+python native/Tonarium.UiSmoke/encode_animation.py native/Tonarium.UiSmoke/results
+```
+
+The focused offline-profile regression avoids rerunning unrelated flows:
+
+```powershell
+dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3015 native/Tonarium.UiSmoke/offline-results --offline-avatar
+```
+
+It persists a custom texture and nondefault manifest for a unique name absent from online users, opens the actual native profile by that name, and verifies the stored texture, parsed parameters and nonblank rendered preview.
+
+The focused chat-media happy path runs against an isolated local server:
+
+```powershell
+dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3016 native/artifacts/chat-media --chat-media
+```
+
+It uses real native storage items and synthetic Avalonia file/bitmap transfers, uploads a generated 640×360 image and the small checked-in MP4 fixture, and confirms receipt through a second KokoSync client. It verifies inline image dimensions, pointer and keyboard viewer opening/closing, clipboard image paste, 2D versus 3D item creation, selected DM routing, and ordinary Ctrl+V text through the real MainWindow key handler. It does not open an OS file picker or save dialog, or publish to external services.
+
+The focused canvas check sends actual headless mouse input through `SharedDrawingCanvas`, verifies 50 ms batching, release flushing, single dots, and every received point's order. Start `node native/Tonarium.Smoke/canvas-delay-proxy.cjs 3020 http://localhost:3015 20`, then run:
+
+```powershell
+dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3020 native/artifacts/canvas-batched --canvas-sync http://localhost:3015
+```
+
+The offline `--chat-scroll` check verifies wheel scrolling to the final row, late image loading, window/composer resizing, keeping an older reading position and hidden chat/input scrollbars:
+
+```powershell
+dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3016 native/artifacts/chat-scroll --chat-scroll
+```
+
+`--audio-settings` checks the real Windows device list, selection/refresh/apply/cancel, stored settings and explicit window ownership without recording microphone audio or joining a call:
+
+```powershell
+dotnet run --project native/Tonarium.UiSmoke -c Release -- unused native/artifacts/audio-settings --audio-settings
+```
+
+`--audio-transmit` injects a generated 440Hz tone into the production capture conversion and sends it through local LiveKit for 16 seconds. It checks received sample energy at the beginning and after 12 seconds, rather than only counting packets. It queries the default input format but never starts microphone or desktop capture. Local LiveKit must run at `ws://127.0.0.1:7880` with the development credentials.
+
+```powershell
+dotnet run --project native/Tonarium.UiSmoke -c Release -- unused native/artifacts/audio-transmit --audio-transmit
+```
+
+This is a happy-path integration smoke, not a failure-case unit suite. Headless input does not validate physical Windows IME composition, foreground window switching, GPU surfaces, microphone devices or Unity rendering; those require the separate runtime smoke. Its CPU sample includes the test harness and Skia software rendering, so it is evidence about this run, not a hardware-independent performance guarantee.
