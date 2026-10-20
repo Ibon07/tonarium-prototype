@@ -74,7 +74,7 @@ namespace Tonarium.UnityClient
                     var receive=typeof(TonariumWorld).GetMethod("Receive",BindingFlags.NonPublic|BindingFlags.Instance);
                     var surface=root.GetComponentInChildren<ItemPanelSurface>();
                     var originalTexture=surface.Texture;
-                    Action<JObject> delta=action=>receive.Invoke(world,new object[]{new JObject{["t"]="itemAction",["id"]=id,["by"]="canvas-probe",["action"]=action}});
+                    Action<JObject> delta=action=>{receive.Invoke(world,new object[]{new JObject{["t"]="itemAction",["id"]=id,["by"]="canvas-probe",["action"]=action}});surface.SendMessage("LateUpdate");};
                     Func<int,int,Color> pixel=(x,y)=>surface.Texture.GetPixel(10+x,519-(58+y));
                     delta(new JObject{["a"]="canvasClear"});
                     if(pixel(100,150).r<.99f)throw new InvalidOperationException("canvas clear did not repaint");

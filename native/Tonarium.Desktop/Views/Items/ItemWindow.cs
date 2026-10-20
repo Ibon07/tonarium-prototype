@@ -30,6 +30,9 @@ public sealed class ItemWindow : Window
     private readonly DispatcherTimer tick;
     private string kind = "";
     private bool applying;
+    private bool canvasDirty = true;
+    private JsonObject? canvasItem;
+    private JsonNode? canvasStrokes;
     private TextBox? note;
     private DispatcherTimer? noteTimer;
     private NativeVideoView? video;
@@ -72,9 +75,19 @@ public sealed class ItemWindow : Window
         tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(90) };
         tick.Tick += (_, _) => Refresh();
         PropertyChanged += (_, e) => { if (e.Property == ClientSizeProperty && note is not null) note.Height = Math.Max(140, ClientSize.Height - 84); };
+        context.Client.MessageReceived += MarkCanvasDirty;
         context.Client.State.Changed += Refresh;
-        Closed += (_, _) => { context.Client.State.Changed -= Refresh; tick.Stop(); noteTimer?.Stop(); if (note is not null) { FlushNote(); Send(new { a = "noteLock", @lock = false }); } video?.Dispose(); youtube?.Dispose(); };
+        Closed += (_, _) => { context.Client.MessageReceived -= MarkCanvasDirty; context.Client.State.Changed -= Refresh; tick.Stop(); noteTimer?.Stop(); if (note is not null) { FlushNote(); Send(new { a = "noteLock", @lock = false }); } video?.Dispose(); youtube?.Dispose(); };
         Refresh();
+    }
+
+    private void MarkCanvasDirty(JsonObject message)
+    {
+        var type = Str(message, "t");
+        if (type == "sessionSnapshot" ||
+            type == "itemAction" && Str(message, "id") == itemId ||
+            type == "item" && Str(message["item"], "id") == itemId)
+            canvasDirty = true;
     }
 
     public void Refresh()
@@ -217,8 +230,15 @@ public sealed class ItemWindow : Window
         toolbar.Children.Add(PanelButton("全部消す", () => { Send(new { a = "canvasClear" }); canvas.ClearPreview(); }, "#da373c"));
         var panel=Column(toolbar, new Viewbox { Stretch=Stretch.Uniform, Child=canvas }); panel.Spacing=12;
         body.Children.Add(new Border { Background=Brush("#2b2d31"), CornerRadius=new CornerRadius(6), Padding=new Thickness(10,12),Child=panel });
-        string last = "";
-        refreshers.Add(it => { var data = it["strokes"]?.ToJsonString() ?? "[]"; if (data == last) return; last = data; canvas.InvalidateVisual(); });
+        canvasDirty = true; canvasItem = null; canvasStrokes = null;
+        refreshers.Add(it =>
+        {
+            // 履歴全体を文字列化せず、このキャンバスの変更だけで再描画する。
+            var strokes = it["strokes"];
+            if (!canvasDirty && ReferenceEquals(canvasItem, it) && ReferenceEquals(canvasStrokes, strokes)) return;
+            canvasDirty = false; canvasItem = it; canvasStrokes = strokes;
+            canvas.InvalidateVisual();
+        });
     }
     private void SaveCanvas(Control canvas)
     {

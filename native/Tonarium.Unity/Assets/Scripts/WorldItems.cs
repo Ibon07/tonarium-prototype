@@ -18,6 +18,7 @@ namespace Tonarium.UnityClient
         {
             if (item == null || item["id"] == null) return;
             string id = (string)item["id"], kind = (string)item["kind"];
+            if (kind == "canvas") PreserveCanvasPreview(id, item);
             items[id] = item;
             // 描画差分のたびに板を捨てると入力と表示が途切れる。
             if (kind == "canvas" && itemObjects.TryGetValue(id, out var existing) && existing.GetComponentInChildren<ItemPanelSurface>() is ItemPanelSurface surface)
@@ -45,6 +46,23 @@ namespace Tonarium.UnityClient
             {
                 string holder = (string)item["holder"];
                 if (holder == selfId) held = id; else if (held == id) held = null;
+            }
+        }
+
+        void PreserveCanvasPreview(string id, JObject next)
+        {
+            if (!items.TryGetValue(id, out var current) || ReferenceEquals(current, next) || !(current["strokes"] is JArray local)) return;
+            // 移動や再同期の全体更新でも、まだ返っていない自分の線を巻き戻さない。
+            if (canvasEchoes.ContainsKey(id + ":canvasClear")) { next["strokes"] = local.DeepClone(); return; }
+            var strokes = next["strokes"] as JArray;
+            if (strokes == null) { strokes = new JArray(); next["strokes"] = strokes; }
+            foreach (var stroke in local.OfType<JObject>())
+            {
+                string strokeId = (string)stroke["id"];
+                if ((string)stroke["by"] != selfId || !(canvasEchoes.ContainsKey(id + ":" + strokeId) || canvasItem == id && canvasStroke == strokeId)) continue;
+                var saved = strokes.OfType<JObject>().LastOrDefault(s => (string)s["id"] == strokeId && (string)s["by"] == selfId);
+                if (saved == null) strokes.Add(stroke.DeepClone());
+                else if ((stroke["pts"] as JArray)?.Count > (saved["pts"] as JArray)?.Count) saved["pts"] = stroke["pts"].DeepClone();
             }
         }
 
@@ -172,9 +190,9 @@ namespace Tonarium.UnityClient
             if (InRect(p, 272, 12, 44, 34)) canvasSizes[target.Id] = 3;
             if (InRect(p, 320, 12, 44, 34)) canvasSizes[target.Id] = 10;
             if (InRect(p, 370, 12, 92, 34)) canvasColors[target.Id] = CanvasPenColor(target.Id) == "erase" ? CanvasPalette[0] : "erase";
-            if (InRect(p, 544, 12, 84, 34)) Room(new { t = "itemAction", id = target.Id, action = new { a = "canvasClear" } });
+            if (InRect(p, 544, 12, 84, 34)) SendCanvasAction(target.Id, new JObject { ["a"]="canvasClear" });
             if (InRect(p, 468, 12, 70, 34)) SaveCanvas(item);
-            PaintCanvas(surface, item); return true;
+            PaintCanvasToolbar(surface, item); return true;
         }
         bool TryCanvasPoint(RaycastHit hit, out string id, out Vector2 point)
         {

@@ -124,8 +124,19 @@ namespace Tonarium.UnityClient
 
         void PaintCanvas(ItemPanelSurface surface, JObject item)
         {
-            var pixels = new ItemRaster(640, 520, "#2b2d31"); string id = (string)item["id"];
+            var pixels = surface.CanvasRaster ?? (surface.CanvasRaster = new ItemRaster(640, 520, "#2b2d31"));
             pixels.Rect(10, 58, 620, 450, "#ffffff");
+            PaintCanvasToolbar(surface, item);
+            PaintStrokes(pixels, item, 10, 58);
+            if (surface.Texture == null) { SetSurface(surface, pixels); surface.CanvasDirty = false; }
+            else surface.CanvasDirty = true;
+        }
+
+        void PaintCanvasToolbar(ItemPanelSurface surface, JObject item)
+        {
+            var pixels = surface.CanvasRaster; string id = (string)item["id"];
+            if (pixels == null) return;
+            pixels.Rect(0, 0, 640, 58, "#2b2d31");
             for (int i = 0; i < CanvasPalette.Length; i++)
             {
                 if (CanvasPenColor(id) == CanvasPalette[i]) pixels.Disc(32 + i * 40, 29, 16, "#ffffff");
@@ -135,7 +146,42 @@ namespace Tonarium.UnityClient
             pixels.Rect(320, 12, 44, 34, CanvasPenSize(id) == 10 ? "#5865f2" : "#4e5058", 6);
             pixels.Rect(370, 12, 92, 34, CanvasPenColor(id) == "erase" ? "#5865f2" : "#4e5058", 6);
             pixels.Rect(468, 12, 70, 34, "#248046", 6); pixels.Rect(544, 12, 84, 34, "#da373c", 6);
-            PaintStrokes(pixels, item, 10, 58); SetSurface(surface, pixels);
+            surface.CanvasDirty = true;
+        }
+
+        void PaintCanvasDelta(ItemPanelSurface surface, JObject item, JObject stroke, int firstPoint, bool clear)
+        {
+            if (surface.CanvasRaster == null) { PaintCanvas(surface, item); return; }
+            var pixels = surface.CanvasRaster;
+            if (clear) pixels.Rect(10, 58, 620, 450, "#ffffff");
+            else if (stroke != null)
+            {
+                pixels.Clip = new RectInt(10, 58, 620, 450);
+                PaintStroke(pixels, stroke, 10, 58, firstPoint);
+                // 古い線へ追記した範囲だけ、後から始まった線や消しゴムを重ね直す。
+                if (item["strokes"] is JArray strokes && !ReferenceEquals(strokes.Last, stroke))
+                {
+                    pixels.Clip = StrokeRegion(stroke, firstPoint);
+                    for (int i = strokes.IndexOf(stroke) + 1; i < strokes.Count; i++)
+                        if (strokes[i] is JObject later) PaintStroke(pixels, later, 10, 58, 0);
+                }
+                pixels.Clip = new RectInt(0, 0, pixels.Width, pixels.Height);
+            }
+            surface.CanvasDirty = true;
+        }
+
+        static RectInt StrokeRegion(JObject stroke, int firstPoint)
+        {
+            var points = (JArray)stroke["pts"];
+            float left = 630, top = 508, right = 10, bottom = 58, radius = Float(stroke, "size", 3) / 2;
+            for (int i = Math.Max(0, firstPoint - 2); i + 1 < points.Count; i += 2)
+            {
+                float x = 10 + (float)points[i], y = 58 + (float)points[i + 1];
+                left = Math.Min(left, x - radius); right = Math.Max(right, x + radius);
+                top = Math.Min(top, y - radius); bottom = Math.Max(bottom, y + radius);
+            }
+            int minX = Math.Max(10, Mathf.FloorToInt(left)), minY = Math.Max(58, Mathf.FloorToInt(top));
+            return new RectInt(minX, minY, Math.Max(0, Math.Min(630, Mathf.CeilToInt(right) + 1) - minX), Math.Max(0, Math.Min(508, Mathf.CeilToInt(bottom) + 1) - minY));
         }
 
         static void PaintStrokes(ItemRaster pixels, JObject item, int x, int y)
@@ -143,13 +189,19 @@ namespace Tonarium.UnityClient
             pixels.Clip = new RectInt(x, y, 620, 450);
             if (item["strokes"] is JArray strokes) foreach (var stroke in strokes.OfType<JObject>())
             {
-                if (!(stroke["pts"] is JArray pts) || pts.Count < 2) continue;
-                string color = (string)stroke["color"] == "erase" ? "#ffffff" : (string)stroke["color"];
-                float radius = Float(stroke, "size", 3) / 2;
-                pixels.Disc(x + (float)pts[0], y + (float)pts[1], radius, color);
-                for (int i = 2; i + 1 < pts.Count; i += 2) pixels.Line(x + (float)pts[i - 2], y + (float)pts[i - 1], x + (float)pts[i], y + (float)pts[i + 1], radius, color);
+                PaintStroke(pixels, stroke, x, y, 0);
             }
             pixels.Clip = new RectInt(0, 0, pixels.Width, pixels.Height);
+        }
+
+        static void PaintStroke(ItemRaster pixels, JObject stroke, int x, int y, int firstPoint)
+        {
+            if (!(stroke["pts"] is JArray pts) || pts.Count < 2) return;
+            string color = (string)stroke["color"] == "erase" ? "#ffffff" : (string)stroke["color"];
+            float radius = Float(stroke, "size", 3) / 2;
+            if (firstPoint == 0) pixels.Disc(x + (float)pts[0], y + (float)pts[1], radius, color);
+            for (int i = Math.Max(2, firstPoint); i + 1 < pts.Count; i += 2)
+                pixels.Line(x + (float)pts[i - 2], y + (float)pts[i - 1], x + (float)pts[i], y + (float)pts[i + 1], radius, color);
         }
 
         void Build2048Panel(Transform root, JObject item)
@@ -196,6 +248,14 @@ namespace Tonarium.UnityClient
     {
         public int PixelWidth, PixelHeight;
         public Texture2D Texture;
+        public ItemRaster CanvasRaster;
+        public bool CanvasDirty;
+        // 同じフレームに届いた差分は、まとめて一度だけGPUへ反映する。
+        void LateUpdate()
+        {
+            if (!CanvasDirty || CanvasRaster == null || Texture == null) return;
+            CanvasRaster.Apply(Texture); CanvasDirty = false;
+        }
         public Vector2 Point(RaycastHit hit) => new Vector2(hit.textureCoord.x * PixelWidth, (1 - hit.textureCoord.y) * PixelHeight);
     }
     public sealed class ItemActionTarget : MonoBehaviour { public string Action; }
@@ -250,11 +310,14 @@ namespace Tonarium.UnityClient
         public void Disc(float x, float y, float radius, string color)
         {
             ColorUtility.TryParseHtmlString(color ?? "#111111", out var c); radius = Math.Max(.5f, radius);
-            for (int yy = Mathf.FloorToInt(y - radius); yy <= Mathf.CeilToInt(y + radius); yy++) for (int xx = Mathf.FloorToInt(x - radius); xx <= Mathf.CeilToInt(x + radius); xx++)
+            int minY = Math.Max(0, Math.Max(Clip.yMin, Mathf.FloorToInt(y - radius))), maxY = Math.Min(Height - 1, Math.Min(Clip.yMax - 1, Mathf.CeilToInt(y + radius)));
+            int minX = Math.Max(0, Math.Max(Clip.xMin, Mathf.FloorToInt(x - radius))), maxX = Math.Min(Width - 1, Math.Min(Clip.xMax - 1, Mathf.CeilToInt(x + radius)));
+            for (int yy = minY; yy <= maxY; yy++) for (int xx = minX; xx <= maxX; xx++)
                 if ((xx - x) * (xx - x) + (yy - y) * (yy - y) <= radius * radius) Pixel(xx, yy, c);
         }
         public void Line(float x, float y, float ex, float ey, float radius, string color)
         {
+            if (Math.Max(x, ex) + radius < Clip.xMin || Math.Min(x, ex) - radius >= Clip.xMax || Math.Max(y, ey) + radius < Clip.yMin || Math.Min(y, ey) - radius >= Clip.yMax) return;
             int count = Math.Max(1, Mathf.CeilToInt(Vector2.Distance(new Vector2(x, y), new Vector2(ex, ey)) / Math.Max(.5f, radius / 2)));
             for (int n = 0; n <= count; n++) Disc(Mathf.Lerp(x, ex, n / (float)count), Mathf.Lerp(y, ey, n / (float)count), radius, color);
         }

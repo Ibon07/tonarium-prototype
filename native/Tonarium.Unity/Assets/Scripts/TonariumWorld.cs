@@ -43,6 +43,7 @@ namespace Tonarium.UnityClient
         public string PointerError => relativePointer == null ? pointerInitializationError : relativePointer.LastError;
         string canvasStroke, canvasItem;
         readonly List<float> canvasPoints = new List<float>();
+        readonly Dictionary<string, int> canvasEchoes = new Dictionary<string, int>();
         float canvasSendAt;
         Vector2 lastCanvasPoint;
         int jumps, round = -1, stepped = -1;
@@ -83,6 +84,7 @@ namespace Tonarium.UnityClient
                 if (arg == "--tonarium-embedded") embedded = true;
                 if (arg == "--tonarium-avatar-parity") gameObject.AddComponent<AvatarParityProbe>();
                 if (arg == "--tonarium-item-parity") gameObject.AddComponent<ItemParityProbe>();
+                if (arg == "--tonarium-canvas-perf") gameObject.AddComponent<CanvasPerformanceProbe>();
             }
         }
 
@@ -158,19 +160,51 @@ namespace Tonarium.UnityClient
             var id = (string)message["id"];
             if (id == null || !items.TryGetValue(id, out var item)) return;
             var a = message["action"] as JObject;
-            if ((string)a?["a"] == "canvasClear") item["strokes"] = new JArray();
-            if ((string)a?["a"] == "strokeStart")
+            if (a == null || (string)item["kind"] != "canvas") return;
+            string action = (string)a["a"], echoKey = id + ":" + ((string)a["id"] ?? action);
+            // 手元で先に描いた差分は、デスクトップ側から戻っても重ねて適用しない。
+            if ((string)message["by"] == selfId && canvasEchoes.TryGetValue(echoKey, out int pending))
+            {
+                if (pending <= 1) canvasEchoes.Remove(echoKey); else canvasEchoes[echoKey] = pending - 1;
+                return;
+            }
+            JObject stroke = null; int firstPoint = 0; bool rebuild = false;
+            if (action == "canvasClear") item["strokes"] = new JArray();
+            else if (action == "strokeStart")
             {
                 if (!(item["strokes"] is JArray)) item["strokes"] = new JArray();
-                ((JArray)item["strokes"]).Add(new JObject { ["id"] = a["id"], ["color"] = a["color"], ["size"] = a["size"], ["pts"] = new JArray(a["x"], a["y"]) });
+                stroke = new JObject { ["id"] = a["id"], ["by"] = message["by"] ?? selfId, ["color"] = a["color"], ["size"] = a["size"], ["pts"] = new JArray(a["x"], a["y"]) };
+                ((JArray)item["strokes"]).Add(stroke);
+                if (((JArray)item["strokes"]).Count > 3000) { ((JArray)item["strokes"]).RemoveAt(0); rebuild = true; }
             }
-            if ((string)a?["a"] == "strokeAdd" && item["strokes"] is JArray strokes)
+            else if (action == "strokeAdd" && item["strokes"] is JArray strokes)
             {
-                var stroke = strokes.OfType<JObject>().FirstOrDefault(s => (string)s["id"] == (string)a["id"]);
+                string by = (string)message["by"] ?? selfId;
+                stroke = strokes.OfType<JObject>().LastOrDefault(s => (string)s["id"] == (string)a["id"] && ((string)s["by"] ?? by) == by);
                 if (stroke?["pts"] is JArray points && a["pts"] is JArray incoming)
+                {
+                    firstPoint = points.Count;
                     foreach (var p in incoming) points.Add(p.DeepClone());
+                }
             }
-            ApplyItem(item);
+            else return;
+            if (itemObjects.TryGetValue(id, out var root) && root.GetComponentInChildren<ItemPanelSurface>() is ItemPanelSurface surface)
+            {
+                if (rebuild) PaintCanvas(surface, item);
+                else PaintCanvasDelta(surface, item, stroke, firstPoint, action == "canvasClear");
+            }
+            else ApplyItem(item);
+        }
+
+        void SendCanvasAction(string id, JObject action, bool apply = true)
+        {
+            if (apply) ApplyDelta(new JObject { ["id"] = id, ["action"] = action });
+            if (bridge.Connected)
+            {
+                string key = id + ":" + ((string)action["id"] ?? (string)action["a"]);
+                canvasEchoes.TryGetValue(key, out int pending); canvasEchoes[key] = pending + 1;
+            }
+            Room(new { t = "itemAction", id, action });
         }
 
         void AddChat(JObject m)
@@ -424,7 +458,7 @@ namespace Tonarium.UnityClient
             if(TryCanvasPoint(hit,out var canvasId,out var point))
             {
                 canvasItem=canvasId;canvasStroke=Guid.NewGuid().ToString();canvasSendAt=Time.unscaledTime;lastCanvasPoint=point;
-                Room(new {t="itemAction",id=canvasId,action=new {a="strokeStart",id=canvasStroke,color=CanvasPenColor(canvasId),size=CanvasPenSize(canvasId),x=point.x,y=point.y}});
+                SendCanvasAction(canvasId, new JObject { ["a"]="strokeStart",["id"]=canvasStroke,["color"]=CanvasPenColor(canvasId),["size"]=CanvasPenSize(canvasId),["x"]=point.x,["y"]=point.y });
                 return;
             }
             if(InteractItemSurface(target,hit))return;
@@ -462,13 +496,16 @@ namespace Tonarium.UnityClient
         {
             if(!Physics.Raycast(eye.transform.position,eye.transform.forward,out var hit,30)||!TryCanvasPoint(hit,out var id,out var point)||id!=canvasItem)return;
             if(Vector2.Distance(lastCanvasPoint,point)<.5f)return;
+            var stroke = (items[id]["strokes"] as JArray)?.LastOrDefault(s => (string)s["id"] == canvasStroke);
+            if ((stroke?["pts"] as JArray)?.Count >= 8000) { FlushCanvasStroke(); return; }
             lastCanvasPoint=point;
             canvasPoints.Add(point.x);canvasPoints.Add(point.y);
+            ApplyDelta(new JObject { ["id"]=canvasItem,["action"]=new JObject { ["a"]="strokeAdd",["id"]=canvasStroke,["pts"]=new JArray(point.x,point.y) } });
             if(Time.unscaledTime-canvasSendAt>=.05f)FlushCanvasStroke();
         }
         void FlushCanvasStroke()
         {
-            if(canvasStroke!=null&&canvasPoints.Count>0)Room(new{t="itemAction",id=canvasItem,action=new{a="strokeAdd",id=canvasStroke,pts=canvasPoints.ToArray()}});
+            if(canvasStroke!=null&&canvasPoints.Count>0)SendCanvasAction(canvasItem,new JObject { ["a"]="strokeAdd",["id"]=canvasStroke,["pts"]=new JArray(canvasPoints) },false);
             canvasPoints.Clear();canvasSendAt=Time.unscaledTime;
         }
         void EndCanvasStroke(){FlushCanvasStroke();canvasStroke=null;canvasItem=null;}
