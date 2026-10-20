@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using System.Diagnostics;
+using System.Text.Json;
 using Avalonia.Threading;
 
 namespace Tonarium.Desktop.ThreeD;
@@ -11,8 +13,11 @@ public sealed class NativeChildFocusBridge : IDisposable
     private IntPtr hostWindow;
     private bool forwarding;
     private bool clipped;
+    private bool centerPointer;
     private Native.Rect lastClip;
     private readonly DispatcherTimer pointerTimer;
+    private readonly string? diagnosticPath = Environment.GetEnvironmentVariable("TONARIUM_INPUT_DIAGNOSTICS");
+    private InputDiagnostics? diagnostics;
     private static readonly UIntPtr SubclassId = new(0x544E4643);
 
     /// <summary>Forward host focus only while the player has locked its movement controls.</summary>
@@ -30,13 +35,17 @@ public sealed class NativeChildFocusBridge : IDisposable
             this.hostWindow = hostWindow;
     }
 
-    public void SetInputLocked(bool locked)
+    public void SetInputLocked(bool locked, bool centerPointer = false)
     {
+        if (locked && !ForwardOnHostFocus && !string.IsNullOrWhiteSpace(diagnosticPath)) diagnostics = new InputDiagnostics { CenterPointer = centerPointer };
+        this.centerPointer = locked && centerPointer;
+        if (locked && diagnostics is { } capture) capture.CenterPointer = this.centerPointer;
         ForwardOnHostFocus = locked;
         if (!locked)
         {
             pointerTimer.Stop();
             ReleasePointerClip();
+            FlushDiagnostics("unlock");
             return;
         }
         FocusPlayer();
@@ -77,6 +86,7 @@ public sealed class NativeChildFocusBridge : IDisposable
     private void UpdatePointerClip()
     {
         if (!OperatingSystem.IsWindows() || !ForwardOnHostFocus) { ReleasePointerClip(); return; }
+        if (diagnostics is { } check) check.Checks++;
         var player = playerWindow();
         var root = player == IntPtr.Zero ? IntPtr.Zero : Native.GetAncestor(player, 2);
         var thread = Native.GetWindowThreadProcessId(player, out _);
@@ -88,6 +98,7 @@ public sealed class NativeChildFocusBridge : IDisposable
             ForwardOnHostFocus = false;
             pointerTimer.Stop();
             ReleasePointerClip();
+            FlushDiagnostics("capture-lost");
             InputCaptureLost?.Invoke();
             return;
         }
@@ -95,10 +106,28 @@ public sealed class NativeChildFocusBridge : IDisposable
         var origin = new Native.Point();
         if (!Native.ClientToScreen(player, ref origin)) return;
         rect.Left += origin.X; rect.Right += origin.X; rect.Top += origin.Y; rect.Bottom += origin.Y;
+        if (centerPointer)
+        {
+            // 相対入力が利用可能と確認された時だけ、OSカーソルを中央1pxに保持する。
+            var x = rect.Left + (rect.Right - rect.Left) / 2;
+            var y = rect.Top + (rect.Bottom - rect.Top) / 2;
+            rect = new Native.Rect { Left = x, Top = y, Right = x + 1, Bottom = y + 1 };
+        }
         // Unityの描画HWNDの範囲に限定し、別モニターやネイティブHUDへ抜けるのを防ぐ。
-        if (!Native.GetClipCursor(out var current) || !current.Equals(rect))
+        var readClip = Native.GetClipCursor(out var current);
+        if (!readClip || !current.Equals(rect))
+        {
+            if (diagnostics is { } write)
+            {
+                write.ClipWriteCalls++;
+                if (centerPointer) write.CenterClipWriteCalls++; else write.ClientClipWriteCalls++;
+                if (readClip && current.Right - current.Left <= 4 && current.Bottom - current.Top <= 4) write.WritesOverTinyClip++;
+                if (readClip && write.PriorRectangles.Count < 20) write.PriorRectangles.Add($"{current.Left},{current.Top},{current.Right},{current.Bottom}");
+            }
             clipped = Native.ClipCursor(ref rect);
-        else clipped = true;
+            if (!clipped && diagnostics is { } failure) failure.ClipWriteFailures++;
+        }
+        else { clipped = true; if (diagnostics is { } same) same.AlreadyClientClip++; }
         lastClip = rect;
     }
 
@@ -106,8 +135,47 @@ public sealed class NativeChildFocusBridge : IDisposable
     {
         if (!clipped) return;
         // 他アプリが新しい制限を取得済みなら、そのClipCursorには触らない。
-        if (Native.GetClipCursor(out var current) && current.Equals(lastClip)) Native.ClearClipCursor(IntPtr.Zero);
+        if (Native.GetClipCursor(out var current) && current.Equals(lastClip))
+        {
+            Native.ClearClipCursor(IntPtr.Zero);
+            if (diagnostics is { } release) release.ReleaseCalls++;
+        }
         clipped = false;
+    }
+
+    private void FlushDiagnostics(string reason)
+    {
+        var capture = diagnostics;
+        diagnostics = null;
+        if (capture is null || string.IsNullOrWhiteSpace(diagnosticPath)) return;
+        // 明示的な診断実行だけ集計する。16msの処理中にはファイルを書かない。
+        capture.EndReason = reason;
+        capture.ElapsedMs = Stopwatch.GetElapsedTime(capture.StartTicks).TotalMilliseconds;
+        try
+        {
+            var file = Path.GetFullPath(diagnosticPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.AppendAllText(file, JsonSerializer.Serialize(capture) + Environment.NewLine);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) { }
+    }
+
+    private sealed class InputDiagnostics
+    {
+        public DateTimeOffset StartedAt { get; } = DateTimeOffset.UtcNow;
+        public long StartTicks { get; } = Stopwatch.GetTimestamp();
+        public double ElapsedMs { get; set; }
+        public string EndReason { get; set; } = "";
+        public bool CenterPointer { get; set; }
+        public long Checks { get; set; }
+        public long ClipWriteCalls { get; set; }
+        public long CenterClipWriteCalls { get; set; }
+        public long ClientClipWriteCalls { get; set; }
+        public long ClipWriteFailures { get; set; }
+        public long AlreadyClientClip { get; set; }
+        public long WritesOverTinyClip { get; set; }
+        public long ReleaseCalls { get; set; }
+        public HashSet<string> PriorRectangles { get; } = [];
     }
 
     private static bool PlayerIsForeground(IntPtr player)

@@ -29,6 +29,7 @@ public sealed partial class ThreeDHost : IAsyncDisposable
     public event Action? ReturnedTo2D;
     public event Action<string>? ItemRequested;
     public event Action<bool>? InputStateChanged;
+    public bool UsesRelativePointer { get; private set; }
     public event Action? HomeRequested;
     public event Action? ChatRequested;
     public bool IsRunning => player is { HasExited: false };
@@ -86,7 +87,11 @@ public sealed partial class ThreeDHost : IAsyncDisposable
             player.Exited += PlayerExited;
             _ = ReceiveAsync(lifetime.Token);
             await ready.Task.WaitAsync(TimeSpan.FromSeconds(40));
-            if (parentWindow != IntPtr.Zero) await EmbedPlayerAsync(parentWindow);
+            if (parentWindow != IntPtr.Zero)
+            {
+                await EmbedPlayerAsync(parentWindow);
+                await SendAsync(new { t = "pointerWindow", hwnd = PlayerWindowHandle.ToInt64() });
+            }
             await client.SendRoomAsync(new { t = "mode", mode = "3d" });
             if (media is not null) { media.VideoFrameJpeg += ForwardVideoFrame; mediaAttached = true; }
             await Dispatcher.UIThread.InvokeAsync(() =>
@@ -136,6 +141,7 @@ public sealed partial class ThreeDHost : IAsyncDisposable
                         _ = StopAsync();
                         return;
                     case "inputState":
+                        UsesRelativePointer = message["relativeInput"]?.GetValue<bool>() == true;
                         await Dispatcher.UIThread.InvokeAsync(() => InputStateChanged?.Invoke(message["locked"]?.GetValue<bool>() == true));
                         break;
                     case "openHome":

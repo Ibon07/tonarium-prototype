@@ -72,7 +72,7 @@ public sealed class MainWindow : Window
             room?.SetWorldInputLocked(locked);
             threeDOverlay?.SetInputLocked(locked);
             threeDOverlay?.RefreshRegion();
-            unitySurface?.SetInputLocked(locked);
+            unitySurface?.SetInputLocked(locked, threeD.UsesRelativePointer);
         };
         threeD.HomeRequested += () => ShowHome("toggle");
         threeD.ChatRequested += () => { room?.FocusChat(); threeDOverlay?.Activate(); };

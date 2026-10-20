@@ -101,6 +101,10 @@ Unityは中央の小窓ではなく、Web版と同じ全画面・垂直視野角
 
 3D操作中の共通UIは表示だけを残してマウス入力を透過し、Unityの描画領域内にカーソルを制限する。Esc、ホーム表示、別ウィンドウへの切り替え、最小化、終了では制限を解除する。フォーカスが他のアプリへ移った後に奪い返すことはしない。
 
+埋め込み時の相対マウス入力は、親が特定した実際のUnity描画ウィンドウをIPCで渡して初期化する。Unityには同じクラス名の非表示ウィンドウもあるため、最初に見つかったウィンドウへは接続しない。Windows Raw Inputの移動量を1フレームずつ合算し、有効になった場合だけカーソルを中央1pxへ固定する。従来のUnity入力と二重適用せず、終了時に元のRaw Input登録を復元する。
+
+`TONARIUM_INPUT_DIAGNOSTICS` にJSONLファイルの絶対パスを指定すると、マウス固定の確認回数・書き換え回数、使用した入力経路、Unityのフレーム時間を記録する。入力中はメモリーへ蓄え、解除時または終了時に書く。相対入力の判定は `.unity.json` の `relativeFrames` と `packets`、中央固定の判定はJSONLの `CenterPointer` で行う。起動しただけでは経路が有効になった証拠にならない。
+
 ワールドの家具・床・照明・ゲームの塔は `worlds3d.tsx` と `shared/worlds.ts`、アイテム形状・パネル比率は `items3d.tsx` などを基準に移植した。付箋は1.6×1.2m、キャンバス／2048は高さ1.8m、画像・動画は縦横比を維持する。お絵描きアバターは元GLBのアニメーションチャンネルを再生し、名前・吹き出し・発話リング・2D参加者の追従配置もWebの寸法に合わせている。
 
 `build-unity.ps1` は `Tools/sync-web-assets.cjs` でブランド画像とフォントを元ファイルからコピーする。対応表・SHA256は `Resources/Web/WebAssetSources.json`、ライセンスは同じResources内へ同梱する。カフェのメニューボードは `Tools/Export-CafeMenu.ps1` がWebの文言から生成する。元モデルの由来は `OekakiSource.md`、環境は `WorldArtSource.md` に記録する。

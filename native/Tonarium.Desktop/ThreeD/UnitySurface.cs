@@ -36,14 +36,13 @@ public sealed class UnitySurface : NativeControlHost
     public bool FocusPlayer()
     {
         if (focusBridge is null) return false;
-        focusBridge.SetInputLocked(true);
         return focusBridge.FocusPlayer();
     }
 
-    public void SetInputLocked(bool locked)
+    public void SetInputLocked(bool locked, bool centerPointer = false)
     {
         if (focusBridge is null) return;
-        focusBridge.SetInputLocked(locked);
+        focusBridge.SetInputLocked(locked, centerPointer);
     }
 
     public void SetCovered(bool value)

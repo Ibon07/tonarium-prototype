@@ -33,6 +33,14 @@ namespace Tonarium.UnityClient
         float lastSentYaw, lastSentPitch;
         int lastSentJump;
         bool lastInputLocked;
+        bool lastRelativeInput;
+        WindowsRelativePointer relativePointer;
+        IntPtr pointerWindow;
+        string pointerInitializationError;
+        public Vector2 PointerDelta { get; private set; }
+        public bool RelativePointerActive => relativePointer != null && relativePointer.IsActive;
+        public long PointerPackets => relativePointer == null ? 0 : relativePointer.PacketsReceived;
+        public string PointerError => relativePointer == null ? pointerInitializationError : relativePointer.LastError;
         string canvasStroke, canvasItem;
         readonly List<float> canvasPoints = new List<float>();
         float canvasSendAt;
@@ -68,6 +76,7 @@ namespace Tonarium.UnityClient
             yaw = 0;
             controller.transform.rotation = Quaternion.Euler(0, yaw, 0);
             BuildWorld("cafe");
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TONARIUM_INPUT_DIAGNOSTICS"))) gameObject.AddComponent<InputDiagnostics>();
             foreach (string arg in Environment.GetCommandLineArgs())
             {
                 if (arg == "--tonarium-smoke") gameObject.AddComponent<SmokeCheck>();
@@ -80,6 +89,14 @@ namespace Tonarium.UnityClient
         void Receive(JObject m)
         {
             string type = (string)m["t"];
+            if(type=="pointerWindow")
+            {
+                relativePointer?.Dispose();relativePointer=null;
+                pointerWindow=new IntPtr((long?)m["hwnd"]??0);
+                if(!WindowsRelativePointer.TryCreate(out relativePointer,pointerWindow))pointerInitializationError=WindowsRelativePointer.LastCreateError;
+                if(!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TONARIUM_INPUT_DIAGNOSTICS")))Debug.Log("TONARIUM_POINTER_INIT "+(relativePointer!=null?"ready":pointerInitializationError));
+                return;
+            }
             if (type == "releaseInput") { EndCanvasStroke(); CommitNote(); selected = null; menu = false; Unlock(); return; }
             if (type == "videoFrame") { ReceiveVideo(m); return; }
             if (type == "resize")
@@ -263,6 +280,7 @@ namespace Tonarium.UnityClient
 
         void Update()
         {
+            PointerDelta = Vector2.zero;
             if (Input.GetKeyDown(KeyCode.Escape)) { EndCanvasStroke(); CommitNote(); selected = null; menu = false; Unlock(); }
             if (Input.GetKeyDown(KeyCode.F2)) ReturnTo2D();
             if (Input.GetKeyDown(KeyCode.Return) && !menu && selected == null)
@@ -278,10 +296,29 @@ namespace Tonarium.UnityClient
             }
             bool controls = !menu && !chatOpen && selected == null;
             bool justLocked = controls && Input.GetMouseButtonDown(0) && Cursor.lockState != CursorLockMode.Locked;
-            if (justLocked) { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
+            if (justLocked)
+            {
+                Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false;
+                if(embedded && relativePointer==null && pointerWindow!=IntPtr.Zero && !WindowsRelativePointer.TryCreate(out relativePointer,pointerWindow))pointerInitializationError=WindowsRelativePointer.LastCreateError;
+                if(relativePointer!=null&&!relativePointer.SetLocked(true))
+                {
+                    pointerInitializationError=relativePointer.LastError??"Relative pointer registration did not activate";
+                }
+                if(!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TONARIUM_INPUT_DIAGNOSTICS")))Debug.Log("TONARIUM_POINTER "+(RelativePointerActive?"relative":"legacy")+" "+PointerError);
+            }
             if (controls && Cursor.lockState == CursorLockMode.Locked)
             {
-                yaw += Input.GetAxisRaw("Mouse X") * 1.4324f; pitch = Mathf.Clamp(pitch - Input.GetAxisRaw("Mouse Y") * 1.4324f, -80.214f, 80.214f);
+                Vector2 delta;
+                if(relativePointer!=null)
+                {
+                    if(!relativePointer.TryConsume(out delta))delta=Vector2.zero;
+                    delta=new Vector2(delta.x*.1f,-delta.y*.1f);
+                }
+                else delta=new Vector2(Input.GetAxisRaw("Mouse X"),Input.GetAxisRaw("Mouse Y"));
+                // クリックから中央固定へ移るフレームは、座標移動を視点回転へ混ぜない。
+                if(justLocked)delta=Vector2.zero;
+                PointerDelta=delta;
+                yaw += delta.x * 1.4324f; pitch = Mathf.Clamp(pitch - delta.y * 1.4324f, -80.214f, 80.214f);
                 controller.transform.rotation = Quaternion.Euler(0, yaw, 0); eye.transform.localRotation = Quaternion.Euler(pitch, 0, 0);
                 var move = controller.transform.forward * Input.GetAxisRaw("Vertical") + controller.transform.right * Input.GetAxisRaw("Horizontal");
                 move = Vector3.ClampMagnitude(move, 1) * 4;
@@ -343,7 +380,13 @@ namespace Tonarium.UnityClient
             foreach (var pair in brokenTiles) if (pair.Value <= Now && tiles.TryGetValue(pair.Key, out var tile)) tile.SetActive(false);
             UpdateVideoScreens();
             bool locked=Cursor.lockState==CursorLockMode.Locked;
-            if(locked!=lastInputLocked){lastInputLocked=locked;bridge.Send(new {t="inputState",locked});}
+            bool relativeInput=RelativePointerActive;
+            if(locked!=lastInputLocked||relativeInput!=lastRelativeInput)
+            {
+                lastInputLocked=locked;lastRelativeInput=relativeInput;
+                bridge.Send(new {t="inputState",locked,relativeInput});
+                if(!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TONARIUM_INPUT_DIAGNOSTICS")))Debug.Log("TONARIUM_POINTER_STATE locked="+locked+" relative="+relativeInput);
+            }
             if (world == "game" && (string)game["phase"] == "running")
             {
                 if (controller.transform.position.y < -8)
@@ -435,7 +478,7 @@ namespace Tonarium.UnityClient
             Room(new { t = "itemAction", id = held, action = new { a = "drop", x = p.x, z = -p.z, ry = -yaw * Mathf.Deg2Rad, pitch = -pitch * Mathf.Deg2Rad } }); held = null;
         }
         void Room(object value) => bridge.Send(new { t = "room", message = value });
-        void Unlock() { EndCanvasStroke();FinishCarry();Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+        void Unlock() { EndCanvasStroke();FinishCarry();relativePointer?.SetLocked(false);Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
         void OnApplicationFocus(bool focused){if(!focused)Unlock();}
         void SendChat() { if (!string.IsNullOrWhiteSpace(draft)) Room(new { t = "chat", text = draft, scope = "all" }); draft = ""; }
         IEnumerator TakePhoto()
@@ -456,6 +499,7 @@ namespace Tonarium.UnityClient
         }
         public void ReturnTo2D() { if (returnSent) return; returnSent = true; Unlock(); bridge.Send(new { t = "return2d" }); if (!bridge.Connected) Application.Quit(); }
         void OnApplicationQuit() { ReturnTo2D(); }
+        void OnDestroy() { relativePointer?.Dispose(); }
         long Now => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + (long)serverOffset;
         static Vector3 ToUnity(Vector3 p) => new Vector3(p.x, p.y, -p.z);
         static Vector3 Position(JObject p) => ToUnity(new Vector3(Float(p, "x"), Float(p, "y"), Float(p, "z")));
