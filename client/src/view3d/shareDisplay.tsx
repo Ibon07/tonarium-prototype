@@ -47,7 +47,7 @@ const camDir = new THREE.Vector3();
 
 /**
  * 画面共有している人の配信ディスプレイ。アイテムではない。
- * 3D の人は床に立てたもの（その場に残り、G で運べる）、2D の人は頭の上にくっつく
+ * 3D の人は床に立てたもの（その場に残り、右クリックで運べる）、2D の人は頭の上にくっつく
  */
 export function ShareDisplay() {
   const sharer = useStore((s) => s.sharer);

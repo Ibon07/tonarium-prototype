@@ -36,7 +36,7 @@ const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
 
 function hintFor(aim: { data: Interactable; hit: THREE.Intersection } | null): string | null {
-  if (carrying.current) return 'クリック / G: ここに置く';
+  if (carrying.current) return '右クリック: ここに置く';
   const s = get();
   const cam = heldCamera(s);
   if (cam) return cameraHelp(cam);
@@ -45,7 +45,7 @@ function hintFor(aim: { data: Interactable; hit: THREE.Intersection } | null): s
     const t = typeof aim.data.hitTarget === 'function' ? aim.data.hitTarget(aim.hit) : aim.data.hitTarget;
     if (t && t !== s.selfId) return `クリック: ${nameOf(t)} を叩く`;
   }
-  const parts = [aim.data.hint, aim.data.carry && 'G: 移動', aim.data.remove && 'X: 片付ける'].filter(Boolean);
+  const parts = [aim.data.hint, aim.data.carry && '右クリック: 運ぶ', aim.data.remove && 'X: 片付ける'].filter(Boolean);
   return parts.length ? parts.join(' ・ ') : null;
 }
 
@@ -90,6 +90,12 @@ export function Player() {
       if (!locked) keys.current = {};
     };
     const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 2) {
+        if (document.pointerLockElement !== canvas) return;
+        if (carrying.current) finishCarry();
+        else if (aim.current?.data.carry) carrying.current = { id: aim.current.data.carry, x: 0, z: 0, ry: 0, last: 0 };
+        return;
+      }
       if (e.button !== 0) return;
       if (document.pointerLockElement !== canvas) {
         // ロック前のクリックは操作開始だけ
@@ -117,12 +123,6 @@ export function Player() {
         const b = body.current;
         if (b.grounded) { b.vy = JUMP_V; b.grounded = false; b.n++; }
       }
-      if (e.code === 'KeyG') {
-        if (carrying.current) finishCarry();
-        else if (aim.current?.data.carry) {
-          carrying.current = { id: aim.current.data.carry, x: 0, z: 0, ry: 0, last: 0 };
-        }
-      }
       if (e.code === 'KeyQ') { dropHammer(); dropCamera(look.current.pitch); }
       const aimedCam = () => {
         const id = aim.current?.data.carry;
@@ -137,7 +137,10 @@ export function Player() {
     const onBlur = () => { keys.current = {}; };
 
     document.addEventListener('pointerlockchange', onLock);
+    // 右クリックは運ぶ操作に使うので、ロック中はメニューを出さない
+    const onContextMenu = (e: MouseEvent) => { if (document.pointerLockElement === canvas) e.preventDefault(); };
     document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('contextmenu', onContextMenu);
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
     window.addEventListener('keydown', onKeyDown);
@@ -146,6 +149,7 @@ export function Player() {
     return () => {
       document.removeEventListener('pointerlockchange', onLock);
       document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('contextmenu', onContextMenu);
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('keydown', onKeyDown);

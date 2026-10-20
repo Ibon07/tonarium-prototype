@@ -16,7 +16,16 @@ import { Label } from './Label.tsx';
 import { OekakiAvatar } from './OekakiAvatar.tsx';
 import { CameraModel, CameraStreamer, CamMonitor } from './camera3d.tsx';
 import { WORLD_BG, WorldMesh } from './worlds3d.tsx';
+import { useLastSaid } from '../world/common.tsx';
 import { ShareDisplay } from './shareDisplay.tsx';
+
+/** 頭の上のチャットの吹き出し（上部の顔と同じく直近 30 秒） */
+function ChatBubble({ id, y }: { id: string; y: number }) {
+  const said = useLastSaid(id);
+  if (!said) return null;
+  const text = said.replace(/\s+/g, ' ');
+  return <Label position={[0, y, 0]} height={0.2} text={text.length > 32 ? `${text.slice(0, 31)}…` : text} bg="rgba(255,253,249,0.96)" fg="#26262e" />;
+}
 
 /** 2D で参加している人。3D の人と同じアバターで、スポーンエリア・置かれた場所・ついていく相手の後ろに立つ */
 function Standee({ user }: { user: User }) {
@@ -60,6 +69,7 @@ function Standee({ user }: { user: User }) {
           <meshBasicMaterial color="#22c55e" />
         </mesh>
       )}
+      <ChatBubble id={user.id} y={1.62} />
       <Label
         position={[0, 1.3, 0]} text={`2D ${micOff ? '🔇 ' : ''}${user.name}`}
         bg={recentlyHit(user.id) ? 'rgba(240,177,50,0.95)' : speaking ? 'rgba(35,165,90,0.95)' : 'rgba(78,80,88,0.9)'}
@@ -140,6 +150,7 @@ function Avatar3D({ id, state, self = false }: { id: string; state: AvatarState;
           <meshBasicMaterial color="#22c55e" />
         </mesh>
       )}
+      {!self && <ChatBubble id={id} y={1.62} />}
       <Label position={[0, 1.3, 0]} text={`${micOff ? '🔇 ' : ''}${name}`} bg={speaking ? 'rgba(35,165,90,0.95)' : 'rgba(0,0,0,0.75)'} />
     </group>
   );
@@ -220,7 +231,7 @@ function Crosshair() {
       {recentlyHit(get().selfId) && <div className="hitme">ピコッ!</div>}
       <div className="keyhelp">
         {locked
-          ? <>WASD: 移動 ・ Space: ジャンプ ・ マウス: 視点 ・ クリック: 操作 ・ G: 持ち運ぶ ・ X: 片付ける{holding && ' ・ Q: 手に持った物を置く'} ・ Esc: カーソルを出す</>
+          ? <>WASD: 移動 ・ Space: ジャンプ ・ マウス: 視点 ・ クリック: 操作 ・ 右クリック: 運ぶ/置く ・ X: 片付ける{holding && ' ・ Q: 手に持った物を置く'} ・ Esc: カーソルを出す</>
           : <>画面をクリックすると操作を始めます（マウスで視点・照準で操作）</>}
       </div>
     </>
