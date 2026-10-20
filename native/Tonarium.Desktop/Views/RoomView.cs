@@ -27,6 +27,7 @@ public sealed class RoomView : UserControl
 {
     private readonly NativeContext _ctx;
     private readonly Grid _root = new();
+    private readonly SessionMenuView _sessionMenu;
     private readonly StackPanel _players = new() { Spacing = 5 };
     private readonly StackPanel _items = new() { Spacing = 5 };
     private readonly StackPanel _faces = new() { Spacing = 14, HorizontalAlignment = HorizontalAlignment.Center };
@@ -86,9 +87,8 @@ public sealed class RoomView : UserControl
         _root.Children.Add(_threeDSurface);
         Content = _root;
 
-        var menu = IconButton("menu", "メニュー", SessionMenu, 20); menu.Width = menu.Height = 40;
-        var menuCard = Panel(menu); menuCard.Padding = new Thickness(0); menuCard.CornerRadius = new CornerRadius(14); menuCard.Margin = new Thickness(20, 20, 0, 0); menuCard.HorizontalAlignment = HorizontalAlignment.Left; menuCard.VerticalAlignment = VerticalAlignment.Top;
-        _root.Children.Add(menuCard);
+        _sessionMenu = new SessionMenuView(context) { Margin = new Thickness(20, 20, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
+        _root.Children.Add(_sessionMenu);
         _worldName.FontFamily = Ui.HeadingFont; _worldName.FontWeight = FontWeight.Bold; _worldName.MaxWidth = 155; _worldName.TextTrimming = TextTrimming.CharacterEllipsis; _worldName.TextWrapping = TextWrapping.NoWrap;
         _broadcastPill.Child = IconLabel("megaphone", "ブロードキャスト", 12, 10, "#7A4A22"); _broadcastPill.Background = Brush.Parse("#FBE8D7"); _broadcastPill.CornerRadius = new CornerRadius(99); _broadcastPill.Padding = new Thickness(7, 3);
         var head = Ui.Row(Ui.AssetImage("brand/mark.png", 32, 32), _worldName, _broadcastPill, Separator(false), IconButton("settings", "設定", Settings, 18)); head.Spacing = 10;
@@ -194,6 +194,7 @@ public sealed class RoomView : UserControl
     public void Refresh()
     {
         var s = _ctx.State;
+        _sessionMenu.Refresh();
         ComputePlaces();
         var users = Participants();
         _worldName.Text = J.Text(s.Sessions.FirstOrDefault(x => J.Text(x, "id") == s.SessionId), "name", "セッション"); _broadcastPill.IsVisible = s.Broadcast;
@@ -704,11 +705,6 @@ public sealed class RoomView : UserControl
         _scopeIndex = index;
         for (var i = 0; i < _scopeButtons.Length; i++) { _scopeButtons[i].Background = i == index ? Brushes.White : Brushes.Transparent; _scopeButtons[i].FontWeight = i == index ? FontWeight.Bold : FontWeight.Normal; }
         _input.PlaceholderText = index == 0 ? "声の届く範囲（〜15m）に送信" : index == 1 ? "セッション全体に送信" : "アナウンスを送信";
-    }
-    private void SessionMenu()
-    {
-        var box = Ui.Column(Ui.Title("Tonarium"), Ui.Button("ホーム", () => _ctx.ShowHome("home")), Ui.Button("メッセージ", () => _ctx.ShowHome("messages")), Ui.Button("フレンド", () => _ctx.ShowHome("friends")), Ui.Button("ワールド", () => _ctx.ShowHome("worlds")), Ui.Text("クライアントモード", 12, Ui.Muted));
-        box.Children.Add(Ui.Button("2D", () => Run(() => _ctx.ChangeModeAsync("2d")))); box.Children.Add(Ui.Button("3D", () => Run(() => _ctx.ChangeModeAsync("3d")))); ShowPopup(box, 300);
     }
     private static string Time(double at) => at > 0 ? DateTimeOffset.FromUnixTimeMilliseconds((long)at).ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture) : "";
     private static Control Empty(string text) => new Border { Padding = new Thickness(6, 16), Child = Ui.Text(text, 12, Ui.Muted) };

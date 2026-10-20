@@ -13,6 +13,7 @@ public sealed class UnitySurface : NativeControlHost
     private TaskCompletionSource<IntPtr> ready = NewReady();
     private IntPtr playerWindow;
     private int lastWidth = -1, lastHeight = -1;
+    private bool covered;
     private readonly DispatcherTimer resizeTimer;
     public IntPtr Handle { get; private set; }
     public event Action<int, int>? ClientSizeChanged;
@@ -28,6 +29,13 @@ public sealed class UnitySurface : NativeControlHost
 
     /// <summary>Completes once Avalonia has attached the surface to its native window.</summary>
     public Task<IntPtr> GetHandleAsync() => Handle != IntPtr.Zero ? Task.FromResult(Handle) : ready.Task;
+
+    public void SetCovered(bool value)
+    {
+        covered = value;
+        IsVisible = !value;
+        if (OperatingSystem.IsWindows() && Handle != IntPtr.Zero) Native.ShowWindow(Handle, value ? 0 : 5);
+    }
 
     protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
     {
@@ -62,6 +70,8 @@ public sealed class UnitySurface : NativeControlHost
     private void FitPlayer()
     {
         if (!OperatingSystem.IsWindows() || Handle == IntPtr.Zero || playerWindow == IntPtr.Zero || !Native.IsWindow(playerWindow)) return;
+        // 子 HWND は Avalonia のシートより前に描画されるため、シートの間だけ隠す。
+        if (covered) Native.ShowWindow(Handle, 0);
         if (!Native.GetClientRect(Handle, out var rect)) return;
         var width = Math.Max(1, rect.Right - rect.Left); var height = Math.Max(1, rect.Bottom - rect.Top);
         if (width == lastWidth && height == lastHeight) return;

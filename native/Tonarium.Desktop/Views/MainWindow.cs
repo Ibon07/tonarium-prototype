@@ -26,8 +26,9 @@ public sealed class MainWindow : Window
     private readonly Dictionary<string, ItemWindow> itemWindows = [];
     private HomeView? home;
     private RoomView? room;
-    private Window? homeOverlay;
+    private Grid? homeOverlay;
     private HomeView? overlayView;
+    private readonly TextBlock sessionSummary = Ui.Text("", 13, "#FFFFFF");
     private UnitySurface? unitySurface;
     private string? previousSession;
     private bool signedIn, closing, refreshQueued, switching;
@@ -71,7 +72,7 @@ public sealed class MainWindow : Window
             e.Cancel = true;
             _ = Shutdown();
         };
-        KeyDown += (_, e) => { if (e.Key == Key.Escape && homeOverlay is not null) homeOverlay.Close(); };
+        AddHandler(KeyDownEvent, (_, e) => { if (e.Key == Key.Escape && context.HomeIsOpen) { CloseHome(); e.Handled = true; } }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         Opened += async (_, _) =>
         {
             if (Program.Arguments.Contains("--media-smoke"))
@@ -151,14 +152,15 @@ public sealed class MainWindow : Window
         {
             foreach (var item in itemWindows.Values.ToArray()) item.Close();
             itemWindows.Clear();
-            homeOverlay?.Close();
+            CloseHome();
+            if (client.State.SessionId is null) home.Navigate(context.HomeRoute);
             previousSession = client.State.SessionId;
             if (!Program.Arguments.Contains("--demo")) _ = SyncMedia();
             if (threeD.IsRunning) _ = threeD.StopAsync();
         }
         screen.Content = client.State.SessionId is null ? home : room;
         if (client.State.SessionId is null) home.Refresh(); else room.Refresh();
-        overlayView?.Refresh();
+        if (context.HomeIsOpen) { overlayView?.Refresh(); UpdateSessionSummary(); }
         foreach (var window in itemWindows.Values.ToArray()) window.Refresh();
     }
 
@@ -180,6 +182,7 @@ public sealed class MainWindow : Window
     private async Task ChangeMode(string mode)
     {
         if (switching) return;
+        if (client.State.Mode == mode && (mode == "2d" || threeD.IsRunning)) return;
         if (client.State.SessionId is null) { client.State.Mode = mode; client.State.Touch(); return; }
         switching = true;
         try
@@ -198,6 +201,7 @@ public sealed class MainWindow : Window
                 }
                 await threeD.StartAsync(parent);
                 unitySurface?.ResizePlayer(threeD.PlayerWindowHandle);
+                unitySurface?.SetCovered(context.HomeIsOpen);
             }
             else { await threeD.StopAsync(); Activate(); }
             Refresh();
@@ -229,17 +233,51 @@ public sealed class MainWindow : Window
 
     private void ShowHome(string page)
     {
-        if (page == "close") { homeOverlay?.Close(); Activate(); return; }
+        if (page == "close" || page == "toggle" && context.HomeIsOpen) { CloseHome(); return; }
         home ??= new HomeView(context);
-        if (client.State.SessionId is null) { home.Navigate(page); return; }
+        var route = page == "toggle" ? context.HomeRoute : page;
+        if (client.State.SessionId is null) { home.Navigate(route); return; }
         if (homeOverlay is null)
         {
-            overlayView = new HomeView(context);
-            homeOverlay = new Window { Title = "Tonarium · ホーム", Width = Math.Max(1000, Width - 90), Height = Math.Max(650, Height - 80), MinWidth = 900, MinHeight = 600, WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = overlayView };
-            homeOverlay.Closed += (_, _) => { homeOverlay = null; overlayView = null; };
-            homeOverlay.Show(this);
+            overlayView = new HomeView(context) { Focusable = true };
+            homeOverlay = new Grid { IsVisible = false };
+            KeyboardNavigation.SetTabNavigation(homeOverlay, KeyboardNavigationMode.Cycle);
+            var backdrop = new Border { Background = Ui.Brush("#B314161C") };
+            backdrop.PointerPressed += (_, _) => CloseHome();
+            homeOverlay.Children.Add(backdrop);
+            homeOverlay.Children.Add(new Border { Child = overlayView, CornerRadius = new CornerRadius(20), ClipToBounds = true, Margin = new Thickness(12, 72, 24, 88) });
+            sessionSummary.Margin = new Thickness(84, 20, 80, 0); sessionSummary.VerticalAlignment = VerticalAlignment.Top; sessionSummary.Height = 44;
+            homeOverlay.Children.Add(sessionSummary);
+            Button OverlayButton(string icon, string label, Action action)
+            {
+                var button = Ui.Button("", action); button.Content = new WebIcon(icon, 20); button.Width = button.Height = 44;
+                button.Padding = default; button.CornerRadius = new CornerRadius(14); button.Background = Ui.Brush(Ui.Paper);
+                button.BorderThickness = default; button.VerticalAlignment = VerticalAlignment.Top;
+                Avalonia.Automation.AutomationProperties.SetName(button, label); ToolTip.SetTip(button, label); return button;
+            }
+            var menu = OverlayButton("menu", "メニュー", CloseHome); menu.Margin = new Thickness(20,20,0,0); menu.HorizontalAlignment = HorizontalAlignment.Left;
+            var close = OverlayButton("close", "ホームを閉じる", CloseHome); close.Margin = new Thickness(0,20,24,0); close.HorizontalAlignment = HorizontalAlignment.Right;
+            homeOverlay.Children.Add(menu); homeOverlay.Children.Add(close);
+            root.Children.Insert(root.Children.Count - 1, homeOverlay);
         }
-        overlayView!.Navigate(page); homeOverlay.Activate();
+        context.HomeIsOpen = true; homeOverlay.IsVisible = true;
+        overlayView!.Navigate(route); overlayView.Refresh(); UpdateSessionSummary();
+        overlayView.Focus();
+        unitySurface?.SetCovered(true);
+    }
+
+    private void UpdateSessionSummary()
+    {
+        var state = client.State;
+        var name = J.Text(state.Sessions.FirstOrDefault(s => J.Text(s,"id") == state.SessionId), "name", "セッション");
+        sessionSummary.Text = $"●  参加中：{name}  · {state.Users.Count(u => J.Text(u,"session") == state.SessionId)} 人";
+    }
+
+    private void CloseHome()
+    {
+        context.HomeIsOpen = false;
+        if (homeOverlay is not null) homeOverlay.IsVisible = false;
+        unitySurface?.SetCovered(false);
     }
 
     public void Notify(string text)
@@ -253,7 +291,7 @@ public sealed class MainWindow : Window
     {
         closing = true;
         foreach (var window in itemWindows.Values.ToArray()) window.Close();
-        homeOverlay?.Close();
+        CloseHome();
         await threeD.DisposeAsync(); await media.DisposeAsync(); await client.DisposeAsync();
         Close();
     }
@@ -300,6 +338,10 @@ public sealed class MainWindow : Window
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
     private static extern bool PrintWindow(IntPtr window, IntPtr dc, uint flags);
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(IntPtr window);
+
     private async Task RunSmoke(string directory)
     {
         try
@@ -335,9 +377,17 @@ public sealed class MainWindow : Window
                 await ChangeMode("3d"); await Task.Delay(2500);
                 if (!threeD.IsRunning || threeD.PlayerWindowHandle == IntPtr.Zero) throw new InvalidOperationException("Unity の埋め込み起動を確認できませんでした");
                 await CaptureNative(Path.Combine(directory, "embedded.png"));
+                var player = threeD.PlayerWindowHandle;
+                ShowHome("items"); await Task.Delay(500);
+                if (!context.HomeIsOpen || IsWindowVisible(player) || !threeD.IsRunning || client.State.SessionId != sid)
+                    throw new InvalidOperationException("3D 表示中のホームシートを確認できませんでした");
+                await CaptureNative(Path.Combine(directory, "embedded-menu.png"));
+                ShowHome("close"); await Task.Delay(500);
+                if (context.HomeIsOpen || !IsWindowVisible(player) || player != threeD.PlayerWindowHandle)
+                    throw new InvalidOperationException("ホームシートから同じ Unity 画面への復帰を確認できませんでした");
                 Width = 1100; Height = 720; await Task.Delay(500);
                 await CaptureNative(Path.Combine(directory, "embedded-resized.png"));
-                await File.WriteAllTextAsync(Path.Combine(directory, "embedded.json"), new JsonObject { ["running"] = threeD.IsRunning, ["embedded"] = (unitySurface?.Handle ?? IntPtr.Zero) != IntPtr.Zero, ["mode"] = client.State.Mode, ["playerWindow"] = threeD.PlayerWindowHandle.ToInt64(), ["resized"] = true }.ToJsonString());
+                await File.WriteAllTextAsync(Path.Combine(directory, "embedded.json"), new JsonObject { ["running"] = threeD.IsRunning, ["embedded"] = (unitySurface?.Handle ?? IntPtr.Zero) != IntPtr.Zero, ["mode"] = client.State.Mode, ["playerWindow"] = threeD.PlayerWindowHandle.ToInt64(), ["resized"] = true, ["menuOverlayAndResume"] = true }.ToJsonString());
                 await ChangeMode("2d"); await Task.Delay(300);
                 if (threeD.IsRunning || client.State.Mode != "2d") throw new InvalidOperationException("2D への復帰を確認できませんでした");
                 Capture(Path.Combine(directory, "returned-2d.png"));

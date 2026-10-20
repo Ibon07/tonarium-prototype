@@ -13,6 +13,8 @@ public sealed class NativeContext(TonariumClient client, INativeMedia media, Win
     public Action<string>? ItemRequested { get; set; }
     public Action<string>? ProfileRequested { get; set; }
     public Action<string>? HomeRequested { get; set; }
+    public string HomeRoute { get; set; } = "home";
+    public bool HomeIsOpen { get; set; }
     public Func<string, Task>? ModeRequested { get; set; }
     public Func<double, double, double, Task>? TeleportRequested { get; set; }
     public void Notify(string text) => NotificationRequested?.Invoke(text);

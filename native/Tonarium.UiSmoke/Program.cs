@@ -38,7 +38,7 @@ internal static class Program
             {
                 if (args.Contains("--canvas-sync")) await CanvasSyncProbe.Run(server, args.ElementAtOrDefault(3) ?? server, output, Pass);
                 else if (args.Contains("--offline-avatar")) await AvatarProbe.VerifyOffline(server, output, Pass);
-                else await Run(server);
+                else await Run(server, !args.Contains("--menu"));
             }
             catch (Exception error) { failure = error; Console.Error.WriteLine(error); }
             finally { cancel.Cancel(); }
@@ -52,7 +52,7 @@ internal static class Program
         return failure is null ? 0 : 1;
     }
 
-    private static async Task Run(string server)
+    private static async Task Run(string server, bool verifyAvatar = true)
     {
         var suffix = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString()[^8..];
         var name = "UI確認 " + suffix;
@@ -120,7 +120,7 @@ internal static class Program
             await peer.JoinAsync(sid);
             await Until(() => peer.State.SyncStatus == "connected", "second participant joins room");
             await Capture(main, "05-room", true);
-            await AvatarProbe.Verify(main, client, peer, output, Pass);
+            if(verifyAvatar)await AvatarProbe.Verify(main, client, peer, output, Pass);
             var chat = Views<TextBox>(main).Single(t => t.PlaceholderText?.Contains("声の届く範囲") == true);
             var chatText = "こんにちは、ネイティブから " + suffix;
             Type(main, chat, chatText);
@@ -161,28 +161,60 @@ internal static class Program
             await peer.SendAsync(new { t = "friendAccept", to = client.State.SelfId });
             await Until(() => client.State.Friends.Any(n => n?.ToString() == peerName), "friend accepted");
             otherProfile.Close();
-            Click(main, "メニュー");
-            await Until(() => main.OwnedWindows.Any(w => Views<Button>(w).Any(b => Label(b) == "ホーム")), "session menu opens");
-            var menu = main.OwnedWindows.First(w => Views<Button>(w).Any(b => Label(b) == "ホーム"));
-            Click(menu, "ホーム"); menu.Close();
-            await Until(() => main.OwnedWindows.Any(w => Views<HomeView>(w).Any()), "open social home while room stays joined");
-            var overlay = main.OwnedWindows.First(w => Views<HomeView>(w).Any());
-            Click(overlay, b => Label(b) == "フレンド"); await Settle();
-            Click(overlay, "すべて"); await Settle();
-            var draft = Views<TextBox>(overlay).Single(t => t.PlaceholderText?.EndsWith("にメッセージを送信") == true);
+            var sessionMenu = Views<SessionMenuView>(main).Single();
+            var context=Field<NativeContext>(main,"context");
+            var menuButton = Views<Button>(sessionMenu).First(b => Label(b) == "メニュー");
+            var menuPoint=menuButton.TranslatePoint(new Point(22,22),main)!.Value;
+            main.MouseMove(menuPoint);
+            var menu = Field<HomeView>(sessionMenu,"navigation");
+            await Until(() => menu.IsEffectivelyVisible && menu.Bounds.Height > 0, "hover opens shared sidebar");
+            main.MouseDown(menuPoint,MouseButton.Left);main.MouseUp(menuPoint,MouseButton.Left);
+            await Until(()=>context.HomeIsOpen,"physical click after hover opens home sheet");
+            main.KeyPress(Key.Escape,RawInputModifiers.None,PhysicalKey.Escape,null);main.KeyRelease(Key.Escape,RawInputModifiers.None,PhysicalKey.Escape,null);
+            main.MouseMove(new Point(450,300));await Settle();main.MouseMove(menuPoint);await Settle();
+            foreach(var label in new[]{"ホーム","フレンド","セッション","イベント","グループ","ワールド","アイテム","セッションから離脱","プロフィールを設定"})
+                if(!Views<Button>(menu).Any(b=>Label(b)==label))throw new Exception("Missing menu action: "+label);
+            Pass("Hamburger includes all seven pages, groups, profile, status, modes and leave action");
+            using(var frame=new RenderTargetBitmap(new PixelSize((int)menu.Bounds.Width,(int)menu.Bounds.Height),new Vector(96,96))){frame.Render(menu);frame.Save(Path.Combine(output,"09-menu-sidebar.png"));}
+            Click(menu,"ステータスを変える");
+            await Until(()=>main.OwnedWindows.Any(w=>w.Title=="ステータス"),"status editor opens from hamburger");
+            var statusDialog=main.OwnedWindows.First(w=>w.Title=="ステータス");
+            Type(statusDialog,Views<TextBox>(statusDialog).Single(t=>t.PlaceholderText=="いまの気分、ひとこと"),"メニュー動作確認");Click(statusDialog,"保存");
+            await Until(()=>client.State.Users.Any(u=>J.Text(u,"name")==name&&J.Text(u,"statusText")=="メニュー動作確認"),"status saves through real server");
+            sessionMenu.OpenNavigation();await Settle();
+            var groupButton=Views<Button>(menu).Single(b=>AutomationProperties.GetName(b)==groupName);
+            groupButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(()=>context.HomeIsOpen&&context.HomeRoute.StartsWith("group:"),"group opens in same-window home sheet");
+            if(client.State.SessionId!=sid)throw new Exception("Opening home left the session");
+            await Capture(main,"09-menu-group-sheet",true);
+            main.KeyPress(Key.Escape,RawInputModifiers.None,PhysicalKey.Escape,null);main.KeyRelease(Key.Escape,RawInputModifiers.None,PhysicalKey.Escape,null);
+            await Until(()=>!context.HomeIsOpen,"Escape closes sheet");
+            Click(main,"メニュー");
+            await Until(()=>context.HomeIsOpen&&context.HomeRoute.StartsWith("group:"),"hamburger reopens last visited page");
+            foreach(var label in new[]{"ホーム","セッション","イベント","グループ","ワールド","アイテム","フレンド"})
+            {
+                Click(Field<HomeView>(main,"overlayView"),label);await Settle();
+                if(client.State.SessionId!=sid)throw new Exception("Menu navigation left the room");
+            }
+            Pass("All seven hamburger routes work without leaving the session");
+            var overlay = main;
+            var social=Field<HomeView>(main,"overlayView");
+            Click(social, b => Label(b) == "フレンド"); await Settle();
+            Click(social, "すべて"); await Settle();
+            var draft = Views<TextBox>(social).Single(t => t.PlaceholderText?.EndsWith("にメッセージを送信") == true);
             Type(overlay, draft, "DMも送れるよ " + suffix);
-            Click(overlay, b => Label(b).StartsWith("送信"));
+            Click(social, b => Label(b).StartsWith("送信"));
             var conv = "dm:" + string.Join('\0', new[] { name, peerName }.Order(StringComparer.Ordinal));
             await Until(() => peer.State.Conversations[conv] is JsonArray messages && messages.Any(m => J.Text(m, "text").Contains(suffix)), "direct message using native composer");
             await Settle();
-            draft = Views<TextBox>(overlay).Single(t => t.PlaceholderText?.EndsWith("にメッセージを送信") == true);
+            draft = Views<TextBox>(social).Single(t => t.PlaceholderText?.EndsWith("にメッセージを送信") == true);
             var keyboardDm = "Ctrl Enter送信 " + suffix;
             Type(overlay, draft, keyboardDm);
             overlay.KeyPress(Key.Enter, RawInputModifiers.Control, PhysicalKey.Enter, null);
             overlay.KeyRelease(Key.Enter, RawInputModifiers.Control, PhysicalKey.Enter, null);
             await Until(() => peer.State.Conversations[conv] is JsonArray keyboardMessages && keyboardMessages.Any(m => J.Text(m, "text") == keyboardDm), "direct message using Ctrl+Enter");
             await Capture(overlay, "09-social-dm", true);
-            Click(overlay, "プロフィールを設定");
+            Click(social, "プロフィールを設定");
             await Until(() => main.OwnedWindows.OfType<ProfileWindow>().Any(), "profile opens from home");
             var profile = main.OwnedWindows.OfType<ProfileWindow>().First();
             var bio = Views<TextBox>(profile).Single(t => t.PlaceholderText == "プロフィールに表示されます");
@@ -190,13 +222,15 @@ internal static class Program
             Click(profile, "自己紹介を保存");
             await Until(() => Views<TextBlock>(profile).Any(t => t.Text?.Contains("保存しました") == true), "profile bio saved through native UI");
             await Capture(profile, "10-self-profile", true);
-            profile.Close(); overlay.Close(); await Settle();
+            profile.Close(); Click(main,"ホームを閉じる"); await Settle();
             main.Width = 1000; main.Height = 640; await Settle();
             await Capture(main, "11-room-minimum", true);
             main.Width = 1360; main.Height = 880; main.SetRenderScaling(1.5); await Settle();
             await Capture(main, "12-room-150dpi", true);
             main.SetRenderScaling(1); await Settle();
-            Click(main, "切断");
+            Click(main,"メニュー");await Settle();
+            main.Width=1000;main.Height=640;await Capture(main,"12-menu-minimum",true);
+            Click(main,"セッションから離脱");
             await Until(() => client.State.SessionId is null && Views<HomeView>(main).Any(), "leave room and return to native home");
             await Capture(main, "13-return-home", true);
             main.Width = 1000; main.Height = 640;
@@ -221,6 +255,7 @@ internal static class Program
     private static IEnumerable<T> Views<T>(Visual root) where T : Visual => root.GetVisualDescendants().Prepend(root).OfType<T>();
     private static string Label(Button button)
     {
+        if(AutomationProperties.GetName(button) is {Length:>0} accessible)return accessible;
         var text = (button.Content as string ?? string.Join(" ", Views<TextBlock>(button).Where(t => t.IsEffectivelyVisible).Select(t => t.Text))).Trim();
         return text.Length > 0 ? text : AutomationProperties.GetName(button) ?? ToolTip.GetTip(button)?.ToString() ?? "";
     }

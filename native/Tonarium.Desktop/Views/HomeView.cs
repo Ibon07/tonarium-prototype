@@ -25,6 +25,7 @@ namespace Tonarium.Desktop.Views;
 public sealed class HomeView : UserControl
 {
     readonly NativeContext _context;
+    readonly Action<string>? _pickPage;
     readonly Dictionary<string, string> _drafts = new();
     readonly Dictionary<string, TextBox> _inputs = new();
     readonly Dictionary<string, Button> _nav = new();
@@ -40,6 +41,7 @@ public sealed class HomeView : UserControl
     readonly TextBlock _status = Text("", 11, Muted);
     readonly ContentControl _selfFace = new();
     Button? _mode2d, _mode3d;
+    Button? _leave;
     Button? _bell;
     Control? _searchHost;
     Button? _create;
@@ -62,11 +64,19 @@ public sealed class HomeView : UserControl
     static readonly (string Id, string Name, string Mark, string Desc, string Color)[] Items =
     [ ("note", "付箋", "付", "文字を書いて置いておける付箋。2D ではウィンドウで、3D では空間の板として読み書きできる。", "#FBF1C4"), ("hammer", "ピコピコハンマー", "槌", "手に持って誰かを叩ける。叩くと相手の前に移動する。", "#FBE3D2"), ("chess", "チェス", "♟", "3D では立体のチェス盤、2D ではパネルの UI で遊べる。", "#E3E7F6"), ("chessAi", "チェスAI", "♟AI", "白はあなた、黒はAI。みんなで白の駒を動かしてAIと対戦できる。", "#DFEEE8"), ("g2048", "2048", "2048", "みんなで操作するパズル。3D では互換表示のパネルになる。", "#F4EBCF"), ("canvas", "キャンバス", "画", "みんなで絵を描ける。ペンと消しゴム付き。", "#F6E4EC"), ("camera", "カメラ", "写", "3D 空間で写真を撮ったりライブ配信したりできる。ライブは 2D からも見られる。", "#E5F0E9"), ("dice", "サイコロ", "賽", "TRPG 用のサイコロ（d4〜d100、最大10個）。3D では木の器の中を転がり、結果はチャットに残る。シークレットで振ると結果は自分だけに見える。", "#F3E6D3") ];
 
-    public HomeView(NativeContext context)
+    public HomeView(NativeContext context) : this(context, null) { }
+
+    internal HomeView(NativeContext context, Action<string>? pickPage)
     {
         _context = context;
+        _pickPage = pickPage;
         FontFamily=Ui.BodyFont;
         _heading.FontFamily=Ui.HeadingFont;
+        if (pickPage is not null)
+        {
+            _root = new Grid(); _top = new Grid(); _scroll = new ScrollViewer();
+            Content = BuildSidebar(); Refresh(); return;
+        }
         _root = new Grid { ColumnDefinitions = new ColumnDefinitions("228,*,300"), Margin = new Thickness(16), ColumnSpacing = 16 };
         _root.Children.Add(BuildSidebar());
         var center = new Grid { RowDefinitions = new RowDefinitions("Auto,*"), RowSpacing = 22,Margin=new Thickness(4,8) };
@@ -109,12 +119,20 @@ public sealed class HomeView : UserControl
         _mode2d=IconTextButton("flat","2D", () => Run(() => _context.ChangeModeAsync("2d")),14);_mode3d=IconTextButton("cube","3D", () => Run(() => _context.ChangeModeAsync("3d")),14);var vr=IconTextButton("vr","VR",()=>_context.Notify("VR は準備中です"),14);
         var segment=new Grid{ColumnDefinitions=new ColumnDefinitions("*,*,*"),ColumnSpacing=2};var modes=new[]{_mode2d,_mode3d,vr};for(var i=0;i<3;i++){modes[i].Height=32;modes[i].Padding=default;modes[i].CornerRadius=new CornerRadius(999);modes[i].BorderThickness=default;modes[i].HorizontalAlignment=HorizontalAlignment.Stretch;Grid.SetColumn(modes[i],i);segment.Children.Add(modes[i]);}bottom.Children.Add(new Border{Background=Brush("#1426262E"),CornerRadius=new CornerRadius(999),Padding=new Thickness(3),Child=segment,Margin=new Thickness(0,0,0,6)});
         _selfFace.Content=Mark("", "#DAE5D6", 36);var selfButton=Btn("",StatusDialog);selfButton.Content=Row(_selfFace,Col(2,_self,_status));selfButton.Height=double.NaN;selfButton.MinHeight=44;selfButton.Background=Brushes.Transparent;selfButton.BorderThickness=default;selfButton.Padding=new Thickness(4);selfButton.HorizontalContentAlignment=HorizontalAlignment.Left;var selfRow=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto")};selfRow.Children.Add(selfButton);var settings=IconButton("settings","プロフィールを設定",()=>_context.OpenProfile(_context.State.Name),18);Grid.SetColumn(settings,1);selfRow.Children.Add(settings);bottom.Children.Add(new Border{Background=Brush(Sand),CornerRadius=new CornerRadius(14),Padding=new Thickness(6,6,4,6),Child=selfRow});
+        ToolTip.SetTip(selfButton,"ステータスを変える");
+        Avalonia.Automation.AutomationProperties.SetName(selfButton,"ステータスを変える");
+        _leave=IconTextButton("leave","セッションから離脱",()=>Run(()=>_context.Client.LeaveAsync()),18);
+        _leave.HorizontalAlignment=HorizontalAlignment.Stretch;_leave.HorizontalContentAlignment=HorizontalAlignment.Left;
+        _leave.Background=Brushes.Transparent;_leave.BorderThickness=default;_leave.Foreground=Brush("#A8321F");
+        _leave.Content=IconLabel("leave","セッションから離脱",18,"#A8321F",13);bottom.Children.Insert(bottom.Children.Count-1,_leave);
         Grid.SetRow(bottom, 2); body.Children.Add(bottom);
         return new Border { Background = Brush(Paper), CornerRadius = new CornerRadius(20), Padding = new Thickness(16), Child = body,BoxShadow=WebShadow };
     }
 
     public void Navigate(string page)
     {
+        if (_pickPage is not null) { _pickPage(page); return; }
+        _context.HomeRoute = page == "group" && _group.Length > 0 ? "group:" + _group : page;
         if (page.StartsWith("dm:")) { _dm = page[3..]; page = "friends"; _tab = "all"; }
         if (page.StartsWith("group:")) { _group = page[6..]; _channel = ""; page = "group"; }
         _page = page; _scroll.Offset = default; RenderPage();
@@ -123,18 +141,49 @@ public sealed class HomeView : UserControl
     {
         var s = _context.State;
         _self.Text = s.Name;
-        _status.Text = s.Connected ? "● " + StatusName(T(UserByName(s.Name),"status","online")) : "○ 接続待ち";
+        var self=UserByName(s.Name);var statusText=T(self,"statusText");
+        _status.Text = s.Connected ? "● " + (statusText.Length>0?statusText:StatusName(T(self,"status","online"))) : "○ 接続待ち";
         if(_bell!=null){var bell=new Grid();bell.Children.Add(Icon("bell",18));if(s.Notifications.Any(n=>B(n,"unread")))bell.Children.Add(new Border{Width=8,Height=8,CornerRadius=new CornerRadius(4),Background=Brush("#C2402F"),HorizontalAlignment=HorizontalAlignment.Right,VerticalAlignment=VerticalAlignment.Top});_bell.Content=bell;}
         if(_mode2d!=null){_mode2d.Background=s.Mode=="2d"?Brush("#FFFFFF"):Brushes.Transparent;_mode2d.Content=IconLabel("flat","2D",14,s.Mode=="2d"?Accent:Muted,12);}if(_mode3d!=null){_mode3d.Background=s.Mode=="3d"?Brush("#FFFFFF"):Brushes.Transparent;_mode3d.Content=IconLabel("cube","3D",14,s.Mode=="3d"?Accent:Muted,12);}
+        if(_leave!=null)_leave.IsVisible=s.SessionId is not null;
+        RefreshNavigation();
         // Room position packets arrive frequently. They must never rebuild text inputs.
-        var signature = string.Join("|", s.Name, s.SessionId, s.Sessions.ToJsonString(), s.Groups.ToJsonString(), s.Events.ToJsonString(), s.Friends.ToJsonString(), s.People.ToJsonString(), s.Conversations.ToJsonString(), s.Reads.ToJsonString(), s.Notifications.ToJsonString(), s.SessionInfo.ToJsonString(), string.Join(";", s.Users.Select(u => $"{T(u,"id")}:{T(u,"name")}:{T(u,"session")}:{T(u,"status")}:{T(u,"statusText")}:{T(u,"icon")}")));
+        var signature = string.Join("|", _context.HomeRoute, s.Name, s.SessionId, s.Sessions.ToJsonString(), s.Groups.ToJsonString(), s.Events.ToJsonString(), s.Friends.ToJsonString(), s.People.ToJsonString(), s.Conversations.ToJsonString(), s.Reads.ToJsonString(), s.Notifications.ToJsonString(), s.SessionInfo.ToJsonString(), string.Join(";", s.Users.Select(u => $"{T(u,"id")}:{T(u,"name")}:{T(u,"session")}:{T(u,"status")}:{T(u,"statusText")}:{T(u,"icon")}")));
         if (signature == _signature) return;
         _signature = signature;
         _selfFace.Content=Face(s.Name,34);
         _groupNav.Children.Clear();
-        foreach (var g in s.Groups.Where(IsMember)) { var id = T(g, "id"); var b = Btn(Initial(T(g,"name")), () => Navigate("group:" + id)); b.Width=40;b.Height=40;b.FontSize=16;b.FontWeight=FontWeight.Bold;b.CornerRadius=new CornerRadius(12);b.Padding=default;b.Background=Brush(T(g,"color",Accent));b.Foreground=Brush("#FFFFFF");b.BorderThickness=default;ToolTip.SetTip(b,T(g,"name"));_groupNav.Children.Add(b); }
+        foreach (var g in s.Groups.Where(IsMember))
+        {
+            var id=T(g,"id");var unread=UnreadConversations().Any(c=>c.StartsWith("ch:"+id+":"));
+            var b=Btn("",()=>Navigate("group:"+id));b.Width=40;b.Height=40;b.CornerRadius=new CornerRadius(12);b.Padding=default;
+            b.Background=Brush(T(g,"color",Accent));b.BorderBrush=Brush(Accent);b.BorderThickness=new Thickness(_context.HomeRoute=="group:"+id?2:0);
+            var mark=new Grid();mark.Children.Add(Text(Initial(T(g,"name")),16,"#FFFFFF",FontWeight.Bold));
+            ((TextBlock)mark.Children[0]).HorizontalAlignment=HorizontalAlignment.Center;
+            if(unread)mark.Children.Add(new Border{Width=8,Height=8,Background=Brush("#C2402F"),CornerRadius=new CornerRadius(4),HorizontalAlignment=HorizontalAlignment.Right,VerticalAlignment=VerticalAlignment.Top});
+            b.Content=mark;ToolTip.SetTip(b,T(g,"name"));Avalonia.Automation.AutomationProperties.SetName(b,T(g,"name")+(unread?"（未読あり）":""));_groupNav.Children.Add(b);
+        }
         if (_groupNav.Children.Count == 0) _groupNav.Children.Add(Text("なし", 12, Muted));
-        RenderPage(); RenderAside();
+        if (_pickPage is null) { RenderPage(); RenderAside(); }
+    }
+
+    void RefreshNavigation()
+    {
+        var unreadDm=UnreadConversations().Count(c=>c.StartsWith("dm:"));
+        var online=_context.State.Users.Where(u=>FriendNames.Contains(T(u,"name"))).Select(u=>T(u,"name")).Distinct().Count();
+        var now=DateTimeOffset.Now.ToUnixTimeMilliseconds();
+        var upcoming=_context.State.Events.Count(e=>N(e,"at")>now-3600000&&N(e,"at")<now+7*86400000L);
+        var route=_context.HomeRoute.StartsWith("dm:")?"friends":_context.HomeRoute;
+        foreach(var n in Navigation)
+        {
+            var b=_nav[n.Id];var selected=n.Id==route;b.Background=selected?Brush(AccentBg):Brushes.Transparent;
+            var row=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto"),ColumnSpacing=6};
+            row.Children.Add(IconLabel(n.Icon,n.Label,18,selected?Accent:"#3A3942",14,12));
+            var count=n.Id=="friends"?(unreadDm>0?unreadDm:online):n.Id=="events"?upcoming:0;
+            if(count>0){var badge=Chip(count.ToString(),n.Id=="friends"&&unreadDm>0?"#C2402F":"#E6EAF2",n.Id=="friends"&&unreadDm>0?"#FFFFFF":Accent,11,20);Grid.SetColumn(badge,1);row.Children.Add(badge);}
+            b.Content=row;b.HorizontalContentAlignment=HorizontalAlignment.Stretch;
+            Avalonia.Automation.AutomationProperties.SetName(b,n.Label);
+        }
     }
 
     void RenderPage()
@@ -143,7 +192,7 @@ public sealed class HomeView : UserControl
         var focusKey = _inputs.FirstOrDefault(x => x.Value == focused).Key;
         var caret = focused?.CaretIndex ?? 0;
         var offset = _scroll.Offset; _inputs.Clear();
-        foreach (var pair in _nav){pair.Value.Background = pair.Key == _page ? Brush(AccentBg) : Brushes.Transparent;var n=Navigation.First(x=>x.Id==pair.Key);pair.Value.Content=IconLabel(n.Icon,n.Label,18,pair.Key==_page?Accent:"#3A3942",14,12);}
+        RefreshNavigation();
         if(_searchHost!=null)_searchHost.IsVisible=_page!="group";UpdateColumns();
         _heading.Text = Navigation.FirstOrDefault(n => n.Id == _page).Label ?? (_page == "group" ? T(Find(_context.State.Groups, _group), "name", "グループ") : "通知");
         _headingHost.Content=null;_actionHost.Content=null;
@@ -512,8 +561,8 @@ public sealed class HomeView : UserControl
     static Control Mark(string text,string color,double size)=>new Border{Width=size,Height=size,Background=Brush(color),CornerRadius=new CornerRadius(size*.3),Child=new TextBlock{Text=text,FontFamily=Ui.BodyFont,FontSize=text.Length>2?size*.3:size*.44,FontWeight=FontWeight.Bold,Foreground=Brush(Ink),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center}};
     static Control Icon(string name,double size=16,string color=Ink)=>new WebIcon(name,size,Brush(color)){HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};
     static Control IconLabel(string name,string text,double size=16,string color=Ink,double textSize=14,double spacing=6){var row=Row(Icon(name,size,color),Text(text,textSize,color,FontWeight.SemiBold));row.Spacing=spacing;return row;}
-    static Button IconTextButton(string icon,string text,Action action,double size=16){var button=Btn("",action);button.Content=IconLabel(icon,text,size);return button;}
-    static Button IconButton(string icon,string label,Action action,double size=16){var button=Btn("",action);button.Content=Icon(icon,size);button.Padding=default;button.Width=36;button.Height=36;button.BorderThickness=default;button.Background=Brushes.Transparent;ToolTip.SetTip(button,label);return button;}
+    static Button IconTextButton(string icon,string text,Action action,double size=16){var button=Btn("",action);button.Content=IconLabel(icon,text,size);Avalonia.Automation.AutomationProperties.SetName(button,text);return button;}
+    static Button IconButton(string icon,string label,Action action,double size=16){var button=Btn("",action);button.Content=Icon(icon,size);button.Padding=default;button.Width=36;button.Height=36;button.BorderThickness=default;button.Background=Brushes.Transparent;ToolTip.SetTip(button,label);Avalonia.Automation.AutomationProperties.SetName(button,label);return button;}
     static Control BrandMark()=>new Border{Width=34,Height=34,CornerRadius=new CornerRadius(10),ClipToBounds=true,Child=WebAssets.Image("brand/mark.png",34,34)};
     static Control Chip(string text,string color=Sand,string ink="#4A4852",double size=11,double height=22,string? icon=null)=>new Border{Background=Brush(color),CornerRadius=new CornerRadius(8),Padding=new Thickness(8,0),Height=height,Child=icon==null?Text(text,size,ink,FontWeight.Bold):IconLabel(icon,text,size,ink,size,4)};
     static Control HereBadge(string text="参加中")=>new Border{Background=Brush("#E3F2E8"),CornerRadius=new CornerRadius(10),Padding=new Thickness(12,0),Height=32,Child=Row(new Border{Width=8,Height=8,CornerRadius=new CornerRadius(4),Background=Brush("#2E9A64"),VerticalAlignment=VerticalAlignment.Center},Text(text,12,"#2E6E4E",FontWeight.Bold))};
