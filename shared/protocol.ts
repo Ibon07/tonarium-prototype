@@ -3,6 +3,7 @@ import type { WorldKind } from './worlds.ts';
 import type { DiceRoll } from './dice.ts';
 import type { GameState } from './game.ts';
 import type { SyncConfig } from './session-wire.ts';
+import type { PeerOperation } from './session-events.ts';
 
 export type Mode = '2d' | '3d';
 
@@ -254,7 +255,7 @@ export type HomeClientMsg =
   | { t: 'hello'; id: string; name: string }
   | { t: 'join'; sid: string }
   | { t: 'leave' }
-  | { t: 'prepareSync'; requestId: string }
+  | { t: 'prepareSync'; requestId: string; peerPositions?: boolean; peerDelivery?: boolean }
   /** /icon・/avatar・/profile へ保存した後に、同じ名前のオンラインの人へ反映させる */
   | { t: 'profileUpdated' }
   | { t: 'friendRequest'; to: string }
@@ -283,6 +284,7 @@ export type HomeClientMsg =
 
 /** kokosync でサーバーへ送るもの（セッションの中だけ）。 */
 export type RoomClientMsg =
+  | { t: 'peerOperation'; event: PeerOperation }
   /** 部屋につないだ・つなぎ直した後に、中の状態を送ってもらう */
   | { t: 'sync' }
   | { t: 'mode'; mode: Mode }
@@ -320,6 +322,7 @@ export type ClientMsg = HomeClientMsg | RoomClientMsg;
 
 /** 部屋へ送る種類の一覧（送り先の振り分けに使う。型と同じ並び） */
 const ROOM_CLIENT_TYPES: Record<RoomClientMsg['t'], true> = {
+  peerOperation: true,
   sync: true, mode: true, status: true, follow: true, dropFollowers: true, place2d: true, displayMove: true, chat: true, avatar: true,
   viewing: true, poke: true, sound: true, liveRequest: true, viewLive: true, itemCreate: true, attention: true, broadcast: true, world: true,
   gameStart: true, gameStep: true, gameFell: true, itemRemove: true, itemMove: true, itemAction: true, hit: true,

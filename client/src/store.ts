@@ -5,6 +5,7 @@ import type { Item } from '../../shared/items.ts';
 import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
 import type { DieSides } from '../../shared/dice.ts';
 import { newGame, type GameState } from '../../shared/game.ts';
+import type { PositionRoute } from '../../shared/session-position.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
 export type WinMode = 'simple' | 'free';
@@ -127,6 +128,8 @@ interface State {
   syncTransport: string | null;
   syncRtt: number | null;
   syncStats: Record<string, unknown> | null;
+  syncRoutes: PositionRoute[];
+  syncPeerDelivery: boolean;
   voiceError: string | null;
   /** 希望設定。未接続中も切り替えられ、参加時に適用する */
   micEnabled: boolean;
@@ -228,6 +231,8 @@ export const useStore = create<State>(() => ({
   syncTransport: null,
   syncRtt: null,
   syncStats: null,
+  syncRoutes: [],
+  syncPeerDelivery: false,
   voiceError: null,
   micEnabled: true,
   speaking: {},

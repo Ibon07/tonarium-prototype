@@ -10,7 +10,7 @@
     "livekit:stop": "docker compose -f docker-compose.dev.yml down",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:chess": "tsx --test shared/chess.test.ts server/chess-ai.test.ts",
-    "test:sync": "tsx --test shared/session-wire.test.ts",
+    "test:sync": "tsx --test shared/session-wire.test.ts shared/session-position.test.ts shared/session-events.test.ts",
     "test:sync:integration": "tsx --test server/session.integration.test.ts"
   },
   "dependencies": {

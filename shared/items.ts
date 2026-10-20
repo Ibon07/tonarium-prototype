@@ -43,7 +43,7 @@ export type Item =
   | (ItemBase & { kind: 'image'; url: string; w: number; h: number })
   | (ItemBase & { kind: 'video'; url: string; w: number; h: number; clock: MediaClock })
   | (ItemBase & { kind: 'youtube'; videoId: string; title: string; clock: MediaClock })
-  /** 振るのはサーバー（結果を決めてチャットにも残す）。roll は最後に振った回 */
+  /** 結果をサーバーで検証・確定し、チャットにも残す。roll は最後に振った回 */
   | (ItemBase & { kind: 'dice'; roll: DiceRoll | null });
 
 export type ChessItem = Extract<Item, { kind: 'chess' | 'chessAi' }>;

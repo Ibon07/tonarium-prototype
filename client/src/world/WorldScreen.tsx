@@ -128,7 +128,12 @@ function StatusChips() {
   const chips: React.ReactNode[] = [];
   if (s.sync === 'connecting') chips.push(<span key="sync">セッションを同期中…</span>);
   if (s.sync === 'unavailable') chips.push(<span key="sync" title={s.syncError ?? ''}>同期に再接続しています{ s.syncError ? `（${s.syncError}）` : ''}</span>);
-  if (s.sync === 'connected') chips.push(<span key="sync" title={`kokosync · ${s.syncTransport ?? ''}`}>同期 {s.syncRtt === null ? '接続済み' : `${s.syncRtt} ms`}{s.syncTransport === 'websocket' ? ' · 互換接続' : ''}</span>);
+  if (s.sync === 'connected') chips.push(<span key="sync" title={`kokosync · ${s.syncTransport ?? ''} · 中継サーバーとのRTT（P2PのRTTは相手別表示）`}>同期 {s.syncRtt === null ? '接続済み' : `${s.syncRtt} ms`}{s.syncTransport === 'websocket' ? ' · 互換接続' : ''}</span>);
+  if (s.sync === 'connected' && s.syncRoutes.length) {
+    const direct = s.syncRoutes.filter((r) => r.route === 'direct').length;
+    const detail = s.syncRoutes.map((r) => `${s.users.find((u) => u.id === r.user)?.name ?? r.user}: ${r.route === 'direct' ? 'P2P' : '中継'} · ${r.reason}${r.rttMs === null ? '' : ` · ${Math.round(r.rttMs)} ms`} · P2P送/受 ${r.sentDirect}/${r.receivedDirect} · 中継送/受 ${r.sentRelay}/${r.receivedRelay}`).join('\n');
+    chips.push(<span key="routes" title={detail}>位置同期 P2P {direct}人 · 中継 {s.syncRoutes.length - direct}人</span>);
+  }
   if (s.voice === 'connecting') chips.push(<span key="v">通話に接続中…</span>);
   if (s.voice === 'unavailable') chips.push(<span key="v" title={s.voiceError ?? ''}>通話・映像に接続できません{ s.voiceError ? `（${s.voiceError}）` : ''}</span>);
   if (s.mode === '2d' && hammer) chips.push(<span key="h">ピコピコハンマーを持っています · 人をクリックで叩く<button className="chipbtn" onClick={dropHammer}>手放す</button></span>);

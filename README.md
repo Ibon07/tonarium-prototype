@@ -9,7 +9,7 @@
   - `client/src/world/` ワールド画面（左のプレイヤー・アイテム、上の顔、右の通知・ログ、下のドック、背面のウィンドウ）
   - `client/src/home/` ホーム画面（セッション外。セッション・フレンド・イベント・グループ・ワールド・アイテムの一覧と作成）
 - `server/` Node + ws + kokosync。オンラインのユーザーと、セッションごとの状態（チャット・アイテム・アバター位置）を保持する。セッション内のデータ同期は kokosync、フレンド・DM・ホームは従来の WebSocket（[docs/sync.md](docs/sync.md)）。LiveKit の通話トークンも発行。画面から作ったセッション・グループ・イベントは `data/home.json` に保存
-- `shared/protocol.ts` アプリのメッセージ型、`shared/session-wire.ts` MessagePack と同期パケット、`shared/places.ts` 位置と距離（クライアントとサーバーで共用）
+- `shared/protocol.ts` アプリのメッセージ型、`shared/session-wire.ts` MessagePack と同期パケット、`shared/session-position.ts` 位置配送、`shared/session-events.ts` P2Pでの本文配送とサーバー確定後の適用、`shared/places.ts` 位置と距離（クライアントとサーバーで共用）
 - `sessions.json` 最初からあるセッションの構成（各セッションが最初に読み込むワールド＝ 3D 空間も指定）。ホームの「セッションを作る」で増やしたものは `data/home.json`
 - `shared/worlds.ts` ワールドの種類（ホール・カフェ）と家具の当たり判定。見た目は `client/src/view3d/worlds3d.tsx`
 - `client/public/brand/` ロゴ・ファビコン・OGP 画像。OGP の絶対 URL は、サーバーが `index.html` を返すときにアクセスされたドメインで埋める（`__ORIGIN__`）
@@ -55,7 +55,8 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 - 距離で変わる声、ブロードキャストモード、ついていく → [docs/audio.md](docs/audio.md)
 - アイテム（付箋・ハンマー・チェス・サイコロ・キャンバス・カメラ・2048）と画像・動画・YouTube の共有 → [docs/items.md](docs/items.md)
 - 外から試す（cloudflared）・Coolify へのデプロイ → [docs/deploy.md](docs/deploy.md)
-- 同期の仕組み（kokosync、初回同期、大きいデータ、つなぎ直し、通信状態）→ [docs/sync.md](docs/sync.md)
+- 同期の仕組み（kokosync、位置・チャット・キャンバス・サイコロのP2P配送、初回同期、大きいデータ、通信状態）→ [docs/sync.md](docs/sync.md)
+- セッション同期を汎用P2P通信へ広げる設計方針と段階的な実装 → [docs/peer-sync-plan.md](docs/peer-sync-plan.md)
 - 実装の設計 → [docs/architecture.md](docs/architecture.md)
 
 ## 参加者への注意

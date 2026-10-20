@@ -1,7 +1,10 @@
 import { KokosyncClient, type Value } from '../../../vendor/kokosync/index.js';
 import type { AvatarState, RoomClientMsg, ServerMsg } from '../../../shared/protocol.ts';
 import { importKey, MAX_PACKET, open, pack, PACKET_TOPIC, receiveBlob, seal, sealBytes, sendPacket, type Envelope, type SyncConfig } from '../../../shared/session-wire.ts';
-import { get, set, showToast } from '../store.ts';
+import { POSITION_DIRECT_PEERS, POSITION_TOPIC, SessionPositions } from '../../../shared/session-position.ts';
+import { SessionEvents } from '../../../shared/session-events.ts';
+import { clampAvatar } from '../../../shared/places.ts';
+import { get, set, showToast, worldKindOf } from '../store.ts';
 import { resendViewing } from '../world/windows.ts';
 import { applySessionSnapshot, onMessage, send } from './ws.ts';
 
@@ -10,13 +13,18 @@ let requestId = '';
 let client: KokosyncClient | null = null;
 let config: SyncConfig | null = null;
 let key: CryptoKey | null = null;
+let peerPositions: SessionPositions | null = null;
+let peerEvents: SessionEvents | null = null;
 let ready = false;
 let retry = 0;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let deadline: ReturnType<typeof setTimeout> | undefined;
 let statsTimer: ReturnType<typeof setInterval> | undefined;
+let peerStatsTimer: ReturnType<typeof setInterval> | undefined;
 let outgoing = Promise.resolve();
 let incoming = Promise.resolve();
+let incomingBytes = 0;
+let incomingCount = 0;
 let sendSeq = 0;
 let receivedSeq = 0;
 let positionSeq = 0;
@@ -28,13 +36,16 @@ const initialPositions = new Map<string, AvatarState>();
 export function stopSessionSync(warn = false) {
   if (warn && (queuedBytes > 0 || pending.length > 0)) showToast('通信が途切れました。直前の操作が反映されたか確認してください');
   generation++;
-  clearTimeout(retryTimer); clearTimeout(deadline); clearInterval(statsTimer);
+  clearTimeout(retryTimer); clearTimeout(deadline); clearInterval(statsTimer); clearInterval(peerStatsTimer);
   const old = client;
+  peerPositions?.close(); peerPositions = null;
+  peerEvents?.close(); peerEvents = null;
   client = null; config = null; key = null; ready = false; requestId = '';
   old?.close();
   pending = []; queuedBytes = 0; positions.clear(); initialPositions.clear();
   outgoing = Promise.resolve(); incoming = Promise.resolve();
-  set({ sync: 'off', syncError: null, syncTransport: null, syncRtt: null, syncStats: null });
+  incomingBytes = 0; incomingCount = 0;
+  set({ sync: 'off', syncError: null, syncTransport: null, syncRtt: null, syncStats: null, syncRoutes: [], syncPeerDelivery: false });
 }
 
 export function startSessionSync() {
@@ -42,7 +53,7 @@ export function startSessionSync() {
   if (!get().session || !get().wsConnected) return;
   requestId = crypto.randomUUID();
   set({ sync: 'connecting' });
-  send({ t: 'prepareSync', requestId });
+  send({ t: 'prepareSync', requestId, peerPositions: true, peerDelivery: true });
   const gen = generation;
   deadline = setTimeout(() => { if (gen === generation) failed('同期の接続がタイムアウトしました'); }, 60_000);
 }
@@ -68,18 +79,36 @@ export async function configureSessionSync(id: string, next: SyncConfig) {
       connection = await KokosyncClient.connect({
         url: location.origin, room: next.room, peer: next.peer, timeout: 45_000, connectTimeout: 8000,
         offerUrl: '/sync/offer', offerHeaders: { 'X-Tonarium-Sync': next.token },
+        routing: { enabled: true, maxPeers: POSITION_DIRECT_PEERS, peers: [] },
       });
     } catch {
       if (gen !== generation) return;
       connection = await KokosyncClient.connect({
         url: location.origin, room: next.room, peer: next.peer, timeout: 45_000, transport: 'websocket',
         websocketUrl: `/sync/ws?token=${encodeURIComponent(next.token)}`,
+        routing: { enabled: true, maxPeers: POSITION_DIRECT_PEERS, peers: [] },
       });
     }
     if (gen !== generation) { connection.close(); return; }
     client = connection; config = next; key = encryptionKey;
+    const peerTransport = next.positionKey ? new SessionPositions(connection, next, (id, state) => {
+      if (gen !== generation) return;
+      const s = clampAvatar(worldKindOf(get()), state);
+      if (ready) onMessage({ t: 'avatar', sid: next.sid, id, s });
+      else initialPositions.set(id, s);
+    }) : null;
+    peerPositions = peerTransport;
+    const events = next.peerDelivery ? new SessionEvents(connection, next) : null;
+    peerEvents = events;
+    let routeStatus = '';
+    const updateRoutes = (force = false) => {
+      if (gen !== generation) return;
+      const routes = peerTransport?.routes() ?? [];
+      const status = routes.map((r) => `${r.peer}:${r.route}:${r.reason}`).join('|');
+      if (force || status !== routeStatus) { routeStatus = status; set({ syncRoutes: routes }); }
+    };
     sendSeq = 0; receivedSeq = 0; positionSeq = 0;
-    set({ syncTransport: connection.transport });
+    set({ syncTransport: connection.transport, syncPeerDelivery: !!events });
     const receive = async (raw: unknown, from: string, latest = false) => {
       const p = raw as Envelope;
       if (gen !== generation || from !== next.server || p?.grant !== next.token) return;
@@ -97,7 +126,14 @@ export async function configureSessionSync(id: string, next: SyncConfig) {
         }
         if (result.seq <= receivedSeq) return;
         receivedSeq = result.seq;
-        if (result.value.kind === 'snapshot' && result.value.snapshot?.sid === next.sid) {
+        if (result.value.kind === 'peers') {
+          await peerTransport?.update(result.value.peers);
+          events?.update(result.value.peers);
+          updateRoutes(true);
+        } else if (result.value.kind === 'peerCommit' && events) {
+          const payload = await events.resolve(result.value);
+          if (gen === generation && ready) onMessage(payload.message);
+        } else if (result.value.kind === 'snapshot' && result.value.snapshot?.sid === next.sid) {
           applySessionSnapshot(result.value.snapshot);
           for (const [id, s] of initialPositions) onMessage({ t: 'avatar', sid: next.sid, id, s });
           initialPositions.clear();
@@ -115,21 +151,76 @@ export async function configureSessionSync(id: string, next: SyncConfig) {
         } else if (ready && result.value.kind === 'message') onMessage(result.value.message as ServerMsg);
       };
       if (latest) await apply();
-      else { const task = incoming.then(apply); incoming = task.catch(() => {}); await task; }
+      else {
+        const size = pack(raw).length;
+        if (incomingCount >= 256 || incomingBytes + size > MAX_PACKET * 2) {
+          if (gen === generation) failed('同期データの受信待ちが増えたため再同期しています');
+          return;
+        }
+        incomingBytes += size; incomingCount++;
+        const task = incoming.then(apply); incoming = task.catch(() => {});
+        try { await task; }
+        finally { if (gen === generation) { incomingBytes -= size; incomingCount--; } }
+      }
     };
     connection.on('message', (f) => { if (f.topic === PACKET_TOPIC) return receive(f.value, f.peer).catch(() => { if (gen === generation) failed('同期データを読み直しています'); }); });
-    connection.on('latest', (f) => { if (f.key?.startsWith(`${PACKET_TOPIC}:${next.slot}:`)) return receive(f.value, f.peer, true).catch(() => {}); });
+    connection.on('latest', (f) => {
+      if (f.key?.startsWith(POSITION_TOPIC)) return peerTransport?.receive(f).catch(() => {});
+      if (f.key?.startsWith(`${PACKET_TOPIC}:${next.slot}:`)) return receive(f.value, f.peer, true).catch(() => {});
+    });
+    connection.on('route', () => updateRoutes());
+    connection.on('peer_message', (f) => events?.receive(f));
     connection.on('blob_open', (f) => receiveBlob(connection, f, (peer) => peer === next.server, receive).catch(() => { if (gen === generation) failed('大きな同期データの受信に失敗しました'); }));
     connection.on('close', () => { if (gen === generation) failed('同期の接続が切れました'); });
-    connection.on('error', () => { if (gen === generation) failed('同期の通信に失敗しました'); });
+    connection.on('error', (error) => {
+      // 退出通知より先に相手が中継から消えた場合、この位置更新だけを捨てる。
+      if (!error.id && error.code === 'InvalidMessage' && error.message === 'duplicate or unknown recipient') return;
+      if (gen === generation) failed('同期の通信に失敗しました');
+    });
     roomSend({ t: 'sync' });
     statsTimer = setInterval(() => {
       const start = performance.now();
       void Promise.all([
         connection.ping().then(() => { if (gen === generation) set({ syncRtt: Math.round(performance.now() - start) }); }),
-        connection.stats().then((stats) => { if (gen === generation) set({ syncStats: stats }); }),
+        connection.stats().then((stats) => { if (gen === generation) { set({ syncStats: stats }); updateRoutes(true); } }),
       ]).catch(() => { if (gen === generation) failed('同期サーバーから応答がありません'); });
     }, 5000);
+    let previousRoutes = new Map((peerTransport?.routes() ?? []).map((r) => [`${r.peer}:${r.publisherEpoch}`, r]));
+    let previousTime = performance.now();
+    peerStatsTimer = setInterval(() => {
+      if (gen !== generation) return;
+      const now = performance.now();
+      const seconds = (now - previousTime) / 1000;
+      const routes = peerTransport?.routes() ?? [];
+      const users = get().users;
+      const rows = routes.map((r) => {
+        const previous = previousRoutes.get(`${r.peer}:${r.publisherEpoch}`);
+        const rate = (field: 'sentDirect' | 'receivedDirect' | 'sentRelay' | 'receivedRelay') =>
+          seconds > 0 ? Math.round(Math.max(0, r[field] - (previous?.[field] ?? 0)) / seconds * 10) / 10 : 0;
+        return {
+          name: users.find((u) => u.id === r.user)?.name ?? r.user,
+          peer: r.peer, route: r.route, reason: r.reason, directRttMs: r.rttMs,
+          'p2pSend/s': rate('sentDirect'), 'p2pReceive/s': rate('receivedDirect'),
+          'relaySend/s': rate('sentRelay'), 'relayReceive/s': rate('receivedRelay'),
+          p2pSent: r.sentDirect, p2pReceived: r.receivedDirect,
+          relaySent: r.sentRelay, relayReceived: r.receivedRelay,
+        };
+      });
+      const delivery = connection.deliveryStats();
+      const total = (route: 'direct' | 'relay', field: 'sentMessages' | 'receivedMessages') =>
+        delivery.filter((r) => r.route === route && (r.kind === 'peer_message' || r.kind === 'peer_bulk')).reduce((sum, r) => sum + r[field], 0);
+      console.groupCollapsed(`[kokosync:peers] ${new Date().toISOString()} · ${routes.length} peers · core=${connection.transport} · data P2P ${total('direct', 'sentMessages')}/${total('direct', 'receivedMessages')} · relay ${total('relay', 'sentMessages')}/${total('relay', 'receivedMessages')}`);
+      console.table(rows);
+      console.table(delivery.map((r) => ({
+        name: users.find((u) => u.id === peerTransport?.routes().find((p) => p.peer === r.peer)?.user)?.name ?? (r.peer === next.server ? 'server' : r.peer),
+        peer: r.peer, route: r.route, kind: r.kind, rttMs: r.rttMs, sentBytes: r.sentBytes, receivedBytes: r.receivedBytes,
+        sentMessages: r.sentMessages, receivedMessages: r.receivedMessages, retries: r.retries,
+        queuedMessages: r.queuedMessages, queuedBytes: r.queuedBytes, unackedMessages: r.unackedMessages, reason: r.reason,
+      })));
+      console.groupEnd();
+      previousRoutes = new Map(routes.map((r) => [`${r.peer}:${r.publisherEpoch}`, r]));
+      previousTime = now;
+    }, 1000);
   } catch (e) { if (gen === generation) failed((e as Error).message); }
 }
 
@@ -145,6 +236,7 @@ export function roomSend(msg: RoomClientMsg) {
   const c = client, cfg = config, k = key, gen = generation;
   if (!c || !cfg || !k) return;
   if (msg.t === 'avatar') {
+    if (peerPositions) { void peerPositions.send(msg.s).catch(() => {}); return; }
     const seq = ++positionSeq;
     void seal(k, cfg.token, 'client-position', seq, msg).then((p) => {
       if (gen === generation && seq === positionSeq) c.latest(PACKET_TOPIC, p as unknown as Value, BigInt(seq));
@@ -158,7 +250,12 @@ export function roomSend(msg: RoomClientMsg) {
   queuedBytes += bytes.length;
   outgoing = outgoing.then(async () => {
     if (gen !== generation) return;
-    await sendPacket(c, cfg.server, await sealBytes(k, cfg.token, 'client', ++sendSeq, bytes));
+    const state = get();
+    const event = await peerEvents?.prepare(msg, { sid: cfg.sid, user: state.selfId, name: state.selfName,
+      at: Date.now() + state.serverOffset, item: msg.t === 'itemAction' ? state.itemsBy[cfg.sid]?.[msg.id] : undefined });
+    if (gen !== generation) return;
+    const value = event ? pack({ t: 'peerOperation', event }) : bytes;
+    await sendPacket(c, cfg.server, await sealBytes(k, cfg.token, 'client', ++sendSeq, value));
   }).catch(() => { if (gen === generation) failed('操作の送信に失敗しました'); })
     .finally(() => { if (gen === generation) queuedBytes -= bytes.length; });
 }

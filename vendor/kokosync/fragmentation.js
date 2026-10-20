@@ -6,6 +6,7 @@ export const fragmentationDefaults = Object.freeze({
   inflightBytes: 65536, concurrent: 4, timeoutMs: 30000, queueBytes: 8388608,
 });
 const codec = { useBigInt64: true, maxDepth: 40 };
+const peerFrames = new Set(["peer_open", "peer_credit", "peer_chunk", "peer_complete", "peer_done", "peer_cancel", "peer_relay_error"]);
 const digest = bytes => Array.from(sha256(bytes), b => b.toString(16).padStart(2, "0")).join("");
 function uint(value, name) {
   if (typeof value === "bigint" && value >= 0n && value <= BigInt(Number.MAX_SAFE_INTEGER)) value = Number(value);
@@ -23,6 +24,9 @@ export function fragmentationLimits(options = {}) {
   return limits;
 }
 function lane(frame) {
+  if (["peer_open", "peer_credit", "peer_complete", "peer_done", "peer_cancel", "peer_relay_error"].includes(frame.type)) return "peer_control";
+  if (frame.type === "peer_chunk") return frame.bulk ? "peer_bulk" : "peer_small";
+  if (["route_signal", "peer_joined", "peer_left"].includes(frame.type)) return "routing";
   if (["message", "catchup", "checkpoint"].includes(frame.type) || frame.type === "ack" && frame.seq !== undefined) return "message";
   if (["set", "delete", "state", "snapshot"].includes(frame.type) || frame.type === "ack" && frame.revision !== undefined) return "state";
   return frame.type === "event" ? "event" : "control";
@@ -36,7 +40,7 @@ export class Fragmentation {
     this.buffered = buffered;
     this.deliver = deliver;
     this.fail = fail;
-    this.queues = new Map(["control", "message", "state", "event"].map(key => [key, []]));
+    this.queues = new Map(["control", "routing", "peer_control", "peer_small", "message", "state", "event", "peer_bulk"].map(key => [key, []]));
     this.outgoing = new Map();
     this.incoming = new Map();
     this.queuedBytes = 0;
@@ -61,11 +65,14 @@ export class Fragmentation {
   enqueue(frame, bytes) {
     if (this.closed) throw new Error("Client is closed");
     const limits = this.limits;
+    if (peerFrames.has(frame.type) && bytes.length > 65536) throw new RangeError("Peer delivery frame exceeds physical limit");
     if (bytes.length > (limits?.logicalBytes ?? 65536)) throw new RangeError("Encoded reliable envelope exceeds logicalBytes");
     if (this.queuedBytes + bytes.length > (limits?.queueBytes ?? 8388608)) throw new Error("Reliable send queue is full");
     if ([...this.queues.values()].reduce((count, queue) => count + queue.length, 0) >= 256)
       throw new Error("Reliable send queue contains 256 envelopes");
-    const entry = { bytes, id: frame.id, offset: 0, credit: 0, inline: frame.type.startsWith("blob_") && bytes.length <= 65536 };
+    const entry = { bytes, id: frame.id, offset: 0, credit: 0,
+      inline: frame.type.startsWith("blob_") && bytes.length <= 65536 || frame.type === "route_signal" && bytes.length <= 16384 ||
+        ["peer_open", "peer_credit", "peer_chunk", "peer_complete", "peer_done", "peer_cancel", "peer_relay_error"].includes(frame.type) && bytes.length <= 65536 };
     this.queues.get(lane(frame)).push(entry);
     this.queuedBytes += bytes.length;
     this.schedule();
@@ -118,7 +125,7 @@ export class Fragmentation {
     if (!frame.type.startsWith("frag_")) {
       if (this.limits && !["latest", "live"].includes(frame.type) && byteLength > this.limits.logicalBytes)
         throw new Error("Reliable envelope exceeds logicalBytes");
-      this.deliver(frame); return;
+      this.deliver(frame, byteLength); return;
     }
     const limits = this.limits;
     const id = frame.transfer;
@@ -167,7 +174,7 @@ export class Fragmentation {
       if (entry.offset !== entry.bytes.length || digest(entry.bytes) !== entry.hash) throw new Error("Fragment byte count or SHA-256 mismatch");
       const logical = decode(entry.bytes, { useBigInt64: true, maxStrLength: limits.logicalBytes,
         maxBinLength: limits.logicalBytes, maxArrayLength: limits.logicalBytes, maxMapLength: limits.logicalBytes });
-      if (!logical || logical.v !== 1 || typeof logical.type !== "string" || logical.type.startsWith("frag_") || ["latest", "live"].includes(logical.type))
+      if (!logical || logical.v !== 1 || typeof logical.type !== "string" || logical.type.startsWith("frag_") || ["latest", "live"].includes(logical.type) || peerFrames.has(logical.type))
         throw new Error("Forbidden fragmented envelope");
       clearTimeout(entry.timer); this.incoming.delete(id); this.reservedBytes -= entry.bytes.length;
       this.deliver(logical);

@@ -8,6 +8,27 @@ export interface ConnectOptions {
   websocketUrl?: string; websocketFactory?: (url: URL) => WebSocket;
   /** Omit to negotiate default limits; false retains legacy small envelopes. */
   fragmentation?: Partial<FragmentationLimits> | false;
+  routing?: RoutingOptions;
+  peerDelivery?: Partial<PeerDeliveryLimits> | false;
+}
+export interface PeerDeliveryLimits {
+  version: 1; messageBytes: number; chunkBytes: number; windowBytes: number; queueBytes: number;
+  receiveBytes: number; concurrent: number; queued: number; lanes: number; timeoutMs: number; assemblyMs: number; retries: number;
+}
+export interface DeliveryReceipt { peer: string; publisherEpoch: string; topic: string; messageId: string; seq: bigint; route: "direct" | "relay"; rttMs: number | null }
+export interface DeliveryStat {
+  peer: string; publisherEpoch: string; route: "direct" | "relay"; kind: "peer_message" | "peer_bulk" | "latest" | "live";
+  sentFrames: number; receivedFrames: number; sentBytes: number | null; receivedBytes: number | null;
+  sentMessages: number; receivedMessages: number; retries: number; unackedMessages: number;
+  queuedMessages: number; queuedBytes: number; reason: string; rttMs: number | null;
+}
+export class DeliveryError extends Error { code: string; outcome: "not-sent" | "unknown" }
+export interface RoutingOptions {
+  enabled?: boolean; maxPeers?: number; peers?: string[]; iceServers?: RTCIceServer[];
+}
+export interface RouteEntry {
+  peer: string; publisherEpoch: string; route: "direct" | "relay"; reason: string; rttMs: number | null;
+  sentDirect: number; receivedDirect: number; sentRelay: number; receivedRelay: number;
 }
 export interface FragmentationLimits {
   logicalBytes: number; chunkBytes: number; reassemblyBytes: number;
@@ -22,6 +43,8 @@ export interface Capabilities {
   transport: string; reliableOrdered: boolean; datagram: boolean; boundedLatest: boolean;
   insecureDevelopment: boolean; maxFrame: number; maxRealtimeFrame?: number; blobResume: boolean;
   fragmentation?: FragmentationLimits;
+  routeSignaling?: boolean;
+  peerDelivery?: PeerDeliveryLimits;
 }
 export interface BlobResult { transfer: string; size?: bigint; sha256?: string }
 export interface RequestOptions { id?: string; signal?: AbortSignal }
@@ -43,6 +66,7 @@ export class KokosyncClient {
   readonly seq: bigint;
   readonly revision: bigint;
   readonly closed: boolean;
+  on(type: "route", listener: (route: RouteEntry) => void | Promise<void>): () => void;
   on(type: string, listener: (frame: Frame) => void | Promise<void>): () => void;
   send(type: string, fields?: Record<string, any>): void;
   request(type: string, fields?: Record<string, any>, response?: string, options?: { signal?: AbortSignal }): Promise<Frame>;
@@ -57,6 +81,10 @@ export class KokosyncClient {
   catchup(): Promise<Frame>;
   ping(): Promise<Frame>;
   stats(): Promise<Frame>;
+  routes(): RouteEntry[];
+  setRouting(options: Pick<RoutingOptions, "enabled" | "maxPeers" | "peers">): void;
+  sendTo(peer: string, topic: string, value: Value, options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<DeliveryReceipt>;
+  deliveryStats(): DeliveryStat[];
   get(key: string): Value | undefined;
   follow(handlers: {
     restore(value: Value): void;

@@ -71,7 +71,8 @@ export function applyDelta(sid: string, id: string, action: ItemAction, by: stri
 export function deltaAction(id: string, action: ItemAction) {
   const s = get();
   if (!s.session) return;
-  applyDelta(s.session, id, action, s.selfId);
+  // P2P対応時は全消去との競合も送り主を含めて同じ順序で確定する。
+  if (!s.syncPeerDelivery) applyDelta(s.session, id, action, s.selfId);
   send({ t: 'itemAction', id, action });
 }
 

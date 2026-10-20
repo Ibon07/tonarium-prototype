@@ -6,7 +6,10 @@ export const MAX_PACKET = 32 * 1024 * 1024;
 export const BLOB_THRESHOLD = 48 * 1024;
 export interface SyncConfig {
   sid: string; room: string; peer: string; server: string; token: string; key: string; slot: number;
+  positionKey?: string;
+  peerDelivery?: boolean;
 }
+export interface PositionPeer { peer: string; user: string; grant: string; slot: number; key?: string; delivery?: boolean }
 export interface Envelope {
   grant: string; seq: number; lane: string; iv: Uint8Array; body: Uint8Array;
 }

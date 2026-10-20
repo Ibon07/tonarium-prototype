@@ -19,6 +19,7 @@ import { sanitizeParams } from '../shared/avatar.ts';
 import { VOICE_RANGE, clampAvatar, computePlaces } from '../shared/places.ts';
 import { SOUNDS } from '../shared/sounds.ts';
 import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts';
+import type { PeerOperation } from '../shared/session-events.ts';
 import { getOgp } from './ogp.ts';
 import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
@@ -248,11 +249,11 @@ function chatMedia(m: ChatMedia | undefined): ChatMedia | undefined {
   return { kind, url: m.url, w: size(m.w), h: size(m.h) };
 }
 
-function pushChat(sid: string, from: User | null, text: string, opt: { scope?: ChatScope; image?: string; media?: ChatMedia; to?: string[]; about?: string; dice?: DiceRoll } = {}) {
+function pushChat(sid: string, from: User | null, text: string, opt: { scope?: ChatScope; image?: string; media?: ChatMedia; to?: string[]; about?: string; dice?: DiceRoll } = {}, peerEvent?: PeerOperation) {
   const list = chats.get(sid);
   if (!list) return;
   const m: ChatMessage = {
-    id: randomUUID(), from: from?.id ?? null, fromName: from?.name ?? '', text, at: Date.now(), scope: opt.scope ?? 'all',
+    id: peerEvent?.id ?? randomUUID(), from: from?.id ?? null, fromName: from?.name ?? '', text, at: peerEvent?.at ?? Date.now(), scope: opt.scope ?? 'all',
     ...(opt.image ? { image: opt.image } : {}), ...(opt.media ? { media: opt.media } : {}), ...(opt.to ? { to: opt.to } : {}), ...(opt.about ? { about: opt.about } : {}), ...(opt.dice ? { dice: opt.dice } : {}),
   };
   list.push(m);
@@ -269,14 +270,14 @@ function pushChat(sid: string, from: User | null, text: string, opt: { scope?: C
 const event = (sid: string, text: string, about?: string) => pushChat(sid, null, text, { about });
 
 const lastRoll = new Map<string, number>();
-/** 結果はここで決める。チャットへは転がり終わってから出し、演出より先にばれないようにする */
-function rollDice(sid: string, me: User, it: Item & { kind: 'dice' }, sides: unknown, count: unknown, secret: boolean) {
+/** 結果の表示順とシークレットの宛先はサーバーで確定する。 */
+function rollDice(sid: string, me: User, it: Item & { kind: 'dice' }, sides: unknown, count: unknown, secret: boolean, proposed?: DiceRoll) {
   const n = Math.floor(Number(count));
   if (!isDieSides(sides) || !(n >= 1 && n <= DICE_MAX)) return;
   if (Date.now() - (lastRoll.get(me.id) ?? 0) < 600) return;
   lastRoll.set(me.id, Date.now());
   const results = Array.from({ length: n }, () => randomInt(1, sides + 1));
-  const roll: DiceRoll = { id: randomUUID(), by: me.id, sides, count: n, results, secret, at: Date.now() };
+  const roll: DiceRoll = proposed ?? { id: randomUUID(), by: me.id, sides, count: n, results, secret, at: Date.now() };
   it.roll = secret ? { ...roll, results: null } : roll;
   it.updatedBy = me.id;
   sendItem(sid, it);
@@ -366,10 +367,10 @@ function sendSessionSnapshot(sid: string, id: string) {
   });
 }
 const roomHandlers: RoomHandlers = {
-  onMessage: (sid, from, msg) => {
+  onMessage: (sid, from, msg, peerPositions, peerEvent) => {
     const me = users.get(from);
     if (!me || me.session !== sid) return;
-    try { handleSession(me, sid, msg); }
+    try { handleSession(me, sid, msg, peerPositions, peerEvent); }
     catch (e) { console.error('bad room message', e); }
   },
 };
@@ -535,7 +536,7 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
       if (!sid || typeof msg.requestId !== 'string') return;
       state.syncRequest = msg.requestId;
       const current = () => state.syncRequest === msg.requestId && me.session === sid;
-      void createSyncGrant(sid, me.id, ws, roomHandlers, () => send(ws, { t: 'syncReset', sid }), current).then(
+      void createSyncGrant(sid, me.id, ws, roomHandlers, () => send(ws, { t: 'syncReset', sid }), current, msg.peerPositions === true, msg.peerDelivery === true).then(
         (config) => { if (current()) send(ws, { t: 'syncConfig', requestId: msg.requestId, config }); },
         () => { if (current()) send(ws, { t: 'syncError', requestId: msg.requestId, error: 'kokosync に接続できません。サーバー設定と接続先を確認してください' }); },
       );
@@ -566,7 +567,7 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
 }
 
 /** 部屋で届いたセッション内の操作。送った人がそのセッションにいるときだけ呼ばれる */
-function handleSession(me: Participant, sid: string, msg: RoomClientMsg) {
+function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPositions = false, peerEvent?: PeerOperation) {
   const sessItems = items.get(sid)!;
   switch (msg.t) {
     case 'sync': {
@@ -579,7 +580,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg) {
         ? msg.image : undefined;
       const media = chatMedia(msg.media);
       const scope: ChatScope = msg.scope === 'near' || msg.scope === 'announce' ? msg.scope : 'all';
-      if (text || image || media) pushChat(sid, me, text, { scope, image, media, to: scope === 'near' ? nearIds(sid, me) : undefined });
+      if (text || image || media) pushChat(sid, me, text, { scope, image, media, to: scope === 'near' ? nearIds(sid, me) : undefined }, peerEvent);
       return;
     }
     case 'viewing': {
@@ -706,13 +707,13 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg) {
             sendItem(sid, other);
           }
       if (it.kind === 'dice' && msg.action.a === 'diceRoll') {
-        rollDice(sid, me, it, msg.action.sides, msg.action.count, !!msg.action.secret);
+        rollDice(sid, me, it, msg.action.sides, msg.action.count, !!msg.action.secret, peerEvent?.roll);
         return;
       }
       if (msg.action.a === 'drop') Object.assign(msg.action, placeIn(sid, msg.action.x, msg.action.z, 0.3));
       if (!applyItemAction(it, msg.action, me.id, Math.random)) return;
-      // 送り主は手元で適用済み
-      if (isDeltaAction(msg.action)) roomSend(sid, { t: 'itemAction', sid, id: it.id, action: msg.action, by: me.id }, othersIn(sid, me.id));
+      // 旧クライアントだけは手元で適用済み。
+      if (isDeltaAction(msg.action)) roomSend(sid, { t: 'itemAction', sid, id: it.id, action: msg.action, by: me.id }, peerEvent ? undefined : othersIn(sid, me.id));
       else sendItem(sid, it);
       if (it.kind === 'chessAi') scheduleChessAiReply(it, () => sessItems.get(it.id), () => sendItem(sid, it));
       return;
@@ -792,7 +793,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg) {
       // 2D の人の分も覚えるが、使う側はみな mode を見て 3D の人の分だけ使う（mode より先に届くことがある）
       const s = clampAvatar(worldOf.get(sid) ?? 'room', msg.s);
       avatars.get(sid)!.set(me.id, s);
-      roomSend(sid, { t: 'avatar', sid, id: me.id, s }, inSession(sid).filter((u) => u.id !== me.id).map((u) => u.id));
+      roomSend(sid, { t: 'avatar', sid, id: me.id, s }, inSession(sid).filter((u) => u.id !== me.id).map((u) => u.id), peerPositions);
       // 2D から 3D に入ったときは、入った場所の前に立てる
       if (me.sharing && !me.display) { placeDisplay(sid, me, s); sendPresence(sid); }
       return;

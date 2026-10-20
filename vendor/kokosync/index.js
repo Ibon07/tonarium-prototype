@@ -1,6 +1,9 @@
 import { encode, decode } from "@msgpack/msgpack";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { Fragmentation, fragmentationLimits } from "./fragmentation.js";
+import { DirectRoutes, routingOptions } from "./routing.js";
+import { PeerDelivery, deliveryLimits, peerDeliveryTypes, DeliveryError } from "./peer-delivery.js";
+export { DeliveryError };
 
 const U64_MAX = (1n << 64n) - 1n;
 const codec = { useBigInt64: true, maxDepth: 40 };
@@ -38,7 +41,7 @@ export function validateValue(value, maxBytes = 4194304) {
     ancestors.delete(v);
   }
   visit(value, 0);
-  if (encode(value, codec).length > maxBytes) throw new RangeError(`Application value exceeds ${maxBytes} encoded bytes`);
+  if (Number.isFinite(maxBytes) && encode(value, codec).length > maxBytes) throw new RangeError(`Application value exceeds ${maxBytes} encoded bytes`);
   return value;
 }
 
@@ -86,14 +89,17 @@ async function openWebRTC(base, timeout, options) {
 /** Ordered arbitrary messaging; state caching and application checkpoints are opt-in. */
 export class KokosyncClient {
   static async connect({ url = globalThis.location?.origin ?? "http://127.0.0.1:8080",
-    room, peer = uid(), state = false, transport = "webrtc", timeout = 15000, connectTimeout = timeout, fragmentation = {}, ...options } = {}) {
+    room, peer = uid(), state = false, transport = "webrtc", timeout = 15000, connectTimeout = timeout, fragmentation = {}, routing = {}, peerDelivery = {}, ...options } = {}) {
     if (!room) throw new TypeError("room is required");
     if (!["webrtc", "websocket"].includes(transport)) throw new TypeError("Choose webrtc or websocket explicitly");
     const limits = fragmentation === false ? null : fragmentationLimits(fragmentation);
+    routing = routingOptions(routing);
+    peerDelivery = deliveryLimits(peerDelivery);
     const wire = await (transport === "webrtc" ? openWebRTC(url, connectTimeout, options) : openWebSocket(url, connectTimeout, options));
-    const client = new KokosyncClient(wire, { room, peer, state, timeout, fragmentation: limits });
+    const client = new KokosyncClient(wire, { room, peer, state, timeout, fragmentation: limits, routing, peerDelivery });
     try {
-      client.joined = await client.request("join", { room, peer, state, ...(limits ? { fragmentation: limits } : {}) }, "joined");
+      client.joined = await client.request("join", { room, peer, state, routing: client.routeManager.advertisement(),
+        ...(limits ? { fragmentation: limits } : {}), ...(peerDelivery ? { peerDelivery } : {}) }, "joined");
       return client;
     } catch (error) { client.close(); throw error; }
   }
@@ -112,20 +118,40 @@ export class KokosyncClient {
     this.joinedComplete = false;
     this.latestSequences = new Map();
     this.liveSequences = new Map();
+    this.routeManager = new DirectRoutes({ peer: options.peer, options: options.routing,
+      signal: fields => this.send("route_signal", fields),
+      deliver: (frame, source) => this.receive(frame, source), changed: entry => this.emit("route", entry), validateValue,
+      deliveryReceive: (frame, length) => this.peerDeliveries.incoming(frame, "direct", length) });
+    this.peerDeliveries = new PeerDelivery({ peer: options.peer, limits: options.peerDelivery === null ? false : options.peerDelivery,
+      member: peer => this.routeManager.members.get(peer), validate: validateValue,
+      deliver: frame => this.emit("peer_message", frame),
+      transmit: (frame, bytes, preference) => {
+        if (this.closed) throw new Error("Client closed");
+        if (preference !== "relay") {
+          const direct = this.routeManager.sendDelivery(frame, bytes);
+          if (direct) return "direct";
+          if (direct === null && preference === "direct") return "blocked";
+        }
+        if (preference === "direct" || wire.reliable.bufferedAmount > 262144) return null;
+        wire.reliable.send(bytes); return "relay";
+      },
+    });
     this.fragments = new Fragmentation({
       limits: options.fragmentation === false || options.fragmentation === null ? null : fragmentationLimits(options.fragmentation),
       write: bytes => {
         if (wire.reliable.bufferedAmount > 1048576) throw new Error("Transport backpressure limit exceeded");
         wire.reliable.send(bytes);
       }, buffered: () => wire.reliable.bufferedAmount ?? 0,
-      deliver: frame => this.receive(frame), fail: error => { this.emit("error", error); this.close(error); },
+      deliver: (frame, byteLength) => this.receive(frame, "relay", byteLength), fail: error => { this.emit("error", error); this.close(error); },
     });
     const receive = event => {
       try {
         const bytes = new Uint8Array(event.data);
         if (bytes.length > 65536) throw new RangeError("Frame exceeds 65536 bytes");
-        this.fragments.receive(decode(bytes, { useBigInt64: true, maxStrLength: 65536, maxBinLength: 65536,
-          maxArrayLength: 65536, maxMapLength: 65536 }), bytes.length);
+        const frame = decode(bytes, { useBigInt64: true, maxStrLength: 65536, maxBinLength: 65536,
+          maxArrayLength: 65536, maxMapLength: 65536 });
+        if (peerDeliveryTypes.has(frame.type)) this.peerDeliveries.incoming(frame, "relay", bytes.length);
+        else this.fragments.receive(frame, bytes.length);
       } catch (error) { this.emit("error", error); this.close(); }
     };
     wire.reliable.onmessage = receive;
@@ -153,15 +179,22 @@ export class KokosyncClient {
   }
   send(type, fields = {}) {
     if (this.closed) throw new Error("Client is closed");
-    const data = encode({ v: 1, type, ...fields }, codec);
+    const frame = { v: 1, type, ...fields };
+    const data = encode(frame, codec);
     const realtime = type === "latest" || type === "live";
     // Reserve 128 bytes for the relay's peer/publisher generation metadata.
     if (data.length > (realtime ? 872 : this.fragments.limits?.logicalBytes ?? 65536)) throw new RangeError(`Encoded ${type} frame is too large`);
+    if (type === "route_signal" && data.length > 16384) throw new RangeError("Route signal exceeds 16384 bytes");
+    if (peerDeliveryTypes.has(type) && data.length > 65536) throw new RangeError("Peer delivery frame exceeds 65536 bytes");
     if (!realtime && type !== "join") { this.fragments.enqueue({ type, ...fields }, data); return; }
     if (type === "join" && data.length > 65536) throw new RangeError("Join must fit in one frame");
     const channel = realtime ? this.wire.realtime : this.wire.reliable;
-    if (channel.bufferedAmount > 1048576) throw new Error("Transport backpressure: wait before sending more");
-    channel.send(data);
+    const relay = bytes => {
+      if (channel.bufferedAmount > 1048576) throw new Error("Relay transport backpressure: wait before sending more");
+      channel.send(bytes);
+    };
+    if (realtime) this.routeManager.send(frame, relay);
+    else relay(data);
   }
   request(type, fields = {}, response = "ack", { signal } = {}) {
     if (signal?.aborted) return Promise.reject(signal.reason ?? new Error("Request cancelled"));
@@ -185,7 +218,7 @@ export class KokosyncClient {
       }
     });
   }
-  receive(frame) {
+  receive(frame, source = "relay", byteLength) {
     if (!this.joinedComplete && (frame.type === "latest" || frame.type === "live")) return;
     if (frame.type === "joined") {
       this.fragments.select(frame.capabilities?.fragmentation);
@@ -194,6 +227,20 @@ export class KokosyncClient {
       this.capabilities = frame.capabilities;
       for (const entry of frame.entries ?? []) this.state.set(entry.key, entry);
       this.joinedComplete = true;
+      this.routeManager.joined(frame);
+      this.peerDeliveries.joined(frame);
+    }
+    if (frame.type === "peer_joined") this.routeManager.memberJoined(frame);
+    if (frame.type === "peer_left") {
+      const member = this.routeManager.members.get(frame.peer);
+      if (member?.publisherEpoch === frame.publisherEpoch && frame.epoch === this.routeManager.epoch)
+        this.peerDeliveries.departed(frame.peer, frame.publisherEpoch);
+      this.routeManager.memberLeft(frame);
+    }
+    if (frame.type === "route_signal") this.routeManager.receiveSignal(frame);
+    if (peerDeliveryTypes.has(frame.type)) {
+      this.peerDeliveries.incoming(frame, source, encode(frame, codec).length);
+      return;
     }
     if (frame.type === "message") this.seq = frame.seq > this.seq ? frame.seq : this.seq;
     if (frame.type === "state") {
@@ -206,7 +253,9 @@ export class KokosyncClient {
       this.revision = frame.revision;
     }
     if (frame.type === "latest" || frame.type === "live") {
-      const key = JSON.stringify([frame.peer, frame.publisherEpoch, frame.key ?? frame.stream]);
+      if (!this.routeManager.acceptsPublisher(frame)) return;
+      if (source === "relay") this.routeManager.relayReceived(frame, byteLength);
+      const key = JSON.stringify([frame.peer, frame.publisherEpoch, frame.type === "latest" ? frame.key : frame.stream]);
       const seen = frame.type === "latest" ? this.latestSequences : this.liveSequences;
       if (seen.has(key) && seen.get(key) >= frame.seq) return;
       seen.set(key, frame.seq);
@@ -247,7 +296,11 @@ export class KokosyncClient {
   checkpoint(seq, value) { return this.request("checkpoint", { seq: counter(seq, "seq"), value: this.value(value) }); }
   catchup() { return this.request("catchup", {}, "catchup"); }
   ping() { return this.request("ping", {}, "pong"); }
-  stats() { return this.request("stats", {}, "stats"); }
+  async stats() { return { ...await this.request("stats", {}, "stats"), routing: { ...this.routeManager.totals } }; }
+  routes() { return this.routeManager.routes(); }
+  setRouting(options) { this.routeManager.setOptions(options); this.options.routing = this.routeManager.options; }
+  sendTo(peer, topic, value, options) { return this.peerDeliveries.sendTo(peer, topic, value, options); }
+  deliveryStats() { return [...this.peerDeliveries.stats(), ...this.routeManager.deliveryStats()]; }
   get(key) { const entry = this.state.get(key); return entry?.deleted ? undefined : entry?.value; }
 
   /**
@@ -416,6 +469,8 @@ export class KokosyncClient {
     if (this.closed) return;
     this.closed = true;
     this.fragments.close();
+    this.routeManager.close();
+    this.peerDeliveries.close();
     this.wire.close();
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer); pending.signal?.removeEventListener("abort", pending.abort); pending.reject(error);
