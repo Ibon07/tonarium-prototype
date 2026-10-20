@@ -281,7 +281,9 @@ PlayerSettings:
   AndroidMinifyDebug: 0
   AndroidValidateAppBundleSize: 1
   AndroidAppBundleSizeToValidate: 150
-  m_BuildTargetIcons: []
+  m_BuildTargetIcons:
+  - m_BuildTarget: Standalone
+    m_Icons: []
   m_BuildTargetPlatformIcons:
   - m_BuildTarget: iPhone
     m_Icons:

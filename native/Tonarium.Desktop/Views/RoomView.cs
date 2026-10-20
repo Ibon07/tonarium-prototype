@@ -28,6 +28,10 @@ public sealed class RoomView : UserControl
     private readonly NativeContext _ctx;
     private readonly Grid _root = new();
     private readonly SessionMenuView _sessionMenu;
+    private readonly RoomBackdrop _backdrop = new() { IsHitTestVisible = false };
+    private readonly List<Control> _hud = [];
+    private bool _externalScene, _worldInputLocked;
+    private string _layoutMode = "";
     private readonly StackPanel _players = new() { Spacing = 5 };
     private readonly StackPanel _items = new() { Spacing = 5 };
     private readonly StackPanel _faces = new() { Spacing = 14, HorizontalAlignment = HorizontalAlignment.Center };
@@ -83,7 +87,7 @@ public sealed class RoomView : UserControl
         _rightHidden = NativeSettings.GetBool("room.rightFolded");
         _facesHidden = NativeSettings.GetBool("room.facesFolded");
         Background = Brush.Parse("#EAE5DB");
-        _root.Children.Add(new RoomBackdrop { IsHitTestVisible = false });
+        _root.Children.Add(_backdrop);
         _root.Children.Add(_threeDSurface);
         Content = _root;
 
@@ -170,6 +174,7 @@ public sealed class RoomView : UserControl
         var bottom = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(80, 0, 80, 22) };
         var dockPanel = Panel(dock); dockPanel.CornerRadius = new CornerRadius(24); dockPanel.Background = Brush.Parse("#26262E"); dockPanel.BorderThickness = new Thickness(0); dockPanel.Padding = new Thickness(10);
         bottom.Children.Add(_status); bottom.Children.Add(dockPanel); _root.Children.Add(bottom);
+        _hud.AddRange([_sessionMenu,headCard,_left,_leftFold,_right,_rightFold,_center,bottom]);
         SizeChanged += (_, _) => Fit();
         _worldCountdown.Tick += (_, _) => Refresh();
         DetachedFromVisualTree += (_, _) => _worldCountdown.Stop();
@@ -184,6 +189,37 @@ public sealed class RoomView : UserControl
         Fit();
     }
 
+    public void SetExternalScene(bool enabled)
+    {
+        _externalScene = enabled;
+        Background = enabled ? Brushes.Transparent : Brush.Parse("#EAE5DB");
+        _backdrop.IsVisible = !enabled;
+        _center.IsVisible = true;
+        _threeDSurface.IsVisible = false;
+        SetWorldInputLocked(false);
+        Fit();
+    }
+
+    public void SetWorldInputLocked(bool locked)
+    {
+        _worldInputLocked = locked;
+        foreach(var panel in _hud) { panel.Opacity=locked?.4:1; panel.IsHitTestVisible=!locked; }
+        if(_hud.Count>0)_hud[^1].Opacity=1;
+        _status.Opacity=locked?.8:1;
+        if(_hud.LastOrDefault() is StackPanel bottom&&bottom.Children.Count>1)bottom.Children[1].Opacity=locked?.4:1;
+    }
+
+    public void FocusChat() => _input.Focus();
+
+    public IReadOnlyList<Rect> OverlayRegions(Visual relativeTo)
+    {
+        var regions = new List<Rect>();
+        foreach(var panel in _hud.Where(p=>p.IsEffectivelyVisible))
+            if(panel.TranslatePoint(default,relativeTo) is { } position && panel.Bounds.Width>0 && panel.Bounds.Height>0)
+                regions.Add(new Rect(position,panel.Bounds.Size));
+        return regions;
+    }
+
     public void SetOpenItemCount(int count)
     {
         if (_openItemCount == count) return;
@@ -194,6 +230,7 @@ public sealed class RoomView : UserControl
     public void Refresh()
     {
         var s = _ctx.State;
+        if(_layoutMode!=s.Mode){_layoutMode=s.Mode;Fit();}
         _sessionMenu.Refresh();
         ComputePlaces();
         var users = Participants();

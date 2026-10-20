@@ -8,7 +8,7 @@ public sealed class NativeContext(TonariumClient client, INativeMedia media, Win
     public TonariumClient Client { get; } = client;
     public ClientState State => Client.State;
     public INativeMedia Media { get; } = media;
-    public Window Owner { get; } = owner;
+    public Window Owner { get; set; } = owner;
     public Action<string>? NotificationRequested { get; set; }
     public Action<string>? ItemRequested { get; set; }
     public Action<string>? ProfileRequested { get; set; }

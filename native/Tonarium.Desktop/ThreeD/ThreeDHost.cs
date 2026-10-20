@@ -24,8 +24,13 @@ public sealed partial class ThreeDHost : IAsyncDisposable
     private bool stopping;
     private INativeMedia? media;
     private bool mediaAttached;
+    private DispatcherTimer? presentationTimer;
+    private string presentationSignature = "";
     public event Action? ReturnedTo2D;
     public event Action<string>? ItemRequested;
+    public event Action<bool>? InputStateChanged;
+    public event Action? HomeRequested;
+    public event Action? ChatRequested;
     public bool IsRunning => player is { HasExited: false };
     public string? PlayerPath { get; private set; }
     public string? LastError { get; private set; }
@@ -84,6 +89,12 @@ public sealed partial class ThreeDHost : IAsyncDisposable
             if (parentWindow != IntPtr.Zero) await EmbedPlayerAsync(parentWindow);
             await client.SendRoomAsync(new { t = "mode", mode = "3d" });
             if (media is not null) { media.VideoFrameJpeg += ForwardVideoFrame; mediaAttached = true; }
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                presentationTimer = new DispatcherTimer { Interval=TimeSpan.FromMilliseconds(100) };
+                presentationTimer.Tick += (_,_) => ForwardPresentation();
+                presentationTimer.Start(); ForwardPresentation();
+            });
         }
         catch (Exception ex)
         {
@@ -124,6 +135,15 @@ public sealed partial class ThreeDHost : IAsyncDisposable
                     case "return2d":
                         _ = StopAsync();
                         return;
+                    case "inputState":
+                        await Dispatcher.UIThread.InvokeAsync(() => InputStateChanged?.Invoke(message["locked"]?.GetValue<bool>() == true));
+                        break;
+                    case "openHome":
+                        await Dispatcher.UIThread.InvokeAsync(() => HomeRequested?.Invoke());
+                        break;
+                    case "focusChat":
+                        await Dispatcher.UIThread.InvokeAsync(() => ChatRequested?.Invoke());
+                        break;
                     case "openItem":
                         if (message["id"]?.ToString() is { } itemId)
                             await Dispatcher.UIThread.InvokeAsync(() => ItemRequested?.Invoke(itemId));
@@ -177,6 +197,25 @@ public sealed partial class ThreeDHost : IAsyncDisposable
         finally { writing.Release(); }
     }
 
+    private async void ForwardPresentation()
+    {
+        if(!IsRunning||stopping||writer is null)return;
+        var users=(JsonArray)client.State.Users.DeepClone();
+        foreach(var user in users.OfType<JsonObject>())
+        {
+            var id=J.Text(user,"id");
+            if(media is NativeMedia native)user["speaking"]=native.IsSpeaking(id);
+            if(client.State.Presence[id] is JsonObject presence)
+                foreach(var pair in presence)user[pair.Key]=pair.Value?.DeepClone();
+        }
+        var signature=users.ToJsonString();if(signature==presentationSignature)return;
+        presentationSignature=signature;
+        try { await SendAsync(new JsonObject { ["t"]="users",["list"]=users }); }
+        catch(Exception error) when(error is IOException or ObjectDisposedException or OperationCanceledException) { }
+    }
+
+    public Task ReleaseInputAsync()=>writer is null?Task.CompletedTask:SendAsync(new {t="releaseInput"});
+
     private async void ForwardVideoFrame(string identity, byte[] jpeg)
     {
         if (stopping || writer is null) return;
@@ -190,7 +229,7 @@ public sealed partial class ThreeDHost : IAsyncDisposable
         await client.SendRoomAsync(new { t = "avatar", s = new { x, z, ry, y = 0 } });
     }
 
-    public Task ResizeAsync(int width, int height) => SendAsync(new { t = "resize", width = Math.Clamp(width, 160, 8192), height = Math.Clamp(height, 160, 8192) });
+    public Task ResizeAsync(int width, int height, double scale = 1) => SendAsync(new { t = "resize", width = Math.Clamp(width, 160, 8192), height = Math.Clamp(height, 160, 8192), scale });
 
     public async Task StopAsync()
     {
@@ -209,8 +248,14 @@ public sealed partial class ThreeDHost : IAsyncDisposable
     private async Task ClosePlayerAsync()
     {
         stopping = true;
+        await Dispatcher.UIThread.InvokeAsync(()=> { presentationTimer?.Stop();presentationTimer=null;presentationSignature=""; });
         if (mediaAttached && media is not null) { media.VideoFrameJpeg -= ForwardVideoFrame; mediaAttached = false; }
-        if (writer is not null) { try { await SendAsync(new { t = "shutdown" }); } catch (IOException) { } }
+        // Unityから先に終了した場合も、破棄済みの接続で2Dへの復帰を止めない。
+        if (writer is not null)
+        {
+            try { await SendAsync(new { t = "shutdown" }); }
+            catch (Exception error) when (error is IOException or ObjectDisposedException) { }
+        }
         lifetime?.Cancel(); listener?.Stop(); connection?.Dispose(); writer = null;
         if (player is { HasExited: false })
         {

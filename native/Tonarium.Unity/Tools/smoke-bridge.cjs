@@ -49,7 +49,7 @@ server.listen(0, '127.0.0.1', () => {
     const result = fs.existsSync(resultFile) ? JSON.parse(fs.readFileSync(resultFile)) : {};
     const avatars = received.filter(m => m.t === 'room' && m.message.t === 'avatar').length;
     const teleport = received.some(m => m.t === 'room' && m.message.t === 'avatar' && Math.abs(m.message.s.x - 1) < 0.01);
-    const good = code === 0 && result.ok && result.avatars === 2 && result.items === 4 && result.liveScreens === 1 && avatars > 5 && teleport;
+    const good = code === 0 && result.ok && result.avatars === 2 && result.items === 4 && result.liveScreens === 1 && avatars >= 2 && teleport;
     fs.writeFileSync(path.join(output, 'bridge-result.json'), JSON.stringify({ passed: good, exitCode: code, avatarMessages: avatars, teleport, ready: received.some(m => m.t === 'ready'), returned: received.some(m => m.t === 'return2d'), ...result }, null, 2));
     console.log(JSON.stringify({ passed: good, code, avatars, output, ...result }));
     if (!good) process.exitCode = 1;

@@ -9,6 +9,8 @@ if (-not $UnityEditor) {
 }
 if (-not $UnityEditor -or -not (Test-Path -LiteralPath $UnityEditor)) { throw 'Unity Editor が見つかりません。Unity Hub で Windows Build Support を含む Editor を導入するか -UnityEditor で指定してください。' }
 $projectPath = Join-Path $nativeRoot 'Tonarium.Unity'
+& node (Join-Path $projectPath 'Tools/sync-web-assets.cjs')
+if ($LASTEXITCODE -ne 0) { throw 'Web asset sync failed' }
 $logPath = Join-Path $projectPath 'build.log'
 $process = Start-Process -FilePath $UnityEditor -ArgumentList @('-batchmode','-nographics','-quit','-projectPath',('"' + $projectPath + '"'),'-executeMethod','Tonarium.UnityClient.Editor.WindowsBuild.Build','-logFile',('"' + $logPath + '"')) -Wait -PassThru -WindowStyle Hidden
 if ($process.ExitCode -ne 0) { Get-Content -LiteralPath $logPath -Tail 60; throw "Unity build failed ($($process.ExitCode))" }

@@ -28,8 +28,9 @@ public sealed class MainWindow : Window
     private RoomView? room;
     private Grid? homeOverlay;
     private HomeView? overlayView;
-    private readonly TextBlock sessionSummary = Ui.Text("", 13, "#FFFFFF");
+    private readonly TextBlock sessionSummary = Ui.Text("", 13, Ui.Ink);
     private UnitySurface? unitySurface;
+    private ThreeDOverlayWindow? threeDOverlay;
     private string? previousSession;
     private bool signedIn, closing, refreshQueued, switching;
     private readonly TextBox serverInput;
@@ -63,16 +64,31 @@ public sealed class MainWindow : Window
         client.State.Changed += QueueRefresh;
         client.MessageReceived += MessageReceived;
         media.Changed += QueueRefresh;
-        threeD.ReturnedTo2D += () => Dispatcher.UIThread.Post(() => { room?.SetThreeDSurface(null); unitySurface = null; Activate(); QueueRefresh(); });
+        threeD.ReturnedTo2D += () => Dispatcher.UIThread.Post(() => { RestoreNativeRoot(); Activate(); QueueRefresh(); });
         threeD.PlayerWindowChanged += hwnd => Dispatcher.UIThread.Post(() => unitySurface?.ResizePlayer(hwnd));
-        threeD.ItemRequested += id => { OpenItem(id); Activate(); };
+        threeD.ItemRequested += OpenItem;
+        threeD.InputStateChanged += locked =>
+        {
+            room?.SetWorldInputLocked(locked);
+            threeDOverlay?.RefreshRegion();
+            unitySurface?.SetInputLocked(locked);
+        };
+        threeD.HomeRequested += () => ShowHome("toggle");
+        threeD.ChatRequested += () => { room?.FocusChat(); threeDOverlay?.Activate(); };
         Closing += (_, e) =>
         {
             if (closing) return;
             e.Cancel = true;
             _ = Shutdown();
         };
-        AddHandler(KeyDownEvent, (_, e) => { if (e.Key == Key.Escape && context.HomeIsOpen) { CloseHome(); e.Handled = true; } }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        void Escape(object? sender, KeyEventArgs e)
+        {
+            if(e.Key!=Key.Escape)return;
+            if(context.HomeIsOpen){CloseHome();e.Handled=true;}
+            else if(threeD.IsRunning){room?.SetWorldInputLocked(false);_ = threeD.ReleaseInputAsync();e.Handled=true;}
+        }
+        root.AddHandler(KeyDownEvent, Escape, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        AddHandler(KeyDownEvent, Escape, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         Opened += async (_, _) =>
         {
             if (Program.Arguments.Contains("--media-smoke"))
@@ -88,6 +104,12 @@ public sealed class MainWindow : Window
             {
                 await Connect();
                 if (Program.Argument("--smoke") is { } directory) _ = RunSmoke(directory);
+                else if(Program.Argument("--session") is { } session)
+                {
+                    await client.JoinAsync(session);
+                    Refresh();
+                    if(Program.Arguments.Contains("--3d"))await ChangeMode("3d");
+                }
             }
         };
     }
@@ -162,6 +184,7 @@ public sealed class MainWindow : Window
         if (client.State.SessionId is null) home.Refresh(); else room.Refresh();
         if (context.HomeIsOpen) { overlayView?.Refresh(); UpdateSessionSummary(); }
         foreach (var window in itemWindows.Values.ToArray()) window.Refresh();
+        threeDOverlay?.RefreshRegion();
     }
 
     private async Task SyncMedia()
@@ -195,18 +218,23 @@ public sealed class MainWindow : Window
                 {
                     room ??= new RoomView(context);
                     unitySurface = new UnitySurface();
-                    unitySurface.ClientSizeChanged += (width, height) => _ = threeD.ResizeAsync(width, height);
-                    room.SetThreeDSurface(unitySurface);
+                    unitySurface.ClientSizeChanged += (width, height) => _ = threeD.ResizeAsync(width, height, RenderScaling);
+                    Content = null;
+                    room.SetExternalScene(true);
+                    Content = unitySurface;
+                    threeDOverlay = new ThreeDOverlayWindow(this,root,GetOverlayRegions);
+                    context.Owner = threeDOverlay;
+                    threeDOverlay.ShowForOwner();
                     parent = await unitySurface.GetHandleAsync().WaitAsync(TimeSpan.FromSeconds(5));
                 }
                 await threeD.StartAsync(parent);
                 unitySurface?.ResizePlayer(threeD.PlayerWindowHandle);
-                unitySurface?.SetCovered(context.HomeIsOpen);
+                unitySurface?.SetCovered(threeDOverlay is null && context.HomeIsOpen);
             }
             else { await threeD.StopAsync(); Activate(); }
             Refresh();
         }
-        catch (Exception e) { room?.SetThreeDSurface(null); unitySurface = null; Notify(e.Message); Program.Log(e.ToString()); }
+        catch (Exception e) { RestoreNativeRoot(); Notify(e.Message); Program.Log(e.ToString()); }
         finally { switching = false; }
     }
 
@@ -229,7 +257,23 @@ public sealed class MainWindow : Window
 
     private Task UpdateViewing() => client.State.SessionId is null ? Task.CompletedTask : client.SendRoomAsync(new { t = "viewing", keys = itemWindows.Keys.Select(id => "item:" + id).ToArray() });
 
-    private void ShowProfile(string id) => new ProfileWindow(context, id).Show(this);
+    private void ShowProfile(string id) => new ProfileWindow(context, id).Show(context.Owner);
+
+    private IReadOnlyList<Rect>? GetOverlayRegions()
+    {
+        if(context.HomeIsOpen)return null;
+        var regions=room?.OverlayRegions(root).ToList()??[];
+        if(toast.IsVisible&&toast.TranslatePoint(default,root) is { } position)regions.Add(new Rect(position,toast.Bounds.Size));
+        return regions;
+    }
+
+    private void RestoreNativeRoot()
+    {
+        context.Owner = this;
+        threeDOverlay?.CloseAndDetach(); threeDOverlay = null;
+        Content = null; room?.SetExternalScene(false); room?.SetThreeDSurface(null);
+        unitySurface = null; Content = root;
+    }
 
     private void ShowHome(string page)
     {
@@ -246,8 +290,14 @@ public sealed class MainWindow : Window
             backdrop.PointerPressed += (_, _) => CloseHome();
             homeOverlay.Children.Add(backdrop);
             homeOverlay.Children.Add(new Border { Child = overlayView, CornerRadius = new CornerRadius(20), ClipToBounds = true, Margin = new Thickness(12, 72, 24, 88) });
-            sessionSummary.Margin = new Thickness(84, 20, 80, 0); sessionSummary.VerticalAlignment = VerticalAlignment.Top; sessionSummary.Height = 44;
-            homeOverlay.Children.Add(sessionSummary);
+            sessionSummary.VerticalAlignment = VerticalAlignment.Center;
+            homeOverlay.Children.Add(new Border
+            {
+                Child = sessionSummary, Background = Ui.Brush(Ui.Paper), CornerRadius = new(16),
+                Padding = new Thickness(14, 0), Height = 44, MinWidth = 220, MaxWidth = 500,
+                Margin = new Thickness(76, 20, 80, 0), HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top
+            });
             Button OverlayButton(string icon, string label, Action action)
             {
                 var button = Ui.Button("", action); button.Content = new WebIcon(icon, 20); button.Width = button.Height = 44;
@@ -263,7 +313,9 @@ public sealed class MainWindow : Window
         context.HomeIsOpen = true; homeOverlay.IsVisible = true;
         overlayView!.Navigate(route); overlayView.Refresh(); UpdateSessionSummary();
         overlayView.Focus();
-        unitySurface?.SetCovered(true);
+        if(threeDOverlay is null)unitySurface?.SetCovered(true);
+        _ = threeD.ReleaseInputAsync();
+        threeDOverlay?.RefreshRegion();
     }
 
     private void UpdateSessionSummary()
@@ -278,13 +330,15 @@ public sealed class MainWindow : Window
         context.HomeIsOpen = false;
         if (homeOverlay is not null) homeOverlay.IsVisible = false;
         unitySurface?.SetCovered(false);
+        threeDOverlay?.RefreshRegion();
     }
 
     public void Notify(string text)
     {
         if (!Dispatcher.UIThread.CheckAccess()) { Dispatcher.UIThread.Post(() => Notify(text)); return; }
         toastText.Text = text; toast.IsVisible = true;
-        _ = Task.Delay(4500).ContinueWith(_ => Dispatcher.UIThread.Post(() => { if (toastText.Text == text) toast.IsVisible = false; }));
+        threeDOverlay?.RefreshRegion();
+        _ = Task.Delay(4500).ContinueWith(_ => Dispatcher.UIThread.Post(() => { if (toastText.Text == text) toast.IsVisible = false; threeDOverlay?.RefreshRegion(); }));
     }
 
     private async Task Shutdown()
@@ -293,6 +347,7 @@ public sealed class MainWindow : Window
         foreach (var window in itemWindows.Values.ToArray()) window.Close();
         CloseHome();
         await threeD.DisposeAsync(); await media.DisposeAsync(); await client.DisposeAsync();
+        RestoreNativeRoot();
         Close();
     }
 
@@ -331,6 +386,13 @@ public sealed class MainWindow : Window
         var dc = graphics.GetHdc();
         try { if (!PrintWindow(handle, dc, 3)) throw new InvalidOperationException("Could not capture the native app window."); }
         finally { graphics.ReleaseHdc(dc); }
+        if(threeDOverlay is not null)
+        {
+            using var overlay = new RenderTargetBitmap(new PixelSize(bitmap.Width,bitmap.Height),new Vector(96*RenderScaling,96*RenderScaling));
+            overlay.Render(root);
+            using var encoded=new MemoryStream();overlay.Save(encoded);encoded.Position=0;
+            using var image=System.Drawing.Image.FromStream(encoded);graphics.DrawImage(image,0,0,bitmap.Width,bitmap.Height);
+        }
         bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
     }
 
@@ -379,7 +441,7 @@ public sealed class MainWindow : Window
                 await CaptureNative(Path.Combine(directory, "embedded.png"));
                 var player = threeD.PlayerWindowHandle;
                 ShowHome("items"); await Task.Delay(500);
-                if (!context.HomeIsOpen || IsWindowVisible(player) || !threeD.IsRunning || client.State.SessionId != sid)
+                if (!context.HomeIsOpen || threeDOverlay is null && IsWindowVisible(player) || !threeD.IsRunning || client.State.SessionId != sid)
                     throw new InvalidOperationException("3D 表示中のホームシートを確認できませんでした");
                 await CaptureNative(Path.Combine(directory, "embedded-menu.png"));
                 ShowHome("close"); await Task.Delay(500);

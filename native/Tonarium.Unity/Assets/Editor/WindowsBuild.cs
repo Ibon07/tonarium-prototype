@@ -13,7 +13,7 @@ namespace Tonarium.UnityClient.Editor
         {
             Directory.CreateDirectory("Assets/Scenes");
             Directory.CreateDirectory("Assets/Resources");
-            foreach (var shaderName in new[] { "Standard", "Unlit/Transparent Cutout", "Unlit/Texture", "Sprites/Default" })
+            foreach (var shaderName in new[] { "Standard", "Unlit/Transparent Cutout", "Unlit/Transparent", "Unlit/Texture", "Sprites/Default" })
             {
                 string assetPath = "Assets/Resources/" + shaderName.Replace('/', '_').Replace(' ', '_') + ".mat";
                 if (AssetDatabase.LoadAssetAtPath<Material>(assetPath) == null)
@@ -26,6 +26,8 @@ namespace Tonarium.UnityClient.Editor
             EditorSceneManager.SaveScene(root.scene, "Assets/Scenes/Tonarium.unity");
             PlayerSettings.companyName = "Tonarium";
             PlayerSettings.productName = "Tonarium 3D";
+            var icon = Resources.Load<Texture2D>("Web/Brand/favicon");
+            if(icon!=null)PlayerSettings.SetIconsForTargetGroup(BuildTargetGroup.Standalone,new[]{icon});
             PlayerSettings.runInBackground = true;
             PlayerSettings.resizableWindow = true;
             PlayerSettings.defaultScreenWidth = 1280;

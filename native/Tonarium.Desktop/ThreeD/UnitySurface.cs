@@ -7,11 +7,12 @@ using Avalonia.Threading;
 
 namespace Tonarium.Desktop.ThreeD;
 
-/// <summary>A real child HWND confined to the room's center; Unity renders into this surface.</summary>
+/// <summary>A real child HWND covering the client area; Unity renders beneath the native HUD.</summary>
 public sealed class UnitySurface : NativeControlHost
 {
     private TaskCompletionSource<IntPtr> ready = NewReady();
     private IntPtr playerWindow;
+    private NativeChildFocusBridge? focusBridge;
     private int lastWidth = -1, lastHeight = -1;
     private bool covered;
     private readonly DispatcherTimer resizeTimer;
@@ -29,6 +30,21 @@ public sealed class UnitySurface : NativeControlHost
 
     /// <summary>Completes once Avalonia has attached the surface to its native window.</summary>
     public Task<IntPtr> GetHandleAsync() => Handle != IntPtr.Zero ? Task.FromResult(Handle) : ready.Task;
+
+    /// <summary>Hand keyboard focus to Unity when it locks the movement controls.</summary>
+    public bool FocusPlayer()
+    {
+        if (focusBridge is null) return false;
+        focusBridge.ForwardOnHostFocus = true;
+        return focusBridge.FocusPlayer();
+    }
+
+    public void SetInputLocked(bool locked)
+    {
+        if (focusBridge is null) return;
+        focusBridge.ForwardOnHostFocus = locked;
+        if (locked) focusBridge.FocusPlayer();
+    }
 
     public void SetCovered(bool value)
     {
@@ -54,6 +70,7 @@ public sealed class UnitySurface : NativeControlHost
             ready.TrySetException(error);
             throw error;
         }
+        focusBridge = new NativeChildFocusBridge(Handle, () => playerWindow);
         ready.TrySetResult(Handle);
         resizeTimer.Start();
         return new PlatformHandle(Handle, "HWND");
@@ -65,6 +82,7 @@ public sealed class UnitySurface : NativeControlHost
         playerWindow = playerHandle;
         lastWidth = lastHeight = -1;
         FitPlayer();
+        if (focusBridge?.ForwardOnHostFocus == true) focusBridge.FocusPlayer();
     }
 
     private void FitPlayer()
@@ -86,6 +104,7 @@ public sealed class UnitySurface : NativeControlHost
         if (OperatingSystem.IsWindows() && Handle != IntPtr.Zero)
         {
             resizeTimer.Stop();
+            focusBridge?.Dispose(); focusBridge = null;
             // Keep the external player's window alive if the surface is detached before its process exits.
             if (playerWindow != IntPtr.Zero && Native.IsWindow(playerWindow))
             {

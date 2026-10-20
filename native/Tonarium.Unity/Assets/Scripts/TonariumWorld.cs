@@ -29,6 +29,14 @@ namespace Tonarium.UnityClient
         string selected, carrying, held, draft = "", noteDraft = "", notice = "";
         bool menu, chatOpen, initialPosition, returnSent, embedded;
         float yaw, pitch, vertical, nextSend;
+        Vector3 lastSentPosition = Vector3.positiveInfinity;
+        float lastSentYaw, lastSentPitch;
+        int lastSentJump;
+        bool lastInputLocked;
+        string canvasStroke, canvasItem;
+        readonly List<float> canvasPoints = new List<float>();
+        float canvasSendAt;
+        Vector2 lastCanvasPoint;
         int jumps, round = -1, stepped = -1;
         Font font;
         GUIStyle labelStyle, titleStyle, bodyStyle, buttonStyle;
@@ -45,17 +53,17 @@ namespace Tonarium.UnityClient
         {
             Application.targetFrameRate = 60;
             QualitySettings.vSyncCount = 1;
-            font = Font.CreateDynamicFontFromOSFont(new[] { "Yu Gothic UI", "Meiryo", "Segoe UI" }, 18);
+            font = Resources.Load<Font>("Web/Fonts/ZenKakuGothicNew-Regular") ?? Font.CreateDynamicFontFromOSFont(new[] { "Yu Gothic UI", "Meiryo", "Segoe UI" }, 18);
             bridge = gameObject.AddComponent<DesktopBridge>();
             bridge.Message += Receive;
             var player = new GameObject("Player");
             controller = player.AddComponent<CharacterController>();
-            controller.height = 1.65f; controller.center = Vector3.up * .825f;
-            controller.radius = .28f; controller.stepOffset = .25f;
+            controller.height = 1.6f; controller.center = Vector3.up * .8f;
+            controller.radius = .3f; controller.stepOffset = .25f;
             player.transform.position = new Vector3(0, .05f, -6.5f);
             var cameraObject = new GameObject("View"); cameraObject.transform.SetParent(player.transform);
-            cameraObject.transform.localPosition = new Vector3(0, 1.55f, 0);
-            eye = cameraObject.AddComponent<Camera>(); eye.fieldOfView = 70; eye.nearClipPlane = .05f; eye.farClipPlane = 150;
+            cameraObject.transform.localPosition = new Vector3(0, 1.6f, 0);
+            eye = cameraObject.AddComponent<Camera>(); eye.fieldOfView = 70; eye.nearClipPlane = .05f; eye.farClipPlane = 100;
             cameraObject.AddComponent<AudioListener>();
             yaw = 0;
             controller.transform.rotation = Quaternion.Euler(0, yaw, 0);
@@ -64,15 +72,19 @@ namespace Tonarium.UnityClient
             {
                 if (arg == "--tonarium-smoke") gameObject.AddComponent<SmokeCheck>();
                 if (arg == "--tonarium-embedded") embedded = true;
+                if (arg == "--tonarium-avatar-parity") gameObject.AddComponent<AvatarParityProbe>();
+                if (arg == "--tonarium-item-parity") gameObject.AddComponent<ItemParityProbe>();
             }
         }
 
         void Receive(JObject m)
         {
             string type = (string)m["t"];
+            if (type == "releaseInput") { EndCanvasStroke(); CommitNote(); selected = null; menu = false; Unlock(); return; }
             if (type == "videoFrame") { ReceiveVideo(m); return; }
             if (type == "resize")
             {
+                uiScale=Mathf.Clamp((float?)m["scale"]??1,1,4);
                 int width = Mathf.Clamp((int?)m["width"] ?? Screen.width, 160, 8192);
                 int height = Mathf.Clamp((int?)m["height"] ?? Screen.height, 160, 8192);
                 if (Screen.width != width || Screen.height != height)
@@ -109,7 +121,7 @@ namespace Tonarium.UnityClient
                 controller.enabled = false; controller.transform.position = Position(m) + Vector3.up * .05f; controller.enabled = true;
                 yaw = -Float(m, "ry") * Mathf.Rad2Deg; return;
             }
-            if (type == "desktopDisconnected") { notice = "2D クライアントとの接続が切れました"; return; }
+            if (type == "desktopDisconnected") { notice = "2D クライアントとの接続が切れました"; if(embedded)Application.Quit(); return; }
             if (type == "users") { users = m["list"] as JArray ?? users; SyncUsers(); }
             if (type == "presence") { presence = m["all"] as JObject ?? presence; SyncUsers(); }
             if (type == "avatar") ApplyAvatar((string)m["id"], m["s"] as JObject);
@@ -117,7 +129,7 @@ namespace Tonarium.UnityClient
             if (type == "item") ApplyItem(m["item"] as JObject);
             if (type == "itemRemove") RemoveItem((string)m["id"]);
             if (type == "chat") AddChat(m["m"] as JObject);
-            if (type == "world") BuildWorld((string)m["world"] ?? "room");
+            if (type == "world") { initialPosition = false; BuildWorld((string)m["world"] ?? "room"); }
             if (type == "worldPending") notice = "ワールドを切り替えます…";
             if (type == "game") ApplyGame(m["game"] as JObject);
             if (type == "gameTile") brokenTiles[(int)m["tile"]] = (long)m["at"];
@@ -147,6 +159,7 @@ namespace Tonarium.UnityClient
         void AddChat(JObject m)
         {
             if (m == null) return;
+            RecordAvatarChat(m);
             chat.Add(((string)m["fromName"] ?? "お知らせ") + "  " + (string)m["text"]);
             if (chat.Count > 50) chat.RemoveAt(0);
         }
@@ -184,7 +197,7 @@ namespace Tonarium.UnityClient
                 var pos = presence[id]?["pos"] as JObject;
                 if ((string)user["mode"] == "2d" && pos != null) avatarStates[id] = pos;
             }
-            foreach (var id in avatars.Keys.ToArray()) if (!valid.Contains(id) && !avatarStates.ContainsKey(id)) RemoveAvatar(id);
+            foreach (var id in avatars.Keys.ToArray()) if (!valid.Contains(id)) RemoveAvatar(id);
         }
 
         void CreateAvatar(string id)
@@ -193,12 +206,11 @@ namespace Tonarium.UnityClient
             var user = users.OfType<JObject>().FirstOrDefault(u => (string)u["id"] == id);
             string name = (string)user?["name"] ?? id;
             root.transform.position = new Vector3((avatars.Count % 5 - 2) * .8f, 0, -6.5f);
+            if(avatarStates.TryGetValue(id,out var initial)){root.transform.position=Position(initial);root.transform.rotation=Quaternion.Euler(0,-Float(initial,"ry")*Mathf.Rad2Deg,0);}
             var model = OekakiModel.Create(root.transform);
-            var face = Label(root.transform, name, new Vector3(0, 2, 0), .055f);
-            face.gameObject.AddComponent<FaceCamera>();
             avatars[id] = root;
             root.AddComponent<WorldTarget>().Id = "user:" + id;
-            var collider = root.AddComponent<CapsuleCollider>(); collider.height = 1.7f; collider.center = Vector3.up * .85f; collider.radius = .35f;
+            var collider = root.AddComponent<CapsuleCollider>(); collider.height = 1.3f; collider.center = Vector3.up * .65f; collider.radius = .35f;
             StartCoroutine(LoadAvatar(model, name, (string)user?["avatar"]));
         }
 
@@ -210,9 +222,7 @@ namespace Tonarium.UnityClient
                 yield return request.SendWebRequest();
                 if (request.result != UnityWebRequest.Result.Success || model == null) yield break;
                 var texture = DownloadHandlerTexture.GetContent(request);
-                foreach (var r in model.GetComponentsInChildren<MeshRenderer>())
-                    if (r.gameObject.name.EndsWith("Front") || r.gameObject.name.EndsWith("Back"))
-                    { r.material.mainTexture = texture; r.material.color = Color.white; }
+                model.GetComponent<OekakiModel>().ApplyTexture(texture);
             }
             if (!string.IsNullOrEmpty(version))
                 using (var request = UnityWebRequest.Get(serverUrl + "/avatar/params?name=" + UnityWebRequest.EscapeURL(name) + "&v=" + version))
@@ -253,57 +263,87 @@ namespace Tonarium.UnityClient
 
         void Update()
         {
-            if (Input.GetKeyDown(KeyCode.Escape)) { menu = !menu; Unlock(); }
+            if (Input.GetKeyDown(KeyCode.Escape)) { EndCanvasStroke(); CommitNote(); selected = null; menu = false; Unlock(); }
             if (Input.GetKeyDown(KeyCode.F2)) ReturnTo2D();
-            if (Input.GetKeyDown(KeyCode.Return) && !menu) { chatOpen = !chatOpen; if (chatOpen) Unlock(); else SendChat(); }
+            if (Input.GetKeyDown(KeyCode.Return) && !menu && selected == null)
+            {
+                if (embedded) { Unlock(); bridge.Send(new {t="focusChat"}); }
+                else { chatOpen = !chatOpen; if (chatOpen) Unlock(); else SendChat(); }
+            }
+            if(selected!=null&&Input.GetMouseButtonDown(0))
+            {
+                var point=new Vector2(Input.mousePosition.x/uiScale,(Screen.height-Input.mousePosition.y)/uiScale);
+                float width=Mathf.Min(480,HudWidth-32);
+                if(!new Rect((HudWidth-width)/2,HudHeight-296,width,186).Contains(point)){CommitNote();selected=null;}
+            }
             bool controls = !menu && !chatOpen && selected == null;
             bool justLocked = controls && Input.GetMouseButtonDown(0) && Cursor.lockState != CursorLockMode.Locked;
             if (justLocked) { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
             if (controls && Cursor.lockState == CursorLockMode.Locked)
             {
-                yaw += Input.GetAxis("Mouse X") * 2.2f; pitch = Mathf.Clamp(pitch - Input.GetAxis("Mouse Y") * 2.2f, -80, 80);
+                yaw += Input.GetAxisRaw("Mouse X") * 1.4324f; pitch = Mathf.Clamp(pitch - Input.GetAxisRaw("Mouse Y") * 1.4324f, -80.214f, 80.214f);
                 controller.transform.rotation = Quaternion.Euler(0, yaw, 0); eye.transform.localRotation = Quaternion.Euler(pitch, 0, 0);
                 var move = controller.transform.forward * Input.GetAxisRaw("Vertical") + controller.transform.right * Input.GetAxisRaw("Horizontal");
-                move = Vector3.ClampMagnitude(move, 1) * (Input.GetKey(KeyCode.LeftShift) ? 6.5f : 4);
+                move = Vector3.ClampMagnitude(move, 1) * 4;
                 if (controller.isGrounded && vertical < 0) vertical = -2;
                 if (controller.isGrounded && Input.GetKeyDown(KeyCode.Space)) { vertical = 4.2f; jumps++; }
                 vertical -= 12 * Time.deltaTime;
                 controller.Move((move + Vector3.up * vertical) * Time.deltaTime);
                 if (Input.GetKeyDown(KeyCode.E) || (!justLocked && Input.GetMouseButtonDown(0))) Interact();
+                if (canvasStroke != null && Input.GetMouseButton(0)) ContinueCanvasStroke();
+                if (canvasStroke != null && Input.GetMouseButtonUp(0)) EndCanvasStroke();
                 if (Input.GetMouseButtonDown(1)) ToggleCarry();
                 if (Input.GetKeyDown(KeyCode.Q) && held != null) DropHeld();
                 if (Input.GetKeyDown(KeyCode.C) && held != null && (string)items[held]["kind"] == "camera") StartCoroutine(TakePhoto());
+                if (Input.GetKeyDown(KeyCode.L))
+                {
+                    string id=held;if(id==null&&Aim(out var cameraTarget))id=cameraTarget.Id;
+                    if(id!=null&&items.TryGetValue(id,out var cam)&&(string)cam["kind"]=="camera")Room(new {t="itemAction",id,action=new {a="camLive",on=(bool?)cam["live"]!=true}});
+                }
                 if (Input.GetKeyDown(KeyCode.X) && Aim(out var target) && !target.Id.StartsWith("user:")) Room(new { t = "itemRemove", id = target.Id });
             }
-            if (Time.time >= nextSend)
+            var currentPosition=controller.transform.position;
+            if ((Time.time >= nextSend && ((currentPosition-lastSentPosition).sqrMagnitude>.0001f || Mathf.Abs(yaw-lastSentYaw)>.573f || Mathf.Abs(pitch-lastSentPitch)>1.719f)) || jumps!=lastSentJump)
             {
-                nextSend = Time.time + .06f;
+                nextSend = Time.time + .033f;
                 var p = controller.transform.position;
                 Room(new { t = "avatar", s = new { x = p.x, z = -p.z, y = p.y, ry = -yaw * Mathf.Deg2Rad, pitch = -pitch * Mathf.Deg2Rad, jump = jumps } });
-                if (carrying != null && itemObjects.TryGetValue(carrying, out var carried))
+                lastSentPosition=p;lastSentYaw=yaw;lastSentPitch=pitch;lastSentJump=jumps;
+                if (carrying != null)
                 {
                     var pos = controller.transform.position + controller.transform.forward * 2;
-                    pos.y = 0; carried.transform.position = pos;
-                    Room(new { t = "itemMove", id = carrying, x = pos.x, z = -pos.z, ry = -yaw * Mathf.Deg2Rad });
+                    pos.y = 0;
+                    if(itemObjects.TryGetValue(carrying,out var carried))carried.transform.position=pos;
+                    SendCarry(pos);
                 }
             }
             foreach (var pair in avatars)
-                if (avatarStates.TryGetValue(pair.Key, out var state))
+                if (avatarStates.TryGetValue(pair.Key, out var state) && (string)users.OfType<JObject>().FirstOrDefault(u=>(string)u["id"]==pair.Key)?["mode"]!="2d")
                 {
                     pair.Value.transform.position = Vector3.Lerp(pair.Value.transform.position, Position(state), Time.deltaTime * 15);
                     pair.Value.transform.rotation = Quaternion.Slerp(pair.Value.transform.rotation, Quaternion.Euler(0, -Float(state, "ry") * Mathf.Rad2Deg, 0), Time.deltaTime * 15);
                 }
+            UpdateAvatarPresentation();
             foreach (var pair in items)
             {
                 string holder = (string)pair.Value["holder"];
                 if (holder != null && itemObjects.TryGetValue(pair.Key, out var obj))
                 {
                     var anchor = holder == selfId ? controller.transform : avatars.TryGetValue(holder, out var avatar) ? avatar.transform : null;
-                    if (anchor != null) { obj.transform.position = anchor.position + anchor.right * .4f + anchor.forward * .5f; obj.transform.rotation = anchor.rotation; }
+                    if (anchor != null)
+                    {
+                        bool firstPerson=holder==selfId;bool hammer=(string)pair.Value["kind"]=="hammer";
+                        obj.transform.position = firstPerson ? eye.transform.TransformPoint(new Vector3(.26f,-.3f,.6f)) : anchor.TransformPoint(new Vector3(.32f,.6f,.1f));
+                        obj.transform.rotation = firstPerson ? eye.transform.rotation*Quaternion.Euler(-17,0,8.6f) : anchor.rotation*Quaternion.Euler(-23,0,0);
+                        obj.transform.localScale=Vector3.one*(firstPerson&&hammer?.38f:1);
+                        foreach(var collider in obj.GetComponentsInChildren<Collider>())collider.enabled=!firstPerson;
+                    }
                 }
             }
             foreach (var pair in brokenTiles) if (pair.Value <= Now && tiles.TryGetValue(pair.Key, out var tile)) tile.SetActive(false);
             UpdateVideoScreens();
+            bool locked=Cursor.lockState==CursorLockMode.Locked;
+            if(locked!=lastInputLocked){lastInputLocked=locked;bridge.Send(new {t="inputState",locked});}
             if (world == "game" && (string)game["phase"] == "running")
             {
                 if (controller.transform.position.y < -8)
@@ -321,21 +361,30 @@ namespace Tonarium.UnityClient
         bool Aim(out WorldTarget target)
         {
             target = null;
-            if (!Physics.Raycast(eye.transform.position, eye.transform.forward, out var hit, 4)) return false;
+            if (!Physics.Raycast(eye.transform.position, eye.transform.forward, out var hit, 30)) return false;
             target = hit.collider.GetComponentInParent<WorldTarget>();
             return target != null;
         }
         int chessFrom = -1;
         void Interact()
         {
-            if (!Physics.Raycast(eye.transform.position, eye.transform.forward, out var hit, 4)) return;
+            if(carrying!=null){FinishCarry();return;}
+            if(held!=null&&items.TryGetValue(held,out var heldItem)&&(string)heldItem["kind"]=="camera"){StartCoroutine(TakePhoto());return;}
+            if (!Physics.Raycast(eye.transform.position, eye.transform.forward, out var hit, 30)) return;
             if (hit.collider.GetComponent<GameStart>() != null) { Room(new { t = "gameStart" }); return; }
             var target = hit.collider.GetComponentInParent<WorldTarget>(); if (target == null) return;
             if (target.Id.StartsWith("user:"))
             {
-                Room(held != null ? (object)new { t = "hit", to = target.Id.Substring(5) } : new { t = "poke", to = target.Id.Substring(5) }); return;
+                if(held!=null && hit.distance<5)Room(new { t = "hit", to = target.Id.Substring(5) }); return;
             }
             if (!items.TryGetValue(target.Id, out var item)) return;
+            if(TryCanvasPoint(hit,out var canvasId,out var point))
+            {
+                canvasItem=canvasId;canvasStroke=Guid.NewGuid().ToString();canvasSendAt=Time.unscaledTime;lastCanvasPoint=point;
+                Room(new {t="itemAction",id=canvasId,action=new {a="strokeStart",id=canvasStroke,color=CanvasPenColor(canvasId),size=CanvasPenSize(canvasId),x=point.x,y=point.y}});
+                return;
+            }
+            if(InteractItemSurface(target,hit))return;
             string kind = (string)item["kind"];
             if (kind == "hammer" || kind == "camera") { Room(new { t = "itemAction", id = target.Id, action = new { a = "pick" } }); return; }
             if (kind == "dice") { Room(new { t = "itemAction", id = target.Id, action = new { a = "diceRoll", sides = 6, count = 2, secret = false } }); return; }
@@ -345,20 +394,49 @@ namespace Tonarium.UnityClient
                 else { Room(new { t = "itemAction", id = target.Id, action = new { a = "chessMove", from = chessFrom, to = square.Index, revision = (int?)item["chess"]?["revision"] ?? 0, promotion = "Q" } }); chessFrom = -1; }
                 return;
             }
-            selected = target.Id; noteDraft = (string)item["text"] ?? ""; Unlock();
+            selected = target.Id; noteDraft = (string)item["text"] ?? ""; noteSent = noteDraft; Unlock();
         }
         void ToggleCarry()
         {
-            if (carrying != null) { carrying = null; return; }
-            if (Aim(out var target) && !target.Id.StartsWith("user:")) carrying = target.Id;
+            if (carrying != null) { FinishCarry(); return; }
+            if (Aim(out var target))
+            {
+                if(target.Id.StartsWith("user:") && (string)users.OfType<JObject>().FirstOrDefault(u=>(string)u["id"]==target.Id.Substring(5))?["mode"]!="2d")return;
+                carrying = target.Id;
+                SendCarry(controller.transform.position+controller.transform.forward*2);
+            }
         }
+        void SendCarry(Vector3 position)
+        {
+            position.x=Mathf.Clamp(position.x,-9.5f,9.5f);position.z=Mathf.Clamp(position.z,-9.5f,9.5f);
+            if(carrying.StartsWith("user:"))Room(new {t="place2d",target=carrying.Substring(5),pos=new{x=position.x,z=-position.z,ry=-yaw*Mathf.Deg2Rad+Mathf.PI}});
+            else if(carrying.StartsWith("display:"))Room(new {t="displayMove",target=carrying.Substring(8),x=position.x,z=-position.z,ry=-yaw*Mathf.Deg2Rad});
+            else Room(new{t="itemMove",id=carrying,x=position.x,z=-position.z,ry=-yaw*Mathf.Deg2Rad});
+        }
+        void FinishCarry(){if(carrying==null)return;SendCarry(controller.transform.position+controller.transform.forward*2);carrying=null;}
+
+        void ContinueCanvasStroke()
+        {
+            if(!Physics.Raycast(eye.transform.position,eye.transform.forward,out var hit,30)||!TryCanvasPoint(hit,out var id,out var point)||id!=canvasItem)return;
+            if(Vector2.Distance(lastCanvasPoint,point)<.5f)return;
+            lastCanvasPoint=point;
+            canvasPoints.Add(point.x);canvasPoints.Add(point.y);
+            if(Time.unscaledTime-canvasSendAt>=.05f)FlushCanvasStroke();
+        }
+        void FlushCanvasStroke()
+        {
+            if(canvasStroke!=null&&canvasPoints.Count>0)Room(new{t="itemAction",id=canvasItem,action=new{a="strokeAdd",id=canvasStroke,pts=canvasPoints.ToArray()}});
+            canvasPoints.Clear();canvasSendAt=Time.unscaledTime;
+        }
+        void EndCanvasStroke(){FlushCanvasStroke();canvasStroke=null;canvasItem=null;}
         void DropHeld()
         {
             var p = controller.transform.position + controller.transform.forward;
             Room(new { t = "itemAction", id = held, action = new { a = "drop", x = p.x, z = -p.z, ry = -yaw * Mathf.Deg2Rad, pitch = -pitch * Mathf.Deg2Rad } }); held = null;
         }
         void Room(object value) => bridge.Send(new { t = "room", message = value });
-        void Unlock() { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+        void Unlock() { EndCanvasStroke();FinishCarry();Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+        void OnApplicationFocus(bool focused){if(!focused)Unlock();}
         void SendChat() { if (!string.IsNullOrWhiteSpace(draft)) Room(new { t = "chat", text = draft, scope = "all" }); draft = ""; }
         IEnumerator TakePhoto()
         {
