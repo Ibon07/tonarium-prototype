@@ -1,13 +1,17 @@
 import { create } from 'zustand';
 import type { AvatarState, ChatMessage, GuildConfig, Mode, User } from '../../shared/protocol.ts';
 import { SPAWN } from '../../shared/protocol.ts';
-import type { Item } from '../../shared/items.ts';
+import type { Item, ItemKind } from '../../shared/items.ts';
 import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
 import type { DieSides } from '../../shared/dice.ts';
 import { newGame, type GameState } from '../../shared/game.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
 export type WinMode = 'simple' | 'free';
+export type HubPage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'worlds' | 'items';
+export type SideWidget = 'now' | 'event' | 'sessions' | 'worlds' | 'items';
+/** ハブの右エリアに上書きで出す詳細 */
+export type HubDetail = { kind: 'session'; id: string } | { kind: 'item'; item: ItemKind } | null;
 /** ウィンドウのキー: share（画面共有）/ cam:<アイテムID> / view:<ユーザーID> / item:<アイテムID> */
 export interface Win { key: string; x: number; y: number }
 export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention'; from: string; key?: string; fromName: string; at: number; unread: boolean }
@@ -53,6 +57,14 @@ interface State {
   loadScale: number;
   /** 動画・YouTube ごとの自分だけの音量（0〜1）。無ければ既定の半分 */
   volumes: Record<string, number>;
+  /** ハブ（メニュー）で最後に開いたページ。セッション中のメニューボタンはここを開く */
+  hubPage: HubPage;
+  /** セッション中にハブを重ねて開いている */
+  hubOpen: boolean;
+  hubDetail: HubDetail;
+  sideWidget: SideWidget;
+  /** セッションの外で選んでおく、次に入るときのモード */
+  joinMode: Mode;
   /** サイコロを振る種類・個数（手元に保存） */
   dice: { sides: DieSides; count: number; secret: boolean };
   /** 視点のライブを頼んだ相手。始まったらウィンドウを開く */
@@ -152,6 +164,11 @@ export const useStore = create<State>(() => ({
   switching: null,
   loadScale: load('tonarium.loadScale', 1),
   volumes: {},
+  hubPage: load('tonarium.hubPage', 'home'),
+  hubOpen: false,
+  hubDetail: null,
+  sideWidget: load('tonarium.sideWidget', 'event'),
+  joinMode: load('tonarium.joinMode', '2d'),
   dice: load('tonarium.dice', { sides: 6 as DieSides, count: 2, secret: false }),
   notices: [],
   friends: [],
