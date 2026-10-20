@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
+import { keepHomeSocketsAlive } from './ws-heartbeat.ts';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
   AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, Recap, RoomClientMsg, Rsvp,
@@ -1179,6 +1180,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 const wss = new WebSocketServer({ noServer: true });
+keepHomeSocketsAlive(wss);
 server.on('upgrade', (req, socket, head) => {
   const pathname = new URL(req.url ?? '/', 'http://local').pathname;
   if (pathname === '/sync/ws') upgradeSync(req, socket, head);

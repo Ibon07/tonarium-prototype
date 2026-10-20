@@ -19,8 +19,10 @@ let retry = 0;
 export function connectWs() {
   const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
   const ws = new WebSocket(url);
+  let openedAt = 0;
   g.__tonariumWs = ws;
   ws.onopen = () => {
+    openedAt = performance.now();
     retry = 0;
     set({ wsConnected: true });
     const s = get();
@@ -32,7 +34,9 @@ export function connectWs() {
     }
   };
   ws.onmessage = (e) => onMessage(JSON.parse(e.data) as ServerMsg);
-  ws.onclose = () => {
+  ws.onclose = (event) => {
+    console.warn('[home-ws] closed', { code: event.code, reason: event.reason, wasClean: event.wasClean,
+      connectedSeconds: openedAt ? Math.round((performance.now() - openedAt) / 1000) : 0 });
     stopSessionSync(true);
     set({ wsConnected: false });
     if (get().session) set({ sync: 'unavailable', syncError: 'ホームとの接続を待っています' });

@@ -65,6 +65,7 @@ kokosync の通常メッセージはルーム全員へ届くため、Tonarium �
 ## 再接続と診断
 
 - ホーム接続が切れたらデータ接続も破棄し、`join` からやり直す。
+- ホームの `/ws` はサーバーが25秒ごとにWebSocket制御フレームのpingを送る。ブラウザの自動pongでアイドル切断を防ぎ、次の確認時点まで応答がなければ切断して再接続させる。JavaScriptのタイマーに応答を任せないため、バックグラウンドタブのタイマー制限の影響を受けにくい。コンソールの `[home-ws] closed` には切断コード・理由・接続秒数を出す。
 - kokosync の切断やタイムアウト時は待ち時間を増やして再接続し、最新のスナップショットをもらう。送信済みか不明な操作を自動再実行しない。未確定の操作があるときは確認を促す。
 - LiveKit が切れてもデータ同期は続く。画面には同期と通話の状態を別々に出す。
 - `useStore.getState()` の `sync`、`syncTransport`、`syncRtt`、`syncStats`、`syncError` で状態を取得できる。`syncStats` は SDK の queuedBytes / sentBytes / receivedBytes / dropped 等。5秒ごとに更新する RTT はブラウザから kokosync 中継までの往復で、操作が全員へ反映される時間とは異なる。
