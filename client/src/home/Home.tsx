@@ -11,7 +11,7 @@ import { acceptInvite, inviteTarget } from '../world/NoticeLog.tsx';
 import { SessionCard } from './SessionCard.tsx';
 import { CreateSessionDialog } from './dialogs.tsx';
 import { EventsPage, FriendTile, FriendsPage, GroupsPage, ItemsPage, SessionsPage, WorldsPage, goHome } from './pages.tsx';
-import { GroupPage } from './GroupPage.tsx';
+import { GroupActions, GroupPage, GroupTitle } from './GroupPage.tsx';
 import { MessageView } from './messages.tsx';
 import { StatusDialog, StatusDot, StatusText, useStatusOf } from './status.tsx';
 import { Empty, NameFace, WEEKDAYS, dateKey, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
@@ -312,12 +312,13 @@ export function Home() {
       <Sidebar />
       <main className="hmain">
         <header className="hhead">
-          {title && <h1>{title}</h1>}
+          {page === 'group' ? <GroupTitle /> : title && <h1>{title}</h1>}
           {!wsConnected && <span className="reconn">接続中…</span>}
           <span className="spacer" />
-          <label className="hsearch"><Icon name="search" size={16} /><input value={q} placeholder="フレンド・ワールド・グループを検索" onChange={(e) => setQ(e.target.value)} /></label>
+          {/* グループの画面は絞り込むものがないので出さない */}
+          {page !== 'group' && <label className="hsearch"><Icon name="search" size={16} /><input value={q} placeholder="フレンド・ワールド・グループを検索" onChange={(e) => setQ(e.target.value)} /></label>}
           <Bell />
-          <button className="dark hcreate" onClick={() => setCreate(true)}><Icon name="plus" size={16} />セッションを作る</button>
+          {page === 'group' ? <GroupActions /> : <button className="dark hcreate" onClick={() => setCreate(true)}><Icon name="plus" size={16} />セッションを作る</button>}
         </header>
         {page === 'home' && <HomePageView q={q} />}
         {page === 'friends' && <FriendsPage q={q} />}

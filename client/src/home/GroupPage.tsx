@@ -101,29 +101,49 @@ function Channels({ g }: { g: Group }) {
   );
 }
 
+/** ホームの見出しの行に、グループ名と操作を出す（検索とベルはホームのものを使う） */
+export function GroupTitle() {
+  const g = useStore((s) => s.groups.find((x) => x.id === s.homeGroup));
+  const n = useStore((s) => s.guild.sessions.filter((d) => d.group === s.homeGroup).length);
+  if (!g) return null;
+  return (
+    <span className="gtitle">
+      <span className="gmark big" style={{ background: g.color }}>{g.name.slice(0, 1)}</span>
+      <span className="finfo">
+        <h1>{g.name}</h1>
+        <span className="sub">{g.members.length} 人 · セッション {n} 件 · {g.owner} が作成</span>
+      </span>
+    </span>
+  );
+}
+
+export function GroupActions() {
+  const g = useStore((s) => s.groups.find((x) => x.id === s.homeGroup));
+  const selfName = useStore((s) => s.selfName);
+  const [create, setCreate] = useState(false);
+  const [inv, setInv] = useState(false);
+  if (!g) return null;
+  const member = g.members.includes(selfName);
+  return (
+    <>
+      {member && <button className="hbtn" onClick={() => setInv(true)}>フレンドを誘う</button>}
+      {member ? <button className="hbtn" onClick={() => leaveGroup(g.id)}>抜ける</button> : <button className="dark hbtn" onClick={() => joinGroup(g.id)}>入る</button>}
+      {g.owner === selfName && <button className="ib hbtn" title="このグループを消す" aria-label="このグループを消す" onClick={() => { deleteGroup(g.id); set({ homePage: 'groups' }); }}><Icon name="trash" size={16} /></button>}
+      {member && <button className="dark hcreate" onClick={() => setCreate(true)}><Icon name="plus" size={16} />セッションを作る</button>}
+      {create && <CreateSessionDialog group={g.id} onClose={() => setCreate(false)} />}
+      {inv && <InviteToGroupDialog group={g} onClose={() => setInv(false)} />}
+    </>
+  );
+}
+
 export function GroupPage() {
   const g = useStore((s) => s.groups.find((x) => x.id === s.homeGroup));
   const selfName = useStore((s) => s.selfName);
   const sessions = useStore((s) => s.guild.sessions).filter((d) => d.group === g?.id);
-  const [create, setCreate] = useState(false);
-  const [inv, setInv] = useState(false);
   if (!g) return <Empty>このグループはもうありません</Empty>;
   const member = g.members.includes(selfName);
   return (
     <>
-      <header className="ghead">
-        <span className="gmark big" style={{ background: g.color }}>{g.name.slice(0, 1)}</span>
-        <span className="finfo">
-          <h1>{g.name}</h1>
-          <span className="sub">{g.members.length} 人 · セッション {sessions.length} 件 · {g.owner} が作成</span>
-        </span>
-        <span className="spacer" />
-        {member && <button onClick={() => setInv(true)}>フレンドを誘う</button>}
-        {member ? <button onClick={() => leaveGroup(g.id)}>抜ける</button> : <button className="dark" onClick={() => joinGroup(g.id)}>入る</button>}
-        {g.owner === selfName && <button className="ib" title="このグループを消す" aria-label="このグループを消す" onClick={() => { deleteGroup(g.id); set({ homePage: 'groups' }); }}><Icon name="trash" size={16} /></button>}
-        {member && <button className="dark hcreate" onClick={() => setCreate(true)}><Icon name="plus" size={16} />セッションを作る</button>}
-      </header>
-
       <section className="hsec">
         <h2>セッション <span className="sub">入れる範囲はセッションごとに選ぶ</span></h2>
         <div className="glegend">
@@ -141,8 +161,6 @@ export function GroupPage() {
           <Members g={g} />
         </div>
       </div>
-      {create && <CreateSessionDialog group={g.id} onClose={() => setCreate(false)} />}
-      {inv && <InviteToGroupDialog group={g} onClose={() => setInv(false)} />}
     </>
   );
 }
