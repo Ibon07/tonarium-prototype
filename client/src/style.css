@@ -228,8 +228,8 @@ img.av { object-fit: cover; display: block; }
 .fpline { width: 24px; height: 1px; background: rgba(38, 38, 46, .14); }
 
 .worldbadge {
-  position: absolute; left: 20px; top: 20px; display: flex; align-items: center; gap: 10px; padding: 7px; border-radius: 16px;
-  background: rgba(255, 253, 249, .9); backdrop-filter: blur(14px); box-shadow: 0 2px 10px rgba(60, 40, 10, .08); max-width: 320px;
+  position: absolute; left: 76px; top: 20px; display: flex; align-items: center; gap: 10px; padding: 7px; border-radius: 16px;
+  background: rgba(255, 253, 249, .9); backdrop-filter: blur(14px); box-shadow: 0 2px 10px rgba(60, 40, 10, .08); max-width: 264px;
 }
 .wname { font-family: "Zen Maru Gothic", sans-serif; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vline { width: 1px; height: 20px; background: rgba(38, 38, 46, .14); flex: none; }
