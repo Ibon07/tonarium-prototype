@@ -13,3 +13,7 @@ native/**/Builds/
 native/artifacts/
 native/build/
 native/**/*.log
+
+# PNPM
+pnpm-lock.yaml
+pnpm-workspace.yaml
