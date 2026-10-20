@@ -47,4 +47,10 @@ The offline `--chat-scroll` check verifies wheel scrolling to the final row, lat
 dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3016 native/artifacts/chat-scroll --chat-scroll
 ```
 
+`--audio-settings` checks the real Windows device list, selection/refresh/apply/cancel, stored settings and explicit window ownership without recording microphone audio or joining a call:
+
+```powershell
+dotnet run --project native/Tonarium.UiSmoke -c Release -- unused native/artifacts/audio-settings --audio-settings
+```
+
 This is a happy-path integration smoke, not a failure-case unit suite. Headless input does not validate physical Windows IME composition, foreground window switching, GPU surfaces, microphone devices or Unity rendering; those require the separate runtime smoke. Its CPU sample includes the test harness and Skia software rendering, so it is evidence about this run, not a hardware-independent performance guarantee.

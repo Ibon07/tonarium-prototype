@@ -115,6 +115,7 @@ public sealed class HomeView : UserControl
         };
         Grid.SetRow(navigationScroll, 1); body.Children.Add(navigationScroll);
         var bottom = Col(8); bottom.Margin = new Thickness(0, 12, 0, 0);
+        var audioSettings=IconTextButton("mic","音声設定",()=>Run(()=>_context.ShowAudioSettingsAsync()),16);audioSettings.HorizontalAlignment=HorizontalAlignment.Stretch;audioSettings.HorizontalContentAlignment=HorizontalAlignment.Left;audioSettings.Background=Brushes.Transparent;audioSettings.BorderThickness=default;bottom.Children.Add(audioSettings);
         bottom.Children.Add(new Border{Height=1,Background=Brush("#EEE8DD"),Margin=new Thickness(8,0,8,4)});bottom.Children.Add(Text("クライアントモード", 12, Muted,FontWeight.Bold));
         _mode2d=IconTextButton("flat","2D", () => Run(() => _context.ChangeModeAsync("2d")),14);_mode3d=IconTextButton("cube","3D", () => Run(() => _context.ChangeModeAsync("3d")),14);var vr=IconTextButton("vr","VR",()=>_context.Notify("VR は準備中です"),14);
         var segment=new Grid{ColumnDefinitions=new ColumnDefinitions("*,*,*"),ColumnSpacing=2};var modes=new[]{_mode2d,_mode3d,vr};for(var i=0;i<3;i++){modes[i].Height=32;modes[i].Padding=default;modes[i].CornerRadius=new CornerRadius(999);modes[i].BorderThickness=default;modes[i].HorizontalAlignment=HorizontalAlignment.Stretch;Grid.SetColumn(modes[i],i);segment.Children.Add(modes[i]);}bottom.Children.Add(new Border{Background=Brush("#1426262E"),CornerRadius=new CornerRadius(999),Padding=new Thickness(3),Child=segment,Margin=new Thickness(0,0,0,6)});

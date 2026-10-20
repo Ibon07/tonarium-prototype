@@ -38,6 +38,7 @@ internal static class Program
             {
                 if (args.Contains("--side-panels")) await SidePanelProbe.Run(output, Pass);
                 else if (args.Contains("--chat-scroll")) await ChatScrollProbe.Run(output, Pass);
+                else if (args.Contains("--audio-settings")) await AudioSettingsProbe.Run(output, Pass);
                 else if (args.Contains("--items")) await ItemBehaviorProbe.Run(server, output, Pass);
                 else if (args.Contains("--chess")) await ChessMoveProbe.Run(server, output, Pass,
                     args.Contains("--unity-chess") ? args.ElementAtOrDefault(Array.IndexOf(args, "--unity-chess") + 1) : null);

@@ -660,8 +660,7 @@ public sealed partial class RoomView : UserControl
         box.Children.Add(Ui.Text("ワールド（全員に反映）", 13));
         foreach (var (kind, name) in new[] { ("room", "ホール"), ("cafe", "カフェ"), ("game", "ゲーム") }) box.Children.Add(Ui.Button(name + (kind == _ctx.State.World ? "  ✓" : ""), () => ConfirmWorld(kind, name)));
         box.Children.Add(Ui.Button("プロフィールを編集", () => _ctx.OpenProfile(_ctx.State.SelfId)));
-        if (_ctx.Media is Tonarium.Desktop.Media.NativeMedia nativeMedia)
-            box.Children.Add(Ui.Button("マイク・スピーカーの設定", () => Run(nativeMedia.ShowAudioSettingsAsync)));
+        box.Children.Add(Ui.Button("マイク・スピーカーの設定", () => Run(() => _ctx.ShowAudioSettingsAsync())));
         box.Children.Add(Ui.Button("セッションを移動", () => _ctx.ShowHome("home")));
         box.Children.Add(Ui.Button(_ctx.State.Mode == "3d" ? "2D に切り替える" : "3D に切り替える", () => Run(() => _ctx.ChangeModeAsync(_ctx.State.Mode == "3d" ? "2d" : "3d")))); ShowPopup(box, 370);
     }

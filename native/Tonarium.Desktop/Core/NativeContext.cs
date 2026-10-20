@@ -22,5 +22,6 @@ public sealed class NativeContext(TonariumClient client, INativeMedia media, Win
     public void OpenProfile(string id) => ProfileRequested?.Invoke(id);
     public void ShowHome(string page) => HomeRequested?.Invoke(page);
     public Task ChangeModeAsync(string mode) => ModeRequested?.Invoke(mode) ?? Task.CompletedTask;
+    public Task ShowAudioSettingsAsync(Window? owner = null) => Media is NativeMedia native ? native.ShowAudioSettingsAsync(owner ?? Owner) : Task.CompletedTask;
     public Task TeleportAsync(double x, double z, double ry) => TeleportRequested?.Invoke(x, z, ry) ?? Client.SendRoomAsync(new { t = "avatar", s = new { x, z, ry } });
 }

@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Layout;
+using Avalonia.Input;
 using Avalonia.Threading;
 using LiveKit.Proto;
 using LiveKit.Rtc;
@@ -16,6 +17,7 @@ using SkiaSharp;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Tonarium.Desktop.Core;
+using Tonarium.Desktop.Views;
 using RoomOptions = LiveKit.Rtc.RoomOptions;
 using TrackPublishOptions = LiveKit.Rtc.TrackPublishOptions;
 
@@ -457,21 +459,43 @@ public sealed partial class NativeMedia : INativeMedia
         });
     }
 
-    public async Task ShowAudioSettingsAsync()
+    public async Task ShowAudioSettingsAsync(Window? owner = null)
     {
+        owner ??= (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+        if (owner is null) return;
         await Dispatcher.UIThread.InvokeAsync(async () =>
         {
             using var enumerator = new MMDeviceEnumerator();
-            var microphones = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).Select(d => new AudioDevice(d.ID, d.FriendlyName)).Prepend(new AudioDevice(null, "Windows の既定")).ToArray();
-            var speakers = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).Select(d => new AudioDevice(d.ID, d.FriendlyName)).Prepend(new AudioDevice(null, "Windows の既定")).ToArray();
-            var mic = new ComboBox { ItemsSource = microphones, SelectedItem = microphones.FirstOrDefault(d => d.Id == microphoneDevice), HorizontalAlignment = HorizontalAlignment.Stretch };
-            var speaker = new ComboBox { ItemsSource = speakers, SelectedItem = speakers.FirstOrDefault(d => d.Id == speakerDevice), HorizontalAlignment = HorizontalAlignment.Stretch };
-            var window = new Window { Title = "音声デバイス", Width = 480, Height = 300, WindowStartupLocation = WindowStartupLocation.CenterOwner, CanResize = false };
-            var save = new Button { Content = "適用", HorizontalAlignment = HorizontalAlignment.Right };
-            save.Click += (_, _) => window.Close(true);
+            var mic = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Name = "MicrophoneDevice" };
+            var speaker = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Name = "SpeakerDevice" };
+            Avalonia.Automation.AutomationProperties.SetName(mic, "マイク");
+            Avalonia.Automation.AutomationProperties.SetName(speaker, "スピーカー / ヘッドホン");
+            var hint = Ui.Text("", 12, Ui.Muted);
+            var window = new Window { Title = "音声設定", Width = 520, Height = 380, MinWidth = 420, WindowStartupLocation = WindowStartupLocation.CenterOwner, CanResize = false, Background = Ui.Brush(Ui.Paper), FontFamily = Ui.BodyFont };
+            void Reload(string? microphoneId, string? speakerId)
+            {
+                AudioDevice[] Devices(DataFlow flow)
+                {
+                    var endpoints = enumerator.EnumerateAudioEndPoints(flow, DeviceState.Active);
+                    var devices = new List<AudioDevice> { new(null, "Windows の既定") };
+                    foreach (var device in endpoints) { using (device) devices.Add(new(device.ID, device.FriendlyName)); }
+                    return devices.ToArray();
+                }
+                var microphones = Devices(DataFlow.Capture); var speakers = Devices(DataFlow.Render);
+                mic.ItemsSource = microphones; mic.SelectedItem = microphones.FirstOrDefault(d => d.Id == microphoneId) ?? microphones[0];
+                speaker.ItemsSource = speakers; speaker.SelectedItem = speakers.FirstOrDefault(d => d.Id == speakerId) ?? speakers[0];
+                hint.Text = microphones.Length == 1 ? "マイクが見つかりません。接続して「機器を再読み込み」を押してください。" : "選択はこのクライアントに保存されます。ミュート状態は変わりません。";
+            }
+            Reload(microphoneDevice, speakerDevice);
+            var refresh = Ui.Button("機器を再読み込み", () => Reload((mic.SelectedItem as AudioDevice)?.Id, (speaker.SelectedItem as AudioDevice)?.Id));
+            var save = Ui.Button("適用", () => window.Close(true)); save.Background = Ui.Brush("#2F5FC4"); save.Foreground = Avalonia.Media.Brushes.White;
+            var cancel = Ui.Button("キャンセル", () => window.Close(false));
             window.Content = new StackPanel { Margin = new Thickness(24), Spacing = 12, Children =
-            { new TextBlock { Text = "マイク" }, mic, new TextBlock { Text = "スピーカー / ヘッドホン" }, speaker, save } };
-            if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime { MainWindow: { } owner }) return;
+            { Ui.Title("音声設定"), Ui.Text("マイク", 13), mic, Ui.Text("スピーカー / ヘッドホン", 13), speaker, hint,
+                new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 8, Children = { refresh, cancel, save } } } };
+            Grid.SetColumn(cancel, 1); Grid.SetColumn(save, 2);
+            window.Opened += (_, _) => mic.Focus();
+            window.AddHandler(InputElement.KeyDownEvent, (_, e) => { if (e.Key == Avalonia.Input.Key.Escape) { e.Handled = true; window.Close(false); } }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
             if (!await window.ShowDialog<bool>(owner)) return;
             microphoneDevice = (mic.SelectedItem as AudioDevice)?.Id;
             speakerDevice = (speaker.SelectedItem as AudioDevice)?.Id;
@@ -480,8 +504,6 @@ public sealed partial class NativeMedia : INativeMedia
                 NativeSettings.SetString("microphoneDevice", microphoneDevice ?? "");
                 NativeSettings.SetString("speakerDevice", speakerDevice ?? "");
             }
-            // Recreate native endpoints while preserving the room and current mic intent.
-            var wanted = microphone is not null;
             await gate.WaitAsync();
             try
             {
@@ -492,7 +514,7 @@ public sealed partial class NativeMedia : INativeMedia
                     var device = speakerDevice is null ? enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia) : enumerator.GetDevice(speakerDevice);
                     output = new WasapiOut(device, AudioClientShareMode.Shared, true, 60); output.Init(mixer); output.Play();
                 }
-                if (wanted) await StartMicrophoneAsync();
+                if (microphoneWanted && Connected) await StartMicrophoneAsync();
                 await ReportAsync();
             }
             catch (Exception ex) { SetStatus($"音声デバイス: {SafeError(ex)}"); }

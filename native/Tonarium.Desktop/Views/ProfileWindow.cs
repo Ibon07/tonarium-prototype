@@ -102,6 +102,7 @@ public sealed class ProfileWindow : Window
 
     private void BuildEditor()
     {
+        body.Children.Add(Section("音声", ActionButton("マイク・スピーカーの設定", () => context.ShowAudioSettingsAsync(this))));
         bio = new TextBox { PlaceholderText = "プロフィールに表示されます", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxLength = 300, MinHeight = 72, Height = 72, FontFamily = Ui.BodyFont, FontSize = 14, CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 10) };
         var count = Ui.Text("0 / 300", 11, Ui.Muted);
         bio.TextChanged += (_, _) => count.Text = $"{bio.Text?.Length ?? 0} / 300";
