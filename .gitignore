@@ -2,3 +2,7 @@ node_modules
 client/dist
 data
 .env
+
+# PNPM
+pnpm-lock.yaml
+pnpm-workspace.yaml
