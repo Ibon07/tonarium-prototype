@@ -1,11 +1,14 @@
-﻿param([string]$Runtime = 'win-x64', [switch]$SkipUnity)
+﻿param([string]$Runtime = 'win-x64', [switch]$SkipUnity, [string]$Version, [string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
 $sdk = Join-Path $env:LOCALAPPDATA 'Tonarium\dotnet\dotnet.exe'
 if (-not (Test-Path -LiteralPath $sdk)) { $sdk = (Get-Command dotnet -ErrorAction Stop).Source }
 $env:DOTNET_ROOT = Split-Path $sdk -Parent
-if (-not $SkipUnity) { & (Join-Path $PSScriptRoot 'build-unity.ps1') }
-$destination = Join-Path $PSScriptRoot "artifacts\Tonarium-$Runtime"
-& $sdk publish (Join-Path $PSScriptRoot 'Tonarium.Desktop\Tonarium.Desktop.csproj') -c Release -r $Runtime --self-contained true -o $destination --nologo
+if ($Version -and $Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw 'Version must be a semantic version without the v prefix' }
+if (-not $SkipUnity) { & (Join-Path $PSScriptRoot 'build-unity.ps1') -Version $Version }
+$destination = if ($OutputDirectory) { [IO.Path]::GetFullPath($OutputDirectory) } else { Join-Path $PSScriptRoot "artifacts\Tonarium-$Runtime" }
+$publishArgs = @('publish', (Join-Path $PSScriptRoot 'Tonarium.Desktop\Tonarium.Desktop.csproj'), '-c', 'Release', '-r', $Runtime, '--self-contained', 'true', '-o', $destination, '--nologo')
+if ($Version) { $publishArgs += "-p:Version=$Version" }
+& $sdk @publishArgs
 if ($LASTEXITCODE -ne 0) { throw 'Desktop publish failed' }
 $unity = Join-Path $PSScriptRoot 'build\unity'
 if (Test-Path -LiteralPath $unity) {

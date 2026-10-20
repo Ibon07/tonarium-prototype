@@ -36,7 +36,11 @@ namespace Tonarium.UnityClient.Editor
             PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
             PlayerSettings.colorSpace = ColorSpace.Linear;
             PlayerSettings.stripEngineCode = false;
-            string output = Path.GetFullPath(Path.Combine(Application.dataPath, "../../build/unity/Tonarium3D.exe"));
+            var args = Environment.GetCommandLineArgs();
+            string Argument(string name) { var index = Array.IndexOf(args, name); return index >= 0 && index + 1 < args.Length ? args[index + 1] : null; }
+            var version = Argument("-buildVersion");
+            if (!string.IsNullOrEmpty(version)) PlayerSettings.bundleVersion = version;
+            string output = Path.GetFullPath(Argument("-customBuildPath") ?? Path.Combine(Application.dataPath, "../../build/unity/Tonarium3D.exe"));
             Directory.CreateDirectory(Path.GetDirectoryName(output));
             var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions {
                 scenes = new[] { "Assets/Scenes/Tonarium.unity" }, locationPathName = output,
