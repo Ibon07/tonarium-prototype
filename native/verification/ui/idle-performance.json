@@ -1,7 +1,1 @@
-{
-  "WorkingSetMiB": 162.1,
-  "PrivateMiB": 137.4,
-  "CpuMillisecondsInFiveSeconds": 0.0,
-  "Mode": "2D demo idle after eight seconds",
-  "UnityProcesses": 0
-}
+{"elapsedSeconds":9.9998986,"cpuMilliseconds":890.625,"cpuPercentOfOneCore":8.906214107957144,"workingSetBytes":298803200,"privateMemoryBytes":257359872,"participants":2,"mode":"2d","unityRunning":false}

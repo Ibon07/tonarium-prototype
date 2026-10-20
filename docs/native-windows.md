@@ -61,7 +61,9 @@ Unity EditorとWindows Build Supportが必要。ビルドは導入済みの2022.
 
 UIスモークは日本語入力イベントとEnter送信を確認するが、実機IMEの候補選択は自動確認していない。画像は `native/verification/unity/`、通常の実行結果は `native/artifacts/` と `native/Tonarium.UiSmoke/results/` に保存する。後者はGit管理外。
 
-2D待機の試測では、起動後8秒を置いたデモホームが約162MiBのワーキングセット、続く5秒のCPU時間増分0ms、Unityプロセス0だった。通話・共有・データ量によって変わる参考値。
+配布用Release版の実機計測では、通話接続中・マイクミュート・アバター2体の2Dルームで、10秒間のCPU時間増分891ms（1コア換算8.9%）、ワーキングセット約285MiB、Unity起動なしだった。背景と固定パネルは描画をキャッシュしている。端末・通話・共有・データ量によって変わる参考値。
+
+`--smoke 保存先 --measure-idle 10` で、操作確認用の外部UI Automationから独立して同じ待機計測を実行できる。秒数は省略時5秒。
 
 ## Web版の見た目とお絵描きアバター
 

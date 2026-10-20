@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Automation;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -33,7 +34,11 @@ internal static class Program
         Exception? failure = null;
         Dispatcher.UIThread.Post(async () =>
         {
-            try { await Run(server); }
+            try
+            {
+                if (args.Contains("--offline-avatar")) await AvatarProbe.VerifyOffline(server, output, Pass);
+                else await Run(server);
+            }
             catch (Exception error) { failure = error; Console.Error.WriteLine(error); }
             finally { cancel.Cancel(); }
         });
@@ -72,11 +77,11 @@ internal static class Program
             await Capture(main, "02-home", true);
             foreach (var page in new[] { "フレンド", "セッション", "イベント", "グループ", "ワールド", "アイテム", "ホーム" })
             {
-                Click(main, b => Label(b).TrimEnd().EndsWith("   " + page));
+                Click(main, b => Label(b) == page);
                 await Capture(main, "03-nav-" + page, true);
             }
-            Click(main, b => Label(b).TrimEnd().EndsWith("   グループ"));
-            Click(main, "＋ 作る");
+            Click(main, b => Label(b) == "グループ"); await Settle();
+            Click(main, "グループを作る");
             await Until(() => main.OwnedWindows.Any(w => w.Title == "グループを作る"), "group form opens");
             var groupDialog = main.OwnedWindows.First(w => w.Title == "グループを作る");
             var groupName = "UIグループ " + suffix;
@@ -84,8 +89,8 @@ internal static class Program
             Click(groupDialog, "作る");
             await Until(() => client.State.Groups.Any(g => J.Text(g, "name") == groupName), "group created from native form");
             await Capture(main, "03-group-created", true);
-            Click(main, b => Label(b).TrimEnd().EndsWith("   イベント"));
-            Click(main, "＋ 作る");
+            Click(main, b => Label(b) == "イベント"); await Settle();
+            Click(main, "イベントを作る");
             await Until(() => main.OwnedWindows.Any(w => w.Title == "イベントを作る"), "event form opens");
             var eventDialog = main.OwnedWindows.First(w => w.Title == "イベントを作る");
             var eventName = "UIイベント " + suffix;
@@ -95,8 +100,8 @@ internal static class Program
             await Capture(main, "03-event-created", true);
             Click(main, "月");
             await Capture(main, "03-event-calendar", true);
-            Click(main, b => Label(b).TrimEnd().EndsWith("   ホーム"));
-            Click(main, "＋ セッションを作る");
+            Click(main, b => Label(b) == "ホーム"); await Settle();
+            Click(main, "セッションを作る");
             await Until(() => main.OwnedWindows.Any(w => w.Title == "セッションを作る"), "session dialog opens");
             var dialog = main.OwnedWindows.First(w => w.Title == "セッションを作る");
             Type(dialog, Views<TextBox>(dialog).Single(t => t.PlaceholderText == "セッション名"), sessionName);
@@ -105,15 +110,16 @@ internal static class Program
             Click(dialog, "作る");
             await Until(() => client.State.Sessions.Any(s => J.Text(s, "name") == sessionName), "create session through UI");
             var sid = J.Text(client.State.Sessions.First(s => J.Text(s, "name") == sessionName), "id");
-            Click(main, b => Label(b).TrimEnd().EndsWith("   セッション"));
+            Click(main, b => Label(b) == "セッション"); await Settle();
             await Until(() => Views<TextBlock>(main).Any(t => t.Text == sessionName), "new session visible in native session list");
             var card = Views<TextBlock>(main).First(t => t.Text == sessionName);
-            var holder = card.GetVisualAncestors().OfType<Border>().First(b => Views<Button>(b).Any(x => Label(x) == "参加する →"));
-            Click(holder, "参加する →");
+            var holder = card.GetVisualAncestors().OfType<Border>().First(b => Views<Button>(b).Any(x => Label(x) == "参加する"));
+            Click(holder, "参加する");
             await Until(() => client.State.SessionId == sid && client.State.SyncStatus == "connected" && Views<RoomView>(main).Any(), "join session and KokoSync from UI");
             await peer.JoinAsync(sid);
             await Until(() => peer.State.SyncStatus == "connected", "second participant joins room");
             await Capture(main, "05-room", true);
+            await AvatarProbe.Verify(main, client, peer, output, Pass);
             var chat = Views<TextBox>(main).Single(t => t.PlaceholderText?.Contains("声の届く範囲") == true);
             var chatText = "こんにちは、ネイティブから " + suffix;
             Type(main, chat, chatText);
@@ -127,7 +133,7 @@ internal static class Program
             main.KeyRelease(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
             await Until(() => peer.State.Chats.Any(c => J.Text(c, "text") == chatText) && string.IsNullOrEmpty(chat.Text), "Japanese room chat using keyboard Enter");
             await Capture(main, "06-room-chat", true);
-            Click(main, "＋ 出す");
+            Click(main, "出す");
             await Until(() => main.OwnedWindows.Any(w => Views<TextBlock>(w).Any(t => t.Text == "所持アイテム")), "native inventory picker");
             var picker = main.OwnedWindows.First(w => Views<TextBlock>(w).Any(t => t.Text == "所持アイテム"));
             await Capture(picker, "07-inventory", true);
@@ -142,22 +148,29 @@ internal static class Program
             Type(noteWindow, note, "共有付箋の自動保存\n二行目 " + suffix);
             await Until(() => J.Text(peer.State.Items[noteId], "text").Contains(suffix), "note autosave observed by second participant");
             await Capture(noteWindow, "08-note-autosave", true);
+            await Capture(main, "08-room-item-strip", true);
             noteWindow.Close();
-            Click(main, "☰");
-            await Until(() => main.OwnedWindows.Any(w => Views<HomeView>(w).Any()), "open social home while room stays joined");
-            var overlay = main.OwnedWindows.First(w => Views<HomeView>(w).Any());
-            Click(overlay, b => Label(b).TrimEnd().EndsWith("   フレンド"));
-            Click(overlay, "さがす"); await Settle();
-            var peerText = Views<TextBlock>(overlay).First(t => t.Text == peerName);
-            var peerCard = peerText.GetVisualAncestors().OfType<Border>().First(b => Views<Button>(b).Any(x => Label(x) == "申請する"));
-            Click(peerCard, "申請する");
+            await Settle();
+            Click(main, peerName + " のプロフィール");
+            await Until(() => main.OwnedWindows.OfType<ProfileWindow>().Any(), "other participant profile opens from native portrait");
+            var otherProfile = main.OwnedWindows.OfType<ProfileWindow>().First();
+            await Capture(otherProfile, "10-other-profile", true);
+            Click(otherProfile, "フレンド申請");
             await Until(() => peer.State.Notifications.Any(n => J.Text(n, "from") == client.State.SelfId || J.Text(n, "name") == name || J.Text(n, "fromName") == name), "friend request from UI");
             await peer.SendAsync(new { t = "friendAccept", to = client.State.SelfId });
             await Until(() => client.State.Friends.Any(n => n?.ToString() == peerName), "friend accepted");
+            otherProfile.Close();
+            Click(main, "メニュー");
+            await Until(() => main.OwnedWindows.Any(w => Views<Button>(w).Any(b => Label(b) == "ホーム")), "session menu opens");
+            var menu = main.OwnedWindows.First(w => Views<Button>(w).Any(b => Label(b) == "ホーム"));
+            Click(menu, "ホーム"); menu.Close();
+            await Until(() => main.OwnedWindows.Any(w => Views<HomeView>(w).Any()), "open social home while room stays joined");
+            var overlay = main.OwnedWindows.First(w => Views<HomeView>(w).Any());
+            Click(overlay, b => Label(b) == "フレンド"); await Settle();
             Click(overlay, "すべて"); await Settle();
             var draft = Views<TextBox>(overlay).Single(t => t.PlaceholderText?.EndsWith("にメッセージを送信") == true);
             Type(overlay, draft, "DMも送れるよ " + suffix);
-            Click(overlay, "送信");
+            Click(overlay, b => Label(b).StartsWith("送信"));
             var conv = "dm:" + string.Join('\0', new[] { name, peerName }.Order(StringComparer.Ordinal));
             await Until(() => peer.State.Conversations[conv] is JsonArray messages && messages.Any(m => J.Text(m, "text").Contains(suffix)), "direct message using native composer");
             await Settle();
@@ -168,18 +181,12 @@ internal static class Program
             overlay.KeyRelease(Key.Enter, RawInputModifiers.Control, PhysicalKey.Enter, null);
             await Until(() => peer.State.Conversations[conv] is JsonArray keyboardMessages && keyboardMessages.Any(m => J.Text(m, "text") == keyboardDm), "direct message using Ctrl+Enter");
             await Capture(overlay, "09-social-dm", true);
-            var friendCard = Views<TextBlock>(overlay).Last(t => t.Text == peerName).GetVisualAncestors().OfType<Border>().First(b => Views<Button>(b).Any(x => Label(x) == "✉"));
-            Click(friendCard, b => b.Content is Border);
-            await Until(() => main.OwnedWindows.OfType<ProfileWindow>().Any(), "other participant profile opens from native avatar");
-            var otherProfile = main.OwnedWindows.OfType<ProfileWindow>().First();
-            await Capture(otherProfile, "10-other-profile", true);
-            otherProfile.Close();
-            Click(overlay, "⚙");
+            Click(overlay, "プロフィールを設定");
             await Until(() => main.OwnedWindows.OfType<ProfileWindow>().Any(), "profile opens from home");
             var profile = main.OwnedWindows.OfType<ProfileWindow>().First();
-            var bio = Views<TextBox>(profile).Single(t => t.PlaceholderText == "自己紹介を書いてみましょう");
+            var bio = Views<TextBox>(profile).Single(t => t.PlaceholderText == "プロフィールに表示されます");
             Type(profile, bio, "ネイティブプロフィール " + suffix);
-            Click(profile, "保存する");
+            Click(profile, "自己紹介を保存");
             await Until(() => Views<TextBlock>(profile).Any(t => t.Text?.Contains("保存しました") == true), "profile bio saved through native UI");
             await Capture(profile, "10-self-profile", true);
             profile.Close(); overlay.Close(); await Settle();
@@ -188,7 +195,7 @@ internal static class Program
             main.Width = 1360; main.Height = 880; main.SetRenderScaling(1.5); await Settle();
             await Capture(main, "12-room-150dpi", true);
             main.SetRenderScaling(1); await Settle();
-            Click(main, "退出 ↗");
+            Click(main, "切断");
             await Until(() => client.State.SessionId is null && Views<HomeView>(main).Any(), "leave room and return to native home");
             await Capture(main, "13-return-home", true);
             main.Width = 1000; main.Height = 640;
@@ -211,7 +218,11 @@ internal static class Program
 
     private static T Field<T>(object target, string name) => (T)target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(target)!;
     private static IEnumerable<T> Views<T>(Visual root) where T : Visual => root.GetVisualDescendants().Prepend(root).OfType<T>();
-    private static string Label(Button button) => button.Content as string ?? string.Join(" ", Views<TextBlock>(button).Select(t => t.Text));
+    private static string Label(Button button)
+    {
+        var text = (button.Content as string ?? string.Join(" ", Views<TextBlock>(button).Where(t => t.IsEffectivelyVisible).Select(t => t.Text))).Trim();
+        return text.Length > 0 ? text : AutomationProperties.GetName(button) ?? ToolTip.GetTip(button)?.ToString() ?? "";
+    }
     private static void Click(Visual root, string text) => Click(root, b => Label(b) == text);
     private static void Click(Visual root, Func<Button, bool> match)
     {

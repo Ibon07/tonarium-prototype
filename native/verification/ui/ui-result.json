@@ -27,6 +27,15 @@
     "join session and KokoSync from UI",
     "second participant joins room",
     "render and persistent control bounds: 05-room",
+    "Both visible room portraits use loaded animated Oekaki model",
+    "Original Oekaki idle animation changes native portrait pixels",
+    "Animated portrait frames captured for idle, blinking and speaking GIF",
+    "Native portrait renders speaking state from local media presence",
+    "Remote 3D look pitch reaches native Oekaki portrait",
+    "Uploaded avatar texture appears on the original animated model",
+    "Uploaded Oekaki manifest parameters refresh the portrait",
+    "Deterministic original-model rasterizer snapshots exported",
+    "Five-second native portrait idle performance sample recorded",
     "Shift\u002BEnter retains a multiline draft",
     "Japanese room chat using keyboard Enter",
     "render and persistent control bounds: 06-room-chat",
@@ -36,14 +45,16 @@
     "open native item window",
     "note autosave observed by second participant",
     "render and persistent control bounds: 08-note-autosave",
-    "open social home while room stays joined",
+    "render and persistent control bounds: 08-room-item-strip",
+    "other participant profile opens from native portrait",
+    "render and persistent control bounds: 10-other-profile",
     "friend request from UI",
     "friend accepted",
+    "session menu opens",
+    "open social home while room stays joined",
     "direct message using native composer",
     "direct message using Ctrl\u002BEnter",
     "render and persistent control bounds: 09-social-dm",
-    "other participant profile opens from native avatar",
-    "render and persistent control bounds: 10-other-profile",
     "profile opens from home",
     "profile bio saved through native UI",
     "render and persistent control bounds: 10-self-profile",
@@ -58,145 +69,151 @@
     {
       "name": "01-login",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\01-login.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\01-login.png",
       "outOfBounds": []
     },
     {
       "name": "02-home",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\02-home.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\02-home.png",
       "outOfBounds": []
     },
     {
       "name": "03-nav-\u30D5\u30EC\u30F3\u30C9",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\03-nav-\u30D5\u30EC\u30F3\u30C9.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\03-nav-\u30D5\u30EC\u30F3\u30C9.png",
       "outOfBounds": []
     },
     {
       "name": "03-nav-\u30BB\u30C3\u30B7\u30E7\u30F3",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\03-nav-\u30BB\u30C3\u30B7\u30E7\u30F3.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\03-nav-\u30BB\u30C3\u30B7\u30E7\u30F3.png",
       "outOfBounds": []
     },
     {
       "name": "03-nav-\u30A4\u30D9\u30F3\u30C8",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\03-nav-\u30A4\u30D9\u30F3\u30C8.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\03-nav-\u30A4\u30D9\u30F3\u30C8.png",
       "outOfBounds": []
     },
     {
       "name": "03-nav-\u30B0\u30EB\u30FC\u30D7",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\03-nav-\u30B0\u30EB\u30FC\u30D7.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\03-nav-\u30B0\u30EB\u30FC\u30D7.png",
       "outOfBounds": []
     },
     {
       "name": "03-nav-\u30EF\u30FC\u30EB\u30C9",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\03-nav-\u30EF\u30FC\u30EB\u30C9.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\03-nav-\u30EF\u30FC\u30EB\u30C9.png",
       "outOfBounds": []
     },
     {
       "name": "03-nav-\u30A2\u30A4\u30C6\u30E0",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\03-nav-\u30A2\u30A4\u30C6\u30E0.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\03-nav-\u30A2\u30A4\u30C6\u30E0.png",
       "outOfBounds": []
     },
     {
       "name": "03-nav-\u30DB\u30FC\u30E0",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\03-nav-\u30DB\u30FC\u30E0.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\03-nav-\u30DB\u30FC\u30E0.png",
       "outOfBounds": []
     },
     {
       "name": "03-group-created",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\03-group-created.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\03-group-created.png",
       "outOfBounds": []
     },
     {
       "name": "03-event-created",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\03-event-created.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\03-event-created.png",
       "outOfBounds": []
     },
     {
       "name": "03-event-calendar",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\03-event-calendar.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\03-event-calendar.png",
       "outOfBounds": []
     },
     {
       "name": "04-create-session",
-      "size": "460, 548",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\04-create-session.png",
+      "size": "460, 569",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\04-create-session.png",
       "outOfBounds": []
     },
     {
       "name": "05-room",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\05-room.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\05-room.png",
       "outOfBounds": []
     },
     {
       "name": "06-room-chat",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\06-room-chat.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\06-room-chat.png",
       "outOfBounds": []
     },
     {
       "name": "07-inventory",
-      "size": "470, 454",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\07-inventory.png",
+      "size": "470, 460",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\07-inventory.png",
       "outOfBounds": []
     },
     {
       "name": "08-note-autosave",
-      "size": "510, 465",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\08-note-autosave.png",
+      "size": "360, 278",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\08-note-autosave.png",
+      "outOfBounds": []
+    },
+    {
+      "name": "08-room-item-strip",
+      "size": "1360, 880",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\08-room-item-strip.png",
+      "outOfBounds": []
+    },
+    {
+      "name": "10-other-profile",
+      "size": "420, 530",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\10-other-profile.png",
       "outOfBounds": []
     },
     {
       "name": "09-social-dm",
       "size": "1270, 800",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\09-social-dm.png",
-      "outOfBounds": []
-    },
-    {
-      "name": "10-other-profile",
-      "size": "620, 590",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\10-other-profile.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\09-social-dm.png",
       "outOfBounds": []
     },
     {
       "name": "10-self-profile",
-      "size": "620, 830",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\10-self-profile.png",
+      "size": "560, 840",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\10-self-profile.png",
       "outOfBounds": []
     },
     {
       "name": "11-room-minimum",
       "size": "1000, 640",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\11-room-minimum.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\11-room-minimum.png",
       "outOfBounds": []
     },
     {
       "name": "12-room-150dpi",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\12-room-150dpi.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\12-room-150dpi.png",
       "outOfBounds": []
     },
     {
       "name": "13-return-home",
       "size": "1360, 880",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\13-return-home.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\13-return-home.png",
       "outOfBounds": []
     },
     {
       "name": "14-home-minimum",
       "size": "1000, 640",
-      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\Tonarium.UiSmoke\\results\\14-home-minimum.png",
+      "image": "C:\\Users\\neo\\GitHub\\tonarium-prototype\\native\\artifacts\\final-ui\\14-home-minimum.png",
       "outOfBounds": []
     }
   ],
