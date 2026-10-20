@@ -1,4 +1,4 @@
-import type { ClientMsg, ServerMsg } from '../../../shared/protocol.ts';
+import { isRoomClientMsg, type ClientMsg, type ServerMsg, type SessionInfo, type SessionSnapshot } from '../../../shared/protocol.ts';
 import { get, set, recompute, spawnPoint } from '../store.ts';
 
 const selfBusy = () => get().users.find((u) => u.id === get().selfId)?.status === 'busy';
@@ -7,7 +7,7 @@ import { onHit } from '../items/effects.ts';
 import { pushNotice } from '../actions.ts';
 import { volumeFrom } from '../spatial.ts';
 import { playPoke, playSynth } from '../world/sounds.ts';
-import { resendViewing } from '../world/windows.ts';
+import { resyncRoom, roomSend } from './livekit.ts';
 
 /** 注目を集めたアイテムが光っている時間 */
 export const ATTENTION_MS = 10_000;
@@ -27,13 +27,8 @@ export function connectWs() {
     send({ t: 'hello', id: s.selfId, name: s.selfName });
     if (s.session) {
       send({ t: 'join', sid: s.session });
-      if (s.mode === '3d') {
-        send({ t: 'mode', mode: '3d' });
-        send({ t: 'avatar', s: s.selfAvatar });
-      }
-      resendViewing();
-      // 切断でサーバー側の状態は消えるが、通話はつながったままなので送り直さないと全員からミュート扱いになる
-      if (s.voice === 'connected') send({ t: 'status', micOn: !!s.micOn[s.selfId], sharing: s.sharer === s.selfId });
+      // 切断でサーバー側の状態は消えるので、部屋はつながったままでも中の状態を送り直す
+      resyncRoom();
     }
   };
   ws.onmessage = (e) => onMessage(JSON.parse(e.data) as ServerMsg);
@@ -43,33 +38,48 @@ export function connectWs() {
   };
 }
 
+/** セッションの中の操作は LiveKit の部屋へ、それ以外は WebSocket へ */
 export function send(msg: ClientMsg) {
+  if (isRoomClientMsg(msg)) { roomSend(msg); return; }
   const ws = g.__tonariumWs;
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
 
-function onMessage(msg: ServerMsg) {
+const worldsOf = (info: Record<string, SessionInfo>) => Object.fromEntries(Object.entries(info).map(([sid, i]) => [sid, i.world]));
+
+/** 部屋に入ったとき・つなぎ直したときにサーバーから届く、いるセッションの中の状態 */
+export function applySessionSnapshot(snap: SessionSnapshot) {
+  const sid = snap.sid;
+  if (sid !== get().session) return;
+  set((s) => ({
+    chats: { ...s.chats, [sid]: snap.chats },
+    avatarsBy: { ...s.avatarsBy, [sid]: snap.avatars },
+    itemsBy: { ...s.itemsBy, [sid]: Object.fromEntries(snap.items.map((n) => [n.id, n])) },
+    presence: snap.presence,
+    broadcast: { ...s.broadcast, [sid]: snap.broadcast },
+    worldBy: { ...s.worldBy, [sid]: snap.world },
+    games: { ...s.games, [sid]: snap.game },
+    serverOffset: snap.now - Date.now(),
+  }));
+  recompute();
+}
+
+export function onMessage(msg: ServerMsg) {
   switch (msg.t) {
     case 'snapshot': {
-      const { guild, users, chats, avatars, items, friends, groups, events, broadcast, world, games, now } = msg.s;
-      set({
-        groups,
-        events,
-        broadcast,
-        worldBy: world,
-        games,
-        serverOffset: now - Date.now(),
-        guild,
-        users,
-        chats,
-        friends,
-        avatarsBy: avatars,
-        itemsBy: Object.fromEntries(Object.entries(items).map(([sid, list]) => [sid, Object.fromEntries(list.map((n) => [n.id, n]))])),
-      });
+      const { guild, users, friends, groups, events, sessions, now } = msg.s;
+      set((s) => ({ groups, events, serverOffset: now - Date.now(), guild, users, friends, sessionInfo: sessions, worldBy: { ...s.worldBy, ...worldsOf(sessions) } }));
       break;
     }
     case 'users':
       set({ users: msg.list });
+      break;
+    case 'sessionInfo':
+      set((s) => ({ sessionInfo: msg.sessions, worldBy: { ...s.worldBy, ...worldsOf(msg.sessions) } }));
+      return;
+    case 'presence':
+      if (msg.sid !== get().session) return;
+      set({ presence: msg.all });
       break;
     case 'chat':
       set((s) => ({ chats: { ...s.chats, [msg.sid]: [...(s.chats[msg.sid] ?? []), msg.m].slice(-500) } }));

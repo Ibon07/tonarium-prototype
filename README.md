@@ -8,12 +8,12 @@
 - `client/` Vite + React + TypeScript。3D は React Three Fiber。状態は zustand
   - `client/src/world/` ワールド画面（左のプレイヤー・アイテム、上の顔、右の通知・ログ、下のドック、背面のウィンドウ）
   - `client/src/home/` ホーム画面（セッション外。セッション・フレンド・イベント・グループ・ワールド・アイテムの一覧と作成）
-- `server/` Node + ws。オンラインのユーザーと、セッションごとの状態（チャット・アイテム・アバター位置）をメモリに保持し、LiveKit のトークンも発行。画面から作ったセッション・グループ・イベントは `data/home.json` に保存
-- `shared/protocol.ts` WebSocket メッセージ型、`shared/places.ts` 位置と距離（クライアントとサーバーで共用）
+- `server/` Node + ws + LiveKit。オンラインのユーザーと、セッションごとの状態（チャット・アイテム・アバター位置）をメモリに保持し、LiveKit のトークンも発行。セッションの中の同期は、サーバーも参加者として入る LiveKit の部屋で行う（[docs/sync.md](docs/sync.md)）。画面から作ったセッション・グループ・イベントは `data/home.json` に保存
+- `shared/protocol.ts` WebSocket と LiveKit の部屋のメッセージ型、`shared/places.ts` 位置と距離（クライアントとサーバーで共用）
 - `sessions.json` 最初からあるセッションの構成（各セッションが最初に読み込むワールド＝ 3D 空間も指定）。ホームの「セッションを作る」で増やしたものは `data/home.json`
 - `shared/worlds.ts` ワールドの種類（ホール・カフェ）と家具の当たり判定。見た目は `client/src/view3d/worlds3d.tsx`
 - `client/public/brand/` ロゴ・ファビコン・OGP 画像。OGP の絶対 URL は、サーバーが `index.html` を返すときにアクセスされたドメインで埋める（`__ORIGIN__`）
-- 音声・画面共有は LiveKit。本番は Coolify で自前の `livekit-server` を一緒に動かし、手元では Docker で開発用の LiveKit を動かす
+- 音声・画面共有・セッション内の同期は LiveKit。本番は Coolify で自前の `livekit-server` を一緒に動かし、手元では Docker で開発用の LiveKit を動かす
 
 詳しい仕組みと使い方は [docs/](docs/) にある。
 
@@ -23,7 +23,7 @@ npm install
 cp .env.example .env   # 手元の LiveKit（devkey / secret）を使う設定になっている
 npm run livekit        # 開発用の LiveKit を Docker で起動（Docker Desktop が必要。止めるときは npm run livekit:stop）
 ```
-LiveKit が動いていなくても、チャット・アイテム・3D は動く（通話と配信のみ無効。画面のドックの上に理由が出る）。
+LiveKit が動いていないと、セッションに入っても中の同期（チャット・アイテム・位置）と通話が動かない（ホームは見られる。ドックの上に理由が出る）。
 LiveKit Cloud を使う場合は `.env` の `LIVEKIT_*` をそのプロジェクトの値にする。
 
 ## 開発
@@ -33,7 +33,7 @@ npm run dev
 http://localhost:5173 を開く。同じブラウザで別人として入るには `?as=b` のように付ける（名前はブラウザ共通で覚えるので、入る前に変える）。
 動作確認で作ったセッション・グループ・イベントを消したいときは `data/home.json` を消してサーバーを再起動する。
 
-別のワークツリーと同時に動かすときは、`.env` の `SERVER_PORT` と `CLIENT_PORT` をずらす（例: 3011 と 5183）。
+別のワークツリーと同時に動かすときは、`.env` の `SERVER_PORT` と `CLIENT_PORT` をずらし（例: 3011 と 5183）、`LIVEKIT_ROOM_PREFIX` も変える（同じ LiveKit を共有するので、部屋が混ざらないように）。
 
 ## セッション構成の変更
 `sessions.json` を編集する。
@@ -53,6 +53,7 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 - 距離で変わる声、ブロードキャストモード、ついていく → [docs/audio.md](docs/audio.md)
 - アイテム（付箋・ハンマー・チェス・サイコロ・キャンバス・カメラ・2048）と画像・動画・YouTube の共有 → [docs/items.md](docs/items.md)
 - 外から試す（cloudflared）・Coolify へのデプロイ → [docs/deploy.md](docs/deploy.md)
+- 同期の仕組み（WebSocket と LiveKit の部屋、入ったときの状態、つなぎ直し）→ [docs/sync.md](docs/sync.md)
 - 実装の設計 → [docs/architecture.md](docs/architecture.md)
 
 ## 参加者への注意

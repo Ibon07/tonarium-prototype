@@ -7,7 +7,7 @@ import { Face } from './common.tsx';
 
 export function ProfileCard() {
   const id = useStore((s) => s.profileOf);
-  const u = useStore((s) => s.users.find((x) => x.id === s.profileOf));
+  const u = useStore((s) => s.participants.find((x) => x.id === s.profileOf));
   const me = useStore((s) => s.participants.find((p) => p.id === s.selfId));
   const friends = useStore((s) => s.friends);
   const blocked = useStore((s) => s.blocked);

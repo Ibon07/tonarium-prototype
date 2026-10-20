@@ -275,7 +275,7 @@ export function Player() {
     const yNow = sendY ? b.y : undefined;
     const changed = Math.abs(x - st.x) > 0.01 || Math.abs(z - st.z) > 0.01 || Math.abs(yaw - st.ry) > 0.01
       || Math.abs(pitch - st.pitch) > 0.03 || (yNow ?? 0) !== st.y;
-    const interval = sendY && !b.grounded ? 50 : 100;
+    const interval = 33;
     // 跳んだことは待たずに送る（相手の放物線が遅れて始まらないように）
     if (jumped || (now - st.t > interval && changed)) {
       Object.assign(st, { t: now, x, z, ry: yaw, pitch, jump: b.n, y: yNow ?? 0 });

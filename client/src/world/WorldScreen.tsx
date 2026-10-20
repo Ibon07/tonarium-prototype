@@ -126,8 +126,8 @@ function StatusChips() {
   const followers = s.participants.filter((p) => p.follow === s.selfId);
   const placedSelf = me?.mode === '2d' && !!me.pos && !me.follow;
   const chips: React.ReactNode[] = [];
-  if (s.voice === 'connecting') chips.push(<span key="v">通話に接続中…</span>);
-  if (s.voice === 'unavailable') chips.push(<span key="v" title={s.voiceError ?? ''}>通話に接続できません{s.voiceError ? `（${s.voiceError}）` : ''}</span>);
+  if (s.voice === 'connecting') chips.push(<span key="v">セッションに接続中…</span>);
+  if (s.voice === 'unavailable') chips.push(<span key="v" title={s.voiceError ?? ''}>LiveKit に接続できません（同期と通話が止まっています）{s.voiceError ? `（${s.voiceError}）` : ''}</span>);
   if (s.mode === '2d' && hammer) chips.push(<span key="h">ピコピコハンマーを持っています · 人をクリックで叩く<button className="chipbtn" onClick={dropHammer}>手放す</button></span>);
   if (placedSelf) chips.push(<span key="p"><Icon name="pin" size={14} />3D 空間の中にいます<button className="chipbtn" onClick={() => place2d(s.selfId, null)}>スポーンに戻る</button></span>);
   if (followers.length) {

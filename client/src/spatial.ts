@@ -1,4 +1,4 @@
-import type { User } from '../../shared/protocol.ts';
+import type { Participant } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
 import { VOICE_RANGE, computePlaces, type Place } from '../../shared/places.ts';
 import { useStore, get, isBroadcast } from './store.ts';
@@ -22,7 +22,7 @@ export function distanceTo(id: string, s = get()) {
   return id === s.selfId ? 0 : me && p ? Math.hypot(p.x - me.x, p.z - me.z) : Infinity;
 }
 
-export function useNearby(): { user: User; d: number }[] {
+export function useNearby(): { user: Participant; d: number }[] {
   useStore((s) => s.participants);
   useStore((s) => s.avatars);
   useStore((s) => s.selfAvatar);

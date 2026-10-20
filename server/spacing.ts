@@ -1,4 +1,4 @@
-import type { AvatarState, User } from '../shared/protocol.ts';
+import type { AvatarState, Participant } from '../shared/protocol.ts';
 import type { Item } from '../shared/items.ts';
 
 /** 体の半径（m）。2D の人は他の人やアイテムに押されて、重ならない位置へ少しずつずれる */
@@ -8,7 +8,7 @@ const itemRadius = (it: Item) => ITEM_R[it.kind] ?? 0.4;
 
 interface Body { x: number; z: number; r: number }
 
-function bodies(users: User[], avatars: Map<string, AvatarState>, items: Iterable<Item>, except?: string): Body[] {
+function bodies(users: Participant[], avatars: Map<string, AvatarState>, items: Iterable<Item>, except?: string): Body[] {
   const out: Body[] = [];
   for (const u of users) {
     if (u.id === except) continue;
@@ -24,7 +24,7 @@ function bodies(users: User[], avatars: Map<string, AvatarState>, items: Iterabl
  * スポーンエリアにいる人（pos が null）と、ついていっている間は対象外
  */
 export function pushApart2D(
-  users: User[], avatars: Map<string, AvatarState>, items: Iterable<Item>,
+  users: Participant[], avatars: Map<string, AvatarState>, items: Iterable<Item>,
   clampPos: (p: AvatarState) => AvatarState,
 ) {
   const itemList = [...items];
@@ -54,7 +54,7 @@ export function pushApart2D(
 
 /** 2D の人がアイテムを出すとき、ほかの物や人に重ならない近くの場所を探す */
 export function freeSpot(
-  x: number, z: number, radius: number, users: User[], avatars: Map<string, AvatarState>, items: Iterable<Item>,
+  x: number, z: number, radius: number, users: Participant[], avatars: Map<string, AvatarState>, items: Iterable<Item>,
   clampXZ: (x: number, z: number) => { x: number; z: number },
 ) {
   const others = bodies(users, avatars, items);

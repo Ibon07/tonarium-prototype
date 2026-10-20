@@ -39,7 +39,8 @@ cloudflared 以外（ngrok など）を使う場合は、`.env` の `ALLOWED_HOS
 - HTTP・WebSocket（`/ws`）・LiveKit トークン（`/token`）はすべて同じポート。HTTPS は Coolify（Traefik）が付けるので、マイク・画面共有もそのまま使える
 - アイコン・3D アバター・自己紹介・フレンド・通報は `tonarium-data` ボリューム（`/app/data`）に保存されるので再デプロイしても残る。作ったセッション・グループ・イベント、アイテム、DM とチャンネルのメッセージ、ステータスも同じボリュームに残る。セッション内のチャットはメモリ内だけなので、再デプロイ・再起動で消える。インスタンスは 1 つで動かすこと（複数にすると部屋が分かれる）
 - LiveKit の設定は `docker-compose.yml` の `LIVEKIT_CONFIG` にある。サーバーの外向きの IP は自動で調べる（`use_external_ip`）。社内ネットワークなど UDP が通らない人向けには TURN（UDP 3478）も動く
-- LiveKit Cloud に戻すときは、`livekit` サービスを消して `tonarium` の `LIVEKIT_URL` を Cloud の URL にする
+- サーバー自身も LiveKit の部屋に入るので、サーバーがつなぐ先を `LIVEKIT_SERVER_URL` で指定している（compose の中の `ws://livekit:7880`）。無ければブラウザ向けの `LIVEKIT_URL` にそのままつなぐ
+- LiveKit Cloud に戻すときは、`livekit` サービスを消して `tonarium` の `LIVEKIT_URL` を Cloud の URL にし、`LIVEKIT_SERVER_URL` を消す
 - セッション構成を本番だけ変えたいときは、`docker-compose.yml` のコメントにある `SESSIONS_FILE` とボリュームを使う
 - Dockerfile だけで使う場合（Coolify の Dockerfile ビルドパックや手元）:
   ```bash

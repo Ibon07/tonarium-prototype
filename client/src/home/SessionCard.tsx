@@ -1,8 +1,7 @@
 import { useStore } from '../store.ts';
-import type { SessionDef } from '../../../shared/protocol.ts';
+import type { SessionDef, SessionInfo } from '../../../shared/protocol.ts';
 import { VISIBILITY_INFO } from '../../../shared/protocol.ts';
 import { WORLDS, type WorldKind } from '../../../shared/worlds.ts';
-import { itemSummary } from '../../../shared/items.ts';
 import { deleteSession, joinSession } from '../actions.ts';
 import { Face } from '../world/common.tsx';
 import { Icon } from '../world/Icon.tsx';
@@ -11,7 +10,7 @@ import { Chip, ModeIcon, timeLabel, uniqueByName } from './common.tsx';
 const WORLD_TINT: Record<WorldKind, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2' };
 
 const VIS_ICON = { public: 'globe', friends: 'people', groupPlus: 'flag', group: 'flag', invite: 'send' } as const;
-const NO_ITEMS = {};
+const NO_ITEMS: SessionInfo['items'] = [];
 
 export function SessionCard({ s, showDelete }: { s: SessionDef; showDelete?: boolean }) {
   const users = useStore((st) => st.users);
@@ -20,7 +19,7 @@ export function SessionCard({ s, showDelete }: { s: SessionDef; showDelete?: boo
   const group = useStore((st) => st.groups.find((g) => g.id === s.group));
   const world = useStore((st) => st.worldBy[s.id] ?? s.world ?? 'room');
   const here = uniqueByName(users.filter((u) => u.session === s.id));
-  const left = Object.values(useStore((st) => st.itemsBy[s.id]) ?? NO_ITEMS).map(itemSummary).filter((x): x is string => !!x);
+  const left = useStore((st) => st.sessionInfo[s.id]?.items ?? NO_ITEMS).map((i) => i.summary);
   const nextEvent = useStore((st) => st.events.find((e) => e.session === s.id && e.at > Date.now() - 3_600_000));
   const friendsHere = here.filter((u) => friends.includes(u.name));
   const others = here.filter((u) => !friends.includes(u.name));

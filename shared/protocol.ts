@@ -132,16 +132,13 @@ export interface EventDef {
   declined: string[];
 }
 
+/** オンラインの人。ホーム画面でも使うので WebSocket で全員に配る（mode と sharing はセッション一覧の表示に使う） */
 export interface User {
   id: string;
   name: string;
   session: string | null;
   mode: Mode;
-  micOn: boolean;
   sharing: boolean;
-  follow: string | null;
-  /** 2D のみ。null ならスポーンエリア */
-  pos: AvatarState | null;
   /** アイコンの版（更新時刻）。null ならアイコンなし */
   icon: string | null;
   /** 3D アバター画像・調整値の版。null ならサンプル */
@@ -149,12 +146,30 @@ export interface User {
   bio: string;
   status: StatusKind;
   statusText: string;
+}
+
+/** セッションの中だけで使う、その人の状態。LiveKit の部屋でそのセッションの人にだけ配る */
+export interface Presence {
+  micOn: boolean;
+  follow: string | null;
+  /** 2D のみ。null ならスポーンエリア */
+  pos: AvatarState | null;
   /** 開いているウィンドウのキー（閲覧中の表示に使う） */
   viewing: string[];
   /** ついてきている人に向けて自分の視点をライブ配信している（3D のみ） */
   viewLive: boolean;
   /** 3D で画面共有中に床に立てた配信ディスプレイ。2D のとき（頭の上に出す）や共有していないときは null */
   display: AvatarState | null;
+}
+export const EMPTY_PRESENCE: Presence = { micOn: false, follow: null, pos: null, viewing: [], viewLive: false, display: null };
+/** 同じセッションにいる人（User に Presence を重ねたもの） */
+export type Participant = User & Presence;
+
+/** ホーム画面が使う、セッションごとの軽い情報（中の状態そのものは部屋にいる人にしか届かない） */
+export interface SessionInfo {
+  world: WorldKind;
+  /** 置いてあるアイテムの要約（セッションカードと、メッセージに添えたアイテムの表示用） */
+  items: { id: string; kind: ItemKind; summary: string }[];
 }
 
 /** near は声の範囲（送信時点で近くにいた人だけに届く）、announce は上部に固定するお知らせ */
@@ -207,43 +222,39 @@ export function jumpHeight(ms: number) {
   return JUMP_V * t - (GRAVITY * t * t) / 2;
 }
 
+/** WebSocket でつないだときに届く、セッションの外でも使う状態 */
 export interface Snapshot {
   guild: GuildConfig;
   users: User[];
-  chats: Record<string, ChatMessage[]>;
-  avatars: Record<string, Record<string, AvatarState>>;
-  items: Record<string, Item[]>;
   friends: string[];
   groups: Group[];
   events: EventDef[];
-  /** ワールドごとのブロードキャストモード（距離に関係なく音が聞こえる） */
-  broadcast: Record<string, boolean>;
-  /** セッションごとの今のワールド */
-  world: Record<string, WorldKind>;
-  /** セッションごとのゲームワールドのゲーム */
-  games: Record<string, GameState>;
+  sessions: Record<string, SessionInfo>;
   /** 再生位置をそろえるためのサーバー時刻 */
   now: number;
 }
 
-export type ClientMsg =
+/** セッションの LiveKit の部屋に入ったとき、サーバーからその人だけに届く中の状態 */
+export interface SessionSnapshot {
+  sid: string;
+  chats: ChatMessage[];
+  avatars: Record<string, AvatarState>;
+  items: Item[];
+  presence: Record<string, Presence>;
+  /** ブロードキャストモード（距離に関係なく音が聞こえる） */
+  broadcast: boolean;
+  world: WorldKind;
+  game: GameState;
+  now: number;
+}
+
+/** WebSocket でサーバーへ送るもの（セッションの外でも使う） */
+export type HomeClientMsg =
   | { t: 'hello'; id: string; name: string }
   | { t: 'join'; sid: string }
   | { t: 'leave' }
-  | { t: 'mode'; mode: Mode }
-  | { t: 'status'; micOn: boolean; sharing: boolean }
-  | { t: 'follow'; target: string | null }
-  | { t: 'dropFollowers' }
-  /** pos が null ならスポーンエリアに戻る */
-  | { t: 'place2d'; target: string; pos: AvatarState | null }
-  /** 3D で配信ディスプレイを持ち運ぶ */
-  | { t: 'displayMove'; target: string; x: number; z: number; ry: number }
   /** /icon・/avatar・/profile へ保存した後に、同じ名前のオンラインの人へ反映させる */
   | { t: 'profileUpdated' }
-  | { t: 'chat'; text: string; image?: string; media?: ChatMedia; scope: ChatScope }
-  | { t: 'avatar'; s: AvatarState }
-  | { t: 'viewing'; keys: string[] }
-  | { t: 'poke'; to: string }
   | { t: 'friendRequest'; to: string }
   | { t: 'friendAccept'; to: string }
   | { t: 'sessionCreate'; name: string; topic: string; world: WorldKind; visibility: Visibility; group?: string }
@@ -266,7 +277,24 @@ export type ClientMsg =
   | { t: 'askJoin'; to: string }
   | { t: 'eventDelete'; id: string }
   /** to はユーザー ID。セッションなら invited にも加える */
-  | { t: 'invite'; kind: 'session' | 'group'; id: string; to: string }
+  | { t: 'invite'; kind: 'session' | 'group'; id: string; to: string };
+
+/** LiveKit の部屋でサーバーへ送るもの（セッションの中だけ）。avatar だけは全員へ直接送る */
+export type RoomClientMsg =
+  /** 部屋につないだ・つなぎ直した後に、中の状態を送ってもらう */
+  | { t: 'sync' }
+  | { t: 'mode'; mode: Mode }
+  | { t: 'status'; micOn: boolean; sharing: boolean }
+  | { t: 'follow'; target: string | null }
+  | { t: 'dropFollowers' }
+  /** pos が null ならスポーンエリアに戻る */
+  | { t: 'place2d'; target: string; pos: AvatarState | null }
+  /** 3D で配信ディスプレイを持ち運ぶ */
+  | { t: 'displayMove'; target: string; x: number; z: number; ry: number }
+  | { t: 'chat'; text: string; image?: string; media?: ChatMedia; scope: ChatScope }
+  | { t: 'avatar'; s: AvatarState }
+  | { t: 'viewing'; keys: string[] }
+  | { t: 'poke'; to: string }
   | { t: 'sound'; id: string }
   /** ついていっている相手に視点のライブを頼む */
   | { t: 'liveRequest'; to: string }
@@ -286,9 +314,40 @@ export type ClientMsg =
   | { t: 'itemAction'; id: string; action: ItemAction }
   | { t: 'hit'; to: string };
 
-export type ServerMsg =
+export type ClientMsg = HomeClientMsg | RoomClientMsg;
+
+/** 部屋へ送る種類の一覧（送り先の振り分けに使う。型と同じ並び） */
+const ROOM_CLIENT_TYPES: Record<RoomClientMsg['t'], true> = {
+  sync: true, mode: true, status: true, follow: true, dropFollowers: true, place2d: true, displayMove: true, chat: true, avatar: true,
+  viewing: true, poke: true, sound: true, liveRequest: true, viewLive: true, itemCreate: true, attention: true, broadcast: true, world: true,
+  gameStart: true, gameStep: true, gameFell: true, itemRemove: true, itemMove: true, itemAction: true, hit: true,
+};
+export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => m.t in ROOM_CLIENT_TYPES;
+
+/** WebSocket でサーバーから届くもの */
+export type HomeServerMsg =
   | { t: 'snapshot'; s: Snapshot }
   | { t: 'users'; list: User[] }
+  | { t: 'sessionInfo'; sessions: Record<string, SessionInfo> }
+  | { t: 'friendRequest'; from: string; fromName: string }
+  | { t: 'friends'; names: string[] }
+  | { t: 'sessions'; list: SessionDef[] }
+  | { t: 'groups'; list: Group[] }
+  | { t: 'events'; list: EventDef[] }
+  | { t: 'invite'; kind: 'session' | 'group'; id: string; from: string; fromName: string }
+  /** 入ったときに 1 回。lastSeen は前回いなくなった時刻（初めてなら null） */
+  | { t: 'inbox'; convs: Record<string, Message[]>; reads: Record<string, number>; people: Person[]; watching: string[]; lastSeen: number | null; recentStatus: string[] }
+  /** 新しいメッセージか、同じ ID のものの更新（日程の返事など） */
+  | { t: 'msg'; conv: string; m: Message }
+  | { t: 'read'; conv: string; at: number }
+  | { t: 'people'; list: Person[] }
+  | { t: 'watching'; names: string[]; recentStatus: string[] }
+  | { t: 'askJoin'; from: string; fromName: string; session: string }
+  | { t: 'online'; from: string; fromName: string };
+
+/** LiveKit の部屋で届くもの。avatar は他の人から直接届く（受け取り側で同じ形にそろえる） */
+export type RoomServerMsg =
+  | { t: 'presence'; sid: string; all: Record<string, Presence> }
   | { t: 'chat'; sid: string; m: ChatMessage }
   | { t: 'avatar'; sid: string; id: string; s: AvatarState }
   | { t: 'avatarRemove'; sid: string; id: string }
@@ -305,22 +364,14 @@ export type ServerMsg =
   | { t: 'worldPending'; sid: string; world: WorldKind; at: number; by: string; clearItems: boolean }
   | { t: 'world'; sid: string; world: WorldKind }
   | { t: 'game'; sid: string; game: GameState }
-  | { t: 'gameTile'; sid: string; tile: number; at: number }
-  | { t: 'friendRequest'; from: string; fromName: string }
-  | { t: 'friends'; names: string[] }
-  | { t: 'sessions'; list: SessionDef[] }
-  | { t: 'groups'; list: Group[] }
-  | { t: 'events'; list: EventDef[] }
-  | { t: 'invite'; kind: 'session' | 'group'; id: string; from: string; fromName: string }
-  /** 入ったときに 1 回。lastSeen は前回いなくなった時刻（初めてなら null） */
-  | { t: 'inbox'; convs: Record<string, Message[]>; reads: Record<string, number>; people: Person[]; watching: string[]; lastSeen: number | null; recentStatus: string[] }
-  /** 新しいメッセージか、同じ ID のものの更新（日程の返事など） */
-  | { t: 'msg'; conv: string; m: Message }
-  | { t: 'read'; conv: string; at: number }
-  | { t: 'people'; list: Person[] }
-  | { t: 'watching'; names: string[]; recentStatus: string[] }
-  | { t: 'askJoin'; from: string; fromName: string; session: string }
-  | { t: 'online'; from: string; fromName: string };
+  | { t: 'gameTile'; sid: string; tile: number; at: number };
+
+export type ServerMsg = HomeServerMsg | RoomServerMsg;
+
+/** 部屋のデータパケットに収まる大きさ。これを超えるものはテキストストリームで送る */
+export const ROOM_PACKET_MAX = 14_000;
+/** 部屋でサーバーが名乗る参加者 ID */
+export const SERVER_IDENTITY = 'server';
 
 /** 床は -ROOM_HALF..ROOM_HALF。スクリーンは北壁 (z = -ROOM_HALF) */
 export const ROOM_HALF = 10;

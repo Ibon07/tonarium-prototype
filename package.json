@@ -12,6 +12,7 @@
     "test:chess": "tsx --test shared/chess.test.ts server/chess-ai.test.ts"
   },
   "dependencies": {
+    "@livekit/rtc-node": "^1.1.0",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
     "chess.js": "^1.4.0",
