@@ -97,6 +97,8 @@ function Avatar3D({ id, state, self = false }: { id: string; state: AvatarState;
   const ref = useRef<THREE.Group>(null);
   const body = useRef<THREE.Group>(null);
   const hand = useRef<THREE.Group>(null);
+  // 受信ごとに React が座標を上書きすると、useFrame の補間が打ち消される。
+  const initialTransform = useRef({ position: [state.x, 0, state.z] as [number, number, number], ry: state.ry });
   // 途中から見えた人の過去のジャンプは再生しない
   const jump = useRef({ n: state.jump ?? 0, at: -Infinity });
   useFrame((_, dt) => {
@@ -120,7 +122,7 @@ function Avatar3D({ id, state, self = false }: { id: string; state: AvatarState;
   if (!name) return null;
   return (
     <group
-      ref={ref} position={[state.x, 0, state.z]} rotation-y={state.ry} visible={!self}
+      ref={ref} position={initialTransform.current.position} rotation-y={initialTransform.current.ry} visible={!self}
       userData={self ? { noRay: true, selfBody: true } : ({ hitTarget: id } satisfies Interactable)}
     >
       <group ref={body}>
