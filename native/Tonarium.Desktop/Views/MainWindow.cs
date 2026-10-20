@@ -21,7 +21,6 @@ public sealed class MainWindow : Window
     private readonly NativeContext context;
     private readonly Grid root = new();
     private readonly ContentControl screen = new();
-    private readonly TextBlock status = Ui.Text("", 11, Ui.Muted);
     private readonly Border toast;
     private readonly TextBlock toastText = Ui.Text("", 14, "#FFFFFF");
     private readonly Dictionary<string, ItemWindow> itemWindows = [];
@@ -57,11 +56,7 @@ public sealed class MainWindow : Window
         serverInput = Ui.Input("http://localhost:3001", Program.Argument("--server") ?? client.State.ServerUrl);
         nameInput = Ui.Input("なまえ", Program.Argument("--name") ?? client.State.Name);
         toast = new Border { Child = toastText, Background = Ui.Brush("#ED26262E"), CornerRadius = new(12), Padding = new(20, 12), Margin = new(24, 24, 24, 40), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, MaxWidth = 760, IsVisible = false };
-        var body = new Grid { RowDefinitions = new RowDefinitions("*,24") };
-        body.Children.Add(screen);
-        var footer = new Border { Child = status, Padding = new Thickness(16, 2), Background = Ui.Brush("#F3EEE4") };
-        Grid.SetRow(footer, 1); body.Children.Add(footer);
-        root.Children.Add(body); root.Children.Add(toast);
+        root.Children.Add(screen); root.Children.Add(toast);
         Content = root;
         screen.Content = LoginView();
         client.State.Changed += QueueRefresh;
@@ -149,7 +144,6 @@ public sealed class MainWindow : Window
 
     private void Refresh()
     {
-        status.Text = $"{client.State.ConnectionStatus}   ·   {client.State.Name}   {(client.State.SessionId is null ? "" : $"·   同期 {client.State.SyncStatus}   ·   通話 {media.Status}")}";
         if (!signedIn) return;
         home ??= new HomeView(context);
         room ??= new RoomView(context);
@@ -223,8 +217,9 @@ public sealed class MainWindow : Window
             if (RoomWindowLayout.Free) return;
             foreach (var other in itemWindows.Values.Where(other => other != window).ToArray()) other.WindowState = WindowState.Minimized;
         };
-        window.Closed += (_, _) => { itemWindows.Remove(id); _ = UpdateViewing(); };
+        window.Closed += (_, _) => { itemWindows.Remove(id); room?.SetOpenItemCount(itemWindows.Count); _ = UpdateViewing(); };
         window.Show(this);
+        room?.SetOpenItemCount(itemWindows.Count);
         _ = UpdateViewing();
     }
 
@@ -314,6 +309,27 @@ public sealed class MainWindow : Window
             await Task.Delay(1800); Capture(Path.Combine(directory, "home.png"));
             var sid = Program.Argument("--session") ?? client.State.Sessions.FirstOrDefault()?["id"]?.ToString();
             if (sid is not null) { await client.JoinAsync(sid); await Task.Delay(3000); Capture(Path.Combine(directory, "room.png")); }
+            if (sid is not null && Program.Arguments.Contains("--measure-idle"))
+            {
+                using var process = System.Diagnostics.Process.GetCurrentProcess();
+                var cpu = process.TotalProcessorTime.TotalMilliseconds;
+                var elapsed = System.Diagnostics.Stopwatch.StartNew();
+                var seconds = int.TryParse(Program.Argument("--measure-idle"), out var duration) ? Math.Clamp(duration, 5, 60) : 5;
+                await Task.Delay(TimeSpan.FromSeconds(seconds));
+                process.Refresh();
+                var milliseconds = process.TotalProcessorTime.TotalMilliseconds - cpu;
+                await File.WriteAllTextAsync(Path.Combine(directory, "idle-performance.json"), new JsonObject
+                {
+                    ["elapsedSeconds"] = elapsed.Elapsed.TotalSeconds,
+                    ["cpuMilliseconds"] = milliseconds,
+                    ["cpuPercentOfOneCore"] = 100 * milliseconds / elapsed.Elapsed.TotalMilliseconds,
+                    ["workingSetBytes"] = process.WorkingSet64,
+                    ["privateMemoryBytes"] = process.PrivateMemorySize64,
+                    ["participants"] = client.State.Users.Count(x => J.Text(x, "session") == sid),
+                    ["mode"] = client.State.Mode,
+                    ["unityRunning"] = threeD.IsRunning
+                }.ToJsonString());
+            }
             if (sid is not null && Program.Arguments.Contains("--smoke-3d"))
             {
                 await ChangeMode("3d"); await Task.Delay(2500);

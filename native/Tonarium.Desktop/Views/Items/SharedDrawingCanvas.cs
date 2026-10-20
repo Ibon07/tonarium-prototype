@@ -20,7 +20,7 @@ internal sealed class SharedDrawingCanvas : Control
     private readonly List<Preview> pending = [];
     private Preview? active;
     private Point last;
-    public string PenColor { get; set; } = "#262331";
+    public string PenColor { get; set; } = "#111111";
     public double PenSize { get; set; } = 3;
 
     public SharedDrawingCanvas(Func<JsonObject?> item, Action<object> send)

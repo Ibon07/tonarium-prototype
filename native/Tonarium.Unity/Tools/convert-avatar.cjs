@@ -37,7 +37,20 @@ const draco = require(path.resolve(__dirname, '../../../node_modules/draco3d'));
     meshes.push(item);
     for (const object of [indices, decoded, decoder, buffer]) decoderModule.destroy(object);
   }
-  const out = {nodes: source.nodes, scenes: source.scenes, meshes};
+  const accessor = index => {
+    const a = source.accessors[index];
+    const view = source.bufferViews[a.bufferView];
+    const size = {SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4}[a.type];
+    if (a.componentType !== 5126) throw new Error('Animation accessor must be float32');
+    const stride = view.byteStride || size * 4;
+    const start = (view.byteOffset || 0) + (a.byteOffset || 0);
+    return Array.from({length: a.count * size}, (_, i) => bin.readFloatLE(start + Math.floor(i / size) * stride + i % size * 4));
+  };
+  const animations = source.animations.map(animation => ({name: animation.name, channels: animation.channels.map(channel => {
+    const sampler = animation.samplers[channel.sampler];
+    return {node: channel.target.node, path: channel.target.path, interpolation: sampler.interpolation || 'LINEAR', times: accessor(sampler.input), values: accessor(sampler.output)};
+  })}));
+  const out = {nodes: source.nodes, scenes: source.scenes, meshes, animations};
   fs.writeFileSync(path.resolve(__dirname, '../Assets/Resources/OekakiGeometry.json'), JSON.stringify(out));
   console.log(`Converted ${meshes.length} original oekaki avatar meshes`);
 })();

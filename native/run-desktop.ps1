@@ -1,4 +1,4 @@
-param([string]$Server = 'http://localhost:3001', [string]$Name = '', [switch]$NoServer, [switch]$NoBuild)
+﻿param([string]$Server = 'http://localhost:3001', [string]$Name = '', [switch]$NoServer, [switch]$NoBuild)
 $ErrorActionPreference = 'Stop'
 $repository = Split-Path $PSScriptRoot -Parent
 $portableSdk = Join-Path $env:LOCALAPPDATA 'Tonarium\dotnet\dotnet.exe'

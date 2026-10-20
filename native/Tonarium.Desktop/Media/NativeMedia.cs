@@ -47,6 +47,7 @@ public sealed class NativeMedia : INativeMedia
     private Dictionary<string, (double Volume, double Pan)> spatial = new();
     private string status = "音声: 未接続";
     private long receivedAudioFrames, receivedVideoFrames;
+    private long selfSpeakingUntil;
     public string Status => status;
     public bool Connected => room?.IsConnected == true;
     public long ReceivedAudioFrames => Interlocked.Read(ref receivedAudioFrames);
@@ -66,7 +67,9 @@ public sealed class NativeMedia : INativeMedia
         UpdateSpatial();
     }
 
-    public bool IsSpeaking(string identity) => speakers.TryGetValue(identity, out var on) && on;
+    public bool IsSpeaking(string identity) => identity == client.State.SelfId
+        ? microphone is not null && Stopwatch.GetTimestamp() < Interlocked.Read(ref selfSpeakingUntil)
+        : speakers.TryGetValue(identity, out var on) && on;
 
     public async Task ConnectAsync(string sessionId)
     {
@@ -163,6 +166,13 @@ public sealed class NativeMedia : INativeMedia
     {
         if (microphone is not null || room?.LocalParticipant is null) return;
         microphone = new NativeAudioCapture(false, microphoneDevice);
+        // Local mouth animation should not wait for the server's active-speaker round trip.
+        // A short hold bridges gaps between syllables without changing the published audio.
+        microphone.LevelAvailable += (rms, peak) =>
+        {
+            if (rms >= .008f && peak >= .025f)
+                Interlocked.Exchange(ref selfSpeakingUntil, Stopwatch.GetTimestamp() + (long)(Stopwatch.Frequency * .18));
+        };
         microphone.Failed += ex => SetStatus($"マイク: {SafeError(ex)}");
         microphoneTrack = LocalAudioTrack.Create("microphone", microphone.Source);
         microphoneSid = (await room.LocalParticipant.PublishTrackAsync(microphoneTrack, new TrackPublishOptions
@@ -173,6 +183,7 @@ public sealed class NativeMedia : INativeMedia
     private async Task StopMicrophoneAsync()
     {
         if (microphone is not null) { await microphone.DisposeAsync(); microphone = null; }
+        Interlocked.Exchange(ref selfSpeakingUntil, 0);
         if (microphoneTrack is not null)
         {
             if (room?.IsConnected == true && microphoneSid is not null) try { await room.LocalParticipant!.UnpublishTrackAsync(microphoneSid); } catch (Exception) { }

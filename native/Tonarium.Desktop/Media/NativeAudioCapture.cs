@@ -19,6 +19,7 @@ internal sealed class NativeAudioCapture : IAsyncDisposable
     private readonly int channels;
     public AudioSource Source { get; }
     public event Action<Exception>? Failed;
+    public event Action<float, float>? LevelAvailable;
 
     public NativeAudioCapture(bool loopback, string? deviceId = null)
     {
@@ -64,7 +65,16 @@ internal sealed class NativeAudioCapture : IAsyncDisposable
             read -= read % channels;
             if (read == 0) break;
             var pcm = new short[read];
-            for (var i = 0; i < read; i++) pcm[i] = (short)Math.Clamp(floats[i] * 32767f, -32768f, 32767f);
+            double squareSum = 0;
+            float peak = 0;
+            for (var i = 0; i < read; i++)
+            {
+                var value = floats[i];
+                squareSum += value * value;
+                peak = Math.Max(peak, Math.Abs(value));
+                pcm[i] = (short)Math.Clamp(value * 32767f, -32768f, 32767f);
+            }
+            LevelAvailable?.Invoke((float)Math.Sqrt(squareSum / read), peak);
             frames.Writer.TryWrite(new AudioFrame(pcm, 48000, channels, read / channels));
         }
     }

@@ -23,16 +23,20 @@ public sealed class ProfileWindow : Window
     private readonly string userId;
     private readonly bool self;
     private readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(25) };
-    private readonly StackPanel body = new() { Spacing = 18 };
-    private readonly TextBlock feedback = Ui.Text("", 12, Ui.Purple);
+    private readonly StackPanel body = new() { Spacing = 10 };
+    private readonly TextBlock feedback = Ui.Text("", 13, "#2E9A64");
     private readonly TextBlock presence = Ui.Text("", 12, Ui.Muted);
     private readonly Image portrait = new() { Width = 80, Height = 80, Stretch = Stretch.UniformToFill };
     private readonly Image texture = new() { Height = 170, Stretch = Stretch.Uniform };
     private readonly TextBlock avatarHint = Ui.Text("アバター未設定の間は、サンプルの姿で参加します。", 12, Ui.Muted);
     private TextBox? bio;
+    private TextBlock? biography;
+    private TextBlock? blockedHint;
+    private AvatarPortrait? avatarPreview;
     private Button? friendButton, followButton, blockButton;
     private Bitmap? portraitBitmap, textureBitmap;
     private bool requested, closed;
+    private string? followLabel;
 
     public ProfileWindow(NativeContext context, string userIdOrName)
     {
@@ -42,14 +46,27 @@ public sealed class ProfileWindow : Window
         userId = J.Text(person, "id", userIdOrName == context.State.Name ? context.State.SelfId : "");
         self = userId == context.State.SelfId || name == context.State.Name;
         Title = name + " のプロフィール · tonarium";
-        Width = 620; Height = self ? 830 : 590; MinWidth = 440; MinHeight = 390;
-        Background = Ui.Brush(Ui.Background); FontFamily = new FontFamily("Yu Gothic UI, Segoe UI");
+        Width = self ? 560 : 420; Height = self ? 840 : 530; MinWidth = self ? 470 : 420; MinHeight = 390;
+        Background = Ui.Brush(Ui.Paper); FontFamily = Ui.BodyFont;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        var root = new DockPanel { Margin = new Thickness(24), Background = Ui.Brush(Ui.Background) };
+        var root = new DockPanel { Background = Ui.Brush(Ui.Paper) };
         var footer = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 14, Margin = new Thickness(0, 18, 0, 0) };
-        footer.Children.Add(feedback); var close = Ui.Button("閉じる", Close); Grid.SetColumn(close, 1); footer.Children.Add(close);
+        footer.Children.Add(feedback); var close = PlainButton("閉じる", Close); Grid.SetColumn(close, 1); footer.Children.Add(close);
         DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
-        root.Children.Add(new ScrollViewer { Content = body, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled });
+        if (self) root.Margin = new Thickness(24, 20);
+        else
+        {
+            footer.Margin = new Thickness(24, 8, 24, 20);
+            var banner = new Grid { Height = 96, Background = BannerBrush() };
+            var dismiss = PlainButton("", Close); dismiss.Content = new WebIcon("close", 18);
+            dismiss.Width = 36; dismiss.Padding = new Thickness(0); dismiss.HorizontalAlignment = HorizontalAlignment.Right;
+            dismiss.VerticalAlignment = VerticalAlignment.Top; dismiss.Margin = new Thickness(12); dismiss.Background = Ui.Brush("#D9FFFFFF");
+            banner.Children.Add(dismiss); DockPanel.SetDock(banner, Dock.Top); root.Children.Add(banner);
+            body.Margin = new Thickness(24, 0, 24, 0); body.Spacing = 14;
+        }
+        var scroll = new ScrollViewer { Content = body, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
+        if (!self) scroll.Margin = new Thickness(0, -40, 0, 0);
+        root.Children.Add(scroll);
         Content = root;
         BuildHeader();
         if (self) BuildEditor(); else BuildParticipant(person);
@@ -61,47 +78,80 @@ public sealed class ProfileWindow : Window
 
     private void BuildHeader()
     {
+        if (self)
+        {
+            body.Children.Add(Heading(name + " のプロフィール", 20));
+            body.Children.Add(Ui.Text("名前ごとにサーバーへ保存され、同じ名前で入ると使われます", 12, Ui.Muted));
+            return;
+        }
+        body.Children.Add(CreateAvatarPreview(128, 144));
+        var title = Heading(name, 22);
+        var labels = new StackPanel { Spacing = 4, Children = { title, presence } };
+        body.Children.Add(labels);
+    }
+
+    private Control Face(double size)
+    {
         var monogram = Ui.Text(name.Length > 0 ? name[..1] : "と", 32, Ui.Purple);
         monogram.HorizontalAlignment = HorizontalAlignment.Center;
-        var imageHost = new Grid { Width = 80, Height = 80 };
+        var imageHost = new Grid { Width = size, Height = size };
+        portrait.Width = portrait.Height = size;
         imageHost.Children.Add(monogram); imageHost.Children.Add(portrait);
-        var face = new Border { Child = imageHost, Background = Ui.Brush("#E9E1ED"), CornerRadius = new CornerRadius(24), ClipToBounds = true };
-        var title = Ui.Text(name, 25); title.FontWeight = FontWeight.Bold;
-        var labels = Ui.Column(title, presence); labels.VerticalAlignment = VerticalAlignment.Center;
-        body.Children.Add(Ui.Row(face, labels));
+        return new Border { Child = imageHost, Width = size + 8, Height = size + 8, Background = BannerBrush(), CornerRadius = new CornerRadius(size / 2 + 4), BorderBrush = Ui.Brush(Ui.Paper), BorderThickness = new Thickness(4), ClipToBounds = true, HorizontalAlignment = HorizontalAlignment.Left };
     }
 
     private void BuildEditor()
     {
-        presence.Text = "プロフィールは同じ名前で共有されます";
-        bio = new TextBox { PlaceholderText = "自己紹介を書いてみましょう", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxLength = 300, MinHeight = 105, CornerRadius = new CornerRadius(12) };
+        bio = new TextBox { PlaceholderText = "プロフィールに表示されます", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxLength = 300, MinHeight = 72, Height = 72, FontFamily = Ui.BodyFont, FontSize = 14, CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 10) };
         var count = Ui.Text("0 / 300", 11, Ui.Muted);
         bio.TextChanged += (_, _) => count.Text = $"{bio.Text?.Length ?? 0} / 300";
-        body.Children.Add(Section("自己紹介", bio, Ui.Row(count, ActionButton("保存する", SaveBioAsync))));
-        body.Children.Add(Section("2D のアイコン", Ui.Text("画像の中央を正方形に切り抜き、128 × 128 の JPEG として保存します。", 12, Ui.Muted), ActionButton("画像を選ぶ", () => UploadImageAsync(false))));
-        texture.IsVisible = false;
-        body.Children.Add(Section("3D のお絵描きアバター", texture, avatarHint,
-            Ui.Text("2048 × 1024 のテンプレートに描いた画像を使います。調整値は manifest.json から読み込めます。", 12, Ui.Muted),
-            Ui.Row(ActionButton("画像を選ぶ", () => UploadImageAsync(true)), ActionButton("調整値を選ぶ", UploadManifestAsync)),
-            Ui.Row(ActionButton("テンプレートを保存", SaveTemplateAsync), Ui.Button("お絵描きサイト ↗", () => Launch("https://oekaki-avatar.anthrotech.dev/")))));
-        var scale = new ComboBox { ItemsSource = new[] { "なし", "× 0.5", "× 1（標準）", "× 2", "× 3" }, MinWidth = 150 };
+        var saveRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") }; saveRow.Children.Add(count);
+        var save = ActionButton("自己紹介を保存", SaveBioAsync); Grid.SetColumn(save, 1); saveRow.Children.Add(save);
+        body.Children.Add(Section("自己紹介", bio, saveRow));
+        body.Children.Add(Section("アイコン（2D）", Ui.Row(Face(64), ActionButton("画像を選ぶ", () => UploadImageAsync(false)))));
+        texture.Source = WebAssets.Image("oekaki/sample.png").Source;
+        var upload = ActionButton("画像を選ぶ", () => UploadImageAsync(true)); MakePrimary(upload);
+        var images = new Grid { ColumnDefinitions = new ColumnDefinitions("150,*"), ColumnSpacing = 12 };
+        var preview = CreateAvatarPreview(150, 170); images.Children.Add(preview);
+        var atlas = new Border { Child = new Grid { Children = { new TransparencyGrid(), texture } }, BorderBrush = Ui.Brush("#EEE8DD"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), ClipToBounds = true, Height = 170 };
+        Grid.SetColumn(atlas, 1); images.Children.Add(atlas);
+        body.Children.Add(Section("3D アバター（お絵描きアバター）", images, avatarHint,
+            Wrap(upload, ActionButton("manifest.json を選ぶ（任意）", UploadManifestAsync),
+                ActionButton("テンプレートをダウンロード", SaveTemplateAsync), PlainButton("oekaki-avatar で描く ↗", () => Launch("https://oekaki-avatar.anthrotech.dev/"))),
+            Ui.Text("テンプレート（2048×1024）に描いた画像を 1 枚アップロードします。oekaki-avatar で書き出した texture.png と manifest.json も使えます", 12, Ui.Muted)));
         var values = new[] { 0d, .5, 1, 2, 3 };
         var current = double.TryParse(NativeSettings.GetString("loadScale", "1"), CultureInfo.InvariantCulture, out var n) ? n : 1;
-        scale.SelectedIndex = Math.Max(0, Array.IndexOf(values, current));
-        scale.SelectionChanged += (_, _) => { if (scale.SelectedIndex >= 0) NativeSettings.SetString("loadScale", values[scale.SelectedIndex].ToString(CultureInfo.InvariantCulture)); };
-        body.Children.Add(Section("2D / 3D 切り替え", Ui.Text("演出の読み込み時間。この端末に保存されます。エンジン起動の待ち時間は別にかかります。", 12, Ui.Muted), scale));
+        var segment = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 }; var choices = new List<(double Value, Button Button)>();
+        void ApplySelection() { foreach (var (value, button) in choices) { button.Background = Ui.Brush(value == current ? Ui.Paper : "#00FFFFFF"); button.Foreground = Ui.Brush(value == current ? Ui.Ink : Ui.Muted); button.FontWeight = value == current ? FontWeight.Bold : FontWeight.Normal; } }
+        foreach (var value in values)
+        {
+            var option = PlainButton(value == 0 ? "なし" : "×" + value.ToString(CultureInfo.InvariantCulture), () => { current = value; NativeSettings.SetString("loadScale", value.ToString(CultureInfo.InvariantCulture)); ApplySelection(); });
+            option.MinWidth = 58; option.BorderThickness = new Thickness(0); choices.Add((value, option)); segment.Children.Add(option);
+        }
+        ApplySelection();
+        body.Children.Add(Section("2D / 3D 切り替えの読み込み時間", new Border { Child = segment, Background = Ui.Brush("#F3EEE4"), Padding = new Thickness(3), CornerRadius = new CornerRadius(12), HorizontalAlignment = HorizontalAlignment.Left }, Ui.Text("標準（×1）で 1〜2 秒。この端末にだけ保存されます", 12, Ui.Muted)));
     }
 
     private void BuildParticipant(JsonNode? person)
     {
-        var biography = Ui.Text(J.Text(person, "bio", "自己紹介はまだありません"), 15);
+        biography = Ui.Text(J.Text(person, "bio", "自己紹介はまだありません"), 13, "#3A3942");
+        biography.LineHeight = 22;
         biography.Tag = "biography";
         body.Children.Add(biography);
         var near = ActionButton("そばにいく", GoNearAsync);
+        near.Content = IconLabel("near", "そばにいく", "#FFFFFF"); MakePrimary(near);
         followButton = ActionButton("ついていく", () => context.Client.SendRoomAsync(new { t = "follow", target = J.Text(context.State.Presence[context.State.SelfId], "follow") == userId ? null : userId }));
         var poke = ActionButton("つんつん", () => context.Client.SendRoomAsync(new { t = "poke", to = userId }));
+        poke.Content = IconLabel("poke", "つんつん");
         near.IsEnabled = poke.IsEnabled = context.State.SessionId is not null && J.Text(person, "session") == context.State.SessionId;
-        body.Children.Add(Ui.Row(near, followButton, poke));
+        var actions = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*"), ColumnSpacing = 8 };
+        var actionButtons = new[] { near, followButton, poke };
+        for (var i = 0; i < actionButtons.Length; i++)
+        {
+            var button = actionButtons[i]; button.Height = 44; button.CornerRadius = new CornerRadius(12); button.Padding = new Thickness(6, 0); button.FontSize = 13; button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            Grid.SetColumn(button, i); actions.Children.Add(button);
+        }
+        body.Children.Add(actions);
         friendButton = ActionButton("フレンド申請", async () =>
         {
             var inbound = HasFriendRequest();
@@ -113,9 +163,11 @@ public sealed class ProfileWindow : Window
             RefreshActions();
         });
         friendButton.IsEnabled = userId.Length > 0;
-        var message = Ui.Button("メッセージ", () => { context.ShowHome("dm:" + name); Close(); });
-        body.Children.Add(Ui.Row(friendButton, message));
-        blockButton = Ui.Button("ブロック", () =>
+        var message = PlainButton("メッセージ", () => { context.ShowHome("dm:" + name); Close(); });
+        message.Content = IconLabel("chat", "メッセージ");
+        message.HorizontalAlignment = HorizontalAlignment.Left;
+        body.Children.Add(message);
+        blockButton = PlainButton("ブロック", () =>
         {
             var blocked = !NativeSettings.BlockedNames.Contains(name);
             NativeSettings.SetBlocked(name, blocked); context.State.Touch(); RefreshActions();
@@ -129,7 +181,14 @@ public sealed class ProfileWindow : Window
             feedback.Text = "通報を送りました。ありがとうございます"; reason.Text = "";
         }));
         report.IsVisible = false;
-        body.Children.Add(Ui.Row(blockButton, Ui.Button("通報", () => report.IsVisible = !report.IsVisible)));
+        var reportButton = PlainButton("通報", () => report.IsVisible = !report.IsVisible); reportButton.Foreground = Ui.Brush("#A8321F");
+        var foot = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 4 };
+        friendButton.HorizontalAlignment = HorizontalAlignment.Left;
+        foreach (var button in new[] { friendButton, blockButton, reportButton }) { button.FontSize = 12; button.Padding = new Thickness(8, 0); button.BorderThickness = new Thickness(0); button.Background = Brushes.Transparent; }
+        foot.Children.Add(friendButton); Grid.SetColumn(blockButton, 1); foot.Children.Add(blockButton); Grid.SetColumn(reportButton, 2); foot.Children.Add(reportButton);
+        body.Children.Add(new Border { Child = foot, BorderBrush = Ui.Brush("#EEE8DD"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 12, 0, 0) });
+        blockedHint = Ui.Text("ブロック中：この人の声・チャット・通知はあなたに届きません", 12, Ui.Muted);
+        body.Children.Add(blockedHint);
         body.Children.Add(report);
     }
 
@@ -139,14 +198,22 @@ public sealed class ProfileWindow : Window
         if (closed || self) return;
         var person = context.State.Users.FirstOrDefault(x => J.Text(x, "id") == userId);
         var isFriend = context.State.Friends.Any(x => J.Value(x) == name);
-        presence.Text = person is null ? "オフライン" : $"{(J.Text(person, "mode") == "3d" ? "3D" : "2D")} で参加中" + (isFriend ? " · フレンド" : "");
+        var online = person is not null && J.Text(person, "session") != "";
+        presence.Text = !online ? "オフライン" : $"{(J.Text(person, "mode") == "3d" ? "3D" : "2D")} で参加中" + (J.Bool(person, "sharing") ? " · 画面共有中" : "") + (!J.Bool(context.State.Presence[userId], "micOn") ? " · ミュート" : "") + (isFriend ? " · フレンド" : "");
+        if (online && J.Text(person, "session") == context.State.SessionId)
+        {
+            var a = ResolvePosition(userId); var b = ResolvePosition(context.State.SelfId); var distance = Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Z - b.Z, 2));
+            presence.Text += " · " + (distance < 10 ? distance.ToString("0.0", CultureInfo.InvariantCulture) : Math.Round(distance).ToString(CultureInfo.InvariantCulture)) + "m";
+        }
         if (friendButton is not null) { friendButton.Content = isFriend ? "✓ フレンド" : HasFriendRequest() ? "フレンド申請を承認" : requested ? "申請しました" : "フレンド申請"; friendButton.IsEnabled = userId.Length > 0 && !isFriend && !requested; }
         if (followButton is not null)
         {
-            followButton.Content = J.Text(context.State.Presence[context.State.SelfId], "follow") == userId ? "ついていくのをやめる" : "ついていく";
+            var label = userId.Length > 0 && J.Text(context.State.Presence[context.State.SelfId], "follow") == userId ? "やめる" : "ついていく";
+            if (followLabel != label) { followButton.Content = IconLabel("follow", label); followLabel = label; }
             followButton.IsEnabled = context.State.Mode == "2d" && J.Text(person, "mode") == "3d" && context.State.SessionId is not null && J.Text(person, "session") == context.State.SessionId;
         }
         if (blockButton is not null) blockButton.Content = NativeSettings.BlockedNames.Contains(name) ? "ブロック解除" : "ブロック";
+        if (blockedHint is not null) blockedHint.IsVisible = NativeSettings.BlockedNames.Contains(name);
     }
 
     private async Task LoadAsync()
@@ -154,7 +221,7 @@ public sealed class ProfileWindow : Window
         var document = JsonNode.Parse(await http.GetStringAsync(Endpoint("/profile")));
         if (closed) return;
         if (bio is not null) bio.Text = J.Text(document, "bio");
-        else if (body.Children.OfType<TextBlock>().FirstOrDefault(x => x.Tag as string == "biography") is { } text) text.Text = J.Text(document, "bio") is { Length: > 0 } value ? value : "自己紹介はまだありません";
+        else if (biography is not null) biography.Text = J.Text(document, "bio") is { Length: > 0 } value ? value : "自己紹介はまだありません";
         await Task.WhenAll(LoadImageAsync(false), self ? LoadImageAsync(true) : Task.CompletedTask);
     }
 
@@ -292,9 +359,9 @@ public sealed class ProfileWindow : Window
         using var response = await http.PostAsync(path == "/report" ? context.State.ServerUrl.TrimEnd('/') + path : Endpoint(path), content);
         response.EnsureSuccessStatusCode();
     }
-    private async Task ProfileUpdatedAsync() { if (context.State.Connected) await context.Client.SendAsync(new { t = "profileUpdated" }); }
+    private async Task ProfileUpdatedAsync() { avatarPreview?.RefreshAvatar(); if (context.State.Connected) await context.Client.SendAsync(new { t = "profileUpdated" }); }
     private string Endpoint(string path) => context.State.ServerUrl.TrimEnd('/') + path + "?name=" + Uri.EscapeDataString(name);
-    private Button ActionButton(string label, Func<Task> action) => Ui.Button(label, () => _ = RunAsync(action));
+    private Button ActionButton(string label, Func<Task> action) => PlainButton(label, () => _ = RunAsync(action));
     private async Task RunAsync(Func<Task> action)
     {
         try { await action(); }
@@ -302,12 +369,45 @@ public sealed class ProfileWindow : Window
     }
     private static Control Section(string title, params Control[] children)
     {
-        var header = Ui.Text(title, 15); header.FontWeight = FontWeight.SemiBold;
-        var column = Ui.Column(header); foreach (var child in children) column.Children.Add(child); return Ui.Card(column);
+        var header = Ui.Text(title, 13, Ui.Muted); header.FontWeight = FontWeight.Bold;
+        var column = new StackPanel { Spacing = 6, Margin = new Thickness(0, 8, 0, 0) }; column.Children.Add(header);
+        foreach (var child in children) column.Children.Add(child); return column;
+    }
+    private Control CreateAvatarPreview(double width, double height)
+    {
+        avatarPreview = new AvatarPortrait(context, string.IsNullOrEmpty(userId) ? name : userId) { Width = width, Height = height, FullBody = self };
+        return new Border { Child = avatarPreview, Width = width, Height = height, Background = Ui.Brush("#F3EEE4"), CornerRadius = new CornerRadius(12), ClipToBounds = true, HorizontalAlignment = HorizontalAlignment.Left };
+    }
+    private static TextBlock Heading(string text, double size) => new() { Text = text, FontFamily = Ui.HeadingFont, FontSize = size, FontWeight = FontWeight.Bold, Foreground = Ui.Brush(Ui.Ink), TextWrapping = TextWrapping.Wrap };
+    private static Button PlainButton(string text, Action action)
+    {
+        var button = Ui.Button(text, action); button.FontFamily = Ui.BodyFont; button.FontSize = 14; button.Height = 36; button.MinHeight = 36; button.Padding = new Thickness(14, 0); button.Background = Brushes.White; button.BorderBrush = Ui.Brush("#DCD5C8"); return button;
+    }
+    private static void MakePrimary(Button button) { button.Background = button.BorderBrush = Ui.Brush("#2F5FC4"); button.Foreground = Brushes.White; button.FontWeight = FontWeight.Bold; }
+    private static Control IconLabel(string icon, string text, string color = Ui.Ink) => new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center, Children = { new WebIcon(icon, 16, Ui.Brush(color)), Ui.Text(text, 13, color) } };
+    private static Control Wrap(params Control[] children) { var panel = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(-3, 2) }; foreach (var child in children) { child.Margin = new Thickness(3); panel.Children.Add(child); } return panel; }
+    private IBrush BannerBrush()
+    {
+        uint hash = 0; foreach (var c in userId) hash = unchecked(hash * 31 + c);
+        var color = HslColor.FromHsl(hash % 360, .65, .55).ToRgb();
+        return new SolidColorBrush(color, .35);
     }
     private void Launch(string url)
     {
         try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
         catch (Exception ex) { feedback.Text = ex.Message; }
+    }
+
+    private sealed class TransparencyGrid : Control
+    {
+        public override void Render(DrawingContext drawing)
+        {
+            base.Render(drawing);
+            drawing.FillRectangle(Brushes.White, new Rect(Bounds.Size));
+            var shade = Ui.Brush("#EFE9DE");
+            for (var y = 0; y < Bounds.Height; y += 10)
+                for (var x = 0; x < Bounds.Width; x += 10)
+                    if ((x / 10 + y / 10) % 2 == 0) drawing.FillRectangle(shade, new Rect(x, y, 10, 10));
+        }
     }
 }

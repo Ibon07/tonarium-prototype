@@ -1,4 +1,4 @@
-param([string]$UnityEditor)
+﻿param([string]$UnityEditor)
 $ErrorActionPreference = 'Stop'
 $nativeRoot = $PSScriptRoot
 if (-not $UnityEditor) {

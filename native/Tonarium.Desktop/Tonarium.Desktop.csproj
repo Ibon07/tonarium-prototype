@@ -6,9 +6,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/favicon.ico</ApplicationIcon>
     <AssemblyName>Tonarium</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <AvaloniaResource Include="Assets/fonts/**" />
+    <None Update="Assets/fonts/*OFL.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" TargetPath="licenses/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../Tonarium.Unity/Assets/Resources/OekakiGeometry.json" LogicalName="Tonarium.OekakiGeometry.json" />
+    <EmbeddedResource Include="../../client/public/oekaki/sample.png" LogicalName="Tonarium.OekakiSample.png" />
     <PackageReference Include="Avalonia" Version="12.0.0" />
     <PackageReference Include="Avalonia.Desktop" Version="12.0.0" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.0" />

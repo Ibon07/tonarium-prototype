@@ -1,4 +1,4 @@
-param([string]$Runtime = 'win-x64', [switch]$SkipUnity)
+﻿param([string]$Runtime = 'win-x64', [switch]$SkipUnity)
 $ErrorActionPreference = 'Stop'
 $sdk = Join-Path $env:LOCALAPPDATA 'Tonarium\dotnet\dotnet.exe'
 if (-not (Test-Path -LiteralPath $sdk)) { $sdk = (Get-Command dotnet -ErrorAction Stop).Source }

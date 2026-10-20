@@ -16,7 +16,7 @@ public sealed class App : Application
         Styles.Add(new FluentTheme());
         Styles.Add(new Style(x => x.OfType<Window>())
         {
-            Setters = { new Setter(Window.FontFamilyProperty, new FontFamily("Yu Gothic UI,Meiryo,Segoe UI")), new Setter(Window.FontSizeProperty, 14d), new Setter(Window.BackgroundProperty, Ui.Brush(Ui.Background)), new Setter(Window.ForegroundProperty, Ui.Brush(Ui.Ink)) }
+            Setters = { new Setter(Window.FontFamilyProperty, Ui.BodyFont), new Setter(Window.IconProperty, WebAssets.WindowIcon()), new Setter(Window.FontSizeProperty, 14d), new Setter(Window.BackgroundProperty, Ui.Brush(Ui.Background)), new Setter(Window.ForegroundProperty, Ui.Brush(Ui.Ink)) }
         });
         Styles.Add(new Style(x => x.OfType<Button>())
         {

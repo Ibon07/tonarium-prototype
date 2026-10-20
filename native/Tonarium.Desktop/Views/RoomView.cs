@@ -16,6 +16,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using Avalonia.Automation;
 using Tonarium.Desktop.Core;
 using Tonarium.Desktop.Media;
 
@@ -30,22 +31,32 @@ public sealed class RoomView : UserControl
     private readonly StackPanel _items = new() { Spacing = 5 };
     private readonly StackPanel _faces = new() { Spacing = 14, HorizontalAlignment = HorizontalAlignment.Center };
     private readonly StackPanel _logs = new() { Spacing = 12 };
+    private readonly Grid _logCanvas = new();
     private readonly StackPanel _notices = new() { Spacing = 7 };
     private readonly StackPanel _status = new() { Spacing = 5, HorizontalAlignment = HorizontalAlignment.Center };
     private readonly ScrollViewer _logScroll;
+    private readonly ScrollViewer _itemScroll;
     private readonly TextBlock _worldName = Ui.Text("", 15);
+    private readonly Border _broadcastPill = new() { IsVisible = false };
     private readonly TextBlock _playerCount = Ui.Text("", 12, Ui.Muted);
     private readonly TextBlock _itemCount = Ui.Text("", 12, Ui.Muted);
     private readonly TextBox _input = Ui.Input("声の届く範囲（〜15m）に送信");
-    private readonly ComboBox _scope = new() { ItemsSource = new[] { "声の範囲", "全体", "アナウンス" }, SelectedIndex = 0, MinWidth = 120 };
+    private readonly Border _scope = new();
+    private readonly Button[] _scopeButtons = new Button[3];
+    private int _scopeIndex;
     private readonly Button _mic;
     private readonly Button _share;
     private readonly Button _mode;
+    private readonly Button _simpleMode;
+    private readonly Button _freeMode;
+    private readonly Button _faceFold;
     private readonly Border _left;
     private readonly Border _right;
     private readonly Button _leftFold;
     private readonly Button _rightFold;
     private readonly Border _center;
+    private int _openItemCount, _portraitWindowCount;
+    private bool Gallery => _openItemCount + _portraitWindowCount == 0 && _ctx.State.Mode == "2d";
     private readonly Border _threeDSurface = new() { Margin = new Thickness(345, 90, 340, 100), IsVisible = false };
     private string _playersSignature = "", _itemsSignature = "", _chatSignature = "", _noticeSignature = "", _statusSignature = "";
     private bool _leftHidden, _rightHidden, _facesHidden, _chatOnly;
@@ -75,42 +86,54 @@ public sealed class RoomView : UserControl
         _root.Children.Add(_threeDSurface);
         Content = _root;
 
-        var head = Ui.Row(Small("☰", () => _ctx.ShowHome("home")), _worldName, Small("⚙", Settings));
-        var headCard = Panel(head); headCard.Margin = new Thickness(20, 18, 0, 0); headCard.HorizontalAlignment = HorizontalAlignment.Left; headCard.VerticalAlignment = VerticalAlignment.Top;
+        var menu = IconButton("menu", "メニュー", SessionMenu, 20); menu.Width = menu.Height = 40;
+        var menuCard = Panel(menu); menuCard.Padding = new Thickness(0); menuCard.CornerRadius = new CornerRadius(14); menuCard.Margin = new Thickness(20, 20, 0, 0); menuCard.HorizontalAlignment = HorizontalAlignment.Left; menuCard.VerticalAlignment = VerticalAlignment.Top;
+        _root.Children.Add(menuCard);
+        _worldName.FontFamily = Ui.HeadingFont; _worldName.FontWeight = FontWeight.Bold; _worldName.MaxWidth = 155; _worldName.TextTrimming = TextTrimming.CharacterEllipsis; _worldName.TextWrapping = TextWrapping.NoWrap;
+        _broadcastPill.Child = IconLabel("megaphone", "ブロードキャスト", 12, 10, "#7A4A22"); _broadcastPill.Background = Brush.Parse("#FBE8D7"); _broadcastPill.CornerRadius = new CornerRadius(99); _broadcastPill.Padding = new Thickness(7, 3);
+        var head = Ui.Row(Ui.AssetImage("brand/mark.png", 32, 32), _worldName, _broadcastPill, Separator(false), IconButton("settings", "設定", Settings, 18)); head.Spacing = 10;
+        var headCard = Panel(head); headCard.Padding = new Thickness(7); headCard.CornerRadius = new CornerRadius(16); headCard.Margin = new Thickness(76, 20, 0, 0); headCard.HorizontalAlignment = HorizontalAlignment.Left; headCard.VerticalAlignment = VerticalAlignment.Top;
         _root.Children.Add(headCard);
 
-        var leftContent = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto,0.7*") };
-        var ph = Ui.Row(Ui.Text("プレイヤー", 15), _playerCount, Small("‹", ToggleLeft));
-        ph.Margin = new Thickness(3, 0, 3, 8);
+        var leftContent = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto,Auto,Auto") };
+        var ph = PanelHeader("プレイヤー", _playerCount, IconButton("left", "プレイヤーとアイテムをたたむ", ToggleLeft, 15));
         leftContent.Children.Add(ph);
-        var playerScroll = new ScrollViewer { Content = _players, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        var playerScroll = new ScrollViewer { Content = _players, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(8, 2, 8, 12) };
         Grid.SetRow(playerScroll, 1); leftContent.Children.Add(playerScroll);
-        var ih = Ui.Row(Ui.Text("アイテム", 15), _itemCount, Small("＋ 出す", ItemPicker));
-        ih.Margin = new Thickness(3, 15, 3, 8); Grid.SetRow(ih, 2); leftContent.Children.Add(ih);
-        var itemScroll = new ScrollViewer { Content = _items, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        Grid.SetRow(itemScroll, 3); leftContent.Children.Add(itemScroll);
-        _left = Panel(leftContent); _left.Width = 308; _left.Margin = new Thickness(20, 78, 0, 20); _left.HorizontalAlignment = HorizontalAlignment.Left;
+        var leftSplit = PanelSplit(); Grid.SetRow(leftSplit, 2); leftContent.Children.Add(leftSplit);
+        var spawn = Small("出す", ItemPicker); spawn.Content = IconLabel("plus", "出す", 14, 12, "#FFFFFF"); spawn.Background = Brush.Parse(Ui.Ink); spawn.Foreground = Brushes.White; spawn.Height = 30; spawn.Padding = new Thickness(10, 0); spawn.CornerRadius = new CornerRadius(9);
+        var ih = PanelHeader("アイテム", _itemCount, spawn); Grid.SetRow(ih, 3); leftContent.Children.Add(ih);
+        _itemScroll = new ScrollViewer { Content = _items, MaxHeight = 280, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(8, 0, 8, 12) };
+        Grid.SetRow(_itemScroll, 4); leftContent.Children.Add(_itemScroll);
+        _left = Panel(leftContent); _left.Padding = new Thickness(0); _left.Width = 320; _left.Margin = new Thickness(20, 74, 0, 20); _left.HorizontalAlignment = HorizontalAlignment.Left;
         _root.Children.Add(_left);
-        _leftFold = Small("›\n人\n箱", ToggleLeft); _leftFold.Margin = new Thickness(20, 80, 0, 0); _leftFold.HorizontalAlignment = HorizontalAlignment.Left; _leftFold.VerticalAlignment = VerticalAlignment.Top; _leftFold.IsVisible = _leftHidden; _left.IsVisible = !_leftHidden;
+        _leftFold = FoldedPanel(true, ToggleLeft); _leftFold.Margin = new Thickness(20, 74, 0, 0); _leftFold.HorizontalAlignment = HorizontalAlignment.Left; _leftFold.VerticalAlignment = VerticalAlignment.Top; _leftFold.IsVisible = _leftHidden; _left.IsVisible = !_leftHidden;
         _root.Children.Add(_leftFold);
 
-        var rightContent = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*,Auto,Auto") };
-        var tabs = Ui.Row(Small("通知・ログ", () => { _conversation = null; _scope.IsVisible = true; _chatSignature = ""; Refresh(); }), Small("メッセージ", Conversations), Small("既読", MarkNoticesRead), Small("›", ToggleRight));
-        tabs.Spacing = 1;
+        var rightContent = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,*,Auto,Auto") };
+        var tabs = Ui.Row(Small("通知・ログ", () => { _conversation = null; _scope.IsVisible = true; _chatSignature = ""; Refresh(); }), Small("メッセージ", Conversations), IconButton("right", "通知とログをたたむ", ToggleRight, 15));
+        tabs.Spacing = 2; tabs.Margin = new Thickness(10, 6, 8, 0);
         rightContent.Children.Add(tabs);
-        var noticeScroll = new ScrollViewer { Content = _notices, MaxHeight = 165, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Margin = new Thickness(0, 12, 0, 12) };
-        Grid.SetRow(noticeScroll, 1); rightContent.Children.Add(noticeScroll);
-        var logHead = Ui.Row(Ui.Text("ログ", 14), Small("すべて", () => { _chatOnly = false; _chatSignature = ""; Refresh(); }), Small("チャット", () => { _chatOnly = true; _chatSignature = ""; Refresh(); }));
-        Grid.SetRow(logHead, 2); rightContent.Children.Add(logHead);
-        _logScroll = new ScrollViewer { Content = _logs, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Margin = new Thickness(0, 12, 0, 10) };
-        Grid.SetRow(_logScroll, 3); rightContent.Children.Add(_logScroll);
-        Grid.SetRow(_scope, 4); _scope.Margin = new Thickness(0, 5, 0, 6); rightContent.Children.Add(_scope);
-        _scope.SelectionChanged += (_, _) => _input.PlaceholderText = _scope.SelectedIndex == 0 ? "声の届く範囲（〜15m）に送信" : _scope.SelectedIndex == 1 ? "セッション全体に送信" : "アナウンスを送信";
-        var compose = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
-        var attach = Small("＋", () => Run(() => AttachAsync())); compose.Children.Add(attach);
+        var noticeHead = PanelHeader("通知", null, Small("すべて既読", MarkNoticesRead)); Grid.SetRow(noticeHead, 1); rightContent.Children.Add(noticeHead);
+        var noticeScroll = new ScrollViewer { Content = _notices, MaxHeight = 165, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(10, 2, 10, 10) };
+        Grid.SetRow(noticeScroll, 2); rightContent.Children.Add(noticeScroll);
+        var rightSplit = PanelSplit(); Grid.SetRow(rightSplit, 3); rightContent.Children.Add(rightSplit);
+        var logTabs = Ui.Row(Small("すべて", () => { _chatOnly = false; _chatSignature = ""; Refresh(); }), Small("チャット", () => { _chatOnly = true; _chatSignature = ""; Refresh(); })); logTabs.Spacing = 2;
+        var logHead = PanelHeader("ログ", null, logTabs); Grid.SetRow(logHead, 4); rightContent.Children.Add(logHead);
+        _logs.Spacing = 4; _logs.VerticalAlignment = VerticalAlignment.Bottom; _logCanvas.Children.Add(_logs);
+        _logScroll = new ScrollViewer { Content = _logCanvas, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(12, 4) };
+        _logScroll.SizeChanged += (_, _) => _logCanvas.MinHeight = Math.Max(0, _logScroll.Bounds.Height - 8);
+        Grid.SetRow(_logScroll, 5); rightContent.Children.Add(_logScroll);
+        var scopeGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,1.2*") };
+        for (var i = 0; i < 3; i++) { var index = i; var text = new[] { "声の範囲", "全体", "アナウンス" }[i]; var button = Small(text, () => SelectScope(index)); button.Content = i == 2 ? IconLabel("megaphone", text, 13) : Ui.Row(Dot(i == 0 ? "#D9A02B" : "#5B47A8", 8), Ui.Text(text, 12)); button.Height = 32; button.Padding = new Thickness(6, 0); button.HorizontalContentAlignment = HorizontalAlignment.Center; _scopeButtons[i] = button; Grid.SetColumn(button, i); scopeGrid.Children.Add(button); }
+        _scope.Child = scopeGrid; _scope.Margin = new Thickness(10, 6, 10, 0); _scope.Padding = new Thickness(3); _scope.CornerRadius = new CornerRadius(11); _scope.Background = Brush.Parse("#1226262E"); Grid.SetRow(_scope, 6); rightContent.Children.Add(_scope); SelectScope(0);
+        var compose = new Grid { ColumnDefinitions = new ColumnDefinitions("38,*,38"), Margin = new Thickness(10, 8, 10, 10), ColumnSpacing = 6 };
+        var attach = IconButton("attach", "画像・動画を添付", () => Run(() => AttachAsync()), 18); attach.Background = Brushes.White; attach.BorderBrush = Brush.Parse("#DCD5C8"); attach.BorderThickness = new Thickness(1); compose.Children.Add(attach);
+        attach.Width = attach.Height = 38;
         _input.MinWidth = 0; _input.AcceptsReturn = true; _input.MaxHeight = 100;
         Grid.SetColumn(_input, 1); compose.Children.Add(_input);
-        var send = Small("➤", () => Run(SendChatAsync)); Grid.SetColumn(send, 2); compose.Children.Add(send);
+        var send = IconButton("send", "送信", () => Run(SendChatAsync), 18); send.Background = Brush.Parse("#2F5FC4"); send.Foreground = Brushes.White; Grid.SetColumn(send, 2); compose.Children.Add(send);
+        send.Content = new WebIcon("send", 18, Brushes.White); send.Width = send.Height = 38;
         // Handle Enter before TextBox's multiline handler; leave candidate confirmation to the native IME.
         _input.AddHandler(InputElement.KeyDownEvent, (_, e) =>
         {
@@ -119,29 +142,33 @@ public sealed class RoomView : UserControl
             e.Handled = true;
             Run(SendChatAsync);
         }, RoutingStrategies.Tunnel);
-        Grid.SetRow(compose, 5); rightContent.Children.Add(compose);
-        _right = Panel(rightContent); _right.Width = 304; _right.Margin = new Thickness(0, 18, 20, 20); _right.HorizontalAlignment = HorizontalAlignment.Right;
+        Grid.SetRow(compose, 7); rightContent.Children.Add(compose);
+        _right = Panel(rightContent); _right.Padding = new Thickness(0); _right.Width = 300; _right.Margin = new Thickness(0, 20, 20, 20); _right.HorizontalAlignment = HorizontalAlignment.Right;
         _root.Children.Add(_right);
-        _rightFold = Small("‹\n通知\nログ", ToggleRight); _rightFold.Margin = new Thickness(0, 20, 20, 0); _rightFold.HorizontalAlignment = HorizontalAlignment.Right; _rightFold.VerticalAlignment = VerticalAlignment.Top; _rightFold.IsVisible = _rightHidden; _right.IsVisible = !_rightHidden;
+        _rightFold = FoldedPanel(false, ToggleRight); _rightFold.Margin = new Thickness(0, 20, 20, 0); _rightFold.HorizontalAlignment = HorizontalAlignment.Right; _rightFold.VerticalAlignment = VerticalAlignment.Top; _rightFold.IsVisible = _rightHidden; _right.IsVisible = !_rightHidden;
         _root.Children.Add(_rightFold);
 
-        var centerStack = new StackPanel { Spacing = 20, HorizontalAlignment = HorizontalAlignment.Center };
+        var centerStack = new StackPanel { Spacing = 4, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         centerStack.Children.Add(_faces);
-        var faceFold = Small("⌃ 顔をたたむ / 開く", () => { _facesHidden = !_facesHidden; NativeSettings.SetBool("room.facesFolded", _facesHidden); _playersSignature = ""; Refresh(); });
-        faceFold.HorizontalAlignment = HorizontalAlignment.Center; centerStack.Children.Add(faceFold);
+        _faceFold = IconButton("up", "顔の表示を上にたたむ", () => { _facesHidden = !_facesHidden; NativeSettings.SetBool("room.facesFolded", _facesHidden); _playersSignature = ""; Refresh(); }, 14);
+        _faceFold.Width = 48; _faceFold.Height = 18; _faceFold.Padding = new Thickness(0); _faceFold.Background = Brush.Parse("#EEFFFDF9"); _faceFold.CornerRadius = new CornerRadius(0, 0, 10, 10); _faceFold.HorizontalAlignment = HorizontalAlignment.Center; centerStack.Children.Add(_faceFold);
         _mode = Ui.Button("3D 空間に入る  ↗", () => Run(() => _ctx.ChangeModeAsync(_ctx.State.Mode == "3d" ? "2d" : "3d")));
-        _mode.HorizontalAlignment = HorizontalAlignment.Center; _mode.Padding = new Thickness(22, 12); centerStack.Children.Add(_mode);
+        _mode.HorizontalAlignment = HorizontalAlignment.Center; _mode.Padding = new Thickness(22, 12);
         _mode.Background = Brush.Parse("#2F5FC4"); _mode.Foreground = Brushes.White;
-        _center = new Border { Child = centerStack, Margin = new Thickness(345, 140, 340, 140), VerticalAlignment = VerticalAlignment.Center };
+        _center = new Border { Child = centerStack, Margin = new Thickness(360, 90, 340, 144) };
         _root.Children.Add(_center);
 
-        _mic = Ui.Button("♩ マイク", () => Run(() => _ctx.Media.SetMicrophoneAsync(!_ctx.State.MicOn)));
-        _share = Ui.Button("▣ 画面共有", () => Run(() => _ctx.Media.SetScreenShareAsync(!_ctx.State.Sharing)));
-        var dock = Ui.Row(_mic, _share, Small("♫", Soundboard), Small("▱", WindowOptions), Small("退出 ↗", () => Run(() => _ctx.Client.LeaveAsync())));
-        dock.Spacing = 7;
-        foreach (var button in dock.Children.OfType<Button>()) { button.Foreground = Brushes.White; button.Background = Brush.Parse("#3A3B44"); }
-        var bottom = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(80, 0, 80, 20) };
-        var dockPanel = Panel(dock); dockPanel.Background = Brush.Parse("#26262E"); dockPanel.BorderBrush = Brush.Parse("#44454F"); dockPanel.Padding = new Thickness(8);
+        _mic = DockButton("micOff", "マイクのミュートを解除", () => Run(() => _ctx.Media.SetMicrophoneAsync(!_ctx.State.MicOn)));
+        _share = DockButton("screen", "画面共有", () => Run(() => _ctx.Media.SetScreenShareAsync(!_ctx.State.Sharing)));
+        _simpleMode = Small("カンタン", () => SetWindowMode(false)); _simpleMode.Content = IconLabel("window", "カンタン", 15);
+        _freeMode = Small("フリー", () => SetWindowMode(true)); _freeMode.Content = IconLabel("layers", "フリー", 15);
+        foreach (var button in new[] { _simpleMode, _freeMode }) { button.Height = 22; button.Padding = new Thickness(9, 0); button.FontSize = 11; button.CornerRadius = new CornerRadius(10); }
+        var windowModes = Ui.Column(_simpleMode, _freeMode); windowModes.Spacing = 2;
+        var modeSegment = new Border { Child = windowModes, Padding = new Thickness(3), Background = Brush.Parse("#3A3B44"), CornerRadius = new CornerRadius(14) };
+        var leave = DockButton("leave", "切断", () => Run(() => _ctx.Client.LeaveAsync())); leave.Background = Brush.Parse("#C2402F");
+        var dock = Ui.Row(_mic, _share, DockButton("music", "サウンドボード", Soundboard), Separator(true), modeSegment, Separator(true), leave); dock.Spacing = 8;
+        var bottom = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(80, 0, 80, 22) };
+        var dockPanel = Panel(dock); dockPanel.CornerRadius = new CornerRadius(24); dockPanel.Background = Brush.Parse("#26262E"); dockPanel.BorderThickness = new Thickness(0); dockPanel.Padding = new Thickness(10);
         bottom.Children.Add(_status); bottom.Children.Add(dockPanel); _root.Children.Add(bottom);
         SizeChanged += (_, _) => Fit();
         _worldCountdown.Tick += (_, _) => Refresh();
@@ -157,16 +184,26 @@ public sealed class RoomView : UserControl
         Fit();
     }
 
+    public void SetOpenItemCount(int count)
+    {
+        if (_openItemCount == count) return;
+        _openItemCount = Math.Max(0, count);
+        Fit();
+    }
+
     public void Refresh()
     {
         var s = _ctx.State;
         ComputePlaces();
         var users = Participants();
-        _worldName.Text = J.Text(s.Sessions.FirstOrDefault(x => J.Text(x, "id") == s.SessionId), "name", "セッション") + (s.Broadcast ? "  ◉" : "");
+        _worldName.Text = J.Text(s.Sessions.FirstOrDefault(x => J.Text(x, "id") == s.SessionId), "name", "セッション"); _broadcastPill.IsVisible = s.Broadcast;
         _playerCount.Text = users.Count.ToString(); _itemCount.Text = s.Items.Count.ToString();
-        _mic.Content = s.MicOn ? "♩ マイク ON" : "♩ ミュート";
-        _mic.Background = Brush.Parse(s.MicOn ? "#3A3B44" : "#743F3B");
-        _share.Content = s.Sharing ? "▣ 共有を停止" : "▣ 画面共有";
+        var micName = s.MicOn ? "マイクをミュート" : "マイクのミュートを解除";
+        if (!Equals(_mic.Tag, micName)) { _mic.Tag = micName; _mic.Content = new WebIcon(s.MicOn ? "mic" : "micOff", 22, Brushes.White); AutomationProperties.SetName(_mic, micName); ToolTip.SetTip(_mic, s.MicOn ? "ミュート" : "ミュート解除"); }
+        _mic.Background = Brush.Parse(s.MicOn ? "#3A3B44" : "#F06A5A");
+        _share.Background = Brush.Parse(s.Sharing ? "#2E9A64" : "#3A3B44");
+        AutomationProperties.SetName(_share, s.Sharing ? "画面共有を停止" : "画面共有");
+        StyleWindowModes();
         _mode.Content = s.Mode == "3d" ? "2D に戻る" : "3D 空間に入る  ↗";
         // Distance bands affect ordering; the numeric labels update without replacing row controls.
         var pkey = string.Join("|", users.OrderBy(Distance).Select(u => $"{J.Text(u, "id")}:{J.Text(u, "name")}:{J.Text(u, "mode")}:{J.Text(u, "follow")}:{J.Bool(u, "micOn")}:{J.Bool(u, "sharing")}:{J.Text(u, "icon")}:{J.Text(u, "avatar")}:{J.Bool(u, "speaking")}:{Band(Distance(u))}")) + _facesHidden + s.Mode;
@@ -224,7 +261,11 @@ public sealed class RoomView : UserControl
     }
     private static int Band(double d) => d <= 3 ? 0 : d <= 15 ? 1 : 2;
     private static string FormatDistance(double d) => d < .1 ? "すぐそば" : $"{d:0.0}m";
-    private static Control BandLabel(int band) => Ui.Text(band == 0 ? "● すぐそば    〜3m" : band == 1 ? "● 声が届く    〜15m" : "● とおく    15m〜", 11, band == 0 ? "#438669" : band == 1 ? "#B18C3D" : Ui.Muted);
+    private static Control BandLabel(int band)
+    {
+        var row = Ui.Row(Dot(band == 0 ? "#2E9A64" : band == 1 ? "#D9A02B" : "#9A98A2", 8), Ui.Text(band == 0 ? "すぐそば" : band == 1 ? "声が届く" : "とおく", 12, Ui.Muted), Ui.Text(band == 0 ? "〜3m" : band == 1 ? "〜15m" : "15m〜", 12, Ui.Muted));
+        row.Spacing = 8; row.Margin = new Thickness(8, 4); return row;
+    }
 
     private void RebuildPlayers(List<JsonNode> users)
     {
@@ -243,14 +284,24 @@ public sealed class RoomView : UserControl
     private Control PlayerRow(JsonNode user, bool self)
     {
         var id = J.Text(user, "id"); var name = J.Text(user, "name");
-        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("34,*,Auto,Auto"), Margin = new Thickness(0, 3) };
-        var face = Face(user, 30); row.Children.Add(face);
-        var label = Ui.Column(Ui.Text(name + (self ? "  あなた" : ""), 13), Ui.Text(J.Text(user, "mode", "2d").ToUpperInvariant() + (!J.Bool(user, "micOn") ? " · ミュート" : "") + (J.Text(user, "follow") != "" ? " · ついていく" : ""), 10, Ui.Muted));
+        var large = self || Distance(user) <= 3;
+        if (!self && Distance(user) > 15)
+        {
+            var far = Small(name, () => PickUser(id)); far.Content = Ui.Row(Face(user, 20), Ui.Text(name, 12)); far.Padding = new Thickness(3, 2, 8, 2); far.Height = 26; far.HorizontalAlignment = HorizontalAlignment.Left; far.Background = Brush.Parse("#0D26262E"); far.CornerRadius = new CornerRadius(99); return far;
+        }
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions(large ? "32,*,Auto,Auto" : "22,*,Auto,Auto"), ColumnSpacing = 8 };
+        var face = Face(user, large ? 32 : 22); row.Children.Add(face);
+        var names = Ui.Row(Ui.Text(name, large ? 14 : 13)); names.Spacing = 4;
+        if (!self && J.Text(user, "mode") == "3d") names.Children.Add(Pill("3D", "#26262E", "#FFFFFF"));
+        var label = Ui.Column(names); label.Spacing = 0;
+        var status = (!J.Bool(user, "micOn") ? "ミュート" : "") + (J.Text(user, "follow") != "" ? " · ついていく" : "");
+        if (!self && status.Length > 0) label.Children.Add(Ui.Text(status.Trim(' ', '·'), 11, Ui.Muted));
         var nameButton = Ui.Button("", () => PickUser(id)); nameButton.Content = label; nameButton.Padding = new Thickness(4); nameButton.Background = Brushes.Transparent; nameButton.BorderThickness = new Thickness(0); nameButton.HorizontalContentAlignment = HorizontalAlignment.Left; Grid.SetColumn(nameButton, 1); row.Children.Add(nameButton);
-        if (J.Bool(user, "sharing")) { var live = Small("LIVE", () => OpenLive(id)); Grid.SetColumn(live, 2); row.Children.Add(live); }
+        if (self) { var badges = Ui.Row(Pill("あなた", "#26262E", "#FFFFFF"), Pill(_ctx.State.Mode.ToUpperInvariant(), "#EBE6DD", Ui.Muted)); badges.Spacing = 4; Grid.SetColumn(badges, 2); Grid.SetColumnSpan(badges, 2); row.Children.Add(badges); }
+        else if (J.Bool(user, "sharing")) { var live = Small("ライブ", () => OpenLive(id)); live.Content = IconLabel("screen", "ライブ", 11, 10, "#FFFFFF"); live.Background = Brush.Parse("#D9483B"); live.Foreground = Brushes.White; live.Height = 22; live.CornerRadius = new CornerRadius(99); Grid.SetColumn(live, 2); row.Children.Add(live); }
         else { var dist = Ui.Text(self ? "" : FormatDistance(Distance(user)), 10, Ui.Muted); dist.VerticalAlignment = VerticalAlignment.Center; if (!self) _distanceLabels[id] = dist; Grid.SetColumn(dist, 2); row.Children.Add(dist); }
-        var more = Small("⋯", () => UserMenu(user)); Grid.SetColumn(more, 3); row.Children.Add(more);
-        var card = new Border { Child = row, Padding = new Thickness(5), CornerRadius = new CornerRadius(12), Background = self ? Brush.Parse("#EFECE6") : Brushes.Transparent };
+        if (!self) { var more = IconButton("more", name + " のアクション", () => UserMenu(user), 16); more.Width = large ? 30 : 26; more.Height = large ? 30 : 26; Grid.SetColumn(more, 3); row.Children.Add(more); }
+        var card = new Border { Child = row, Padding = new Thickness(8, large ? 5 : 1, 4, large ? 5 : 1), CornerRadius = new CornerRadius(12), Background = self ? Brush.Parse("#0D26262E") : Brushes.Transparent };
         if (J.Text(user, "follow") != "") card.Margin = new Thickness(14, 0, 0, 0);
         return card;
     }
@@ -262,28 +313,81 @@ public sealed class RoomView : UserControl
     }
     private void UserMenu(JsonNode user)
     {
-        var id = J.Text(user, "id"); var box = Ui.Column(Ui.Title(J.Text(user, "name")), Ui.Button("プロフィール", () => _ctx.OpenProfile(id)), Ui.Button("そばにいく", () => Run(() => GoNearAsync(id))), Ui.Button("つんつん", () => SendRoom(new { t = "poke", to = id })));
-        if (J.Text(user, "mode") == "3d" && id != _ctx.State.SelfId) box.Children.Add(Ui.Button("ついていく / やめる", () => { var me = Participants().FirstOrDefault(x => J.Text(x, "id") == _ctx.State.SelfId); SendRoom(new { t = "follow", target = J.Text(me, "follow") == id ? null : id }); }));
+        var id = J.Text(user, "id"); var box = Ui.Column(Ui.Title(J.Text(user, "name")), ActionButton("user", "プロフィール", () => _ctx.OpenProfile(id)), ActionButton("near", "そばにいく", () => Run(() => GoNearAsync(id))), ActionButton("poke", "つんつん", () => SendRoom(new { t = "poke", to = id })));
+        if (J.Text(user, "mode") == "3d" && id != _ctx.State.SelfId) box.Children.Add(ActionButton("follow", "ついていく / やめる", () => { var me = Participants().FirstOrDefault(x => J.Text(x, "id") == _ctx.State.SelfId); SendRoom(new { t = "follow", target = J.Text(me, "follow") == id ? null : id }); }));
         ShowPopup(box, 310);
     }
     private void RebuildFaces(List<JsonNode> users)
     {
-        _faces.Children.Clear(); if (_facesHidden) { _faces.Children.Add(Ui.Text($"近くに {users.Count} 人", 15, Ui.Muted)); return; }
-        var visible = users.OrderBy(u => J.Text(u, "id") == _ctx.State.SelfId ? -1 : Distance(u)).Where(u => Distance(u) <= 15).Take(6).ToList();
-        var wrap = new WrapPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 520 };
-        foreach (var u in visible)
+        _faces.Children.Clear(); _faceFold.IsVisible = !Gallery && !_facesHidden;
+        var self = users.FirstOrDefault(u => J.Text(u, "id") == _ctx.State.SelfId);
+        var near = users.Where(u => J.Text(u, "id") != _ctx.State.SelfId && Distance(u) <= 3).OrderBy(Distance).ToList();
+        var mid = users.Where(u => J.Text(u, "id") != _ctx.State.SelfId && Distance(u) > 3 && Distance(u) <= 15).OrderBy(Distance).ToList();
+        if (_facesHidden)
         {
-            var id = J.Text(u, "id"); var color = UserColor(id);
-            var portrait = new RoomPortrait(color) { Height = 135, Width = 160 };
-            LoadPortrait(portrait, u);
-            var grid = new Grid(); grid.Children.Add(portrait);
-            var bottom = Ui.Row(Ui.Text(J.Text(u, "name"), 12, "#FFFFFF"), Ui.Text(J.Text(u, "mode", "2d").ToUpperInvariant(), 10, "#EAE7EE"));
-            var bar = new Border { Background = Brush.Parse("#BB26262E"), CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 5), Child = bottom, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(7) }; grid.Children.Add(bar);
-            var last = _ctx.State.Chats.LastOrDefault(m => J.Text(m, "from") == id && J.Text(m, "text") != "" && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - J.Number(m, "at") < 30000);
-            if (last is not null) { var bubble = new Border { Background = Brushes.White, CornerRadius = new CornerRadius(8), Padding = new Thickness(6), Child = Ui.Text(J.Text(last, "text"), 11), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(7) }; grid.Children.Add(bubble); }
-            var button = Ui.Button("", () => OpenPortrait(u)); button.Content = new Border { Child = grid, CornerRadius = new CornerRadius(15), ClipToBounds = true }; button.Padding = new Thickness(0); button.Margin = new Thickness(5); button.Background = Brush.Parse(color); button.BorderThickness = new Thickness(J.Bool(u, "speaking") ? 3 : 0); button.BorderBrush = Brush.Parse("#2E9A64"); button.CornerRadius = new CornerRadius(15); button.ClipToBounds = true; wrap.Children.Add(button);
+            var mini = Ui.Row(); mini.Spacing = 0;
+            foreach (var u in near.Take(4)) mini.Children.Add(Face(u, 24));
+            var expand = Small("", () => { _facesHidden = false; NativeSettings.SetBool("room.facesFolded", false); Fit(); });
+            expand.Content = Ui.Row(mini, Ui.Text($"すぐそば {near.Count}", 12), Ui.Text($"· 声が届く {mid.Count}", 12, Ui.Muted), new WebIcon("down", 14));
+            expand.Background = Brush.Parse("#F0FFFDF9"); expand.CornerRadius = new CornerRadius(99); expand.Padding = new Thickness(6, 4, 10, 4);
+            _faces.Children.Add(expand); return;
         }
-        _faces.Children.Add(wrap);
+        if (Gallery)
+        {
+            var all = new List<JsonNode>(); if (self is not null) all.Add(self); all.AddRange(near); all.AddRange(mid);
+            var availableWidth = Math.Max(120, Bounds.Width - _center.Margin.Left - _center.Margin.Right);
+            var availableHeight = Math.Max(120, Bounds.Height - 234);
+            var size = GalleryTile(all.Count, availableWidth, availableHeight);
+            var wrap = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = availableWidth, Orientation = Orientation.Horizontal };
+            foreach (var u in all) { var tile = FaceTile(u, size, false); tile.Margin = new Thickness(6); wrap.Children.Add(tile); }
+            _faces.Children.Add(wrap); return;
+        }
+        var strip = Ui.Row(); strip.Spacing = 8;
+        var available = Math.Max(150, Bounds.Width - _center.Margin.Left - _center.Margin.Right);
+        var largeCount = Math.Min(4, near.Count) + (self is null ? 0 : 1);
+        var largeWidth = Math.Clamp((available - (mid.Count > 0 ? 150 : 0) - Math.Max(0, largeCount - 1) * 8) / Math.Max(1, largeCount), 96, 144);
+        if (self is not null) strip.Children.Add(FaceTile(self, largeWidth, false));
+        foreach (var u in near.Take(4)) strip.Children.Add(FaceTile(u, largeWidth, false));
+        if (mid.Count > 0)
+        {
+            var small = new WrapPanel { Orientation = Orientation.Vertical, Height = 108, MaxWidth = 148 };
+            foreach (var u in mid.Take(3)) { var tile = FaceTile(u, 70, true); tile.Margin = new Thickness(2); small.Children.Add(tile); }
+            if (mid.Count > 3) small.Children.Add(new Border { Width = 70, Height = 52, CornerRadius = new CornerRadius(10), Background = Brush.Parse("#BB26262E"), Child = CenterText($"+{mid.Count - 3}", 14) });
+            strip.Children.Add(small);
+        }
+        _faces.Children.Add(strip);
+    }
+    private static double GalleryTile(int n, double width, double height)
+    {
+        var best = 96d;
+        for (var columns = 1; columns <= Math.Max(1, n); columns++) { var rows = Math.Ceiling(n / (double)columns); var tile = Math.Min((width - (columns - 1) * 12) / columns, ((height - (rows - 1) * 12) / rows) * 4 / 3); best = Math.Max(best, tile); }
+        return Math.Clamp(Math.Floor(best - 12), 96, 420);
+    }
+    private Control FaceTile(JsonNode user, double width, bool small)
+    {
+        var id = J.Text(user, "id"); var self = id == _ctx.State.SelfId; var color = PortraitColor(id); var height = width * .75;
+        var portrait = new AvatarPortrait(_ctx, id, small) { Height = height, Width = width };
+        var content = new Grid(); content.Children.Add(portrait);
+        var button = Small("", () => OpenPortrait(user)); button.Content = content; button.Padding = new Thickness(0); button.Width = width; button.Height = height; button.CornerRadius = new CornerRadius(small ? 10 : 14); button.ClipToBounds = true;
+        var body = new Grid(); body.Children.Add(button);
+        if (small)
+        {
+            var face = Face(user, 16); face.HorizontalAlignment = HorizontalAlignment.Left; face.VerticalAlignment = VerticalAlignment.Bottom; face.Margin = new Thickness(4); body.Children.Add(face);
+        }
+        else
+        {
+            var footer = new Grid { ColumnDefinitions = new ColumnDefinitions("18,Auto,*,Auto"), ColumnSpacing = 5 };
+            footer.Children.Add(Face(user, 18));
+            var status = new WebIcon(J.Bool(user, "micOn") ? "speaking" : "micOff", 12, Brush.Parse(J.Bool(user, "micOn") ? "#7FE0A8" : "#F6A79C")); Grid.SetColumn(status, 1); footer.Children.Add(status);
+            var name = Ui.Text(J.Text(user, "name"), Gallery ? 13 : 12, "#FFFFFF"); name.TextWrapping = TextWrapping.NoWrap; name.TextTrimming = TextTrimming.CharacterEllipsis; name.FontWeight = FontWeight.Bold; Grid.SetColumn(name, 2); footer.Children.Add(name);
+            var distance = Ui.Text(self ? "あなた" : FormatDistance(Distance(user)), 10, "#FFFFFF"); Grid.SetColumn(distance, 3); footer.Children.Add(distance);
+            body.Children.Add(new Border { Child = footer, Background = Brush.Parse("#B826262E"), CornerRadius = new CornerRadius(9), Padding = new Thickness(3, 2, 7, 2), Height = Gallery ? 28 : 24, Margin = new Thickness(6), VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false });
+            var profile = IconButton("more", J.Text(user, "name") + " のプロフィール", () => _ctx.OpenProfile(id), 14); profile.Background = Brush.Parse("#C7FFFFFF"); profile.Width = profile.Height = 28; profile.HorizontalAlignment = HorizontalAlignment.Right; profile.VerticalAlignment = VerticalAlignment.Top; profile.Margin = new Thickness(5); body.Children.Add(profile);
+            var last = _ctx.State.Chats.LastOrDefault(m => J.Text(m, "from") == id && J.Text(m, "text") != "" && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - J.Number(m, "at") < 30000);
+            if (last is not null) { var text = Ui.Text(J.Text(last, "text"), 11); text.TextWrapping = TextWrapping.NoWrap; text.TextTrimming = TextTrimming.CharacterEllipsis; body.Children.Add(new Border { Child = text, Background = Brush.Parse("#F2FFFFFF"), CornerRadius = new CornerRadius(9, 9, 9, 3), Padding = new Thickness(8, 4), Margin = new Thickness(6, 0, 6, 38), VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false }); }
+        }
+        if (J.Text(user, "mode") == "3d") { var badge = Pill("3D", "#26262E", "#FFFFFF"); badge.HorizontalAlignment = HorizontalAlignment.Left; badge.VerticalAlignment = VerticalAlignment.Top; badge.Margin = new Thickness(6); body.Children.Add(badge); }
+        return new Border { Child = body, Width = width, Height = height, Background = Brush.Parse(color), ClipToBounds = true, CornerRadius = new CornerRadius(small ? 10 : 14), BorderThickness = new Thickness(J.Bool(user, "speaking") ? 3 : self ? 2 : 1), BorderBrush = Brush.Parse(J.Bool(user, "speaking") ? "#2E9A64" : self ? "#8C8886" : "#1826262E") };
     }
     private void RebuildItems()
     {
@@ -294,19 +398,19 @@ public sealed class RoomView : UserControl
             var band = Band(ItemDistance(item)); if (band != lastBand) { lastBand = band; _items.Children.Add(BandLabel(band)); }
             var kind = J.Text(item, "kind"); var info = ItemInfo.GetValueOrDefault(kind, (Name: kind, Mark: "□", Tint: "#EFEAE3"));
             var mark = new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(9), Background = Brush.Parse(info.Tint), Child = CenterText(info.Mark, 12) };
-            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("36,*,Auto,Auto"), Margin = new Thickness(2, 4) }; row.Children.Add(mark);
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("32,*,Auto,Auto"), ColumnSpacing = 6, Margin = new Thickness(8, 5, 4, 5) }; row.Children.Add(mark);
             var name = kind == "note" ? J.Text(item, "text", "付箋（空）").Split('\n')[0] : kind == "youtube" ? J.Text(item, "title", info.Name) : info.Name;
             if (name.Length > 17) name = name[..17] + "…";
-            var open = Small(name, () => _ctx.OpenItem("item:" + id)); Grid.SetColumn(open, 1); row.Children.Add(open);
-            if (kind != "hammer") { var ob = Small("開く", () => _ctx.OpenItem("item:" + id)); Grid.SetColumn(ob, 2); row.Children.Add(ob); }
-            var menu = Small("⋯", () => ItemMenu(id)); Grid.SetColumn(menu, 3); row.Children.Add(menu); _items.Children.Add(row);
+            var open = Small(name, () => _ctx.OpenItem("item:" + id)); open.Padding = new Thickness(0); open.HorizontalContentAlignment = HorizontalAlignment.Left; open.FontSize = 14; Grid.SetColumn(open, 1); row.Children.Add(open);
+            if (kind != "hammer") { var ob = Small("開く", () => _ctx.OpenItem("item:" + id)); ob.Padding = new Thickness(8, 0); ob.Height = 22; ob.FontSize = 11; ob.FontWeight = FontWeight.Bold; ob.Background = Brushes.White; ob.BorderBrush = Brush.Parse("#DCD5C8"); ob.BorderThickness = new Thickness(1); ob.CornerRadius = new CornerRadius(99); Grid.SetColumn(ob, 2); row.Children.Add(ob); }
+            var menu = IconButton("more", name + " のアクション", () => ItemMenu(id), 16); menu.Width = menu.Height = 30; Grid.SetColumn(menu, 3); row.Children.Add(menu); _items.Children.Add(row);
         }
         if (_items.Children.Count == 0) _items.Children.Add(Empty("「出す」からアイテムを置けます"));
     }
     private void ItemMenu(string id)
     {
         var it = _ctx.State.Items[id]; var holder = J.Text(it, "holder"); var kind = J.Text(it, "kind");
-        var box = Ui.Column(Ui.Title(ItemInfo.GetValueOrDefault(kind, (Name: kind, Mark: "", Tint: "")).Name), Ui.Button("ウィンドウを開く", () => _ctx.OpenItem("item:" + id)), Ui.Button("そばにいく", () => Run(() => GoNearAsync("item:" + id))), Ui.Button("✦ 注目を集める", () => SendRoom(new { t = "attention", key = "item:" + id })));
+        var box = Ui.Column(Ui.Title(ItemInfo.GetValueOrDefault(kind, (Name: kind, Mark: "", Tint: "")).Name), ActionButton("window", "ウィンドウを開く", () => _ctx.OpenItem("item:" + id)), ActionButton("near", "そばにいく", () => Run(() => GoNearAsync("item:" + id))), ActionButton("sparkle", "注目を集める", () => SendRoom(new { t = "attention", key = "item:" + id })));
         if (kind is "hammer" or "camera") box.Children.Add(Ui.Button(holder == _ctx.State.SelfId ? "手放す" : "手に持つ", () => { var p = _places.GetValueOrDefault(_ctx.State.SelfId); if (holder == _ctx.State.SelfId) SendRoom(new { t = "itemAction", id, action = new { a = "drop", x = p.X, z = p.Z - 1, ry = p.Yaw } }); else SendRoom(new { t = "itemAction", id, action = new { a = "pick" } }); }));
         if (holder == "") box.Children.Add(Ui.Button("しまう", () => SendRoom(new { t = "itemRemove", id })));
         ShowPopup(box, 300);
@@ -339,7 +443,7 @@ public sealed class RoomView : UserControl
     {
         var text = _input.Text?.Trim() ?? ""; if (text.Length == 0) return;
         if (_conversation is not null) await _ctx.Client.SendAsync(new { t = "msg", conv = _conversation, text });
-        else await _ctx.Client.SendRoomAsync(new { t = "chat", text, scope = _scope.SelectedIndex == 1 ? "all" : _scope.SelectedIndex == 2 ? "announce" : "near" });
+        else await _ctx.Client.SendRoomAsync(new { t = "chat", text, scope = _scopeIndex == 1 ? "all" : _scopeIndex == 2 ? "announce" : "near" });
         _input.Text = "";
     }
     private void RebuildChat(JsonArray chats)
@@ -349,15 +453,21 @@ public sealed class RoomView : UserControl
         foreach (var m in chats.Where(m => (!_chatOnly || J.Text(m, "from") != "") && !NativeSettings.BlockedNames.Contains(J.Text(m, "fromName", J.Text(m, "from")))).TakeLast(150))
         {
             var from = J.Text(m, "fromName", J.Text(m, "from")); var text = J.Text(m, "text");
-            if (from == "") { _logs.Children.Add(Ui.Text(text, 11, Ui.Muted)); continue; }
-            var top = Ui.Row(Ui.Text(from, 12, Ui.Purple), Ui.Text(Time(J.Number(m, "at")), 10, Ui.Muted));
-            var scope = J.Text(m, "scope"); if (scope is "all" or "announce") top.Children.Add(Ui.Text(scope == "all" ? "全体" : "アナウンス", 10, Ui.Orange));
-            var body = Ui.Column(top); if (text.Length > 0) body.Children.Add(new SelectableTextBlock { Text = text, FontSize = 13, TextWrapping = TextWrapping.Wrap, Foreground = Brush.Parse("#26262E") });
+            if (from == "") { _logs.Children.Add(new Border { Child = Ui.Text(text, 12, Ui.Muted), Padding = new Thickness(8, 3) }); continue; }
+            var userId = J.Text(m, "from"); var nameLabel = Ui.Text(from, 12, UserColor(userId)); nameLabel.FontWeight = FontWeight.Bold;
+            var top = Ui.Row(nameLabel); top.Spacing = 6;
+            var scope = J.Text(m, "scope"); if (scope is "all" or "announce") top.Children.Add(Pill(scope == "all" ? "全体" : "アナウンス", scope == "all" ? "#5B47A8" : "#26262E", "#FFFFFF"));
+            top.Children.Add(Ui.Text(Time(J.Number(m, "at")), 10, Ui.Muted));
+            var body = Ui.Column(top); body.Spacing = 2;
+            if (text.Length > 0) body.Children.Add(new SelectableTextBlock { Text = text, FontFamily = Ui.BodyFont, FontSize = 13, TextWrapping = TextWrapping.Wrap, Foreground = Brush.Parse(scope == "all" ? "#3E2F80" : "#26262E") });
             var url = Regex.Match(text, @"https?://[^\s<>]+").Value;
-            if (url.Length > 0) body.Children.Add(Small("↗ リンクを開く", () => ConfirmLink(url)));
+            if (url.Length > 0) { var link = Small("リンクを開く", () => ConfirmLink(url)); link.Content = IconLabel("link", "リンクを開く", 12); body.Children.Add(link); }
             var dice = m?["dice"]; if (dice is not null) body.Children.Add(Ui.Text("🎲 " + J.Array(dice, "results").ToJsonString(), 14));
-            var media = m?["media"]; if (media is not null || J.Text(m, "image") != "") body.Children.Add(Small("▧ " + (J.Text(media, "kind") == "video" ? "動画" : "画像") + "を開く", () => OpenMedia(m!)));
-            _logs.Children.Add(body);
+            var media = m?["media"]; if (media is not null || J.Text(m, "image") != "") { var mediaButton = Small((J.Text(media, "kind") == "video" ? "動画" : "画像") + "を開く", () => OpenMedia(m!)); mediaButton.Content = IconLabel("image", (J.Text(media, "kind") == "video" ? "動画" : "画像") + "を開く", 12); body.Children.Add(mediaButton); }
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("22,*"), ColumnSpacing = 8 };
+            var person = _ctx.State.Users.FirstOrDefault(u => J.Text(u, "id") == userId) ?? new JsonObject { ["id"] = userId, ["name"] = from };
+            var face = Face(person, 22); face.VerticalAlignment = VerticalAlignment.Top; face.Margin = new Thickness(0, 1, 0, 0); row.Children.Add(face); Grid.SetColumn(body, 1); row.Children.Add(body);
+            _logs.Children.Add(new Border { Child = row, Padding = new Thickness(8, 5), CornerRadius = new CornerRadius(10), Background = scope == "all" ? Brush.Parse("#EEEAF8") : scope == "announce" ? Brush.Parse("#1026262E") : Brushes.Transparent });
         }
         if (_logs.Children.Count == 0) _logs.Children.Add(Empty(_conversation is null ? "ここから会話をはじめよう" : "メッセージはまだありません"));
         Dispatcher.UIThread.Post(() => { if (atBottom) _logScroll.ScrollToEnd(); else _logScroll.Offset = oldOffset; }, DispatcherPriority.Loaded);
@@ -389,13 +499,17 @@ public sealed class RoomView : UserControl
     {
         _notices.Children.Clear();
         var announce = _ctx.State.Chats.LastOrDefault(x => J.Text(x, "scope") == "announce");
-        if (announce is not null) _notices.Children.Add(new Border { Background = Brush.Parse(Ui.Ink), CornerRadius = new CornerRadius(12), Padding = new Thickness(10), Child = Ui.Column(Ui.Text("◉ アナウンス", 11, "#D5CEEA"), Ui.Text(J.Text(announce, "text"), 12, "#FFFFFF")) });
+        if (announce is not null) _notices.Children.Add(new Border { Background = Brush.Parse(Ui.Ink), CornerRadius = new CornerRadius(12), Padding = new Thickness(10), Child = Ui.Column(IconLabel("megaphone", "アナウンス", 16, 11, "#FFFFFF"), Ui.Text(J.Text(announce, "text"), 12, "#FFFFFF")) });
         foreach (var n in _ctx.State.Notifications.Where(n => !NativeSettings.BlockedNames.Contains(J.Text(n, "fromName", J.Text(_ctx.State.Users.FirstOrDefault(u => J.Text(u, "id") == J.Text(n, "from")), "name")))).TakeLast(30).Reverse())
         {
             var kind = NoticeKind(n); var from = J.Text(n, "from"); var name = J.Text(n, "fromName", J.Text(_ctx.State.Users.FirstOrDefault(u => J.Text(u, "id") == from), "name", from));
             var action = kind switch { "poke" => "つんつん返す", "friend" => "承認", "attention" => "開く", "live" => "ライブを始める", "invite" => "参加する", _ => "見る" };
-            var line = Ui.Column(Ui.Text(name + " " + NoticeText(kind), 12), Small(action, () => NoticeAction(n!)));
-            _notices.Children.Add(line);
+            var line = new Grid { ColumnDefinitions = new ColumnDefinitions("28,*,Auto"), ColumnSpacing = 8 };
+            var user = _ctx.State.Users.FirstOrDefault(u => J.Text(u, "id") == from) ?? new JsonObject { ["id"] = from, ["name"] = name };
+            line.Children.Add(Face(user, 28));
+            var body = Ui.Column(Ui.Text(name + " " + NoticeText(kind), 12), Ui.Text(Time(J.Number(n, "at")), 11, Ui.Muted)); body.Spacing = 2; Grid.SetColumn(body, 1); line.Children.Add(body);
+            var reply = Small(action, () => NoticeAction(n!)); reply.FontSize = 11; reply.Height = 28; reply.Padding = new Thickness(8, 0); reply.BorderThickness = new Thickness(1); reply.BorderBrush = Brush.Parse("#DCD5C8"); reply.Background = Brushes.White; Grid.SetColumn(reply, 2); line.Children.Add(reply);
+            _notices.Children.Add(new Border { Child = line, Padding = new Thickness(8, 7), CornerRadius = new CornerRadius(12), Background = J.Bool(n, "unread") ? Brush.Parse("#F2FFFFFF") : Brushes.Transparent });
         }
         if (_notices.Children.Count == 0) _notices.Children.Add(Empty("通知はありません"));
     }
@@ -417,7 +531,8 @@ public sealed class RoomView : UserControl
     private void RebuildStatus(JsonNode? me)
     {
         _status.Children.Clear();
-        _status.Children.Add(Ui.Text($"● {_ctx.State.ConnectionStatus}   ·   kokosync {_ctx.State.SyncStatus}", 10, Ui.Muted));
+        var syncText = _ctx.State.SyncStatus switch { "connected" => "同期 接続済み", "connecting" => "セッションを同期中…", "unavailable" => "同期に再接続しています", _ => "" };
+        if (syncText.Length > 0) _status.Children.Add(StatusChip(Ui.Text(syncText, 12, "#FFFFFF")));
         if (_ctx.State.WorldPending is { } pending)
         {
             var seconds = Math.Max(0, Math.Ceiling((J.Number(pending, "at") - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - _ctx.State.ServerOffset) / 1000));
@@ -427,9 +542,9 @@ public sealed class RoomView : UserControl
         if (target != "")
         {
             var name = J.Text(Participants().FirstOrDefault(x => J.Text(x, "id") == target), "name", target);
-            _status.Children.Add(Panel(Ui.Row(Ui.Text(name + " についていっています", 11), Small("ライブをリクエスト", () => SendRoom(new { t = "liveRequest", to = target })), Small("やめる", () => SendRoom(new { t = "follow", target = (string?)null })))));
+            _status.Children.Add(StatusChip(Ui.Row(IconLabel("follow", name + " についていっています", 14, 12, "#FFFFFF"), ChipButton("ライブをリクエスト", () => SendRoom(new { t = "liveRequest", to = target })), ChipButton("やめる", () => SendRoom(new { t = "follow", target = (string?)null })))));
         }
-        else if (me?["pos"] is JsonObject) _status.Children.Add(Small("⌖ 空間の中にいます · スポーンに戻る", () => SendRoom(new { t = "place2d", target = _ctx.State.SelfId, pos = (object?)null })));
+        else if (me?["pos"] is JsonObject) _status.Children.Add(StatusChip(Ui.Row(IconLabel("pin", "3D 空間の中にいます", 14, 12, "#FFFFFF"), ChipButton("スポーンに戻る", () => SendRoom(new { t = "place2d", target = _ctx.State.SelfId, pos = (object?)null })))));
     }
     private void MarkNoticesRead()
     {
@@ -439,9 +554,9 @@ public sealed class RoomView : UserControl
     private void Soundboard()
     {
         var grid = new WrapPanel { MaxWidth = 300 };
-        foreach (var (id, label) in new[] { ("clap", "👏 拍手"), ("laugh", "わはは"), ("wow", "おお〜"), ("drum", "ドラム"), ("bell", "チャイム"), ("boo", "ブブー") })
-        { var b = Ui.Button(label, () => SendRoom(new { t = "sound", id })); b.Width = 125; b.Margin = new Thickness(5); grid.Children.Add(b); }
-        ShowPopup(Ui.Column(Ui.Title("サウンドボード", "近くの人に聞こえます"), grid), 310);
+        foreach (var (id, label) in new[] { ("clap", "拍手"), ("laugh", "わはは"), ("wow", "おお〜"), ("drum", "ドラム"), ("bell", "チャイム"), ("boo", "ブブー") })
+        { var b = Ui.Button(label, () => SendRoom(new { t = "sound", id })); b.Width = 78; b.Height = 44; b.Padding = new Thickness(4); b.Margin = new Thickness(2); b.Background = Brush.Parse("#F3EEE4"); grid.Children.Add(b); }
+        ShowPopup(Ui.Column(Ui.Text("サウンドボード（近くの人に聞こえます）", 12, Ui.Muted), grid), 290);
     }
     private void Settings()
     {
@@ -488,7 +603,7 @@ public sealed class RoomView : UserControl
             using var response = await Http.PostAsync(new Uri(new Uri(_ctx.State.ServerUrl), "/media"), content); response.EnsureSuccessStatusCode(); var result = JsonNode.Parse(await response.Content.ReadAsStringAsync()); var url = J.Text(result, "url");
             if (asItem) await SpawnAsync(video ? "video" : "image", new { url, w, h });
             else if (_conversation is not null) await _ctx.Client.SendAsync(new { t = "msg", conv = _conversation, text = _input.Text ?? "", media = new { kind = video ? "video" : "image", url, w, h } });
-            else await _ctx.Client.SendRoomAsync(new { t = "chat", text = _input.Text ?? "", scope = _scope.SelectedIndex == 1 ? "all" : _scope.SelectedIndex == 2 ? "announce" : "near", media = new { kind = video ? "video" : "image", url, w, h } });
+            else await _ctx.Client.SendRoomAsync(new { t = "chat", text = _input.Text ?? "", scope = _scopeIndex == 1 ? "all" : _scopeIndex == 2 ? "announce" : "near", media = new { kind = video ? "video" : "image", url, w, h } });
             _input.Text = ""; _ctx.Notify("共有しました");
         }
     }
@@ -503,10 +618,10 @@ public sealed class RoomView : UserControl
     }
     private void OpenPortrait(JsonNode user)
     {
-        var id = J.Text(user, "id"); var portrait = new RoomPortrait(UserColor(id)) { Height = 320, Width = 380 }; LoadPortrait(portrait, user);
+        var id = J.Text(user, "id"); var portrait = new AvatarPortrait(_ctx, id) { Height = 320, Width = 380 };
         var content = Ui.Column(Ui.Title(J.Text(user, "name")), portrait, Ui.Button("プロフィール", () => _ctx.OpenProfile(id)));
-        if (J.Bool(user, "sharing")) content.Children.Add(Ui.Button("▣ ライブを見る", () => OpenLive(id)));
-        ShowPopup(content, 430);
+        if (J.Bool(user, "sharing")) content.Children.Add(ActionButton("screen", "ライブを見る", () => OpenLive(id)));
+        var window = ShowPopup(content, 430); _portraitWindowCount++; Fit(); window.Closed += (_, _) => { _portraitWindowCount--; Fit(); };
     }
     private void OpenLive(string id)
     {
@@ -522,49 +637,95 @@ public sealed class RoomView : UserControl
         if (youtube.Success) box.Children.Add(Ui.Button("YouTube を目の前に出す", () => { Run(() => SpawnAsync("youtube", new { videoId = youtube.Groups[1].Value, title = "YouTube" })); window.Close(); }));
         ConfigurePopup(window, box, 470); window.Show(_ctx.Owner);
     }
-    private void SetWindowMode(bool free) { RoomWindowLayout.Free = free; NativeSettings.SetBool("room.freeWindows", free); _ctx.Notify(free ? "フリー：ウィンドウを自由に動かせます" : "カンタン：アイテムを中央に表示します"); }
+    private void SetWindowMode(bool free) { RoomWindowLayout.Free = free; NativeSettings.SetBool("room.freeWindows", free); StyleWindowModes(); _ctx.Notify(free ? "フリー：ウィンドウを自由に動かせます" : "カンタン：アイテムを中央に表示します"); }
     private void WindowOptions() => ShowPopup(Ui.Column(Ui.Title("ウィンドウの表示"), Ui.Button("カンタン — 開いたものを中央に表示", () => SetWindowMode(false)), Ui.Button("フリー — 自由に動かす", () => SetWindowMode(true))), 380);
     private void ToggleLeft() { _leftHidden = !_leftHidden; NativeSettings.SetBool("room.leftFolded", _leftHidden); _left.IsVisible = !_leftHidden; _leftFold.IsVisible = _leftHidden; Fit(); }
     private void ToggleRight() { _rightHidden = !_rightHidden; NativeSettings.SetBool("room.rightFolded", _rightHidden); _right.IsVisible = !_rightHidden; _rightFold.IsVisible = _rightHidden; Fit(); }
     private void Fit()
     {
-        var compact = Bounds.Width < 1080; _left.Width = compact ? 260 : 308; _right.Width = compact ? 275 : 304;
-        var left = _leftHidden ? 90 : _left.Width + 38; var right = _rightHidden ? 90 : _right.Width + 38;
-        _center.Margin = new Thickness(left, 95, right, 140);
+        var compact = Bounds.Width < 1080; _left.Width = compact ? 260 : 320; _right.Width = compact ? 275 : 300;
+        _itemScroll.MaxHeight = Math.Max(100, (Bounds.Height - 94) * .42);
+        var left = _leftHidden ? 92 : _left.Width + 40; var right = _rightHidden ? 92 : _right.Width + 40;
+        _center.Margin = new Thickness(left, Gallery && !_facesHidden ? 90 : 16, right, Gallery && !_facesHidden ? 144 : 0);
+        _center.VerticalAlignment = Gallery && !_facesHidden ? VerticalAlignment.Stretch : VerticalAlignment.Top;
+        // Keep the Unity stage inside the same native-panel safe area as before.
         _threeDSurface.Margin = new Thickness(left, 90, right, 100);
+        RebuildFaces(Participants());
     }
-    private static string UserColor(string id) { var n = id.Aggregate(0, (a, c) => unchecked(a * 31 + c)); return new[] { "#DDD1EC", "#F0D4BD", "#CDE4DF", "#D3E0EE", "#E9D0D4" }[(int)((uint)n % 5)]; }
+    private static string UserColor(string id)
+    {
+        uint hash = 0; foreach (var c in id) hash = unchecked(hash * 31 + c);
+        var hue = hash % 360 / 60d; const double chroma = .585; var x = chroma * (1 - Math.Abs(hue % 2 - 1));
+        var (r, g, b) = hue switch { < 1 => (chroma, x, 0d), < 2 => (x, chroma, 0d), < 3 => (0d, chroma, x), < 4 => (0d, x, chroma), < 5 => (x, 0d, chroma), _ => (chroma, 0d, x) };
+        return Color.FromRgb((byte)Math.Round((r + .2575) * 255), (byte)Math.Round((g + .2575) * 255), (byte)Math.Round((b + .2575) * 255)).ToString();
+    }
+    private static string PortraitColor(string id) { var c = Color.Parse(UserColor(id)); return Color.FromRgb((byte)(c.R * .2 + 255 * .8), (byte)(c.G * .2 + 255 * .8), (byte)(c.B * .2 + 255 * .8)).ToString(); }
+    private static Border Dot(string color, double size) => new() { Width = size, Height = size, Background = Brush.Parse(color), CornerRadius = new CornerRadius(size / 2), VerticalAlignment = VerticalAlignment.Center };
+    private static Border Pill(string text, string background, string color) => new() { Child = Ui.Text(text, 10, color), Background = Brush.Parse(background), CornerRadius = new CornerRadius(99), Padding = new Thickness(6, 1), VerticalAlignment = VerticalAlignment.Center };
+    private static Border StatusChip(Control child) => new() { Child = child, Background = Brush.Parse("#DB26262E"), CornerRadius = new CornerRadius(99), Padding = new Thickness(14, 5, 6, 5) };
+    private static Button ChipButton(string label, Action action) { var button = Small(label, action); button.Background = Brushes.White; button.CornerRadius = new CornerRadius(99); button.Height = 26; button.Padding = new Thickness(10, 0); button.FontSize = 11; return button; }
+    private static Control Separator(bool dark) => new Border { Width = 1, Height = dark ? 32 : 20, Background = Brush.Parse(dark ? "#4A4B55" : "#2426262E"), VerticalAlignment = VerticalAlignment.Center };
+    private static Control PanelSplit() => new Border { Height = 12, BorderBrush = Brush.Parse("#1926262E"), BorderThickness = new Thickness(0, 1, 0, 0), Child = new Border { Width = 36, Height = 4, CornerRadius = new CornerRadius(2), Background = Brush.Parse("#2E26262E"), VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center } };
+    private static Control PanelHeader(string title, TextBlock? count, Control action)
+    {
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 8, Margin = new Thickness(14, 12, 10, 6) };
+        var heading = Ui.Text(title, 15); heading.FontWeight = FontWeight.Bold; grid.Children.Add(heading);
+        if (count is not null) { Grid.SetColumn(count, 1); grid.Children.Add(count); }
+        Grid.SetColumn(action, 2); grid.Children.Add(action); return grid;
+    }
+    private static Button IconButton(string icon, string name, Action action, double size = 16)
+    {
+        var b = Small("", action); b.Content = new WebIcon(icon, size); b.Width = b.Height = 30; b.Padding = new Thickness(0); b.CornerRadius = new CornerRadius(8); ToolTip.SetTip(b, name); AutomationProperties.SetName(b, name); return b;
+    }
+    private static Button ActionButton(string icon, string name, Action action)
+    {
+        var button = Ui.Button(name, action); button.Content = IconLabel(icon, name, 16, 13); button.HorizontalContentAlignment = HorizontalAlignment.Left; AutomationProperties.SetName(button, name); return button;
+    }
+    private static Button DockButton(string icon, string name, Action action)
+    {
+        var b = IconButton(icon, name, action, 22); b.Content = new WebIcon(icon, 22, Brushes.White); b.Width = b.Height = 52; b.CornerRadius = new CornerRadius(16); b.Background = Brush.Parse("#3A3B44"); return b;
+    }
+    private static Button FoldedPanel(bool left, Action action)
+    {
+        var b = Small("", action); var content = Ui.Column(new WebIcon(left ? "right" : "left", 14), new WebIcon(left ? "people" : "bell", 18), Separator(false), new WebIcon(left ? "box" : "chat", 18)); content.Spacing = 12;
+        foreach (var child in content.Children) child.HorizontalAlignment = HorizontalAlignment.Center;
+        b.Content = content; b.Width = 52; b.Padding = new Thickness(0, 12); b.Background = Brush.Parse("#EBFFFDF9"); b.CornerRadius = new CornerRadius(18); AutomationProperties.SetName(b, left ? "プレイヤーとアイテムを開く" : "通知とログを開く"); return b;
+    }
+    private void StyleWindowModes()
+    {
+        foreach (var (button, selected) in new[] { (_simpleMode, !RoomWindowLayout.Free), (_freeMode, RoomWindowLayout.Free) })
+        {
+            button.Background = selected ? Brushes.White : Brushes.Transparent; button.Foreground = Brush.Parse(selected ? Ui.Ink : "#B9B7C2");
+            var text = selected ? Ui.Ink : "#B9B7C2"; button.Content = Ui.Row(new WebIcon(button == _simpleMode ? "window" : "layers", 15, Brush.Parse(text)), Ui.Text(button == _simpleMode ? "カンタン" : "フリー", 11, text));
+        }
+    }
+    private void SelectScope(int index)
+    {
+        _scopeIndex = index;
+        for (var i = 0; i < _scopeButtons.Length; i++) { _scopeButtons[i].Background = i == index ? Brushes.White : Brushes.Transparent; _scopeButtons[i].FontWeight = i == index ? FontWeight.Bold : FontWeight.Normal; }
+        _input.PlaceholderText = index == 0 ? "声の届く範囲（〜15m）に送信" : index == 1 ? "セッション全体に送信" : "アナウンスを送信";
+    }
+    private void SessionMenu()
+    {
+        var box = Ui.Column(Ui.Title("Tonarium"), Ui.Button("ホーム", () => _ctx.ShowHome("home")), Ui.Button("メッセージ", () => _ctx.ShowHome("messages")), Ui.Button("フレンド", () => _ctx.ShowHome("friends")), Ui.Button("ワールド", () => _ctx.ShowHome("worlds")), Ui.Text("クライアントモード", 12, Ui.Muted));
+        box.Children.Add(Ui.Button("2D", () => Run(() => _ctx.ChangeModeAsync("2d")))); box.Children.Add(Ui.Button("3D", () => Run(() => _ctx.ChangeModeAsync("3d")))); ShowPopup(box, 300);
+    }
     private static string Time(double at) => at > 0 ? DateTimeOffset.FromUnixTimeMilliseconds((long)at).ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture) : "";
     private static Control Empty(string text) => new Border { Padding = new Thickness(6, 16), Child = Ui.Text(text, 12, Ui.Muted) };
     private static TextBlock CenterText(string text, double size) { var t = Ui.Text(text, size); t.HorizontalAlignment = HorizontalAlignment.Center; t.VerticalAlignment = VerticalAlignment.Center; return t; }
-    private static Button Small(string label, Action action) { var b = Ui.Button(label, action); b.Padding = new Thickness(8, 6); b.FontSize = 12; b.Background = Brushes.Transparent; b.BorderThickness = new Thickness(0); return b; }
-    private static Border Panel(Control child) => new() { Child = child, Padding = new Thickness(13), Background = Brush.Parse("#EEFFFDF9"), CornerRadius = new CornerRadius(20), BorderBrush = Brush.Parse("#FFFFFF"), BorderThickness = new Thickness(1), BoxShadow = new BoxShadows(new BoxShadow { Blur = 22, OffsetY = 5, Color = Color.Parse("#103C280A") }) };
-    private void ShowPopup(Control body, double width) { var window = new Window(); ConfigurePopup(window, body, width); window.Show(_ctx.Owner); }
+    private static Control IconLabel(string icon, string text, double size = 16, double fontSize = 12, string? color = null)
+    {
+        var row = (StackPanel)Ui.IconText(icon, text, size); row.Spacing = 5;
+        foreach (var child in row.Children) { if (child is TextBlock label) { label.FontSize = fontSize; label.Foreground = Brush.Parse(color ?? Ui.Ink); } else if (child is WebIcon mark) mark.Foreground = Brush.Parse(color ?? Ui.Ink); }
+        return row;
+    }
+    private static Button Small(string label, Action action) { var b = Ui.Button(label, action); b.MinWidth = 0; b.MinHeight = 0; b.Padding = new Thickness(8, 6); b.FontSize = 12; b.Background = Brushes.Transparent; b.BorderThickness = new Thickness(0); if (label.Length > 0) AutomationProperties.SetName(b, label); return b; }
+    private static Border Panel(Control child) => new() { Child = child, CacheMode = new BitmapCache(), Padding = new Thickness(13), Background = Brush.Parse("#DBFFFDF9"), CornerRadius = new CornerRadius(20), BorderBrush = Brush.Parse("#B3FFFFFF"), BorderThickness = new Thickness(1), BoxShadow = new BoxShadows(new BoxShadow { Blur = 30, OffsetY = 8, Color = Color.Parse("#1F3C280A") }) };
+    private Window ShowPopup(Control body, double width) { var window = new Window(); ConfigurePopup(window, body, width); window.Show(_ctx.Owner); return window; }
     private void ConfigurePopup(Window window, Control body, double width) { window.Title = "Tonarium"; window.Width = width; window.SizeToContent = SizeToContent.Height; window.MaxHeight = 720; window.MinHeight = 160; window.WindowStartupLocation = WindowStartupLocation.CenterOwner; window.Background = Brush.Parse(Ui.Paper); window.Content = new ScrollViewer { Content = new Border { Padding = new Thickness(22), Child = body }, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }; }
     private void SendRoom(object message) => Run(() => _ctx.Client.SendRoomAsync(message));
     private async void Run(Func<Task> action) { try { await action(); } catch (Exception e) { _ctx.Notify(e.Message); } }
 
-    private async void LoadPortrait(RoomPortrait portrait, JsonNode user)
-    {
-        try
-        {
-            var version = J.Text(user, "avatar");
-            var key = version == "" ? "default-avatar" : _ctx.State.ServerUrl + "/avatar?name=" + Uri.EscapeDataString(J.Text(user, "name")) + "&v=" + Uri.EscapeDataString(version);
-            if (!IconCache.TryGetValue(key, out var bitmap))
-            {
-                if (version == "")
-                {
-                    var uri = new Uri("avares://Tonarium/Assets/oekaki/sample.png");
-                    if (AssetLoader.Exists(uri)) { using var stream = AssetLoader.Open(uri); bitmap = new Bitmap(stream); }
-                    else bitmap = new Bitmap(new System.IO.MemoryStream(await Http.GetByteArrayAsync(new Uri(new Uri(_ctx.State.ServerUrl), "/oekaki/sample.png"))));
-                }
-                else bitmap = new Bitmap(new System.IO.MemoryStream(await Http.GetByteArrayAsync(key)));
-                IconCache[key] = bitmap;
-            }
-            portrait.Texture = bitmap; portrait.InvalidateVisual();
-        }
-        catch { /* A profile without an uploaded avatar keeps its native fallback portrait. */ }
-    }
 }
 
 /// <summary>Shared by the native item window manager, without affecting networking.</summary>
@@ -574,33 +735,6 @@ internal sealed class RoomBackdrop : Control
 {
     public override void Render(DrawingContext context)
     {
-        base.Render(context); var dot = Brush.Parse("#D6CFC1");
-        for (double y = 12; y < Bounds.Height; y += 22) for (double x = 12; x < Bounds.Width; x += 22) context.DrawEllipse(dot, null, new Point(x, y), .8, .8);
-    }
-}
-
-/// <summary>Lightweight native default avatar portrait; no engine or render loop is needed in 2D.</summary>
-internal sealed class RoomPortrait(string tint) : Control
-{
-    public Bitmap? Texture { get; set; }
-    public override void Render(DrawingContext context)
-    {
-        base.Render(context); var w = Bounds.Width; var h = Bounds.Height; var ink = Brush.Parse("#3C3348"); var white = Brush.Parse("#FFFDF9");
-        context.DrawRectangle(Brush.Parse(tint), null, new Rect(0, 0, w, h));
-        if (Texture is { } texture)
-        {
-            var sourceW = texture.Size.Width / 6; var sourceH = texture.Size.Height / 3;
-            // Normal front head and body occupy column two of the Oekaki atlas.
-            context.DrawImage(texture, new Rect(sourceW * 1.22, sourceH * 1.20, sourceW * .57, sourceH * .72), new Rect(w * .28, h * .66, w * .44, h * .67));
-            context.DrawImage(texture, new Rect(sourceW * 1.14, sourceH * .15, sourceW * .78, sourceH * .80), new Rect(w * .19, h * .07, w * .62, h * .81));
-            return;
-        }
-        context.DrawEllipse(Brush.Parse("#AAFFFFFF"), null, new Point(w * .53, h * 1.04), w * .33, h * .42);
-        context.DrawEllipse(white, null, new Point(w * .5, h * .47), w * .22, h * .30);
-        context.DrawEllipse(ink, null, new Point(w * .435, h * .46), 2.4, 3.5);
-        context.DrawEllipse(ink, null, new Point(w * .565, h * .46), 2.4, 3.5);
-        context.DrawLine(new Pen(ink, 1.6), new Point(w * .47, h * .57), new Point(w * .53, h * .57));
-        context.DrawEllipse(Brush.Parse("#E9B8B5"), null, new Point(w * .38, h * .54), 5, 2.5);
-        context.DrawEllipse(Brush.Parse("#E9B8B5"), null, new Point(w * .62, h * .54), 5, 2.5);
+        base.Render(context); WebGround.Draw(context, Bounds.Size);
     }
 }
