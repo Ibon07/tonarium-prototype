@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Microsoft.Web.WebView2.Core;
+using Tonarium.Desktop.Core;
 
 namespace Tonarium.Desktop.Views;
 
@@ -46,7 +47,7 @@ internal sealed class NativeYoutubeView : NativeControlHost, IDisposable
     {
         try
         {
-            var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tonarium", "YouTube");
+            var root = Path.Combine(DesktopInstance.DataDirectory, "YouTube");
             var pages = Path.Combine(root, "Player"); Directory.CreateDirectory(pages);
             await File.WriteAllTextAsync(Path.Combine(pages, "player.html"), PlayerHtml);
             environment = await CoreWebView2Environment.CreateAsync(userDataFolder: Path.Combine(root, "BrowserProfile"),

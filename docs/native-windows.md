@@ -24,6 +24,12 @@ Unity EditorとWindows Build Supportが必要。ビルドは導入済みの2022.
 
 配布用フォルダーは `native/artifacts/Tonarium-win-x64/`。全体をコピーして `Tonarium.exe` を起動する。.NETランタイムとUnityを含むため配布先にSDKは不要。接続先のTonariumサーバーは別途必要。YouTubeを開く場合だけWebView2 Runtimeを使用する。Unityビルド済みならpublishに `-SkipUnity` を指定できる。独立した3Dウィンドウで比較する場合はアプリに `--separate-3d` を付ける。
 
+同じ `Tonarium.exe` を複数回起動できる。最初のウィンドウは従来の保存データを使い、2つ目以降は別のユーザーID・名前・表示設定・音声設定を使用する。追加ウィンドウのタイトルは「クライアント 2」のように表示する。初回の追加ウィンドウは接続先だけ引き継ぐので、別の表示名を入力して参加する。各ウィンドウで3Dも個別に起動できる。
+
+保存先は1つ目が `%LOCALAPPDATA%/Tonarium/`、2つ目以降がその `instances/2/`、`instances/3/`。終了した番号は次の起動で再利用し、その番号の名前と設定を復元する。実行中の番号はファイルロックで確保し、クラッシュ後にも再利用できる。UnityログとYouTubeのデータも分離する。`run-desktop.ps1` が起動したローカルサーバーは、他のTonariumクライアントが開いている間は停止しない。
+
+検証用に保存先を分ける場合は `Tonarium.exe --data-dir C:/path/to/test-profile` を指定できる。同じ保存先での複数起動も上記と同様に分離される。
+
 ## 実装・確認範囲
 
 | 分野 | 実装 | 通常操作の確認 |
@@ -49,6 +55,8 @@ Unity EditorとWindows Build Supportが必要。ビルドは導入済みの2022.
 ```powershell
 # ネイティブ2台と既存JS SDKとの相互接続
  dotnet run --project native/Tonarium.Smoke -- http://localhost:3015
+# 配布版の複数起動・ID分離・片方の終了・設定の再利用
+ node native/Tonarium.Smoke/multi-instance.cjs native/artifacts/Tonarium-win-x64/Tonarium.exe http://localhost:3015
 # 実際のネイティブコントロールの操作・描画
  dotnet run --project native/Tonarium.UiSmoke -- http://localhost:3015 native/Tonarium.UiSmoke/results
 # Unity Playerの描画とIPC
@@ -94,4 +102,4 @@ UIスモークにはアバターのフレーム差分、独立した瞬き・口
 - `native/Tonarium.Unity/`: Unityプロジェクト、確認スクリプト
 - `native/Tonarium.Smoke/` と `native/Tonarium.UiSmoke/`: 通常の同期・UI操作確認
 
-ログは `%LOCALAPPDATA%/Tonarium/desktop.log` と `unity-player.log`。接続先・名前・ユーザーIDは `desktop.json`、表示と音声の設定はNativeSettingsが同じアプリ用ディレクトリへ保存する。
+ログは各クライアントの保存先にある `desktop.log` と `unity-player.log`。接続先・名前・ユーザーIDは `desktop.json`、表示と音声の設定は `preferences.json` に保存する。

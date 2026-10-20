@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Threading;
+using Tonarium.Desktop.Core;
 
 namespace Tonarium.Desktop;
 
@@ -12,7 +13,11 @@ internal static class Program
         Arguments = args;
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log(e.ExceptionObject?.ToString() ?? "Unknown error");
         TaskScheduler.UnobservedTaskException += (_, e) => { Log(e.Exception.ToString()); e.SetObserved(); };
-        try { BuildAvaloniaApp().StartWithClassicDesktopLifetime(args); }
+        try
+        {
+            using var instance = DesktopInstance.Acquire(Argument("--data-dir"));
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        }
         catch (Exception e) { Log(e.ToString()); throw; }
     }
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace();
@@ -25,7 +30,7 @@ internal static class Program
     {
         try
         {
-            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tonarium");
+            var path = DesktopInstance.DataDirectory;
             Directory.CreateDirectory(path);
             File.AppendAllText(Path.Combine(path, "desktop.log"), $"{DateTimeOffset.Now:O} {text}\n");
         }

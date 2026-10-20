@@ -38,7 +38,7 @@ public sealed class MainWindow : Window
 
     public MainWindow()
     {
-        Title = "Tonarium";
+        Title = DesktopInstance.Number == 1 ? "Tonarium" : $"Tonarium · クライアント {DesktopInstance.Number}";
         Width = 1360; Height = 880; MinWidth = 1000; MinHeight = 640;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         media = new NativeMedia(client);

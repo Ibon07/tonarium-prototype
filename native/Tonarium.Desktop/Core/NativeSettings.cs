@@ -6,7 +6,7 @@ namespace Tonarium.Desktop.Core;
 public static class NativeSettings
 {
     private static readonly object Gate = new();
-    private static readonly string FilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tonarium", "preferences.json");
+    private static readonly string FilePath = Path.Combine(DesktopInstance.DataDirectory, "preferences.json");
     private static readonly JsonObject Values;
     public static HashSet<string> BlockedNames { get; } = new(StringComparer.Ordinal);
 

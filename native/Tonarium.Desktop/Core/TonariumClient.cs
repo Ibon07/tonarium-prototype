@@ -38,7 +38,7 @@ public sealed class TonariumClient : IAsyncDisposable
     {
         State = state ?? new ClientState();
         this.persistSettings = persistSettings;
-        settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tonarium", "desktop.json");
+        settingsPath = Path.Combine(DesktopInstance.DataDirectory, "desktop.json");
         try
         {
             if (persistSettings && JsonNode.Parse(File.ReadAllText(settingsPath)) is JsonObject saved)
@@ -49,6 +49,16 @@ public sealed class TonariumClient : IAsyncDisposable
             }
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { }
+        if (persistSettings && DesktopInstance.Number > 1 && !File.Exists(settingsPath))
+        {
+            // 追加ウィンドウは接続先だけ引き継ぎ、別のユーザーID・名前で参加する。
+            try
+            {
+                if (JsonNode.Parse(File.ReadAllText(Path.Combine(DesktopInstance.RootDirectory, "desktop.json"))) is JsonObject primary)
+                    State.ServerUrl = Text(primary, "server", State.ServerUrl);
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { }
+        }
     }
 
     public async Task ConnectAsync(string url, string name)
@@ -497,7 +507,9 @@ public sealed class TonariumClient : IAsyncDisposable
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
-            File.WriteAllText(settingsPath, new JsonObject { ["selfId"] = State.SelfId, ["name"] = State.Name, ["server"] = State.ServerUrl }.ToJsonString());
+            var temporary = settingsPath + ".tmp";
+            File.WriteAllText(temporary, new JsonObject { ["selfId"] = State.SelfId, ["name"] = State.Name, ["server"] = State.ServerUrl }.ToJsonString());
+            File.Move(temporary, settingsPath, true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }

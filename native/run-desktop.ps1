@@ -27,5 +27,9 @@ try {
     if ($Name) { $arguments += @('--name', $Name) }
     & $executable @arguments
 } finally {
-    if ($startedServer -and -not $startedServer.HasExited) { Stop-Process -Id $startedServer.Id }
+    if ($startedServer -and -not $startedServer.HasExited) {
+        # 先に閉じたクライアントが、残っているクライアントの接続先を止めないようにする。
+        while (Get-Process -Name Tonarium -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 1 }
+        if (-not $startedServer.HasExited) { Stop-Process -Id $startedServer.Id }
+    }
 }

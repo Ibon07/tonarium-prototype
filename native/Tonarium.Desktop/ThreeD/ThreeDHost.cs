@@ -68,7 +68,7 @@ public sealed partial class ThreeDHost : IAsyncDisposable
             info.ArgumentList.Add("-screen-fullscreen"); info.ArgumentList.Add("0");
             info.ArgumentList.Add("-screen-width"); info.ArgumentList.Add("1280");
             info.ArgumentList.Add("-screen-height"); info.ArgumentList.Add("800");
-            var log = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tonarium", "unity-player.log");
+            var log = Path.Combine(DesktopInstance.DataDirectory, "unity-player.log");
             Directory.CreateDirectory(Path.GetDirectoryName(log)!);
             info.ArgumentList.Add("-logFile"); info.ArgumentList.Add(log);
             if (parentWindow != IntPtr.Zero)

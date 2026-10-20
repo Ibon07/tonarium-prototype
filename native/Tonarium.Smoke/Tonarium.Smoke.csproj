@@ -10,6 +10,7 @@
     <PackageReference Include="LiteNetLib" Version="2.1.4" />
     <PackageReference Include="MessagePack" Version="3.1.12" />
     <Compile Include="../Tonarium.Desktop/Core/ClientState.cs" Link="Core/ClientState.cs" />
+    <Compile Include="../Tonarium.Desktop/Core/DesktopInstance.cs" Link="Core/DesktopInstance.cs" />
     <Compile Include="../Tonarium.Desktop/Core/TonariumClient.cs" Link="Core/TonariumClient.cs" />
     <Compile Include="../Tonarium.Desktop/Core/SessionPacket.cs" Link="Core/SessionPacket.cs" />
     <Compile Include="../Tonarium.Desktop/Core/KokoSync/*.cs" Link="Core/KokoSync/%(Filename)%(Extension)" />
