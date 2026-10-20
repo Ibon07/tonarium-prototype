@@ -13,7 +13,9 @@ internal static class Program
     {
         AppBuilder.Configure<SmokeApp>().UsePlatformDetect().SetupWithoutStarting();
         using var quit = new CancellationTokenSource();
-        var task = Task.Run(() => RunAsync(args.FirstOrDefault() ?? "http://localhost:3001"));
+        var task = Task.Run(() => args.Contains("--canvas-latency")
+            ? CanvasLatencyProbe.RunAsync(args[0], args.ElementAtOrDefault(2) ?? args[0], args.ElementAtOrDefault(3) ?? "native/artifacts/canvas-latency.json")
+            : RunAsync(args.FirstOrDefault() ?? "http://localhost:3001"));
         _ = task.ContinueWith(_ => Dispatcher.UIThread.Post(quit.Cancel));
         Dispatcher.UIThread.MainLoop(quit.Token);
         try { task.GetAwaiter().GetResult(); return 0; }
