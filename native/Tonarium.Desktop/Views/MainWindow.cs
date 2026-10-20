@@ -6,6 +6,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using System.Text.Json.Nodes;
 using Tonarium.Desktop.Core;
 using Tonarium.Desktop.Media;
@@ -76,6 +77,7 @@ public sealed class MainWindow : Window
         };
         threeD.HomeRequested += () => ShowHome("toggle");
         threeD.ChatRequested += () => { room?.FocusChat(); threeDOverlay?.Activate(); };
+        threeD.SidePanelsToggleRequested += ToggleSidePanels;
         Closing += (_, e) =>
         {
             if (closing) return;
@@ -84,6 +86,11 @@ public sealed class MainWindow : Window
         };
         void Escape(object? sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Tab && client.State.Mode == "3d" && !context.HomeIsOpen &&
+                !(e.Source is Control control && (control is TextBox || control.GetVisualAncestors().OfType<TextBox>().Any())))
+            {
+                ToggleSidePanels(); e.Handled = true; return;
+            }
             if(e.Key!=Key.Escape)return;
             if(context.HomeIsOpen){CloseHome();e.Handled=true;}
             else if(threeD.IsRunning){ReleaseWorldInput();e.Handled=true;}
@@ -264,6 +271,13 @@ public sealed class MainWindow : Window
         window.Show(this);
         room?.SetOpenItemCount(itemWindows.Count);
         _ = UpdateViewing();
+    }
+
+    private void ToggleSidePanels()
+    {
+        if (context.HomeIsOpen) return;
+        room?.ToggleSidePanels();
+        threeDOverlay?.RefreshRegion();
     }
 
     private Task UpdateViewing() => client.State.SessionId is null ? Task.CompletedTask : Task.WhenAll(

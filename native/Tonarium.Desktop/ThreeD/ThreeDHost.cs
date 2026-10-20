@@ -32,6 +32,7 @@ public sealed partial class ThreeDHost : IAsyncDisposable
     public bool UsesRelativePointer { get; private set; }
     public event Action? HomeRequested;
     public event Action? ChatRequested;
+    public event Action? SidePanelsToggleRequested;
     public bool IsRunning => player is { HasExited: false };
     public string? PlayerPath { get; private set; }
     public string? LastError { get; private set; }
@@ -159,6 +160,9 @@ public sealed partial class ThreeDHost : IAsyncDisposable
                         break;
                     case "focusChat":
                         await Dispatcher.UIThread.InvokeAsync(() => ChatRequested?.Invoke());
+                        break;
+                    case "toggleSidePanels":
+                        await Dispatcher.UIThread.InvokeAsync(() => SidePanelsToggleRequested?.Invoke());
                         break;
                     case "openItem":
                         if (message["id"]?.ToString() is { } itemId)

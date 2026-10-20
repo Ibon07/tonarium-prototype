@@ -36,7 +36,8 @@ internal static class Program
         {
             try
             {
-                if (args.Contains("--items")) await ItemBehaviorProbe.Run(server, output, Pass);
+                if (args.Contains("--side-panels")) await SidePanelProbe.Run(output, Pass);
+                else if (args.Contains("--items")) await ItemBehaviorProbe.Run(server, output, Pass);
                 else if (args.Contains("--chess")) await ChessMoveProbe.Run(server, output, Pass,
                     args.Contains("--unity-chess") ? args.ElementAtOrDefault(Array.IndexOf(args, "--unity-chess") + 1) : null);
                 else if (args.Contains("--canvas-sync")) await CanvasSyncProbe.Run(server, args.ElementAtOrDefault(3) ?? server, output, Pass);

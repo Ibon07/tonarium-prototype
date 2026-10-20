@@ -336,6 +336,7 @@ namespace Tonarium.UnityClient
                 if(!new Rect((HudWidth-width)/2,HudHeight-296,width,186).Contains(point))EndNoteEditing();
             }
             bool controls = !menu && !chatOpen && selected == null && chessPromotionTo < 0;
+            if (embedded && controls && Input.GetKeyDown(KeyCode.Tab)) bridge.Send(new { t = "toggleSidePanels" });
             bool justLocked = controls && Input.GetMouseButtonDown(0) && Cursor.lockState != CursorLockMode.Locked;
             if (justLocked)
             {

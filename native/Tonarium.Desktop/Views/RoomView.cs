@@ -17,6 +17,8 @@ using Avalonia.Platform.Storage;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.Automation;
+using Avalonia.Animation;
+using Avalonia.Animation.Easings;
 using Tonarium.Desktop.Core;
 using Tonarium.Desktop.Media;
 
@@ -30,7 +32,8 @@ public sealed class RoomView : UserControl
     private readonly SessionMenuView _sessionMenu;
     private readonly RoomBackdrop _backdrop = new() { IsHitTestVisible = false };
     private readonly List<Control> _hud = [];
-    private bool _externalScene, _worldInputLocked;
+    private bool _externalScene, _worldInputLocked, _sidePanelsStowed;
+    public bool SidePanelsStowed => _sidePanelsStowed;
     private string _layoutMode = "";
     private readonly StackPanel _players = new() { Spacing = 5 };
     private readonly StackPanel _items = new() { Spacing = 5 };
@@ -83,6 +86,7 @@ public sealed class RoomView : UserControl
     public RoomView(NativeContext context)
     {
         _ctx = context;
+        _root.ClipToBounds = true;
         _leftHidden = NativeSettings.GetBool("room.leftFolded");
         _rightHidden = NativeSettings.GetBool("room.rightFolded");
         _facesHidden = NativeSettings.GetBool("room.facesFolded");
@@ -151,6 +155,8 @@ public sealed class RoomView : UserControl
         _root.Children.Add(_right);
         _rightFold = FoldedPanel(false, ToggleRight); _rightFold.Margin = new Thickness(0, 20, 20, 0); _rightFold.HorizontalAlignment = HorizontalAlignment.Right; _rightFold.VerticalAlignment = VerticalAlignment.Top; _rightFold.IsVisible = _rightHidden; _right.IsVisible = !_rightHidden;
         _root.Children.Add(_rightFold);
+        foreach (var panel in new[] { _left, _right })
+            panel.Transitions = new Transitions { new ThicknessTransition { Property = MarginProperty, Duration = TimeSpan.FromMilliseconds(200), Easing = new CubicEaseOut() } };
 
         var centerStack = new StackPanel { Spacing = 4, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         centerStack.Children.Add(_faces);
@@ -192,11 +198,19 @@ public sealed class RoomView : UserControl
     public void SetExternalScene(bool enabled)
     {
         _externalScene = enabled;
+        if (!enabled) _sidePanelsStowed = false;
         Background = enabled ? Brushes.Transparent : Brush.Parse("#EAE5DB");
         _backdrop.IsVisible = !enabled;
         _center.IsVisible = true;
         _threeDSurface.IsVisible = false;
         SetWorldInputLocked(false);
+        Fit();
+    }
+
+    public void ToggleSidePanels()
+    {
+        if (!_externalScene) return;
+        _sidePanelsStowed = !_sidePanelsStowed;
         Fit();
     }
 
@@ -681,13 +695,18 @@ public sealed class RoomView : UserControl
     }
     private void SetWindowMode(bool free) { RoomWindowLayout.Free = free; NativeSettings.SetBool("room.freeWindows", free); StyleWindowModes(); _ctx.Notify(free ? "フリー：ウィンドウを自由に動かせます" : "カンタン：アイテムを中央に表示します"); }
     private void WindowOptions() => ShowPopup(Ui.Column(Ui.Title("ウィンドウの表示"), Ui.Button("カンタン — 開いたものを中央に表示", () => SetWindowMode(false)), Ui.Button("フリー — 自由に動かす", () => SetWindowMode(true))), 380);
-    private void ToggleLeft() { _leftHidden = !_leftHidden; NativeSettings.SetBool("room.leftFolded", _leftHidden); _left.IsVisible = !_leftHidden; _leftFold.IsVisible = _leftHidden; Fit(); }
-    private void ToggleRight() { _rightHidden = !_rightHidden; NativeSettings.SetBool("room.rightFolded", _rightHidden); _right.IsVisible = !_rightHidden; _rightFold.IsVisible = _rightHidden; Fit(); }
+    private void ToggleLeft() { if (_sidePanelsStowed) { _sidePanelsStowed = false; _leftHidden = false; } else _leftHidden = !_leftHidden; NativeSettings.SetBool("room.leftFolded", _leftHidden); Fit(); }
+    private void ToggleRight() { if (_sidePanelsStowed) { _sidePanelsStowed = false; _rightHidden = false; } else _rightHidden = !_rightHidden; NativeSettings.SetBool("room.rightFolded", _rightHidden); Fit(); }
     private void Fit()
     {
         var compact = Bounds.Width < 1080; _left.Width = compact ? 260 : 320; _right.Width = compact ? 275 : 300;
+        // Tabでの退避は一時的にし、2Dのパネル設定を上書きしない。
+        _left.IsVisible = !_leftHidden; _right.IsVisible = !_rightHidden;
+        _leftFold.IsVisible = _leftHidden || _sidePanelsStowed; _rightFold.IsVisible = _rightHidden || _sidePanelsStowed;
+        _left.Margin = new Thickness(_sidePanelsStowed ? -_left.Width - 12 : 20, 74, 0, 20);
+        _right.Margin = new Thickness(0, 20, _sidePanelsStowed ? -_right.Width - 12 : 20, 20);
         _itemScroll.MaxHeight = Math.Max(100, (Bounds.Height - 94) * .42);
-        var left = _leftHidden ? 92 : _left.Width + 40; var right = _rightHidden ? 92 : _right.Width + 40;
+        var left = _leftHidden || _sidePanelsStowed ? 92 : _left.Width + 40; var right = _rightHidden || _sidePanelsStowed ? 92 : _right.Width + 40;
         _center.Margin = new Thickness(left, Gallery && !_facesHidden ? 90 : 16, right, Gallery && !_facesHidden ? 144 : 0);
         _center.VerticalAlignment = Gallery && !_facesHidden ? VerticalAlignment.Stretch : VerticalAlignment.Top;
         // Keep the Unity stage inside the same native-panel safe area as before.
