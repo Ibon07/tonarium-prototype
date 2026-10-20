@@ -8,12 +8,15 @@ using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Tonarium.Desktop.Core;
 
 namespace Tonarium.Desktop.Views;
@@ -33,6 +36,7 @@ public sealed class HomeView : UserControl
     readonly TextBlock _heading = Text("ホーム", 26, weight: FontWeight.Bold);
     readonly TextBlock _self = Text("", 14, weight: FontWeight.SemiBold);
     readonly TextBlock _status = Text("", 11, Muted);
+    readonly ContentControl _selfFace = new();
     Button? _mode2d, _mode3d;
     Button? _bell;
     readonly ScrollViewer _scroll;
@@ -76,20 +80,25 @@ public sealed class HomeView : UserControl
 
     Control BuildSidebar()
     {
-        var body = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*,Auto") };
+        var body = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto") };
         var brand = Row(Mark("と", "#D2AF91", 34), Text("トナリウム", 17, weight: FontWeight.Bold)); brand.Margin = new Thickness(8, 4, 0, 20); body.Children.Add(brand);
         var links = Col(3);
         foreach (var (id, label, icon) in Navigation) { var b = Btn($"{icon}   {label}", () => Navigate(id)); b.HorizontalContentAlignment = HorizontalAlignment.Left; b.HorizontalAlignment = HorizontalAlignment.Stretch; b.Height = 40; b.Background = Brushes.Transparent; links.Children.Add(b); _nav[id] = b; }
-        Grid.SetRow(links, 1); body.Children.Add(links);
         var groups = Col(9); groups.Margin = new Thickness(8, 22, 8, 0); groups.Children.Add(Text("所属グループ", 11, Muted, FontWeight.SemiBold)); groups.Children.Add(_groupNav);
-        Grid.SetRow(groups, 2); body.Children.Add(groups);
-        var bottom = Col(11);
+        var navigationScroll = new ScrollViewer
+        {
+            Content = Col(0, links, groups),
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
+        };
+        Grid.SetRow(navigationScroll, 1); body.Children.Add(navigationScroll);
+        var bottom = Col(11); bottom.Margin = new Thickness(0, 12, 0, 0);
         bottom.Children.Add(Text("クライアントモード", 11, Muted));
         _mode2d=Btn("▤ 2D", () => Run(() => _context.ChangeModeAsync("2d")));_mode3d=Btn("◇ 3D", () => Run(() => _context.ChangeModeAsync("3d")));bottom.Children.Add(Row(_mode2d,_mode3d));
         bottom.Children.Add(new Border { Height = 1, Background = Brush(Line), Margin = new Thickness(0, 5) });
-        bottom.Children.Add(Row(Mark("●", "#DAE5D6", 34), Col(2, _self, _status)));
+        _selfFace.Content=Mark("●", "#DAE5D6", 34);bottom.Children.Add(Row(_selfFace, Col(2, _self, _status)));
         bottom.Children.Add(Row(Btn("ステータス", StatusDialog), Btn("⚙", () => _context.OpenProfile(_context.State.Name))));
-        Grid.SetRow(bottom, 4); body.Children.Add(bottom);
+        Grid.SetRow(bottom, 2); body.Children.Add(bottom);
         return new Border { Background = Brush(Paper), CornerRadius = new CornerRadius(20), Padding = new Thickness(14), Child = body };
     }
 
@@ -107,9 +116,10 @@ public sealed class HomeView : UserControl
         if(_bell!=null)_bell.Content="♧  通知"+(s.Notifications.Count>0?"  "+s.Notifications.Count:"");
         if(_mode2d!=null)_mode2d.Background=Brush(s.Mode=="2d"?"#DAD1E6":"#F0EBE5");if(_mode3d!=null)_mode3d.Background=Brush(s.Mode=="3d"?"#DAD1E6":"#F0EBE5");
         // Room position packets arrive frequently. They must never rebuild text inputs.
-        var signature = string.Join("|", s.Name, s.SessionId, s.Sessions.ToJsonString(), s.Groups.ToJsonString(), s.Events.ToJsonString(), s.Friends.ToJsonString(), s.People.ToJsonString(), s.Conversations.ToJsonString(), s.Notifications.ToJsonString(), s.SessionInfo.ToJsonString(), string.Join(";", s.Users.Select(u => $"{T(u,"id")}:{T(u,"name")}:{T(u,"session")}:{T(u,"status")}:{T(u,"statusText")}")));
+        var signature = string.Join("|", s.Name, s.SessionId, s.Sessions.ToJsonString(), s.Groups.ToJsonString(), s.Events.ToJsonString(), s.Friends.ToJsonString(), s.People.ToJsonString(), s.Conversations.ToJsonString(), s.Notifications.ToJsonString(), s.SessionInfo.ToJsonString(), string.Join(";", s.Users.Select(u => $"{T(u,"id")}:{T(u,"name")}:{T(u,"session")}:{T(u,"status")}:{T(u,"statusText")}:{T(u,"icon")}")));
         if (signature == _signature) return;
         _signature = signature;
+        _selfFace.Content=Face(s.Name,34);
         _groupNav.Children.Clear();
         foreach (var g in s.Groups.Where(IsMember)) { var id = T(g, "id"); var b = Btn("●  " + T(g, "name"), () => Navigate("group:" + id)); b.Background = Brushes.Transparent; b.HorizontalContentAlignment = HorizontalAlignment.Left; _groupNav.Children.Add(b); }
         if (_groupNav.Children.Count == 0) _groupNav.Children.Add(Text("まだありません", 11, Muted));
@@ -197,7 +207,7 @@ public sealed class HomeView : UserControl
         if (!names.Contains(_dm)) _dm = names[0];
         var split = new Grid { ColumnDefinitions = new ColumnDefinitions("220,*"), ColumnSpacing = 16 };
         var list = Col(7);
-        foreach (var name in names) { var b = Btn("", () => { _dm = name; RenderPage(); }); b.Content = Row(Mark(Initial(name), "#E6DFEB", 32), Col(4, Text(name, 13, weight: FontWeight.SemiBold), Text(UserByName(name) != null ? "● オンライン" : "○ オフライン", 10, Muted))); b.Background = name == _dm ? Brush("#ECE5F1") : Brush(Paper); b.HorizontalContentAlignment = HorizontalAlignment.Stretch; b.Padding = new Thickness(11); list.Children.Add(b); }
+        foreach (var name in names) { var b = Btn("", () => { _dm = name; RenderPage(); }); b.Content = Row(Face(name,32), Col(4, Text(name, 13, weight: FontWeight.SemiBold), Text(UserByName(name) != null ? "● オンライン" : "○ オフライン", 10, Muted))); b.Background = name == _dm ? Brush("#ECE5F1") : Brush(Paper); b.HorizontalAlignment = HorizontalAlignment.Stretch; b.HorizontalContentAlignment = HorizontalAlignment.Left; b.Padding = new Thickness(11); list.Children.Add(b); }
         split.Children.Add(list);
         var chat = Col(15); chat.Children.Add(FriendRow(UserByName(_dm) ?? new JsonObject { ["id"] = _dm, ["name"] = _dm })); chat.Children.Add(Conversation(DmKey(_dm), _dm + " にメッセージを送信")); Grid.SetColumn(chat,1); split.Children.Add(chat); root.Children.Add(split); return root;
     }
@@ -265,7 +275,14 @@ public sealed class HomeView : UserControl
         panel.Children.Add(new ScrollViewer{Content=list,MaxHeight=420,MinHeight=140,HorizontalScrollBarVisibility=Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled});
         var draft=Input("message:"+key,watermark);draft.AcceptsReturn=true;draft.TextWrapping=TextWrapping.Wrap;draft.MinHeight=60;
         void Submit(){var value=draft.Text?.Trim();if(string.IsNullOrEmpty(value))return;Send(new{t="msg",conv=key,text=value});draft.Text="";_drafts["message:"+key]="";draft.Focus();}
-        draft.KeyDown+=(_,e)=>{if(e.Key==Key.Enter&&e.KeyModifiers.HasFlag(KeyModifiers.Control)){Submit();e.Handled=true;}};
+        // TextBox consumes Enter in its class handler. Handle the explicit send
+        // shortcut in the tunnel route, while leaving IME pre-edit untouched.
+        draft.AddHandler(InputElement.KeyDownEvent,(_,e)=>
+        {
+            if(e.Key!=Key.Enter||!e.KeyModifiers.HasFlag(KeyModifiers.Control))return;
+            if(draft.GetVisualDescendants().OfType<TextPresenter>().Any(p=>!string.IsNullOrEmpty(p.PreeditText)))return;
+            e.Handled=true;Submit();
+        },RoutingStrategies.Tunnel);
         panel.Children.Add(draft);var buttons=new WrapPanel{ItemSpacing=8,LineSpacing=8};foreach(var button in new Control[]{Text("Ctrl + Enter で送信",10,Muted),Btn("送信",Submit,true),Btn("＋ 添付",()=>Run(()=>AttachAsync(key,draft))),Btn("● 音声",()=>HomeVoiceMessage.ShowRecorder(_context,key))})buttons.Children.Add(button);if(allowPlan)buttons.Children.Add(Btn("▦ 日程を相談",()=>PlanDialog(key)));panel.Children.Add(buttons);
         var last=N(messages.LastOrDefault(),"at");if(last>0&&last>N(_context.State.Reads,key))Send(new{t="read",conv=key,at=last});return panel;
     }
@@ -414,7 +431,13 @@ public sealed class HomeView : UserControl
     static StackPanel Row(params Control[] children){var p=new StackPanel{Orientation=Orientation.Horizontal,Spacing=9,VerticalAlignment=VerticalAlignment.Center};foreach(var c in children)p.Children.Add(c);return p;}
     static Border Card(Control content,string color=Paper)=>new(){Background=Brush(color),BorderBrush=Brush(Line),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(15),Padding=new Thickness(16),Child=content};
     static Control Mark(string text,string color,double size)=>new Border{Width=size,Height=size,Background=Brush(color),CornerRadius=new CornerRadius(size*.3),Child=new TextBlock{Text=text,FontSize=text.Length>2?12:18,Foreground=Brush(Ink),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center}};
-    static Button BtnFace(string name,Action action){var b=Btn("",action);b.Content=Mark(Initial(name),"#DCD4E3",36);b.Padding=default;b.Background=Brushes.Transparent;return b;}
+    Control Face(string name,double size)
+    {
+        var version=T(UserByName(name),"icon");if(version.Length==0)return Mark(Initial(name),"#DCD4E3",size);
+        var image=(Image)MessageImage("/icon?name="+Uri.EscapeDataString(name)+"&v="+Uri.EscapeDataString(version));image.Width=size;image.Height=size;image.Stretch=Stretch.UniformToFill;
+        var layers=new Grid();layers.Children.Add(Mark(Initial(name),"#DCD4E3",size));layers.Children.Add(image);return new Border{Width=size,Height=size,CornerRadius=new CornerRadius(size*.3),ClipToBounds=true,Child=layers};
+    }
+    Button BtnFace(string name,Action action){var b=Btn("",action);b.Content=Face(name,36);b.Padding=default;b.Background=Brushes.Transparent;return b;}
     static Button Link(string text,Action action){var b=Btn(text,action);b.Background=Brushes.Transparent;b.Padding=default;b.FontWeight=FontWeight.SemiBold;b.HorizontalContentAlignment=HorizontalAlignment.Left;return b;}
     static Button Btn(string text,Action action,bool primary=false){var b=new Button{Content=text,FontSize=12,Padding=new Thickness(12,8),CornerRadius=new CornerRadius(10),Background=Brush(primary?"#7D6B8C":"#F0EBE5"),Foreground=Brush(primary?"#FFFFFF":Ink),BorderThickness=new Thickness(0),VerticalAlignment=VerticalAlignment.Center};b.Click+=(_,_)=>action();return b;}
     static Control Section(string title,string sub="",Action? action=null,string more="すべて見る →"){var g=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto")};g.Children.Add(Row(Text(title,17,weight:FontWeight.SemiBold),Text(sub,11,Muted)));if(action!=null){var b=Btn(more,action);Grid.SetColumn(b,1);g.Children.Add(b);}return g;}
@@ -438,4 +461,3 @@ internal sealed class HomeRoomPreview(string world,int people):Control
         for(var i=0;i<Math.Min(people,6);i++){var p=P(-.5+(i%3)*.45,.5-(i/3)*.65);var color=new SolidColorBrush(Color.Parse(new[]{"#B793C7","#D6A271","#83A68F","#819DB4","#C18495","#AAA279"}[i]));c.DrawEllipse(new SolidColorBrush(Color.Parse("#20000000")),null,new Point(p.X,p.Y+4),8,3);c.DrawLine(new Pen(color,8),new Point(p.X,p.Y),new Point(p.X,p.Y-10));c.DrawEllipse(color,null,new Point(p.X,p.Y-16),5,5);}
     }
 }
-

@@ -91,6 +91,7 @@ public sealed class NativeMedia : INativeMedia
             room = new Room();
             room.TrackSubscribed += OnTrackSubscribed;
             room.TrackUnsubscribed += (_, e) => StopTrack(e.Publication.Sid, e.Participant.Identity, e.Publication.Name);
+            room.TrackPublished += (_, _) => Dispatcher.UIThread.Post(SyncViewSubscriptions);
             room.ActiveSpeakersChanged += (_, e) =>
             {
                 speakers.Clear(); foreach (var p in e.Speakers) speakers[p.Identity] = true;
@@ -100,6 +101,7 @@ public sealed class NativeMedia : INativeMedia
             room.Reconnected += (_, _) => SetStatus("音声: 接続済み");
             room.Disconnected += (_, _) => { if (!closing) SetStatus("音声の接続が切れました。マイクボタンで再接続できます"); };
             await room.ConnectAsync(livekitUrl, token, new RoomOptions { AutoSubscribe = true, Dynacast = true });
+            SyncViewSubscriptions();
             SetStatus("音声: 接続済み");
             if (wantedMicrophone) await StartMicrophoneAsync();
             await ReportAsync();
@@ -124,9 +126,11 @@ public sealed class NativeMedia : INativeMedia
         closing = true;
         await StopDesktopAsync();
         await StopMicrophoneAsync();
-        foreach (var reader in readers.Values) reader.Lifetime.Cancel();
-        var pending = readers.Values.Select(x => x.Task).ToArray();
+        var active = readers.Values.ToArray();
+        foreach (var reader in active) reader.Lifetime.Cancel();
+        var pending = active.Select(x => x.Task).ToArray();
         if (pending.Length > 0) await Task.WhenAll(pending);
+        foreach (var reader in active) reader.Lifetime.Dispose();
         readers.Clear();
         if (room is not null)
         {
@@ -238,6 +242,7 @@ public sealed class NativeMedia : INativeMedia
         }
         desktopTrack = null; loopbackTrack = null;
         desktopSid = null; loopbackSid = null;
+        VideoFrameJpeg?.Invoke(client.State.SelfId, []);
         if (video.TryGetValue(client.State.SelfId, out var feed)) feed.Clear();
         if (video.TryGetValue("screen", out feed)) feed.Clear();
     }
@@ -314,9 +319,14 @@ public sealed class NativeMedia : INativeMedia
 
     private void StopTrack(string sid, string identity, string name)
     {
-        if (readers.TryRemove(sid, out var reader)) reader.Lifetime.Cancel();
+        if (readers.TryRemove(sid, out var reader))
+        {
+            reader.Lifetime.Cancel();
+            _ = reader.Task.ContinueWith(_ => reader.Lifetime.Dispose(), TaskScheduler.Default);
+        }
         if (video.TryGetValue(identity, out var feed)) feed.Clear();
         if (video.TryGetValue(name, out feed)) feed.Clear();
+        VideoFrameJpeg?.Invoke(name.StartsWith("camera:") || name.StartsWith("view:") ? name : identity, []);
     }
 
     private void PushVideo(string identity, string name, VideoFrame frame)
@@ -334,7 +344,11 @@ public sealed class NativeMedia : INativeMedia
         videoSentAt[key] = now;
         using var bitmap = new SKBitmap(new SKImageInfo(frame.Width, frame.Height, SKColorType.Bgra8888, SKAlphaType.Opaque));
         Marshal.Copy(frame.DataBytes, 0, bitmap.GetPixels(), frame.DataBytes.Length);
-        using var image = SKImage.FromBitmap(bitmap);
+        var width = Math.Min(960, frame.Width);
+        var height = Math.Max(1, frame.Height * width / frame.Width);
+        using var scaled = new SKBitmap(new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Opaque));
+        bitmap.ScalePixels(scaled, new SKSamplingOptions(SKFilterMode.Linear));
+        using var image = SKImage.FromBitmap(scaled);
         using var encoded = image.Encode(SKEncodedImageFormat.Jpeg, 70);
         handler(key, encoded.ToArray());
     }
@@ -393,6 +407,20 @@ public sealed class NativeMedia : INativeMedia
             }
         }
         spatial = gains;
+        SyncViewSubscriptions();
+    }
+
+    private void SyncViewSubscriptions()
+    {
+        if (closing || room?.IsConnected != true) return;
+        var follow = J.Text(client.State.Presence[client.State.SelfId], "follow");
+        foreach (var participant in room.RemoteParticipants.Values)
+            foreach (var publication in participant.TrackPublications.Values.OfType<RemoteTrackPublication>())
+            {
+                if (!publication.Name.StartsWith("view:")) continue;
+                var wanted = participant.Identity == follow;
+                if (publication.IsSubscribed != wanted) publication.SetSubscribed(wanted);
+            }
     }
 
     private static async Task<(ScreenSource Source, bool Audio)?> ChooseScreenAsync()

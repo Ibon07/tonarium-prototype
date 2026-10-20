@@ -341,4 +341,3 @@ internal sealed class ChessPiece(string piece) : Control
     }
     protected override Size MeasureOverride(Size availableSize) => new(50, 50);
 }
-

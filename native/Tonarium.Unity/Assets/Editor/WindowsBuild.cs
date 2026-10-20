@@ -13,7 +13,7 @@ namespace Tonarium.UnityClient.Editor
         {
             Directory.CreateDirectory("Assets/Scenes");
             Directory.CreateDirectory("Assets/Resources");
-            foreach (var shaderName in new[] { "Standard", "Unlit/Transparent Cutout", "Sprites/Default" })
+            foreach (var shaderName in new[] { "Standard", "Unlit/Transparent Cutout", "Unlit/Texture", "Sprites/Default" })
             {
                 string assetPath = "Assets/Resources/" + shaderName.Replace('/', '_').Replace(' ', '_') + ".mat";
                 if (AssetDatabase.LoadAssetAtPath<Material>(assetPath) == null)

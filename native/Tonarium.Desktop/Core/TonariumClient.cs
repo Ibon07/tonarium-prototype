@@ -187,7 +187,7 @@ public sealed class TonariumClient : IAsyncDisposable
                 if (Text(message, "sid") == State.SessionId) _ = RetryRoomAsync(roomGeneration);
                 return;
         }
-        await UiAsync(() => ApplyMessage(message));
+        await UiAsync(() => ApplyMessage(message), false);
     }
 
     private async Task ConfigureRoomAsync(JsonObject config)
@@ -281,14 +281,14 @@ public sealed class TonariumClient : IAsyncDisposable
             var id = Text(message, "id");
             if (Text(message, "sid") != State.SessionId || positions.GetValueOrDefault(id) >= result.Sequence) return;
             positions[id] = result.Sequence;
-            await UiAsync(() => ApplyMessage(message));
+            await UiAsync(() => ApplyMessage(message), false);
             return;
         }
         if (result.Sequence <= receivedSequence) return;
         receivedSequence = result.Sequence;
         if (Text(message, "kind") == "snapshot" && message["snapshot"] is JsonObject snapshot && Text(snapshot, "sid") == State.SessionId)
         {
-            await UiAsync(() => ApplySessionSnapshot(snapshot));
+            await UiAsync(() => ApplySessionSnapshot(snapshot), false);
             var first = !roomReady;
             roomReady = true;
             await UiAsync(() => { State.SyncStatus = "connected"; State.LastError = null; });
@@ -302,7 +302,7 @@ public sealed class TonariumClient : IAsyncDisposable
             }
         }
         else if (Text(message, "kind") == "message" && message["message"] is JsonObject nested)
-            await UiAsync(() => ApplyMessage(nested));
+            await UiAsync(() => ApplyMessage(nested), false);
     }
 
     public async Task SendRoomAsync(object msg)
@@ -501,10 +501,11 @@ public sealed class TonariumClient : IAsyncDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
-    private static Task UiAsync(Action action)
+    private Task UiAsync(Action action, bool notify = true)
     {
-        if (Dispatcher.UIThread.CheckAccess()) { action(); return Task.CompletedTask; }
-        return Dispatcher.UIThread.InvokeAsync(action).GetTask();
+        void Apply() { action(); if (notify) State.Touch(); }
+        if (Dispatcher.UIThread.CheckAccess()) { Apply(); return Task.CompletedTask; }
+        return Dispatcher.UIThread.InvokeAsync(Apply).GetTask();
     }
     private static JsonObject AsObject(object value) => value is JsonObject obj ? obj : JsonSerializer.SerializeToNode(value)!.AsObject();
     private static string Text(JsonObject obj, string key, string fallback = "") => obj[key]?.ToString() ?? fallback;

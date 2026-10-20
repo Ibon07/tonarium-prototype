@@ -6,10 +6,11 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Avalonia.Threading;
 using Tonarium.Desktop.Core;
+using Tonarium.Desktop.Media;
 
 namespace Tonarium.Desktop.ThreeD;
 
-public sealed class ThreeDHost : IAsyncDisposable
+public sealed partial class ThreeDHost : IAsyncDisposable
 {
     private readonly TonariumClient client;
     private readonly SemaphoreSlim lifecycle = new(1);
@@ -21,7 +22,10 @@ public sealed class ThreeDHost : IAsyncDisposable
     private Process? player;
     private TaskCompletionSource? ready;
     private bool stopping;
+    private INativeMedia? media;
+    private bool mediaAttached;
     public event Action? ReturnedTo2D;
+    public event Action<string>? ItemRequested;
     public bool IsRunning => player is { HasExited: false };
     public string? PlayerPath { get; private set; }
     public string? LastError { get; private set; }
@@ -30,6 +34,14 @@ public sealed class ThreeDHost : IAsyncDisposable
     {
         this.client = client;
         client.MessageReceived += ForwardMessage;
+    }
+
+    public void AttachMedia(INativeMedia nativeMedia)
+    {
+        if (mediaAttached && media is not null) media.VideoFrameJpeg -= ForwardVideoFrame;
+        media = nativeMedia;
+        mediaAttached = IsRunning && !stopping;
+        if (mediaAttached) media.VideoFrameJpeg += ForwardVideoFrame;
     }
 
     public async Task StartAsync(IntPtr parentWindow = default)
@@ -62,13 +74,16 @@ public sealed class ThreeDHost : IAsyncDisposable
             if (parentWindow != IntPtr.Zero)
             {
                 info.ArgumentList.Add("-parentHWND"); info.ArgumentList.Add(parentWindow.ToInt64().ToString()); info.ArgumentList.Add("delayed");
+                info.ArgumentList.Add("--tonarium-embedded");
             }
             player = Process.Start(info) ?? throw new InvalidOperationException("Unity プレイヤーを起動できませんでした。");
             player.EnableRaisingEvents = true;
             player.Exited += PlayerExited;
             _ = ReceiveAsync(lifetime.Token);
             await ready.Task.WaitAsync(TimeSpan.FromSeconds(40));
+            if (parentWindow != IntPtr.Zero) await EmbedPlayerAsync(parentWindow);
             await client.SendRoomAsync(new { t = "mode", mode = "3d" });
+            if (media is not null) { media.VideoFrameJpeg += ForwardVideoFrame; mediaAttached = true; }
         }
         catch (Exception ex)
         {
@@ -110,6 +125,8 @@ public sealed class ThreeDHost : IAsyncDisposable
                         _ = StopAsync();
                         return;
                     case "openItem":
+                        if (message["id"]?.ToString() is { } itemId)
+                            await Dispatcher.UIThread.InvokeAsync(() => ItemRequested?.Invoke(itemId));
                         break;
                 }
             }
@@ -160,11 +177,20 @@ public sealed class ThreeDHost : IAsyncDisposable
         finally { writing.Release(); }
     }
 
+    private async void ForwardVideoFrame(string identity, byte[] jpeg)
+    {
+        if (stopping || writer is null) return;
+        try { await SendAsync(new { t = "videoFrame", identity, jpeg = Convert.ToBase64String(jpeg) }); }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
+    }
+
     public async Task TeleportAsync(double x, double z, double ry)
     {
         await SendAsync(new { t = "teleport", x, z, ry });
         await client.SendRoomAsync(new { t = "avatar", s = new { x, z, ry, y = 0 } });
     }
+
+    public Task ResizeAsync(int width, int height) => SendAsync(new { t = "resize", width = Math.Clamp(width, 160, 8192), height = Math.Clamp(height, 160, 8192) });
 
     public async Task StopAsync()
     {
@@ -183,6 +209,7 @@ public sealed class ThreeDHost : IAsyncDisposable
     private async Task ClosePlayerAsync()
     {
         stopping = true;
+        if (mediaAttached && media is not null) { media.VideoFrameJpeg -= ForwardVideoFrame; mediaAttached = false; }
         if (writer is not null) { try { await SendAsync(new { t = "shutdown" }); } catch (IOException) { } }
         lifetime?.Cancel(); listener?.Stop(); connection?.Dispose(); writer = null;
         if (player is { HasExited: false })
@@ -191,6 +218,7 @@ public sealed class ThreeDHost : IAsyncDisposable
             catch (TimeoutException) { player.Kill(entireProcessTree: true); await player.WaitForExitAsync(); }
         }
         if (player is not null) { player.Exited -= PlayerExited; player.Dispose(); player = null; }
+        PlayerWindowHandle = IntPtr.Zero;
         lifetime?.Dispose(); lifetime = null; connection = null; listener = null;
     }
 

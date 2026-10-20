@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Threading;
+using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Tonarium.Desktop.Core;
 
@@ -75,6 +76,21 @@ internal static class Program
             await second.SendAsync(new { t = "read", conv, at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
             await Until(() => second.State.Reads.ContainsKey(conv), "read receipt");
             Console.WriteLine("PASS friendship / direct message / read receipt");
+            var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
+            var image = "data:image/png;base64," + Convert.ToBase64String(await File.ReadAllBytesAsync(Path.Combine(root, "client/public/brand/logo.png")));
+            await first.SendAsync(new { t = "chat", text = "Native large image " + unique, image, scope = "all" });
+            await Until(() => second.State.Chats.OfType<JsonObject>().Any(m => m["image"]?.ToString() == image), "large encrypted blob");
+            Console.WriteLine("PASS large image via encrypted KokoSync blob");
+            var info = new ProcessStartInfo("node") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = root, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var arg in new[] { "node_modules/tsx/dist/cli.mjs", "native/Tonarium.Smoke/web-peer.ts", url, sid, unique }) info.ArgumentList.Add(arg);
+            using var web = Process.Start(info)!;
+            var output = web.StandardOutput.ReadToEndAsync(); var error = web.StandardError.ReadToEndAsync();
+            await Until(() => first.State.Chats.OfType<JsonObject>().Any(m => m["text"]?.ToString() == "Web SDK hello " + unique), "web SDK chat");
+            await Until(() => first.State.Avatars.Any(a => a.Value?["x"]?.ToString() == "4.25"), "web SDK avatar");
+            await first.SendAsync(new { t = "chat", text = "Native SDK acknowledgement " + unique, scope = "all" });
+            await web.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(35));
+            if (web.ExitCode != 0) throw new Exception("Web SDK peer: " + await error);
+            Console.Write(await output);
             Console.WriteLine("PASS ALL native happy-path checks");
         }
         finally

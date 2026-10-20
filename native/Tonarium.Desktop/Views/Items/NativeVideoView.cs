@@ -17,7 +17,10 @@ internal sealed class NativeVideoView : StackPanel, IDisposable
     private readonly Slider seek = new() { Minimum = 0, Maximum = 100, MinWidth = 240 };
     private readonly Action<object> send;
     private bool dragging;
+    private bool surfaceLoaded;
     private bool serverPlaying;
+    private JsonObject? pendingClock;
+    private long pendingOffset;
     private readonly Button toggle;
     public NativeVideoView(string url, Action<object> send)
     {
@@ -27,9 +30,15 @@ internal sealed class NativeVideoView : StackPanel, IDisposable
         {
             LibVLCSharp.Shared.Core.Initialize();
             vlc = new LibVLC("--no-video-title-show", "--quiet"); player = new MediaPlayer(vlc) { Volume = 50 }; media = new LibVLCSharp.Shared.Media(vlc, new Uri(url)); player.Media = media;
-            Children.Add(new VideoView { MediaPlayer = player, Height = 340, HorizontalAlignment = HorizontalAlignment.Stretch });
-            // Prepare duration and the first frame; the authoritative clock is applied on refresh.
-            player.Play(); player.SetPause(true);
+            var surface = new VideoView { MediaPlayer = player, Height = 340, HorizontalAlignment = HorizontalAlignment.Stretch };
+            Children.Add(surface);
+            // Start only after the native video HWND exists, otherwise VLC can open its own window.
+            player.Playing += (_, _) => Dispatcher.UIThread.Post(() => { if (!serverPlaying) player?.SetPause(true); });
+            player.EndReached += (_, _) => Dispatcher.UIThread.Post(() =>
+            {
+                if (player is not null && serverPlaying) send(new { a = "mediaPause", pos = Math.Max(0, player.Length / 1000d) });
+            });
+            surface.Loaded += (_, _) => { surfaceLoaded = true; player?.Play(); UpdateClock(pendingClock, pendingOffset); };
         }
         catch (Exception error) { Children.Add(ItemWindow.Text("動画プレーヤーを起動できません: " + error.Message)); }
         seek.PointerPressed += (_, _) => dragging = true;
@@ -41,7 +50,8 @@ internal sealed class NativeVideoView : StackPanel, IDisposable
     private double CurrentPosition => Math.Max(0, player?.Time / 1000d ?? 0);
     public void UpdateClock(JsonObject? clock, long offset = 0)
     {
-        if (clock is null || player is null) return;
+        pendingClock = clock; pendingOffset = offset;
+        if (clock is null || player is null || !surfaceLoaded) return;
         var position = ItemWindow.ClockPosition(clock, offset); var playing = ItemWindow.Bool(clock, "playing");
         if (Math.Abs(CurrentPosition - position) > 1.8) player.Time = (long)(position * 1000);
         if (playing != serverPlaying || playing && !player.IsPlaying || !playing && player.IsPlaying) { if (playing) player.Play(); else player.SetPause(true); }
@@ -53,4 +63,3 @@ internal sealed class NativeVideoView : StackPanel, IDisposable
     }
     public void Dispose() { player?.Stop(); player?.Dispose(); media?.Dispose(); vlc?.Dispose(); player = null; }
 }
-

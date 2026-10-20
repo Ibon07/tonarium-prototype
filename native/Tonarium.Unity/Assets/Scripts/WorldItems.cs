@@ -48,7 +48,7 @@ namespace Tonarium.UnityClient
                 string caption = note ? (string)item["text"] : KindName(kind);
                 if (kind == "g2048") caption += "\n" + GridText(item["grid"] as JArray, 4);
                 if (kind == "youtube") caption += "\n" + (string)item["title"];
-                var text = Label(root.transform, Wrap(caption ?? "付箋", 18), new Vector3(0, 1.2f, -.041f), note ? .045f : .06f);
+                var text = Label(root.transform, Wrap(caption ?? "付箋", 18), new Vector3(0, 1.2f, .041f), note ? .045f : .06f);
                 text.color = new Color(.15f, .17f, .2f);
                 if (kind == "image") { text.text = ""; StartCoroutine(LoadImage(board, (string)item["url"])); }
                 if (kind == "canvas") { text.text = ""; DrawCanvas(root.transform, item); }

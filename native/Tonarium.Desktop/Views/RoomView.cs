@@ -7,6 +7,9 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Controls.Presenters;
+using Avalonia.VisualTree;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -43,11 +46,13 @@ public sealed class RoomView : UserControl
     private readonly Button _leftFold;
     private readonly Button _rightFold;
     private readonly Border _center;
+    private readonly Border _threeDSurface = new() { Margin = new Thickness(345, 90, 340, 100), IsVisible = false };
     private string _playersSignature = "", _itemsSignature = "", _chatSignature = "", _noticeSignature = "", _statusSignature = "";
     private bool _leftHidden, _rightHidden, _facesHidden, _chatOnly;
     private string? _conversation;
     private readonly Dictionary<string, TextBlock> _distanceLabels = new();
     private readonly Dictionary<string, (double X, double Z, double Yaw)> _places = new();
+    private readonly DispatcherTimer _worldCountdown = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private static readonly HttpClient Http = new();
     private static readonly Dictionary<string, Bitmap> IconCache = new();
     private static readonly Dictionary<string, (string Name, string Mark, string Tint)> ItemInfo = new()
@@ -67,6 +72,7 @@ public sealed class RoomView : UserControl
         _facesHidden = NativeSettings.GetBool("room.facesFolded");
         Background = Brush.Parse("#EAE5DB");
         _root.Children.Add(new RoomBackdrop { IsHitTestVisible = false });
+        _root.Children.Add(_threeDSurface);
         Content = _root;
 
         var head = Ui.Row(Small("☰", () => _ctx.ShowHome("home")), _worldName, Small("⚙", Settings));
@@ -89,7 +95,8 @@ public sealed class RoomView : UserControl
         _root.Children.Add(_leftFold);
 
         var rightContent = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*,Auto,Auto") };
-        var tabs = Ui.Row(Small("通知・ログ", () => { _conversation = null; _chatSignature = ""; Refresh(); }), Small("メッセージ", Conversations), Small("›", ToggleRight));
+        var tabs = Ui.Row(Small("通知・ログ", () => { _conversation = null; _scope.IsVisible = true; _chatSignature = ""; Refresh(); }), Small("メッセージ", Conversations), Small("既読", MarkNoticesRead), Small("›", ToggleRight));
+        tabs.Spacing = 1;
         rightContent.Children.Add(tabs);
         var noticeScroll = new ScrollViewer { Content = _notices, MaxHeight = 165, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Margin = new Thickness(0, 12, 0, 12) };
         Grid.SetRow(noticeScroll, 1); rightContent.Children.Add(noticeScroll);
@@ -104,8 +111,14 @@ public sealed class RoomView : UserControl
         _input.MinWidth = 0; _input.AcceptsReturn = true; _input.MaxHeight = 100;
         Grid.SetColumn(_input, 1); compose.Children.Add(_input);
         var send = Small("➤", () => Run(SendChatAsync)); Grid.SetColumn(send, 2); compose.Children.Add(send);
-        // Enter sends, Shift+Enter creates a newline. IME text composition remains owned by the native TextBox.
-        _input.KeyDown += (_, e) => { if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift)) { e.Handled = true; Run(SendChatAsync); } };
+        // Handle Enter before TextBox's multiline handler; leave candidate confirmation to the native IME.
+        _input.AddHandler(InputElement.KeyDownEvent, (_, e) =>
+        {
+            if (e.Key != Key.Enter || e.KeyModifiers.HasFlag(KeyModifiers.Shift)) return;
+            if (_input.GetVisualDescendants().OfType<TextPresenter>().Any(p => !string.IsNullOrEmpty(p.PreeditText))) return;
+            e.Handled = true;
+            Run(SendChatAsync);
+        }, RoutingStrategies.Tunnel);
         Grid.SetRow(compose, 5); rightContent.Children.Add(compose);
         _right = Panel(rightContent); _right.Width = 304; _right.Margin = new Thickness(0, 18, 20, 20); _right.HorizontalAlignment = HorizontalAlignment.Right;
         _root.Children.Add(_right);
@@ -131,7 +144,17 @@ public sealed class RoomView : UserControl
         var dockPanel = Panel(dock); dockPanel.Background = Brush.Parse("#26262E"); dockPanel.BorderBrush = Brush.Parse("#44454F"); dockPanel.Padding = new Thickness(8);
         bottom.Children.Add(_status); bottom.Children.Add(dockPanel); _root.Children.Add(bottom);
         SizeChanged += (_, _) => Fit();
+        _worldCountdown.Tick += (_, _) => Refresh();
+        DetachedFromVisualTree += (_, _) => _worldCountdown.Stop();
         Refresh();
+    }
+
+    public void SetThreeDSurface(Control? surface)
+    {
+        _threeDSurface.Child = surface;
+        _threeDSurface.IsVisible = surface is not null;
+        _center.IsVisible = surface is null;
+        Fit();
     }
 
     public void Refresh()
@@ -158,7 +181,9 @@ public sealed class RoomView : UserControl
         var nkey = s.Notifications.ToJsonString() + blocked;
         if (nkey != _noticeSignature) { _noticeSignature = nkey; RebuildNotices(); }
         var me = users.FirstOrDefault(u => J.Text(u, "id") == s.SelfId);
-        var st = $"{s.ConnectionStatus}|{s.SyncStatus}|{J.Text(me, "follow")}|{J.Object(me, "pos").ToJsonString()}|{s.Mode}";
+        if (s.WorldPending is not null && !_worldCountdown.IsEnabled) _worldCountdown.Start();
+        else if (s.WorldPending is null && _worldCountdown.IsEnabled) _worldCountdown.Stop();
+        var st = $"{s.ConnectionStatus}|{s.SyncStatus}|{J.Text(me, "follow")}|{J.Object(me, "pos").ToJsonString()}|{s.Mode}|{(s.WorldPending is null ? "" : DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString())}";
         if (st != _statusSignature) { _statusSignature = st; RebuildStatus(me); }
     }
 
@@ -393,6 +418,11 @@ public sealed class RoomView : UserControl
     {
         _status.Children.Clear();
         _status.Children.Add(Ui.Text($"● {_ctx.State.ConnectionStatus}   ·   kokosync {_ctx.State.SyncStatus}", 10, Ui.Muted));
+        if (_ctx.State.WorldPending is { } pending)
+        {
+            var seconds = Math.Max(0, Math.Ceiling((J.Number(pending, "at") - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - _ctx.State.ServerOffset) / 1000));
+            _status.Children.Add(Panel(Ui.Text($"{J.Label(J.Text(pending, "world"))} に切り替わります · {seconds:0}", 14)));
+        }
         var target = J.Text(me, "follow");
         if (target != "")
         {
@@ -400,6 +430,11 @@ public sealed class RoomView : UserControl
             _status.Children.Add(Panel(Ui.Row(Ui.Text(name + " についていっています", 11), Small("ライブをリクエスト", () => SendRoom(new { t = "liveRequest", to = target })), Small("やめる", () => SendRoom(new { t = "follow", target = (string?)null })))));
         }
         else if (me?["pos"] is JsonObject) _status.Children.Add(Small("⌖ 空間の中にいます · スポーンに戻る", () => SendRoom(new { t = "place2d", target = _ctx.State.SelfId, pos = (object?)null })));
+    }
+    private void MarkNoticesRead()
+    {
+        foreach (var notice in _ctx.State.Notifications.OfType<JsonObject>()) notice["unread"] = false;
+        _ctx.State.Touch();
     }
     private void Soundboard()
     {
@@ -491,7 +526,13 @@ public sealed class RoomView : UserControl
     private void WindowOptions() => ShowPopup(Ui.Column(Ui.Title("ウィンドウの表示"), Ui.Button("カンタン — 開いたものを中央に表示", () => SetWindowMode(false)), Ui.Button("フリー — 自由に動かす", () => SetWindowMode(true))), 380);
     private void ToggleLeft() { _leftHidden = !_leftHidden; NativeSettings.SetBool("room.leftFolded", _leftHidden); _left.IsVisible = !_leftHidden; _leftFold.IsVisible = _leftHidden; Fit(); }
     private void ToggleRight() { _rightHidden = !_rightHidden; NativeSettings.SetBool("room.rightFolded", _rightHidden); _right.IsVisible = !_rightHidden; _rightFold.IsVisible = _rightHidden; Fit(); }
-    private void Fit() { var compact = Bounds.Width < 1080; _left.Width = compact ? 260 : 308; _right.Width = compact ? 275 : 304; _center.Margin = new Thickness(_leftHidden ? 90 : _left.Width + 38, 95, _rightHidden ? 90 : _right.Width + 38, 140); }
+    private void Fit()
+    {
+        var compact = Bounds.Width < 1080; _left.Width = compact ? 260 : 308; _right.Width = compact ? 275 : 304;
+        var left = _leftHidden ? 90 : _left.Width + 38; var right = _rightHidden ? 90 : _right.Width + 38;
+        _center.Margin = new Thickness(left, 95, right, 140);
+        _threeDSurface.Margin = new Thickness(left, 90, right, 100);
+    }
     private static string UserColor(string id) { var n = id.Aggregate(0, (a, c) => unchecked(a * 31 + c)); return new[] { "#DDD1EC", "#F0D4BD", "#CDE4DF", "#D3E0EE", "#E9D0D4" }[(int)((uint)n % 5)]; }
     private static string Time(double at) => at > 0 ? DateTimeOffset.FromUnixTimeMilliseconds((long)at).ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture) : "";
     private static Control Empty(string text) => new Border { Padding = new Thickness(6, 16), Child = Ui.Text(text, 12, Ui.Muted) };
@@ -527,7 +568,7 @@ public sealed class RoomView : UserControl
 }
 
 /// <summary>Shared by the native item window manager, without affecting networking.</summary>
-public static class RoomWindowLayout { public static bool Free { get; set; } }
+public static class RoomWindowLayout { public static bool Free { get; set; } = NativeSettings.GetBool("room.freeWindows"); }
 
 internal sealed class RoomBackdrop : Control
 {

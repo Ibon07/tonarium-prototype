@@ -27,7 +27,7 @@ namespace Tonarium.UnityClient
         JObject game = new JObject();
         string selfId = "preview", sessionId = "", playerName = "あなた", world = "", serverUrl = "http://localhost:3000";
         string selected, carrying, held, draft = "", noteDraft = "", notice = "";
-        bool menu, chatOpen, initialPosition, returnSent;
+        bool menu, chatOpen, initialPosition, returnSent, embedded;
         float yaw, pitch, vertical, nextSend;
         int jumps, round = -1, stepped = -1;
         Font font;
@@ -37,6 +37,7 @@ namespace Tonarium.UnityClient
         public string WorldKind => world;
         public int AvatarCount => avatars.Count;
         public int ItemCount => items.Count;
+        public int VideoScreenCount => liveScreens.Count;
         public Vector3 PlayerPosition => controller.transform.position;
         public bool IsBridgeConnected => bridge.Connected;
 
@@ -51,21 +52,36 @@ namespace Tonarium.UnityClient
             controller = player.AddComponent<CharacterController>();
             controller.height = 1.65f; controller.center = Vector3.up * .825f;
             controller.radius = .28f; controller.stepOffset = .25f;
-            player.transform.position = new Vector3(0, .05f, 6.5f);
+            player.transform.position = new Vector3(0, .05f, -6.5f);
             var cameraObject = new GameObject("View"); cameraObject.transform.SetParent(player.transform);
             cameraObject.transform.localPosition = new Vector3(0, 1.55f, 0);
             eye = cameraObject.AddComponent<Camera>(); eye.fieldOfView = 70; eye.nearClipPlane = .05f; eye.farClipPlane = 150;
             cameraObject.AddComponent<AudioListener>();
-            yaw = 180;
+            yaw = 0;
             controller.transform.rotation = Quaternion.Euler(0, yaw, 0);
             BuildWorld("cafe");
             foreach (string arg in Environment.GetCommandLineArgs())
+            {
                 if (arg == "--tonarium-smoke") gameObject.AddComponent<SmokeCheck>();
+                if (arg == "--tonarium-embedded") embedded = true;
+            }
         }
 
         void Receive(JObject m)
         {
             string type = (string)m["t"];
+            if (type == "videoFrame") { ReceiveVideo(m); return; }
+            if (type == "resize")
+            {
+                int width = Mathf.Clamp((int?)m["width"] ?? Screen.width, 160, 8192);
+                int height = Mathf.Clamp((int?)m["height"] ?? Screen.height, 160, 8192);
+                if (Screen.width != width || Screen.height != height)
+                {
+                    Debug.Log("TONARIUM_RESIZE " + Screen.width + "x" + Screen.height + " -> " + width + "x" + height);
+                    Screen.SetResolution(width, height, FullScreenMode.Windowed);
+                }
+                return;
+            }
             if (type == "snapshot")
             {
                 selfId = (string)m["selfId"] ?? selfId; playerName = (string)m["name"] ?? playerName;
@@ -91,7 +107,7 @@ namespace Tonarium.UnityClient
             if (type == "teleport")
             {
                 controller.enabled = false; controller.transform.position = Position(m) + Vector3.up * .05f; controller.enabled = true;
-                yaw = 180 - Float(m, "ry") * Mathf.Rad2Deg; return;
+                yaw = -Float(m, "ry") * Mathf.Rad2Deg; return;
             }
             if (type == "desktopDisconnected") { notice = "2D クライアントとの接続が切れました"; return; }
             if (type == "users") { users = m["list"] as JArray ?? users; SyncUsers(); }
@@ -146,7 +162,7 @@ namespace Tonarium.UnityClient
                     controller.enabled = false;
                     controller.transform.position = Position(state) + Vector3.up * .05f;
                     controller.enabled = true;
-                    yaw = 180 - Float(state, "ry") * Mathf.Rad2Deg;
+                    yaw = -Float(state, "ry") * Mathf.Rad2Deg;
                     initialPosition = true;
                 }
                 return;
@@ -176,7 +192,7 @@ namespace Tonarium.UnityClient
             var root = new GameObject("Avatar " + id);
             var user = users.OfType<JObject>().FirstOrDefault(u => (string)u["id"] == id);
             string name = (string)user?["name"] ?? id;
-            root.transform.position = new Vector3((avatars.Count % 5 - 2) * .8f, 0, 6.5f);
+            root.transform.position = new Vector3((avatars.Count % 5 - 2) * .8f, 0, -6.5f);
             var model = OekakiModel.Create(root.transform);
             var face = Label(root.transform, name, new Vector3(0, 2, 0), .055f);
             face.gameObject.AddComponent<FaceCamera>();
@@ -198,6 +214,17 @@ namespace Tonarium.UnityClient
                     if (r.gameObject.name.EndsWith("Front") || r.gameObject.name.EndsWith("Back"))
                     { r.material.mainTexture = texture; r.material.color = Color.white; }
             }
+            if (!string.IsNullOrEmpty(version))
+                using (var request = UnityWebRequest.Get(serverUrl + "/avatar/params?name=" + UnityWebRequest.EscapeURL(name) + "&v=" + version))
+                {
+                    yield return request.SendWebRequest();
+                    if (request.result == UnityWebRequest.Result.Success && model != null)
+                    {
+                        JObject parameters = null;
+                        try { parameters = JObject.Parse(request.downloadHandler.text); } catch (Exception) { }
+                        if (parameters != null) model.GetComponent<OekakiModel>().ApplyParameters(parameters);
+                    }
+                }
         }
 
         void RemoveAvatar(string id)
@@ -220,7 +247,7 @@ namespace Tonarium.UnityClient
                 round = newRound; stepped = -1; brokenTiles.Clear();
                 foreach (var t in tiles.Values) t.SetActive(true);
                 int tile = (index * 27 + 9) % 64;
-                controller.enabled = false; controller.transform.position = TilePosition(tile) + Vector3.up * .1f; controller.enabled = true;
+                controller.enabled = false; controller.transform.position = ToUnity(TilePosition(tile)) + Vector3.up * .1f; controller.enabled = true;
             }
         }
 
@@ -252,19 +279,19 @@ namespace Tonarium.UnityClient
             {
                 nextSend = Time.time + .06f;
                 var p = controller.transform.position;
-                Room(new { t = "avatar", s = new { x = p.x, z = p.z, y = p.y, ry = (180 - yaw) * Mathf.Deg2Rad, pitch = -pitch * Mathf.Deg2Rad, jump = jumps } });
+                Room(new { t = "avatar", s = new { x = p.x, z = -p.z, y = p.y, ry = -yaw * Mathf.Deg2Rad, pitch = -pitch * Mathf.Deg2Rad, jump = jumps } });
                 if (carrying != null && itemObjects.TryGetValue(carrying, out var carried))
                 {
                     var pos = controller.transform.position + controller.transform.forward * 2;
                     pos.y = 0; carried.transform.position = pos;
-                    Room(new { t = "itemMove", id = carrying, x = pos.x, z = pos.z, ry = (180 - yaw) * Mathf.Deg2Rad });
+                    Room(new { t = "itemMove", id = carrying, x = pos.x, z = -pos.z, ry = -yaw * Mathf.Deg2Rad });
                 }
             }
             foreach (var pair in avatars)
                 if (avatarStates.TryGetValue(pair.Key, out var state))
                 {
                     pair.Value.transform.position = Vector3.Lerp(pair.Value.transform.position, Position(state), Time.deltaTime * 15);
-                    pair.Value.transform.rotation = Quaternion.Slerp(pair.Value.transform.rotation, Quaternion.Euler(0, 180 - Float(state, "ry") * Mathf.Rad2Deg, 0), Time.deltaTime * 15);
+                    pair.Value.transform.rotation = Quaternion.Slerp(pair.Value.transform.rotation, Quaternion.Euler(0, -Float(state, "ry") * Mathf.Rad2Deg, 0), Time.deltaTime * 15);
                 }
             foreach (var pair in items)
             {
@@ -276,11 +303,12 @@ namespace Tonarium.UnityClient
                 }
             }
             foreach (var pair in brokenTiles) if (pair.Value <= Now && tiles.TryGetValue(pair.Key, out var tile)) tile.SetActive(false);
+            UpdateVideoScreens();
             if (world == "game" && (string)game["phase"] == "running")
             {
                 if (controller.transform.position.y < -8)
                 {
-                    Room(new { t = "gameFell" }); controller.enabled = false; controller.transform.position = new Vector3(0, .1f, 6.5f); controller.enabled = true;
+                    Room(new { t = "gameFell" }); controller.enabled = false; controller.transform.position = new Vector3(0, .1f, -6.5f); controller.enabled = true;
                 }
                 else if (Physics.Raycast(controller.transform.position + Vector3.up * .1f, Vector3.down, out var hit, .3f))
                 {
@@ -327,7 +355,7 @@ namespace Tonarium.UnityClient
         void DropHeld()
         {
             var p = controller.transform.position + controller.transform.forward;
-            Room(new { t = "itemAction", id = held, action = new { a = "drop", x = p.x, z = p.z, ry = (180 - yaw) * Mathf.Deg2Rad, pitch = -pitch * Mathf.Deg2Rad } }); held = null;
+            Room(new { t = "itemAction", id = held, action = new { a = "drop", x = p.x, z = -p.z, ry = -yaw * Mathf.Deg2Rad, pitch = -pitch * Mathf.Deg2Rad } }); held = null;
         }
         void Room(object value) => bridge.Send(new { t = "room", message = value });
         void Unlock() { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
@@ -351,7 +379,8 @@ namespace Tonarium.UnityClient
         public void ReturnTo2D() { if (returnSent) return; returnSent = true; Unlock(); bridge.Send(new { t = "return2d" }); if (!bridge.Connected) Application.Quit(); }
         void OnApplicationQuit() { ReturnTo2D(); }
         long Now => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + (long)serverOffset;
-        static Vector3 Position(JObject p) => new Vector3(Float(p, "x"), Float(p, "y"), Float(p, "z"));
+        static Vector3 ToUnity(Vector3 p) => new Vector3(p.x, p.y, -p.z);
+        static Vector3 Position(JObject p) => ToUnity(new Vector3(Float(p, "x"), Float(p, "y"), Float(p, "z")));
         static float Float(JObject o, string key, float fallback = 0) => (float?)o?[key] ?? fallback;
     }
     public sealed class WorldTarget : MonoBehaviour { public string Id; }

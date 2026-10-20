@@ -24,6 +24,7 @@ namespace Tonarium.UnityClient
                 for (int i = 0; i < source.Count; i++) meshes[i] = ReadMesh((JObject)source[i]);
             }
             var root = new GameObject("Oekaki avatar"); root.transform.SetParent(parent, false); root.transform.localScale = Vector3.one * .012f;
+            root.transform.localRotation = Quaternion.Euler(0, 180, 0);
             var model = root.AddComponent<OekakiModel>();
             foreach (var node in (JArray)data["scenes"][0]["nodes"]) model.Node((int)node, root.transform);
             model.lastPosition = parent.position;
@@ -82,12 +83,17 @@ namespace Tonarium.UnityClient
             AddScale("Body_Front", p, "bodySize"); AddScale("Body_Back", p, "bodySize");
             AddScale("LeftHand", p, "handSize"); AddScale("RightHand", p, "handSize");
             AddScale("Tail", p, "tailSize"); AddScale("Feet", p, "legsSize");
-            Offset("Body", new Vector3(0, -(float?)p["neckLength"] ?? 0, 0));
+            Offset("Body", new Vector3(0, -(float?)p["neckLength"] ?? 0, (bool?)p["headInFront"] != false ? .5f : -.5f));
             Offset("Tail", new Vector3(0, -(float?)p["tailPosition"] ?? 0, 0));
-            Offset("Feet", new Vector3(0, -(float?)p["legsDistanceFromBody"] ?? 0, 0));
+            Offset("Feet", new Vector3(0, -(float?)p["legsDistanceFromBody"] ?? 0, (bool?)p["legsInFront"] != false ? -.5f : .5f));
             Offset("LeftFoot", new Vector3((float?)p["legsDistance"] ?? 0, 0, 0));
             Offset("RightFoot", new Vector3(-((float?)p["legsDistance"] ?? 0), 0, 0));
-            if (parts.TryGetValue("Tail", out var tail)) tail.gameObject.SetActive((bool?)p["disableTail"] != true);
+            if (parts.TryGetValue("Tail", out var tail))
+            {
+                tail.gameObject.SetActive((bool?)p["disableTail"] != true);
+                tail.localRotation *= Quaternion.Euler(0, 0, ((float?)p["tailRotation"] ?? 0) * Mathf.Rad2Deg);
+                rest["Tail"] = tail.localRotation;
+            }
         }
         void AddScale(string name, JObject p, string key) { if (parts.TryGetValue(name, out var t)) t.localScale += Vector3.one * ((float?)p[key] ?? 0); }
         void Offset(string name, Vector3 delta) { if (parts.TryGetValue(name, out var t)) t.localPosition += delta; }

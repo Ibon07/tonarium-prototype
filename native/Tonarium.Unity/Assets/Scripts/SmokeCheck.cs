@@ -24,7 +24,7 @@ namespace Tonarium.UnityClient
                 ScreenCapture.CaptureScreenshot(Path.Combine(output, kind + ".png"));
                 yield return new WaitForSeconds(.6f);
             }
-            File.WriteAllText(Path.Combine(output, "result.json"), "{\"ok\":true,\"worlds\":3,\"rendered\":true,\"avatars\":" + world.AvatarCount + ",\"items\":" + world.ItemCount + "}");
+            File.WriteAllText(Path.Combine(output, "result.json"), "{\"ok\":true,\"worlds\":3,\"rendered\":true,\"avatars\":" + world.AvatarCount + ",\"items\":" + world.ItemCount + ",\"liveScreens\":" + world.VideoScreenCount + "}");
             Debug.Log("TONARIUM_SMOKE_SUCCESS " + output);
             Application.Quit();
         }

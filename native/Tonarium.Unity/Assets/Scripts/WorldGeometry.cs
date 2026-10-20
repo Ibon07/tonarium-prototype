@@ -48,8 +48,8 @@ namespace Tonarium.UnityClient
         public void SetPreviewCamera(string kind)
         {
             controller.enabled = false;
-            controller.transform.position = kind == "game" ? new Vector3(0,6,5) : new Vector3(6,2.5f,8);
-            eye.transform.LookAt(kind == "game" ? new Vector3(0,10,-20) : new Vector3(-2,1,-1));
+            controller.transform.position = ToUnity(kind == "game" ? new Vector3(0,6,5) : new Vector3(6,2.5f,8));
+            eye.transform.LookAt(ToUnity(kind == "game" ? new Vector3(0,10,-20) : new Vector3(-2,1,-1)));
             controller.enabled = true;
         }
 
@@ -86,14 +86,14 @@ namespace Tonarium.UnityClient
         }
         void Chair(Transform root,float x,float z,float rotation)
         {
-            var c=new GameObject("Chair");c.transform.SetParent(root); c.transform.position=new Vector3(x,0,z);c.transform.rotation=Quaternion.Euler(0,rotation,0);
+            var c=new GameObject("Chair");c.transform.SetParent(root); c.transform.localPosition=ToUnity(new Vector3(x,0,z));c.transform.localRotation=Quaternion.Euler(0,-rotation,0);
             Box(c.transform,"Seat",new Vector3(0,.45f,0),new Vector3(.44f,.05f,.42f),"#9a6a45");Box(c.transform,"Back",new Vector3(0,.78f,.19f),new Vector3(.44f,.5f,.05f),"#9a6a45");
             for(int a=-1;a<=1;a+=2)for(int b=-1;b<=1;b+=2)Box(c.transform,"Leg",new Vector3(a*.18f,.22f,b*.17f),new Vector3(.04f,.44f,.04f),"#5a3826");
         }
         void Pendant(Transform root,float x,float z)
         {
             Cylinder(root,"Cord",new Vector3(x,3.35f,z),.008f,1.3f,"#222222");Cylinder(root,"Shade",new Vector3(x,2.65f,z),.26f,.2f,"#332e29");
-            var l=new GameObject("Warm light").AddComponent<Light>();l.transform.SetParent(root);l.transform.position=new Vector3(x,2.4f,z);l.type=LightType.Point;l.range=6;l.intensity=1.2f;l.color=ColorValue("#ffcf8a");
+            var l=new GameObject("Warm light").AddComponent<Light>();l.transform.SetParent(root);l.transform.localPosition=ToUnity(new Vector3(x,2.4f,z));l.type=LightType.Point;l.range=6;l.intensity=1.2f;l.color=ColorValue("#ffcf8a");
         }
         void BuildGame()
         {
@@ -114,10 +114,10 @@ namespace Tonarium.UnityClient
         public static GameObject Box(Transform root,string name,Vector3 pos,Vector3 size,string color)=>Primitive(root,name,PrimitiveType.Cube,pos,size,color);
         static GameObject Sphere(Transform root,string name,Vector3 pos,Vector3 size,string color)=>Primitive(root,name,PrimitiveType.Sphere,pos,size,color);
         static GameObject Cylinder(Transform root,string name,Vector3 pos,float radius,float height,string color)=>Primitive(root,name,PrimitiveType.Cylinder,pos,new Vector3(radius*2,height/2,radius*2),color);
-        static GameObject Primitive(Transform root,string name,PrimitiveType kind,Vector3 pos,Vector3 size,string color){var o=GameObject.CreatePrimitive(kind);o.name=name;o.transform.SetParent(root,false);o.transform.localPosition=pos;o.transform.localScale=size;o.GetComponent<Renderer>().material=Material(color);return o;}
+        static GameObject Primitive(Transform root,string name,PrimitiveType kind,Vector3 pos,Vector3 size,string color){var o=GameObject.CreatePrimitive(kind);o.name=name;o.transform.SetParent(root,false);o.transform.localPosition=ToUnity(pos);o.transform.localScale=size;o.GetComponent<Renderer>().material=Material(color);return o;}
         TextMesh Label(Transform parent,string text,Vector3 pos,float size)
         {
-            var o=new GameObject("Label");o.transform.SetParent(parent,false);o.transform.localPosition=pos;o.transform.localRotation=Quaternion.Euler(0,180,0);
+            var o=new GameObject("Label");o.transform.SetParent(parent,false);o.transform.localPosition=ToUnity(pos);
             var t=o.AddComponent<TextMesh>();t.text=text;t.font=font;t.fontSize=64;t.characterSize=size;t.anchor=TextAnchor.MiddleCenter;t.alignment=TextAlignment.Center;t.color=Color.white;
             o.GetComponent<Renderer>().material=font.material;return t;
         }

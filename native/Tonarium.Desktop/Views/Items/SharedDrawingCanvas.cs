@@ -77,4 +77,3 @@ internal sealed class SharedDrawingCanvas : Control
         for (int i = 1; i < points.Count; i++) context.DrawLine(pen, points[i - 1], points[i]);
     }
 }
-

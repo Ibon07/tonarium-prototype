@@ -15,7 +15,7 @@ namespace Tonarium.Desktop.Views;
 
 public sealed class MainWindow : Window
 {
-    private readonly TonariumClient client = new();
+    private readonly TonariumClient client = new(persistSettings: !Program.Arguments.Contains("--demo") && !Program.Arguments.Contains("--smoke"));
     private readonly NativeMedia media;
     private readonly ThreeDHost threeD;
     private readonly NativeContext context;
@@ -29,6 +29,7 @@ public sealed class MainWindow : Window
     private RoomView? room;
     private Window? homeOverlay;
     private HomeView? overlayView;
+    private UnitySurface? unitySurface;
     private string? previousSession;
     private bool signedIn, closing, refreshQueued, switching;
     private readonly TextBox serverInput;
@@ -43,6 +44,7 @@ public sealed class MainWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         media = new NativeMedia(client);
         threeD = new ThreeDHost(client);
+        threeD.AttachMedia(media);
         context = new(client, media, this)
         {
             NotificationRequested = Notify,
@@ -65,7 +67,9 @@ public sealed class MainWindow : Window
         client.State.Changed += QueueRefresh;
         client.MessageReceived += MessageReceived;
         media.Changed += QueueRefresh;
-        threeD.ReturnedTo2D += () => Dispatcher.UIThread.Post(() => { Activate(); QueueRefresh(); });
+        threeD.ReturnedTo2D += () => Dispatcher.UIThread.Post(() => { room?.SetThreeDSurface(null); unitySurface = null; Activate(); QueueRefresh(); });
+        threeD.PlayerWindowChanged += hwnd => Dispatcher.UIThread.Post(() => unitySurface?.ResizePlayer(hwnd));
+        threeD.ItemRequested += id => { OpenItem(id); Activate(); };
         Closing += (_, e) =>
         {
             if (closing) return;
@@ -75,6 +79,14 @@ public sealed class MainWindow : Window
         KeyDown += (_, e) => { if (e.Key == Key.Escape && homeOverlay is not null) homeOverlay.Close(); };
         Opened += async (_, _) =>
         {
+            if (Program.Arguments.Contains("--media-smoke"))
+            {
+                var resultPath = Program.Argument("--output") ?? Path.Combine(AppContext.BaseDirectory, "media-smoke.json");
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(resultPath))!);
+                try { var result = await NativeMediaSmoke.RunAsync(); await File.WriteAllTextAsync(resultPath, result.ToJsonString()); }
+                catch (Exception e) { Program.Log(e.ToString()); await File.WriteAllTextAsync(resultPath, new JsonObject { ["passed"] = false, ["error"] = e.Message }.ToJsonString()); }
+                await Shutdown(); return;
+            }
             if (Program.Arguments.Contains("--demo")) { LoadDemo(); return; }
             if (Program.Arguments.Contains("--connect") || Program.Argument("--smoke") is not null)
             {
@@ -148,7 +160,7 @@ public sealed class MainWindow : Window
             homeOverlay?.Close();
             previousSession = client.State.SessionId;
             if (!Program.Arguments.Contains("--demo")) _ = SyncMedia();
-            if (previousSession is null) _ = threeD.StopAsync();
+            if (threeD.IsRunning) _ = threeD.StopAsync();
         }
         screen.Content = client.State.SessionId is null ? home : room;
         if (client.State.SessionId is null) home.Refresh(); else room.Refresh();
@@ -178,20 +190,39 @@ public sealed class MainWindow : Window
         switching = true;
         try
         {
-            if (mode == "3d") { Notify("3D空間を準備しています…"); await threeD.StartAsync(); }
+            if (mode == "3d")
+            {
+                Notify("3D空間を準備しています…");
+                var parent = IntPtr.Zero;
+                if (OperatingSystem.IsWindows() && !Program.Arguments.Contains("--separate-3d"))
+                {
+                    room ??= new RoomView(context);
+                    unitySurface = new UnitySurface();
+                    unitySurface.ClientSizeChanged += (width, height) => _ = threeD.ResizeAsync(width, height);
+                    room.SetThreeDSurface(unitySurface);
+                    parent = await unitySurface.GetHandleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                await threeD.StartAsync(parent);
+                unitySurface?.ResizePlayer(threeD.PlayerWindowHandle);
+            }
             else { await threeD.StopAsync(); Activate(); }
             Refresh();
         }
-        catch (Exception e) { Notify(e.Message); Program.Log(e.ToString()); }
+        catch (Exception e) { room?.SetThreeDSurface(null); unitySurface = null; Notify(e.Message); Program.Log(e.ToString()); }
         finally { switching = false; }
     }
 
     private void OpenItem(string id)
     {
         if (id.StartsWith("item:")) id = id[5..];
-        if (itemWindows.TryGetValue(id, out var existing)) { existing.Activate(); return; }
+        if (itemWindows.TryGetValue(id, out var existing)) { existing.WindowState = WindowState.Normal; existing.Activate(); return; }
         var window = new ItemWindow(context, id);
         itemWindows[id] = window;
+        window.Activated += (_, _) =>
+        {
+            if (RoomWindowLayout.Free) return;
+            foreach (var other in itemWindows.Values.Where(other => other != window).ToArray()) other.WindowState = WindowState.Minimized;
+        };
         window.Closed += (_, _) => { itemWindows.Remove(id); _ = UpdateViewing(); };
         window.Show(this);
         _ = UpdateViewing();
@@ -257,17 +288,47 @@ public sealed class MainWindow : Window
         target.Render(this); target.Save(path); target.Dispose();
     }
 
+    private async Task CaptureNative(string path)
+    {
+        await Task.Delay(350);
+        var handle = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (handle == IntPtr.Zero) throw new InvalidOperationException("Native window handle is unavailable.");
+        using var bitmap = new System.Drawing.Bitmap(Math.Max(1, (int)(Bounds.Width * RenderScaling)), Math.Max(1, (int)(Bounds.Height * RenderScaling)));
+        using var graphics = System.Drawing.Graphics.FromImage(bitmap);
+        var dc = graphics.GetHdc();
+        try { if (!PrintWindow(handle, dc, 3)) throw new InvalidOperationException("Could not capture the native app window."); }
+        finally { graphics.ReleaseHdc(dc); }
+        bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool PrintWindow(IntPtr window, IntPtr dc, uint flags);
+
     private async Task RunSmoke(string directory)
     {
         try
         {
             Directory.CreateDirectory(directory);
+            File.Delete(Path.Combine(directory, "error.txt"));
             await Task.Delay(1800); Capture(Path.Combine(directory, "home.png"));
             var sid = Program.Argument("--session") ?? client.State.Sessions.FirstOrDefault()?["id"]?.ToString();
             if (sid is not null) { await client.JoinAsync(sid); await Task.Delay(3000); Capture(Path.Combine(directory, "room.png")); }
-            await File.WriteAllTextAsync(Path.Combine(directory, "result.json"), new JsonObject { ["connected"] = client.State.Connected, ["sync"] = client.State.SyncStatus, ["session"] = client.State.SessionId, ["users"] = client.State.Users.Count, ["items"] = client.State.Items.Count, ["media"] = media.Status }.ToJsonString());
+            if (sid is not null && Program.Arguments.Contains("--smoke-3d"))
+            {
+                await ChangeMode("3d"); await Task.Delay(2500);
+                if (!threeD.IsRunning || threeD.PlayerWindowHandle == IntPtr.Zero) throw new InvalidOperationException("Unity の埋め込み起動を確認できませんでした");
+                await CaptureNative(Path.Combine(directory, "embedded.png"));
+                Width = 1100; Height = 720; await Task.Delay(500);
+                await CaptureNative(Path.Combine(directory, "embedded-resized.png"));
+                await File.WriteAllTextAsync(Path.Combine(directory, "embedded.json"), new JsonObject { ["running"] = threeD.IsRunning, ["embedded"] = (unitySurface?.Handle ?? IntPtr.Zero) != IntPtr.Zero, ["mode"] = client.State.Mode, ["playerWindow"] = threeD.PlayerWindowHandle.ToInt64(), ["resized"] = true }.ToJsonString());
+                await ChangeMode("2d"); await Task.Delay(300);
+                if (threeD.IsRunning || client.State.Mode != "2d") throw new InvalidOperationException("2D への復帰を確認できませんでした");
+                Capture(Path.Combine(directory, "returned-2d.png"));
+            }
+            await File.WriteAllTextAsync(Path.Combine(directory, "result.json"), new JsonObject { ["passed"] = true, ["connected"] = client.State.Connected, ["sync"] = client.State.SyncStatus, ["session"] = client.State.SessionId, ["users"] = client.State.Users.Count, ["items"] = client.State.Items.Count, ["media"] = media.Status }.ToJsonString());
         }
-        catch (Exception e) { Program.Log(e.ToString()); await File.WriteAllTextAsync(Path.Combine(directory, "error.txt"), e.ToString()); }
+        catch (Exception e) { Environment.ExitCode = 1; Program.Log(e.ToString()); await File.WriteAllTextAsync(Path.Combine(directory, "error.txt"), e.ToString()); await File.WriteAllTextAsync(Path.Combine(directory, "result.json"), new JsonObject { ["passed"] = false, ["error"] = e.Message }.ToJsonString()); }
         finally { await Shutdown(); }
     }
 }
