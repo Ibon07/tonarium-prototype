@@ -870,7 +870,9 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       const members = convMembers(msg.conv);
       if (!members?.includes(me.name)) return true;
       const text = trimTo(msg.text, 2000);
-      const voice = msg.voice && MEDIA_URL_RE.test(msg.voice.url) && msg.voice.url.endsWith('.webm') && mediaExists(msg.voice.url)
+      // Browsers record WebM/Opus; the native Windows client records AAC in MP4.
+      // Both must still reference an uploaded file whose content type was sniffed.
+      const voice = msg.voice && MEDIA_URL_RE.test(msg.voice.url) && /\.(webm|mp4)$/.test(msg.voice.url) && mediaExists(msg.voice.url)
         ? { url: msg.voice.url, sec: Math.max(1, Math.min(120, Math.round(Number(msg.voice.sec) || 1))) } : undefined;
       const media = chatMedia(msg.media);
       const at = Number(msg.plan?.at);
