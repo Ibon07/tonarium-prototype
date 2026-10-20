@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { useStore, type HomePage, type Notice } from '../store.ts';
-import { sortByFriends } from '../../../shared/home.ts';
-import { friendAccept, markNoticesRead, removeNotice } from '../actions.ts';
+import { createPortal } from 'react-dom';
+import { get, unreadOf, useStore, type HomePage, type Notice } from '../store.ts';
+import { sortForHome } from '../../../shared/home.ts';
+import { dmPeer, type Group, type Message } from '../../../shared/protocol.ts';
+import { friendAccept, markNoticesRead, markRead, openDm, openGroup, removeNotice } from '../actions.ts';
 import { ProfileDialog } from '../Profile.tsx';
 import { Face } from '../world/common.tsx';
 import { Icon, type IconName } from '../world/Icon.tsx';
@@ -9,6 +11,9 @@ import { acceptInvite, inviteTarget } from '../world/NoticeLog.tsx';
 import { SessionCard } from './SessionCard.tsx';
 import { CreateSessionDialog } from './dialogs.tsx';
 import { EventsPage, FriendTile, FriendsPage, GroupsPage, ItemsPage, SessionsPage, WorldsPage, goHome } from './pages.tsx';
+import { GroupPage } from './GroupPage.tsx';
+import { MessageView } from './messages.tsx';
+import { StatusDialog, StatusDot, StatusText, useStatusOf } from './status.tsx';
 import { Empty, NameFace, WEEKDAYS, dateKey, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
 
 const NAV: { page: HomePage; name: string; icon: IconName }[] = [
@@ -22,6 +27,26 @@ const NAV: { page: HomePage; name: string; icon: IconName }[] = [
 ];
 
 const WEEK = 7 * 86_400_000;
+
+/** 自分が入っている会話のうち、読んでいないものがあるもの（新しい順） */
+function useUnreadConvs() {
+  const inbox = useStore((s) => s.inbox);
+  useStore((s) => s.reads);
+  const s = get();
+  return Object.keys(inbox).filter((c) => unreadOf(s, c) > 0).sort((a, b) => (inbox[b].at(-1)?.at ?? 0) - (inbox[a].at(-1)?.at ?? 0));
+}
+const groupOfConv = (groups: Group[], conv: string) => groups.find((g) => g.id === conv.split(':')[1]);
+function openConv(conv: string) {
+  const s = get();
+  if (conv.startsWith('dm:')) openDm(dmPeer(conv, s.selfName));
+  else { const [, g, ch] = conv.split(':'); openGroup(g, ch); }
+}
+function convTitle(conv: string, groups: Group[], selfName: string) {
+  if (conv.startsWith('dm:')) return `${dmPeer(conv, selfName)} · DM`;
+  const g = groupOfConv(groups, conv);
+  const ch = g?.channels.find((c) => c.id === conv.split(':')[2]);
+  return `${g?.name ?? '？'} #${ch?.name ?? ''}`;
+}
 const useUpcoming = () => useStore((s) => s.events).filter((e) => e.at > Date.now() - 3_600_000 && e.at < Date.now() + WEEK);
 
 function Sidebar() {
@@ -31,8 +56,13 @@ function Sidebar() {
   const onlineFriends = useOnlineFriends().length;
   const upcoming = useUpcoming().length;
   const myGroups = useMyGroups();
+  const homeGroup = useStore((s) => s.homeGroup);
+  const unread = useUnreadConvs();
+  const unreadDm = unread.filter((c) => c.startsWith('dm:')).length;
+  const st = useStatusOf(selfName);
   const [profile, setProfile] = useState(false);
-  const badge = { friends: onlineFriends, events: upcoming } as Partial<Record<HomePage, number>>;
+  const [status, setStatus] = useState(false);
+  const badge = { friends: unreadDm || onlineFriends, events: upcoming } as Partial<Record<HomePage, number>>;
   return (
     <nav className="hside">
       <div className="hbrand"><img src="/brand/mark.png" alt="" /><b>トナリウム</b></div>
@@ -41,7 +71,7 @@ function Sidebar() {
           <li key={n.page}>
             <button className={`ib hnavbtn ${page === n.page ? 'on' : ''}`} onClick={() => goHome(n.page)}>
               <Icon name={n.icon} size={18} />{n.name}
-              {!!badge[n.page] && <span className="hbadge">{badge[n.page]}</span>}
+              {!!badge[n.page] && <span className={`hbadge ${n.page === 'friends' && unreadDm ? 'red' : ''}`}>{badge[n.page]}</span>}
             </button>
           </li>
         ))}
@@ -50,16 +80,28 @@ function Sidebar() {
         <span className="hlabel">所属グループ</span>
         <div className="hgroups">
           {myGroups.length === 0 && <span className="sub">なし</span>}
-          {myGroups.map((g) => <button key={g.id} className="gmark" style={{ background: g.color }} title={g.name} onClick={() => goHome('groups')}>{g.name.slice(0, 1)}</button>)}
+          {myGroups.map((g) => {
+            const has = unread.some((c) => c.startsWith(`ch:${g.id}:`));
+            const on = page === 'group' && homeGroup === g.id;
+            return (
+              <button key={g.id} className={`gmark ${on ? 'on' : ''}`} style={{ background: g.color }} title={g.name} aria-label={`${g.name}${has ? '（未読あり）' : ''}`} onClick={() => openGroup(g.id)}>
+                {g.name.slice(0, 1)}{has && <i className="gunread" />}
+              </button>
+            );
+          })}
         </div>
       </div>
       <span className="spacer" />
-      <button className="ib hself" onClick={() => setProfile(true)} title="アイコン・3D アバター・自己紹介を設定">
-        <span className="fface"><Face id={selfId} name={selfName} size={36} /><i className="fdot on" /></span>
-        <span className="finfo"><b>{selfName}</b><span className="sub">オンライン</span></span>
-        <Icon name="settings" size={18} />
-      </button>
-      {profile && <ProfileDialog name={selfName} onClose={() => setProfile(false)} />}
+      <div className="hself">
+        <button className="ib hselfst" onClick={() => setStatus(true)} title="ステータスを変える">
+          <span className="fface"><Face id={selfId} name={selfName} size={36} /><StatusDot st={st} /></span>
+          <span className="finfo"><b>{selfName}</b><StatusText st={st} /></span>
+        </button>
+        <button className="ib" aria-label="プロフィールを設定" title="アイコン・3D アバター・自己紹介を設定" onClick={() => setProfile(true)}><Icon name="settings" size={18} /></button>
+      </div>
+      {/* 追従するサイドバーの中だと前面に出ないので、body に出す */}
+      {profile && createPortal(<ProfileDialog name={selfName} onClose={() => setProfile(false)} />, document.body)}
+      {status && createPortal(<StatusDialog onClose={() => setStatus(false)} />, document.body)}
     </nav>
   );
 }
@@ -71,19 +113,19 @@ function NoticeItem({ n }: { n: Notice }) {
     <div className="hnotice">
       <Face id={n.from} name={n.fromName} size={28} />
       <span className="ntext">
-        <span><b>{n.fromName}</b>{n.kind === 'friend' ? ' からフレンド申請' : ` が${target ? `「${target.name}」` : '（もう無いもの）'}に誘っています`}</span>
+        <span><b>{n.fromName}</b>{n.kind === 'friend' ? ' からフレンド申請' : n.kind === 'online' ? ' がオンラインになりました' : ` が${target ? `「${target.name}」` : '（もう無いもの）'}に誘っています`}</span>
         <span className="sub">{timeLabel(n.at)}</span>
       </span>
-      {n.kind === 'friend'
-        ? <button className="primary" onClick={() => friendAccept(n.from, n.id)}>承認</button>
-        : <button className="primary" disabled={!target} onClick={() => acceptInvite(n)}>{isGroup ? '入る' : '参加'}</button>}
+      {n.kind === 'friend' && <button className="primary" onClick={() => friendAccept(n.from, n.id)}>承認</button>}
+      {n.kind === 'invite' && <button className="primary" disabled={!target} onClick={() => acceptInvite(n)}>{isGroup ? '入る' : '参加'}</button>}
+      {n.kind === 'online' && <button className="primary" onClick={() => { openDm(n.fromName); removeNotice(n.id); }}>メッセージ</button>}
       <button className="ib" aria-label="消す" onClick={() => removeNotice(n.id)}><Icon name="close" size={14} /></button>
     </div>
   );
 }
 
 function Bell() {
-  const notices = useStore((s) => s.notices).filter((n) => n.kind === 'friend' || n.kind === 'invite');
+  const notices = useStore((s) => s.notices).filter((n) => n.kind === 'friend' || n.kind === 'invite' || n.kind === 'online');
   const unread = notices.some((n) => n.unread);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -151,16 +193,100 @@ function EventsPanel() {
 
 const match = (q: string, ...texts: (string | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q.toLowerCase()));
 
+function Okaeri() {
+  const lastSeen = useStore((s) => s.lastSeen);
+  const inbox = useStore((s) => s.inbox);
+  const groups = useStore((s) => s.groups);
+  const selfName = useStore((s) => s.selfName);
+  const events = useStore((s) => s.events);
+  const unread = useUnreadConvs();
+  const [hidden, setHidden] = useState(false);
+  if (!lastSeen || hidden) return null;
+  const mine = (conv: string) => conv.startsWith('ch:');
+  const since = (m: Message) => m.at > lastSeen;
+  const recaps = Object.entries(inbox).filter(([c]) => mine(c)).flatMap(([c, l]) => l.filter((m) => m.recap && since(m)).map((m) => ({ c, m })));
+  const plans = Object.entries(inbox).flatMap(([c, l]) => l.filter((m) => m.plan && !m.plan.event && m.plan.at > Date.now() && !m.plan.answers[selfName]).map((m) => ({ c, m })));
+  const newEvents = events.filter((e) => e.at > Date.now() && e.attendees.length && !e.attendees.includes(selfName) && !e.maybe.includes(selfName) && !e.declined.includes(selfName) && groups.some((g) => g.id === e.group && g.members.includes(selfName)));
+  if (!unread.length && !recaps.length && !plans.length && !newEvents.length) return null;
+  const hours = Math.max(1, Math.round((Date.now() - lastSeen) / 3_600_000));
+  const names = [...new Set(unread.map((c) => convTitle(c, groups, selfName).replace(' · DM', '')))].slice(0, 3).join('・');
+  return (
+    <section className="okaeri" aria-labelledby="okaeri">
+      <div className="row wrap">
+        <h2 id="okaeri">おかえりなさい</h2>
+        <span className="sub">{hours < 48 ? `${hours} 時間ぶり` : `${Math.round(hours / 24)} 日ぶり`}。いない間に：</span>
+        <span className="spacer" />
+        <button className="small" onClick={() => { for (const c of unread) markRead(c); setHidden(true); }}>既読にする</button>
+      </div>
+      <div className="okcards">
+        {unread.length > 0 && (
+          <button className="ib okcard msg" onClick={() => openConv(unread[0])}>
+            <span className="okic"><Icon name="chat" size={16} /></span>
+            <span className="finfo"><b>未読のメッセージ {unread.length} 件</b><span className="sub">{names}</span></span>
+          </button>
+        )}
+        {recaps.length > 0 && (
+          <button className="ib okcard" onClick={() => openConv(recaps.at(-1)!.c)}>
+            <span className="okic"><Icon name="headset" size={16} /></span>
+            <span className="finfo"><b>セッションのまとめ {recaps.length} 件</b><span className="sub">{recaps.at(-1)!.m.recap!.sessionName}で {recaps.at(-1)!.m.recap!.people.length} 人</span></span>
+          </button>
+        )}
+        {plans.length > 0 && (
+          <button className="ib okcard plan" onClick={() => openConv(plans[0].c)}>
+            <span className="okic"><Icon name="calendar" size={16} /></span>
+            <span className="finfo"><b>日程の相談 {plans.length} 件</b><span className="sub">{plans[0].m.text || '集まり'} · {timeLabel(plans[0].m.plan!.at)}</span></span>
+          </button>
+        )}
+        {newEvents.length > 0 && (
+          <button className="ib okcard plan" onClick={() => goHome('events')}>
+            <span className="okic"><Icon name="calendar" size={16} /></span>
+            <span className="finfo"><b>返事していないイベント {newEvents.length} 件</b><span className="sub">{newEvents[0].title} · {timeLabel(newEvents[0].at)}</span></span>
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function UnreadMessages() {
+  const unread = useUnreadConvs();
+  const inbox = useStore((s) => s.inbox);
+  const groups = useStore((s) => s.groups);
+  const selfName = useStore((s) => s.selfName);
+  const reads = useStore((s) => s.reads);
+  if (!unread.length) return null;
+  return (
+    <section className="hsec">
+      <h2>未読のメッセージ <span className="sub">DM とグループのチャンネルから</span></h2>
+      <div className="ucards">
+        {unread.slice(0, 4).map((c) => {
+          const list = inbox[c].filter((m) => m.at > (reads[c] ?? 0) && m.from !== selfName);
+          const last = list.at(-1)!;
+          return (
+            <article key={c} className="ucard">
+              <div className="row"><b className="sub">{convTitle(c, groups, selfName)}</b><span className="spacer" />{list.length > 1 && <span className="sub">ほか {list.length - 1} 件</span>}</div>
+              <MessageView conv={c} m={last} />
+              <div className="row end"><button className="small" onClick={() => openConv(c)}>{c.startsWith('dm:') ? '返信' : '開く'}</button></div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function HomePageView({ q }: { q: string }) {
   const sessions = useStore((s) => s.guild.sessions);
   const users = useStore((s) => s.users);
   const friends = useStore((s) => s.friends);
   const onlineFriends = useOnlineFriends();
-  const sorted = sortByFriends(sessions.filter((d) => match(q, d.name, d.topic)), friends, users);
+  const sorted = sortForHome(sessions.filter((d) => match(q, d.name, d.topic)), friends, users);
   // 参加できるセッションの中にいないフレンド
   const idle = onlineFriends.filter((u) => !sessions.some((d) => d.id === u.session) && match(q, u.name));
   return (
     <>
+      {!q && <Okaeri />}
+      {!q && <UnreadMessages />}
       <section className="hsec">
         <h2>フレンドの今 <span className="sub">参加できるセッションを、フレンドが多い順に</span></h2>
         {sorted.length === 0 && <Empty>参加できるセッションがありません</Empty>}
@@ -180,13 +306,13 @@ export function Home() {
   const wsConnected = useStore((s) => s.wsConnected);
   const [q, setQ] = useState('');
   const [create, setCreate] = useState(false);
-  const title = NAV.find((n) => n.page === page)!.name;
+  const title = NAV.find((n) => n.page === page)?.name;
   return (
     <div className="home">
       <Sidebar />
       <main className="hmain">
         <header className="hhead">
-          <h1>{title}</h1>
+          {title && <h1>{title}</h1>}
           {!wsConnected && <span className="reconn">接続中…</span>}
           <span className="spacer" />
           <label className="hsearch"><Icon name="search" size={16} /><input value={q} placeholder="フレンド・ワールド・グループを検索" onChange={(e) => setQ(e.target.value)} /></label>
@@ -198,6 +324,7 @@ export function Home() {
         {page === 'sessions' && <SessionsPage q={q} />}
         {page === 'events' && <EventsPage q={q} />}
         {page === 'groups' && <GroupsPage q={q} />}
+        {page === 'group' && <GroupPage />}
         {page === 'worlds' && <WorldsPage q={q} />}
         {page === 'items' && <ItemsPage q={q} />}
       </main>

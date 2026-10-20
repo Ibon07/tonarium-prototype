@@ -1,5 +1,7 @@
 import type { ClientMsg, ServerMsg } from '../../../shared/protocol.ts';
 import { get, set, recompute, spawnPoint } from '../store.ts';
+
+const selfBusy = () => get().users.find((u) => u.id === get().selfId)?.status === 'busy';
 import { applyDelta } from '../items/actions.ts';
 import { onHit } from '../items/effects.ts';
 import { pushNotice } from '../actions.ts';
@@ -115,7 +117,8 @@ function onMessage(msg: ServerMsg) {
       const from = get().users.find((u) => u.id === msg.from);
       if (from && get().blocked.includes(from.name)) return;
       set((s) => ({ pokes: { ...s.pokes, [msg.to]: performance.now() } }));
-      if (msg.to === get().selfId) { pushNotice('poke', msg.from); playPoke(); }
+      // 取り込み中は音を鳴らさない
+      if (msg.to === get().selfId) { pushNotice('poke', msg.from); if (!selfBusy()) playPoke(); }
       return;
     }
     case 'sound':
@@ -174,6 +177,37 @@ function onMessage(msg: ServerMsg) {
       return;
     case 'invite':
       pushNotice('invite', msg.from, msg.fromName, `${msg.kind}:${msg.id}`);
+      return;
+    case 'inbox':
+      set((s) => ({
+        inbox: msg.convs, reads: msg.reads, people: Object.fromEntries(msg.people.map((p) => [p.name, p])),
+        watching: msg.watching, recentStatus: msg.recentStatus,
+        // 再接続やグループの出入りで届き直したときは、最初の「前回」を保つ
+        lastSeen: s.lastSeen === undefined ? msg.lastSeen : s.lastSeen,
+      }));
+      return;
+    case 'msg':
+      set((s) => {
+        const list = s.inbox[msg.conv] ?? [];
+        const i = list.findIndex((m) => m.id === msg.m.id);
+        const next = i >= 0 ? list.map((m, j) => (j === i ? msg.m : m)) : [...list, msg.m].slice(-300);
+        return { inbox: { ...s.inbox, [msg.conv]: next } };
+      });
+      return;
+    case 'read':
+      set((s) => ({ reads: { ...s.reads, [msg.conv]: Math.max(s.reads[msg.conv] ?? 0, msg.at) } }));
+      return;
+    case 'people':
+      set({ people: Object.fromEntries(msg.list.map((p) => [p.name, p])) });
+      return;
+    case 'watching':
+      set({ watching: msg.names, recentStatus: msg.recentStatus });
+      return;
+    case 'askJoin':
+      pushNotice('askJoin', msg.from, msg.fromName, `session:${msg.session}`);
+      return;
+    case 'online':
+      pushNotice('online', msg.from, msg.fromName);
       return;
   }
   recompute();

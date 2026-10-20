@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Mode, User } from '../../shared/protocol.ts';
+import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Message, Mode, Person, User } from '../../shared/protocol.ts';
 import { SPAWN } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
 import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
@@ -10,9 +10,9 @@ export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
 export type WinMode = 'simple' | 'free';
 /** ウィンドウのキー: share（画面共有）/ cam:<アイテムID> / view:<ユーザーID> / item:<アイテムID> */
 export interface Win { key: string; x: number; y: number }
-/** key は attention ならウィンドウのキー、invite なら session:<id> / group:<id> */
-export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention' | 'invite'; from: string; key?: string; fromName: string; at: number; unread: boolean }
-export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'worlds' | 'items';
+/** key は attention ならウィンドウのキー、invite なら session:<id> / group:<id>、askJoin なら session:<id> */
+export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean }
+export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items';
 
 interface State {
   selfId: string;
@@ -32,6 +32,23 @@ interface State {
   mode: Mode;
   /** セッション外で開いているホームのページ */
   homePage: HomePage;
+  /** group ページで開いているグループと、グループごとに開いているチャンネル */
+  homeGroup: string | null;
+  homeChannel: Record<string, string>;
+  /** フレンドページで DM を開いている相手の名前 */
+  dmWith: string | null;
+
+  /** DM とチャンネルのメッセージ（会話のキー → 古い順） */
+  inbox: Record<string, Message[]>;
+  /** 会話のキー → 読んだ時刻 */
+  reads: Record<string, number>;
+  /** フレンドとグループの仲間（オフラインの人のステータスもここから） */
+  people: Record<string, Person>;
+  /** 来たら知らせる をつけている相手 */
+  watching: string[];
+  recentStatus: string[];
+  /** 前回いなくなった時刻（おかえりのまとめに使う）。まだ届いていなければ undefined */
+  lastSeen: number | null | undefined;
 
   // 以下は参加中セッションの分だけを recompute() で切り出したもの
   participants: User[];
@@ -137,6 +154,15 @@ export const useStore = create<State>(() => ({
   session: null,
   mode: '2d',
   homePage: 'home',
+  homeGroup: null,
+  homeChannel: {},
+  dmWith: null,
+  inbox: {},
+  reads: {},
+  people: {},
+  watching: [],
+  recentStatus: [],
+  lastSeen: undefined,
   participants: [],
   avatars: {},
   items: {},
@@ -236,4 +262,10 @@ export const gameOfSession = (s = get()) => (s.session && s.games[s.session]) ||
 
 export function showToast(text: string) {
   set({ toast: { text, at: Date.now() } });
+}
+
+/** 自分以外の人が送った、読んでいないメッセージの数 */
+export function unreadOf(s: { inbox: Record<string, Message[]>; reads: Record<string, number>; selfName: string }, conv: string) {
+  const read = s.reads[conv] ?? 0;
+  return (s.inbox[conv] ?? []).filter((m) => m.at > read && m.from !== s.selfName).length;
 }

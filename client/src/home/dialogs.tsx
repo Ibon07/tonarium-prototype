@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../store.ts';
 import type { Group, Visibility } from '../../../shared/protocol.ts';
-import { VISIBILITY_INFO } from '../../../shared/protocol.ts';
+import { VISIBILITY_INFO, isGroupVisibility } from '../../../shared/protocol.ts';
 import { GROUP_COLORS } from '../../../shared/home.ts';
 import { WORLDS, WORLD_KINDS, type WorldKind } from '../../../shared/worlds.ts';
 import { createEvent, createGroup, createSession, invite } from '../actions.ts';
@@ -19,17 +19,19 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-export function CreateSessionDialog({ world: initial = 'room', onClose }: { world?: WorldKind; onClose: () => void }) {
+/** group を渡すと、そのグループのセッションとして作る */
+export function CreateSessionDialog({ world: initial = 'room', group: fixedGroup, onClose }: { world?: WorldKind; group?: string; onClose: () => void }) {
   const myGroups = useMyGroups();
   const [name, setName] = useState('');
   const [topic, setTopic] = useState('');
   const [world, setWorld] = useState<WorldKind>(initial);
-  const [visibility, setVisibility] = useState<Visibility>('public');
-  const [group, setGroup] = useState(myGroups[0]?.id ?? '');
-  const ok = !!name.trim() && (visibility !== 'group' || !!group);
+  const [visibility, setVisibility] = useState<Visibility>(fixedGroup ? 'group' : 'public');
+  const [group, setGroup] = useState(fixedGroup ?? myGroups[0]?.id ?? '');
+  const groupVis = isGroupVisibility(visibility);
+  const ok = !!name.trim() && (!groupVis || !!group);
   const submit = () => {
     if (!ok) return;
-    createSession(name, topic, world, visibility, visibility === 'group' ? group : undefined);
+    createSession(name, topic, world, visibility, groupVis ? group : undefined);
     onClose();
   };
   return (
@@ -46,13 +48,13 @@ export function CreateSessionDialog({ world: initial = 'room', onClose }: { worl
       <div className="hfield">公開範囲
         <div className="hchoices">
           {(Object.keys(VISIBILITY_INFO) as Visibility[]).map((v) => (
-            <button key={v} className={`hchoice ${visibility === v ? 'on' : ''}`} disabled={v === 'group' && !myGroups.length} onClick={() => setVisibility(v)}>
-              <b>{VISIBILITY_INFO[v].name}</b><span className="sub wrap">{v === 'group' && !myGroups.length ? 'グループに入ると選べます' : VISIBILITY_INFO[v].desc}</span>
+            <button key={v} className={`hchoice ${visibility === v ? 'on' : ''}`} disabled={isGroupVisibility(v) && !myGroups.length} onClick={() => setVisibility(v)}>
+              <b>{VISIBILITY_INFO[v].name}</b><span className="sub wrap">{isGroupVisibility(v) && !myGroups.length ? 'グループに入ると選べます' : VISIBILITY_INFO[v].desc}</span>
             </button>
           ))}
         </div>
       </div>
-      {visibility === 'group' && (
+      {groupVis && !fixedGroup && (
         <label className="hfield">グループ
           <select value={group} onChange={(e) => setGroup(e.target.value)}>{myGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select>
         </label>

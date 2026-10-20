@@ -1,50 +1,119 @@
 import { useState } from 'react';
-import { set, useStore, type HomePage } from '../store.ts';
-import type { EventDef, Group } from '../../../shared/protocol.ts';
+import { set, unreadOf, useStore, type HomePage } from '../store.ts';
+import { dmKey, type EventDef, type Group } from '../../../shared/protocol.ts';
 import { ITEM_INFO, type ItemKind } from '../../../shared/items.ts';
 import { WORLDS, WORLD_KINDS, type WorldKind } from '../../../shared/worlds.ts';
-import { attendEvent, deleteEvent, deleteGroup, joinGroup, joinSession, leaveGroup } from '../actions.ts';
+import { askJoin, deleteEvent, deleteGroup, joinGroup, joinSession, leaveGroup, openDm, openGroup, watchFriend } from '../actions.ts';
 import { Face } from '../world/common.tsx';
 import { Icon } from '../world/Icon.tsx';
 import { SessionCard } from './SessionCard.tsx';
 import { CreateEventDialog, CreateGroupDialog, CreateSessionDialog, InviteFriendDialog, InviteToGroupDialog } from './dialogs.tsx';
-import { Chip, Empty, ModeIcon, NameFace, dateKey, timeLabel, uniqueByName, WEEKDAYS } from './common.tsx';
+import { Chip, Empty, EventAnswer, ModeIcon, NameFace, dateKey, timeLabel, uniqueByName, WEEKDAYS } from './common.tsx';
+import { Composer, Thread } from './messages.tsx';
+import { StatusDot, StatusText, useStatusOf } from './status.tsx';
 
 const match = (q: string, ...texts: (string | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q.toLowerCase()));
 
-export function FriendTile({ u, children }: { u: { id: string; name: string; session?: string | null; mode?: '2d' | '3d'; sharing?: boolean }; children?: React.ReactNode }) {
-  const [inv, setInv] = useState(false);
-  const online = u.session !== undefined;
+type FriendLike = { id: string; name: string; session?: string | null; mode?: '2d' | '3d'; sharing?: boolean };
+
+/** フレンドのステータスに合わせた「参加する」「行ってもいい？」 */
+function JoinButton({ u }: { u: FriendLike }) {
+  const st = useStatusOf(u.name);
   const sess = useStore((s) => (u.session ? s.guild.sessions.find((d) => d.id === u.session) : undefined));
+  if (!st.online || !sess || st.status === 'busy') return null;
+  if (st.status === 'askMe') return <button className="finvite" onClick={() => askJoin(u.id)}>行ってもいい？</button>;
+  return <button className="finvite" onClick={() => joinSession(sess.id)}>参加する</button>;
+}
+
+export function FriendTile({ u, children }: { u: FriendLike; children?: React.ReactNode }) {
+  const [inv, setInv] = useState(false);
+  const st = useStatusOf(u.name);
+  const sess = useStore((s) => (u.session ? s.guild.sessions.find((d) => d.id === u.session) : undefined));
+  const where = u.session ? (sess ? `${sess.name} にいます` : '別のセッションにいます') : '';
   return (
     <div className="ftile">
-      <span className="fface"><Face id={u.id} name={u.name} size={36} /><i className={`fdot ${online ? 'on' : ''}`} /></span>
+      <span className="fface"><Face id={u.id} name={u.name} size={36} /><StatusDot st={st} /></span>
       <span className="finfo">
         <b>{u.name}</b>
-        <span className="sub">{!online ? 'オフライン' : u.session ? (sess ? `${sess.name} にいます` : '別のセッションにいます') : 'オンライン'}</span>
+        {where && <span className="sub">{where}</span>}
+        <StatusText st={st} />
       </span>
-      {online && u.mode && <ModeIcon mode={u.mode} sharing={!!u.sharing} />}
+      {st.online && u.mode && <ModeIcon mode={u.mode} sharing={!!u.sharing} />}
       {children}
-      {online && <button className="finvite" onClick={() => setInv(true)}>誘う</button>}
+      <JoinButton u={u} />
+      {st.online && st.status !== 'busy' && <button className="finvite" onClick={() => setInv(true)}>誘う</button>}
+      <button className="ib square" aria-label={`${u.name} にメッセージ`} title="メッセージ" onClick={() => openDm(u.name)}><Icon name="chat" size={16} /></button>
       {inv && <InviteFriendDialog to={u} onClose={() => setInv(false)} />}
     </div>
+  );
+}
+
+function FriendRow({ u, on }: { u: FriendLike; on: boolean }) {
+  const st = useStatusOf(u.name);
+  const unread = useStore((s) => unreadOf(s, dmKey(s.selfName, u.name)));
+  const sess = useStore((s) => (u.session ? s.guild.sessions.find((d) => d.id === u.session) : undefined));
+  return (
+    <button className={`ib frow ${on ? 'on' : ''}`} aria-current={on} onClick={() => set({ dmWith: u.name })}>
+      <span className="fface"><Face id={u.id} name={u.name} size={36} /><StatusDot st={st} /></span>
+      <span className="finfo">
+        <b>{u.name}</b>
+        {sess && <span className="sub">{sess.name} にいます</span>}
+        <StatusText st={st} />
+      </span>
+      {unread > 0 && <span className="badge">{unread}</span>}
+    </button>
+  );
+}
+
+function DmPane({ u }: { u: FriendLike }) {
+  const selfName = useStore((s) => s.selfName);
+  const watching = useStore((s) => s.watching.includes(u.name));
+  const st = useStatusOf(u.name);
+  const groups = useStore((s) => s.groups).filter((g) => g.members.includes(u.name) && g.members.includes(selfName));
+  const conv = dmKey(selfName, u.name);
+  return (
+    <aside className="dmpane" aria-label={`${u.name} とのやりとり`}>
+      <div className="dmhead">
+        <span className="fface"><Face id={u.id} name={u.name} size={48} /><StatusDot st={st} /></span>
+        <span className="finfo">
+          <b className="dmname">{u.name}</b>
+          <StatusText st={st} />
+          {groups.length > 0 && <span className="sub">同じグループ：{groups.map((g) => g.name).join('、')}</span>}
+        </span>
+        <span className="spacer" />
+        <JoinButton u={u} />
+        {!st.online && (
+          <button className={watching ? 'on' : ''} aria-pressed={watching} title="オンラインになったら 1 回だけ通知します" onClick={() => watchFriend(u.name, !watching)}>
+            <Icon name="bell" size={14} />{watching ? '知らせを待っています' : '来たら知らせる'}
+          </button>
+        )}
+      </div>
+      <Thread key={conv} conv={conv} empty={`${u.name} とのメッセージはまだありません。いなくても送っておけます`} />
+      <Composer conv={conv} placeholder={`${u.name} にメッセージを送信`} />
+    </aside>
   );
 }
 
 export function FriendsPage({ q }: { q: string }) {
   const users = useStore((s) => s.users);
   const friends = useStore((s) => s.friends);
-  const online = uniqueByName(users.filter((u) => friends.includes(u.name)));
-  const offline = friends.filter((n) => !online.some((u) => u.name === n));
-  const list = [...online.map((u) => ({ id: u.id, name: u.name, session: u.session, mode: u.mode, sharing: u.sharing })), ...offline.map((n) => ({ id: n, name: n }))]
-    .filter((u) => match(q, u.name));
+  const dmWith = useStore((s) => s.dmWith);
+  const online: FriendLike[] = uniqueByName(users.filter((u) => friends.includes(u.name))).map((u) => ({ id: u.id, name: u.name, session: u.session, mode: u.mode, sharing: u.sharing }));
+  const offline: FriendLike[] = friends.filter((n) => !online.some((u) => u.name === n)).map((n) => ({ id: n, name: n }));
+  const shown = (l: FriendLike[]) => l.filter((u) => match(q, u.name));
+  const selected = [...online, ...offline].find((u) => u.name === dmWith) ?? online[0] ?? offline[0];
+  if (friends.length === 0) return <Empty>まだフレンドがいません。セッションの中で相手のプロフィールからフレンド申請できます</Empty>;
   return (
-    <section className="hsec">
-      <h2>フレンド <span className="sub">オンライン {online.length} 人 / {friends.length} 人</span></h2>
-      {friends.length === 0 && <Empty>まだフレンドがいません。セッションの中で相手のプロフィールからフレンド申請できます</Empty>}
-      {friends.length > 0 && list.length === 0 && <Empty>見つかりません</Empty>}
-      <div className="ftiles">{list.map((u) => <FriendTile key={u.id} u={u} />)}</div>
-    </section>
+    <div className="fpage">
+      <section className="flist" aria-label="フレンド一覧">
+        {shown(online).length > 0 && <span className="hlabel">オンライン</span>}
+        {shown(online).map((u) => <FriendRow key={u.name} u={u} on={u.name === selected?.name} />)}
+        {shown(offline).length > 0 && <span className="hlabel">オフライン</span>}
+        {shown(offline).map((u) => <FriendRow key={u.name} u={u} on={u.name === selected?.name} />)}
+        {shown(online).length + shown(offline).length === 0 && <Empty>見つかりません</Empty>}
+      </section>
+      {selected && <DmPane key={selected.name} u={selected} />}
+    </div>
   );
 }
 
@@ -68,7 +137,6 @@ function EventRow({ ev }: { ev: EventDef }) {
   const friends = useStore((s) => s.friends);
   const group = useStore((s) => s.groups.find((g) => g.id === ev.group));
   const session = useStore((s) => s.guild.sessions.find((d) => d.id === ev.session));
-  const going = ev.attendees.includes(selfName);
   const past = ev.at < Date.now() - 3_600_000 * 3;
   return (
     <div className={`evrow ${past ? 'past' : ''}`}>
@@ -81,12 +149,12 @@ function EventRow({ ev }: { ev: EventDef }) {
         </span>
         <span className="evfaces">
           {ev.attendees.slice(0, 8).map((n) => <NameFace key={n} name={n} size={20} />)}
-          <span className="sub">{ev.attendees.length} 人{ev.attendees.some((n) => friends.includes(n)) && `（フレンド ${ev.attendees.filter((n) => friends.includes(n)).length} 人）`}</span>
+          <span className="sub">来る {ev.attendees.length} · たぶん {ev.maybe.length}{ev.attendees.some((n) => friends.includes(n)) && `（フレンド ${ev.attendees.filter((n) => friends.includes(n)).length} 人）`}</span>
         </span>
       </span>
       <span className="row">
         {session && !past && <button className="primary" onClick={() => joinSession(session.id)}>会場へ</button>}
-        <button className={going ? '' : 'dark'} onClick={() => attendEvent(ev.id, !going)}>{going ? '参加をやめる' : '参加する'}</button>
+        <EventAnswer ev={ev} />
         {ev.owner === selfName && <button className="ib" title="このイベントを消す" onClick={() => deleteEvent(ev.id)}><Icon name="trash" size={14} /></button>}
       </span>
     </div>
@@ -127,7 +195,7 @@ function GroupRow({ g }: { g: Group }) {
     <div className="grow">
       <span className="gmark" style={{ background: g.color }}>{g.name.slice(0, 1)}</span>
       <span className="ginfo">
-        <b>{g.name}</b>
+        <button className="ib glink" onClick={() => openGroup(g.id)}><b>{g.name}</b><Icon name="right" size={13} /></button>
         <span className="sub">{g.members.length} 人 · セッション {sessions.length} 件 · {g.owner} が作成</span>
         <span className="evfaces">{g.members.slice(0, 10).map((n) => <NameFace key={n} name={n} size={20} />)}{g.members.length > 10 && <span className="sub">ほか {g.members.length - 10} 人</span>}</span>
       </span>

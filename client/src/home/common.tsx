@@ -1,5 +1,6 @@
 import { useStore } from '../store.ts';
-import type { Mode, User } from '../../../shared/protocol.ts';
+import { RSVP_LABEL, type EventDef, type Mode, type Rsvp, type User } from '../../../shared/protocol.ts';
+import { answerEvent } from '../actions.ts';
 import { Face } from '../world/common.tsx';
 import { Icon } from '../world/Icon.tsx';
 
@@ -58,3 +59,18 @@ export function timeLabel(at: number) {
 }
 
 export const dateKey = (at: number) => { const d = new Date(at); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; };
+
+const ANSWER_OF: Record<Rsvp, 'attendees' | 'maybe' | 'declined'> = { yes: 'attendees', maybe: 'maybe', no: 'declined' };
+
+/** イベントへの返事。押し直すと取り消す */
+export function EventAnswer({ ev }: { ev: EventDef }) {
+  const selfName = useStore((s) => s.selfName);
+  const mine = (Object.keys(ANSWER_OF) as Rsvp[]).find((a) => ev[ANSWER_OF[a]].includes(selfName));
+  return (
+    <span className="planbtns" role="group" aria-label="返事">
+      {(Object.keys(RSVP_LABEL) as Rsvp[]).map((a) => (
+        <button key={a} className={mine === a ? 'on' : ''} aria-pressed={mine === a} onClick={() => answerEvent(ev.id, mine === a ? null : a)}>{RSVP_LABEL[a]}</button>
+      ))}
+    </span>
+  );
+}

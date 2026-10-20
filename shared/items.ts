@@ -313,3 +313,21 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
   item.updatedBy = userId;
   return true;
 }
+
+/** セッションに残っているアイテムのひとこと（セッションカードやまとめに出す）。言うことがなければ null */
+export function itemSummary(it: Item): string | null {
+  switch (it.kind) {
+    case 'chess':
+    case 'chessAi': {
+      const n = it.chess.moves.length;
+      return n ? `盤面が途中（${n} 手目）` : null;
+    }
+    case 'g2048': return it.score > 0 && !it.over ? `2048 が途中（スコア ${it.score}）` : null;
+    case 'note': return it.text.trim() ? `付箋「${it.text.trim().split('\n')[0].slice(0, 16)}」` : null;
+    case 'canvas': return it.strokes.length ? 'お絵描き' : null;
+    case 'image': return '写真';
+    case 'video': return '動画';
+    case 'youtube': return it.title ? `YouTube「${it.title.slice(0, 20)}」` : 'YouTube';
+    default: return null;
+  }
+}
