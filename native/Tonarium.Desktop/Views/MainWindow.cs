@@ -70,6 +70,7 @@ public sealed class MainWindow : Window
         threeD.InputStateChanged += locked =>
         {
             room?.SetWorldInputLocked(locked);
+            threeDOverlay?.SetInputLocked(locked);
             threeDOverlay?.RefreshRegion();
             unitySurface?.SetInputLocked(locked);
         };
@@ -85,7 +86,7 @@ public sealed class MainWindow : Window
         {
             if(e.Key!=Key.Escape)return;
             if(context.HomeIsOpen){CloseHome();e.Handled=true;}
-            else if(threeD.IsRunning){room?.SetWorldInputLocked(false);_ = threeD.ReleaseInputAsync();e.Handled=true;}
+            else if(threeD.IsRunning){ReleaseWorldInput();e.Handled=true;}
         }
         root.AddHandler(KeyDownEvent, Escape, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, Escape, Avalonia.Interactivity.RoutingStrategies.Tunnel);
@@ -218,6 +219,7 @@ public sealed class MainWindow : Window
                 {
                     room ??= new RoomView(context);
                     unitySurface = new UnitySurface();
+                    unitySurface.InputCaptureLost += ReleaseWorldInput;
                     unitySurface.ClientSizeChanged += (width, height) => _ = threeD.ResizeAsync(width, height, RenderScaling);
                     Content = null;
                     room.SetExternalScene(true);
@@ -314,8 +316,16 @@ public sealed class MainWindow : Window
         overlayView!.Navigate(route); overlayView.Refresh(); UpdateSessionSummary();
         overlayView.Focus();
         if(threeDOverlay is null)unitySurface?.SetCovered(true);
-        _ = threeD.ReleaseInputAsync();
+        ReleaseWorldInput();
         threeDOverlay?.RefreshRegion();
+    }
+
+    private void ReleaseWorldInput()
+    {
+        unitySurface?.SetInputLocked(false);
+        threeDOverlay?.SetInputLocked(false);
+        room?.SetWorldInputLocked(false);
+        _ = threeD.ReleaseInputAsync();
     }
 
     private void UpdateSessionSummary()

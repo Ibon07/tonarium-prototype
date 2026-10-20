@@ -69,6 +69,24 @@ namespace Tonarium.UnityClient
                     camera.transform.position=new Vector3(-2.5f,2.7f,6.5f); camera.transform.LookAt(new Vector3(0,1.1f,2)); camera.Render();
                     texture.ReadPixels(new Rect(0,0,1280,960),0,0); texture.Apply(); File.WriteAllBytes(Path.Combine(output,"note-back.png"),texture.EncodeToPNG());
                 }
+                if(kind=="canvas")
+                {
+                    var receive=typeof(TonariumWorld).GetMethod("Receive",BindingFlags.NonPublic|BindingFlags.Instance);
+                    var surface=root.GetComponentInChildren<ItemPanelSurface>();
+                    var originalTexture=surface.Texture;
+                    Action<JObject> delta=action=>receive.Invoke(world,new object[]{new JObject{["t"]="itemAction",["id"]=id,["by"]="canvas-probe",["action"]=action}});
+                    Func<int,int,Color> pixel=(x,y)=>surface.Texture.GetPixel(10+x,519-(58+y));
+                    delta(new JObject{["a"]="canvasClear"});
+                    if(pixel(100,150).r<.99f)throw new InvalidOperationException("canvas clear did not repaint");
+                    delta(new JObject{["a"]="strokeStart",["id"]="live-stroke",["color"]="#3b82f6",["size"]=10,["x"]=100,["y"]=150});
+                    if(pixel(100,150).b<.9f||pixel(100,150).r>.3f)throw new InvalidOperationException("canvas start did not repaint");
+                    delta(new JObject{["a"]="strokeAdd",["id"]="live-stroke",["pts"]=new JArray(200,150,300,250)});
+                    if(pixel(200,150).r>.3f||pixel(300,250).r>.3f)throw new InvalidOperationException("canvas add did not repaint");
+                    if(surface.Texture!=originalTexture||GameObject.Find("Item "+id)!=root)throw new InvalidOperationException("canvas delta replaced the drawing surface");
+                    checks.Add("canvas: live start/add/clear repaint the existing texture");
+                    camera.Render();texture.ReadPixels(new Rect(0,0,1280,960),0,0);texture.Apply();
+                    File.WriteAllBytes(Path.Combine(output,"canvas-live.png"),texture.EncodeToPNG());
+                }
                 Destroy(texture); RenderTexture.active=previous;
                 checks.Add(kind+": rendered"); root.SetActive(false); Destroy(root);
             }

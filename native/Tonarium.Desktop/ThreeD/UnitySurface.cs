@@ -18,6 +18,7 @@ public sealed class UnitySurface : NativeControlHost
     private readonly DispatcherTimer resizeTimer;
     public IntPtr Handle { get; private set; }
     public event Action<int, int>? ClientSizeChanged;
+    public event Action? InputCaptureLost;
 
     public UnitySurface()
     {
@@ -35,20 +36,20 @@ public sealed class UnitySurface : NativeControlHost
     public bool FocusPlayer()
     {
         if (focusBridge is null) return false;
-        focusBridge.ForwardOnHostFocus = true;
+        focusBridge.SetInputLocked(true);
         return focusBridge.FocusPlayer();
     }
 
     public void SetInputLocked(bool locked)
     {
         if (focusBridge is null) return;
-        focusBridge.ForwardOnHostFocus = locked;
-        if (locked) focusBridge.FocusPlayer();
+        focusBridge.SetInputLocked(locked);
     }
 
     public void SetCovered(bool value)
     {
         covered = value;
+        if (value) focusBridge?.SetInputLocked(false);
         IsVisible = !value;
         if (OperatingSystem.IsWindows() && Handle != IntPtr.Zero) Native.ShowWindow(Handle, value ? 0 : 5);
     }
@@ -71,6 +72,7 @@ public sealed class UnitySurface : NativeControlHost
             throw error;
         }
         focusBridge = new NativeChildFocusBridge(Handle, () => playerWindow);
+        focusBridge.InputCaptureLost += () => InputCaptureLost?.Invoke();
         ready.TrySetResult(Handle);
         resizeTimer.Start();
         return new PlatformHandle(Handle, "HWND");

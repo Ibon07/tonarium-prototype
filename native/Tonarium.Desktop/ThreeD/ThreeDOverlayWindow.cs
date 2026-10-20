@@ -12,6 +12,10 @@ public sealed class ThreeDOverlayWindow : Window
     private readonly Window ownerWindow;
     private readonly Func<IReadOnlyList<Rect>?> regions;
     private bool closed, updatingBounds, updateQueued, shown, allowClose;
+    private bool inputLocked;
+    private readonly Native.SubclassProc inputCallback;
+    private IntPtr inputHookWindow;
+    private static readonly UIntPtr InputSubclassId = new(0x544E4F49);
     private string regionSignature = "";
 
     /// <param name="regions">HUD rectangles in this window's client DIP coordinates; null covers the whole client, an empty list passes all input to Unity.</param>
@@ -19,6 +23,7 @@ public sealed class ThreeDOverlayWindow : Window
     {
         ownerWindow = owner;
         this.regions = regions;
+        inputCallback = InputWindowProcedure;
         Title = owner.Title;
         Content = content;
         Background = Brushes.Transparent;
@@ -37,7 +42,7 @@ public sealed class ThreeDOverlayWindow : Window
         owner.Closed += OwnerClosed;
         LayoutUpdated += (_, _) => RefreshRegion();
         ScalingChanged += (_, _) => { regionSignature = ""; RefreshRegion(); };
-        Opened += (_, _) => { SynchronizeBounds(); RefreshRegion(); };
+        Opened += (_, _) => { ApplyInputMode(); SynchronizeBounds(); RefreshRegion(); };
         Closing += (_, e) =>
         {
             if (allowClose) return;
@@ -69,6 +74,35 @@ public sealed class ThreeDOverlayWindow : Window
             updateQueued = false;
             if (!closed) ApplyRegion();
         }, DispatcherPriority.Render);
+    }
+
+    /// <summary>Keep drawing the HUD while all pointer and activation input goes to Unity.</summary>
+    public void SetInputLocked(bool locked)
+    {
+        if (closed || inputLocked == locked) return;
+        inputLocked = locked;
+        IsHitTestVisible = !locked;
+        ApplyInputMode();
+    }
+
+    private void ApplyInputMode()
+    {
+        var hwnd = Hwnd(this);
+        if (hwnd == IntPtr.Zero) return;
+        if (inputHookWindow == IntPtr.Zero && Native.SetWindowSubclass(hwnd, inputCallback, InputSubclassId, UIntPtr.Zero)) inputHookWindow = hwnd;
+        const long transparent = 0x20, noActivate = 0x08000000;
+        var style = Native.GetWindowLongPtr(hwnd, -20).ToInt64();
+        style = inputLocked ? style | transparent | noActivate : style & ~(transparent | noActivate);
+        Native.SetWindowLongPtr(hwnd, -20, new IntPtr(style));
+        Native.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020);
+    }
+
+    private IntPtr InputWindowProcedure(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data)
+    {
+        // 領域は描画用に残す。ロック中のHUDがカーソルやフォーカスを奪わないよう入力だけ通す。
+        if (inputLocked && message == 0x0084) return new IntPtr(-1); // HTTRANSPARENT
+        if (inputLocked && message == 0x0021) return new IntPtr(3); // MA_NOACTIVATE
+        return Native.DefSubclassProc(hwnd, message, wParam, lParam);
     }
 
     /// <summary>Return the same control tree to the main window when leaving 3D.</summary>
@@ -170,6 +204,8 @@ public sealed class ThreeDOverlayWindow : Window
     {
         if (closed) return;
         closed = true;
+        if (inputHookWindow != IntPtr.Zero) Native.RemoveWindowSubclass(inputHookWindow, inputCallback, InputSubclassId);
+        inputHookWindow = IntPtr.Zero;
         ownerWindow.PositionChanged -= OwnerPositionChanged;
         ownerWindow.SizeChanged -= OwnerSizeChanged;
         ownerWindow.ScalingChanged -= OwnerScalingChanged;
@@ -186,6 +222,12 @@ public sealed class ThreeDOverlayWindow : Window
 
     private static class Native
     {
+        internal delegate IntPtr SubclassProc(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data);
+        [DllImport("comctl32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool SetWindowSubclass(IntPtr hwnd, SubclassProc callback, UIntPtr id, UIntPtr data);
+        [DllImport("comctl32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool RemoveWindowSubclass(IntPtr hwnd, SubclassProc callback, UIntPtr id);
+        [DllImport("comctl32.dll")] internal static extern IntPtr DefSubclassProc(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] internal static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] internal static extern IntPtr SetWindowLongPtr(IntPtr hwnd, int index, IntPtr value);
         [StructLayout(LayoutKind.Sequential)] internal struct Rect { public int Left, Top, Right, Bottom; }
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool GetClientRect(IntPtr window, out Rect rect);
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);

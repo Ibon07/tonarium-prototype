@@ -341,6 +341,14 @@ public sealed class TonariumClient : IAsyncDisposable
         try
         {
             if (generation != roomGeneration) return;
+            // サーバーは描いた本人へ差分を返さないため、Web版と同じく手元にも適用する。
+            if (type == "itemAction" && message["action"] is JsonObject action &&
+                Text(action, "a") is "strokeStart" or "strokeAdd" or "canvasClear")
+            {
+                var local = (JsonObject)message.DeepClone();
+                local["sid"] = State.SessionId; local["by"] = State.SelfId;
+                await UiAsync(() => ApplyMessage(local), false);
+            }
             var position = type == "avatar";
             var sequence = position ? ++positionSequence : ++sendSequence;
             var packet = SessionPacket.Seal(Convert.FromBase64String(Text(config, "key")), Text(config, "token"), position ? "client-position" : "client", sequence, message);
