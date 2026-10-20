@@ -709,6 +709,18 @@ img.av { object-fit: cover; display: block; }
 .finvite { height: 32px; padding: 0 14px; border-radius: 10px; font-size: 13px; font-weight: 700; }
 
 .hevents { width: 300px; }
+.hwhead { position: relative; display: flex; align-items: center; gap: 2px; padding-bottom: 4px; }
+.hwtitle { height: 36px; padding: 4px 6px; border-radius: 10px; font-size: 17px; font-family: "Zen Maru Gothic", sans-serif; gap: 4px; min-width: 0; }
+.hwtitle b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hwhead .hiconbtn { width: 32px; height: 32px; padding: 0; border-radius: 8px; margin-left: auto; }
+.hwmenu { position: absolute; left: 0; top: 40px; z-index: 5; min-width: 220px; background: #fff; border-radius: 14px; box-shadow: var(--pop); padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.hwmenu button { height: 36px; justify-content: space-between; padding: 0 10px; border-radius: 9px; font-size: 13px; width: 100%; }
+.hwlist { display: flex; flex-direction: column; gap: 4px; }
+.hwrow { height: auto; padding: 8px; border-radius: 12px; justify-content: flex-start; gap: 10px; text-align: left; width: 100%; }
+.hwrow .finfo { flex: 1; }
+.hwrow .finfo b { font-size: 13px; }
+.hwthumb { width: 40px; height: 32px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted2); flex: none; }
+.hhere.small { height: 24px; padding: 0 8px; font-size: 11px; }
 .hevtitle { height: auto; padding: 4px 6px; font-size: 17px; gap: 4px; align-self: flex-start; }
 .hweek { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; padding: 6px 0 10px; }
 .hday { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0; border-radius: 10px; font-size: 13px; position: relative; }

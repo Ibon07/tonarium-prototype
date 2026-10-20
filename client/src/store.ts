@@ -13,6 +13,8 @@ export interface Win { key: string; x: number; y: number }
 /** key は attention ならウィンドウのキー、invite なら session:<id> / group:<id>、askJoin なら session:<id> */
 export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean }
 export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items';
+/** ホームの右の欄に出すもの */
+export type SideWidget = 'now' | 'events' | 'sessions' | 'worlds' | 'items';
 
 interface State {
   selfId: string;
@@ -78,6 +80,7 @@ interface State {
   volumes: Record<string, number>;
   /** セッション中にホームを重ねて開いている */
   hubOpen: boolean;
+  sideWidget: SideWidget;
   /** セッションの外で選んでおく、次に入るときのモード */
   joinMode: Mode;
   /** サイコロを振る種類・個数（手元に保存） */
@@ -193,6 +196,7 @@ export const useStore = create<State>(() => ({
   loadScale: load('tonarium.loadScale', 1),
   volumes: {},
   hubOpen: false,
+  sideWidget: load('tonarium.sideWidget', 'events'),
   joinMode: load('tonarium.joinMode', '2d'),
   dice: load('tonarium.dice', { sides: 6 as DieSides, count: 2, secret: false }),
   notices: [],

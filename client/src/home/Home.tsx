@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { get, save, set, showToast, unreadOf, useStore, type HomePage, type Notice } from '../store.ts';
+import { get, save, set, showToast, unreadOf, useStore, type HomePage, type Notice, type SideWidget } from '../store.ts';
+import { ITEM_INFO, type ItemKind } from '../../../shared/items.ts';
+import { WORLDS, WORLD_KINDS } from '../../../shared/worlds.ts';
+import { joinSession } from '../actions.ts';
+import { spawnItem } from '../items/actions.ts';
 import { sortForHome } from '../../../shared/home.ts';
 import { dmPeer, type Group, type Message } from '../../../shared/protocol.ts';
 import { friendAccept, leaveSession, markNoticesRead, markRead, openDm, openGroup, removeNotice, switchMode } from '../actions.ts';
@@ -178,7 +182,7 @@ function Bell() {
   );
 }
 
-function EventsPanel() {
+function EventsWidget() {
   const events = useStore((s) => s.events);
   const friends = useStore((s) => s.friends);
   const groups = useStore((s) => s.groups);
@@ -190,8 +194,7 @@ function EventsPanel() {
   const days = Array.from({ length: 7 }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
   const has = new Set(events.map((e) => dateKey(e.at)));
   return (
-    <aside className="hevents">
-      <button className="ib hevtitle" onClick={() => goHome('events')}><b>イベント</b><Icon name="right" size={14} /></button>
+    <>
       <div className="hweek">
         {days.map((d) => (
           <span key={d.getDate()} className={`hday ${dateKey(d.getTime()) === dateKey(Date.now()) ? 'today' : ''}`}>
@@ -215,6 +218,111 @@ function EventsPanel() {
         );
       })}
       <button className="ib hlink" onClick={() => goHome('events')}>カレンダーを開く</button>
+    </>
+  );
+}
+
+const WORLD_TINT: Record<string, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2' };
+
+/** フレンドの今／参加できるセッション：セッションの行。押すと参加する（セッション中なら移動） */
+function SessionRows({ onlyFriends }: { onlyFriends: boolean }) {
+  const sessions = useStore((s) => s.guild.sessions);
+  const users = useStore((s) => s.users);
+  const friends = useStore((s) => s.friends);
+  const worldBy = useStore((s) => s.worldBy);
+  const current = useStore((s) => s.session);
+  const rows = sortForHome(sessions, friends, users)
+    .map((d) => {
+      const here = users.filter((u) => u.session === d.id);
+      return { d, here, nf: here.filter((u) => friends.includes(u.name)).length, world: worldBy[d.id] ?? d.world ?? 'room' };
+    })
+    .filter((r) => !onlyFriends || r.nf > 0);
+  if (!rows.length) return <Empty>{onlyFriends ? 'フレンドがいるセッションはありません' : '参加できるセッションがありません'}</Empty>;
+  return (
+    <div className="hwlist">
+      {rows.map(({ d, here, nf, world }) => (
+        <button key={d.id} className="ib hwrow" onClick={() => joinSession(d.id)} title={current === d.id ? '参加中' : current ? '移動する' : '参加する'}>
+          <span className="hwthumb" style={{ background: WORLD_TINT[world] }}><Icon name="globe" size={14} /></span>
+          <span className="finfo"><b>{d.name}</b><span className="sub">{WORLDS[world].name} · {here.length} 人{nf ? ` · フレンド ${nf} 人` : ''}</span></span>
+          {current === d.id && <span className="hhere small"><i />参加中</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function WorldsWidget() {
+  const sessions = useStore((s) => s.guild.sessions);
+  const worldBy = useStore((s) => s.worldBy);
+  return (
+    <div className="hwlist">
+      {WORLD_KINDS.map((k) => (
+        <button key={k} className="ib hwrow" onClick={() => goHome('worlds')}>
+          <span className="hwthumb" style={{ background: WORLD_TINT[k] }}><Icon name="globe" size={14} /></span>
+          <span className="finfo"><b>{WORLDS[k].name}</b><span className="sub">セッション {sessions.filter((d) => (worldBy[d.id] ?? d.world ?? 'room') === k).length} 件</span></span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ItemsWidget() {
+  const session = useStore((s) => s.session);
+  const kinds = (Object.keys(ITEM_INFO) as ItemKind[]).filter((k) => !ITEM_INFO[k].media);
+  // セッション中はそのまま目の前に出す。外ではアイテムのページへ
+  const pick = (k: ItemKind) => { if (session) { spawnItem(k); set({ hubOpen: false }); } else goHome('items'); };
+  return (
+    <div className="hwlist">
+      {kinds.map((k) => (
+        <button key={k} className="ib hwrow" onClick={() => pick(k)} title={session ? '目の前に出す' : undefined}>
+          <span className="hwthumb" style={{ background: ITEM_INFO[k].tint, color: ITEM_INFO[k].ink, fontWeight: 800, fontSize: ITEM_INFO[k].mark.length > 2 ? 11 : 16 }}>{ITEM_INFO[k].mark}</span>
+          <span className="finfo"><b>{ITEM_INFO[k].name}</b><span className="sub">{ITEM_INFO[k].genre}</span></span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const WIDGETS: { id: SideWidget; label: string; page: HomePage }[] = [
+  { id: 'now', label: 'フレンドの今', page: 'friends' },
+  { id: 'events', label: 'イベント', page: 'events' },
+  { id: 'sessions', label: '参加できるセッション', page: 'sessions' },
+  { id: 'worlds', label: 'ワールド', page: 'worlds' },
+  { id: 'items', label: 'アイテム', page: 'items' },
+];
+
+/** 右の欄。タイトルのドロップダウンで中身を選ぶ（ブラウザに保存） */
+function SideArea() {
+  const widget = useStore((s) => s.sideWidget);
+  const [dd, setDd] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!dd) return;
+    const onDown = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setDd(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [dd]);
+  const cur = WIDGETS.find((w) => w.id === widget) ?? WIDGETS[1];
+  return (
+    <aside className="hevents" aria-label="右の欄">
+      <div className="hwhead" ref={ref}>
+        <button className="ib hwtitle" aria-haspopup="menu" aria-expanded={dd} onClick={() => setDd(!dd)}><b>{cur.label}</b><Icon name="down" size={16} /></button>
+        <button className="ib hiconbtn" aria-label={`${cur.label}のページを開く`} onClick={() => goHome(cur.page)}><Icon name="right" size={14} /></button>
+        {dd && (
+          <div role="menu" aria-label="表示する内容" className="hwmenu">
+            {WIDGETS.map((w) => (
+              <button key={w.id} role="menuitem" className="ib" onClick={() => { save('tonarium.sideWidget', w.id); set({ sideWidget: w.id }); setDd(false); }}>
+                <span>{w.label}</span>{w.id === cur.id && <Icon name="check" size={16} />}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {cur.id === 'now' && <SessionRows onlyFriends />}
+      {cur.id === 'events' && <EventsWidget />}
+      {cur.id === 'sessions' && <SessionRows onlyFriends={false} />}
+      {cur.id === 'worlds' && <WorldsWidget />}
+      {cur.id === 'items' && <ItemsWidget />}
     </aside>
   );
 }
@@ -358,7 +466,8 @@ export function Home({ sheet }: { sheet?: boolean }) {
         {page === 'worlds' && <WorldsPage q={q} />}
         {page === 'items' && <ItemsPage q={q} />}
       </main>
-      {page === 'home' && <EventsPanel />}
+      {/* グループの画面は自分の右の列を持っているので出さない */}
+      {page !== 'group' && <SideArea />}
       {create && <CreateSessionDialog onClose={() => setCreate(false)} />}
     </div>
   );
