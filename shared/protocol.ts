@@ -5,6 +5,87 @@ import type { GameState } from './game.ts';
 
 export type Mode = '2d' | '3d';
 
+/** セッションを見られる人。省略時は public */
+export type Visibility = 'public' | 'friends' | 'groupPlus' | 'group' | 'invite';
+export const VISIBILITY_INFO: Record<Visibility, { name: string; desc: string }> = {
+  public: { name: 'パブリック', desc: 'だれでも' },
+  friends: { name: 'フレンド+', desc: '作った人と中にいる人のフレンド' },
+  groupPlus: { name: 'グループ+', desc: 'グループのメンバーと、そのフレンド' },
+  group: { name: 'グループ', desc: 'グループのメンバーだけ' },
+  invite: { name: 'インバイト', desc: '誘われた人だけ' },
+};
+export const isGroupVisibility = (v: Visibility | undefined) => v === 'group' || v === 'groupPlus';
+
+/** VRChat のステータスにならった 4 段階 */
+export type StatusKind = 'joinMe' | 'online' | 'askMe' | 'busy';
+/** color は点の色、ink は文字の色（白地で読める濃さ） */
+export const STATUS_INFO: Record<StatusKind, { name: string; desc: string; color: string; ink: string }> = {
+  joinMe: { name: '参加 OK', desc: 'フレンドの「フレンドの今」で上に出る。誘い歓迎', color: '#2F5FC4', ink: '#2F5FC4' },
+  online: { name: 'オンライン', desc: 'いつもの状態。いる場所が見えて、参加もできる', color: '#2E9A64', ink: '#22734A' },
+  askMe: { name: '声かけて', desc: '「参加する」が「行ってもいい？」になる。返事してから来てもらう', color: '#D97A2B', ink: '#9A4A14' },
+  busy: { name: '取り込み中', desc: '誘い・つんつん・通知の音を止める。メッセージは届く', color: '#C2402F', ink: '#C2402F' },
+};
+export const STATUS_KINDS = Object.keys(STATUS_INFO) as StatusKind[];
+export const STATUS_TEXT_MAX = 32;
+
+/** オフラインでも見える人の情報（フレンドとグループの仲間の分だけ届く） */
+export interface Person {
+  name: string;
+  status: StatusKind;
+  statusText: string;
+  /** 最後にいなくなった時刻。オンライン中や不明なら null */
+  lastSeen: number | null;
+}
+
+export interface Channel { id: string; name: string }
+
+export type Rsvp = 'yes' | 'maybe' | 'no';
+export const RSVP_LABEL: Record<Rsvp, string> = { yes: '来る', maybe: 'たぶん', no: 'むり' };
+/** この人数が「来る」と答えた日程の相談はイベントになる */
+export const PLAN_QUORUM = 3;
+export interface Plan {
+  at: number;
+  session: string | null;
+  answers: Record<string, Rsvp>;
+  /** イベントになったらその ID */
+  event: string | null;
+}
+
+export interface RecapItem { id: string; kind: ItemKind; summary: string; image?: string }
+/** セッションが終わったときに、グループのチャンネルへ残すまとめ */
+export interface Recap {
+  session: string;
+  sessionName: string;
+  from: number;
+  to: number;
+  people: string[];
+  items: RecapItem[];
+  log: { name: string; text: string; at: number }[];
+}
+
+/**
+ * DM とグループのチャンネルのメッセージ。会話のキーは dm:<名前>\0<名前>（名前順）か ch:<グループ ID>:<チャンネル ID>。
+ * from は名前で、空ならシステムの投稿（まとめ）
+ */
+export interface Message {
+  id: string;
+  from: string;
+  at: number;
+  text: string;
+  voice?: { url: string; sec: number };
+  media?: ChatMedia;
+  plan?: Plan;
+  recap?: Recap;
+  /** 誘っているセッション */
+  invite?: string;
+  /** 共有したアイテム（セッションに置いてあるもの） */
+  item?: { session: string; id: string; kind: ItemKind; summary: string };
+}
+export const dmKey = (a: string, b: string) => `dm:${[a, b].sort().join('\u0000')}`;
+export const channelKey = (group: string, channel: string) => `ch:${group}:${channel}`;
+/** dm のキーから相手の名前を取り出す */
+export const dmPeer = (conv: string, self: string) => conv.slice(3).split('\u0000').find((n) => n !== self) ?? self;
+
 /** セッション（通話・配信・アイテムを持ち、ワールド＝ 3D 空間を 1 つ読み込む） */
 export interface SessionDef {
   id: string;
@@ -12,10 +93,43 @@ export interface SessionDef {
   topic?: string;
   /** 最初に読み込むワールド。省略時は room */
   world?: WorldKind;
+  visibility?: Visibility;
+  /** 作った人の名前。sessions.json のものは無い */
+  owner?: string;
+  /** visibility が group のときのグループ ID */
+  group?: string;
+  /** 誘われた人の名前 */
+  invited?: string[];
 }
 export interface GuildConfig {
   name: string;
   sessions: SessionDef[];
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  color: string;
+  owner: string;
+  /** メンバーの名前 */
+  members: string[];
+  /** 先頭が既定のチャンネル（セッションのまとめもここに残る） */
+  channels: Channel[];
+}
+
+export interface EventDef {
+  id: string;
+  title: string;
+  /** 開始時刻（ms） */
+  at: number;
+  group: string | null;
+  /** 会場のセッション */
+  session: string | null;
+  owner: string;
+  /** 「来る」と答えた人の名前 */
+  attendees: string[];
+  maybe: string[];
+  declined: string[];
 }
 
 export interface User {
@@ -33,6 +147,8 @@ export interface User {
   /** 3D アバター画像・調整値の版。null ならサンプル */
   avatar: string | null;
   bio: string;
+  status: StatusKind;
+  statusText: string;
   /** 開いているウィンドウのキー（閲覧中の表示に使う） */
   viewing: string[];
   /** ついてきている人に向けて自分の視点をライブ配信している（3D のみ） */
@@ -98,6 +214,8 @@ export interface Snapshot {
   avatars: Record<string, Record<string, AvatarState>>;
   items: Record<string, Item[]>;
   friends: string[];
+  groups: Group[];
+  events: EventDef[];
   /** ワールドごとのブロードキャストモード（距離に関係なく音が聞こえる） */
   broadcast: Record<string, boolean>;
   /** セッションごとの今のワールド */
@@ -128,6 +246,27 @@ export type ClientMsg =
   | { t: 'poke'; to: string }
   | { t: 'friendRequest'; to: string }
   | { t: 'friendAccept'; to: string }
+  | { t: 'sessionCreate'; name: string; topic: string; world: WorldKind; visibility: Visibility; group?: string }
+  | { t: 'sessionDelete'; id: string }
+  | { t: 'groupCreate'; name: string; color: string }
+  | { t: 'groupJoin'; id: string }
+  | { t: 'groupLeave'; id: string }
+  | { t: 'groupDelete'; id: string }
+  | { t: 'eventCreate'; title: string; at: number; group: string | null; session: string | null }
+  | { t: 'eventAttend'; id: string; answer: Rsvp | null }
+  | { t: 'channelCreate'; group: string; name: string }
+  | { t: 'msg'; conv: string; text: string; voice?: { url: string; sec: number }; media?: ChatMedia; plan?: { at: number; session: string | null }; invite?: string; item?: { session: string; id: string } }
+  /** at までを読んだ */
+  | { t: 'read'; conv: string; at: number }
+  | { t: 'rsvp'; conv: string; id: string; answer: Rsvp | null }
+  | { t: 'setStatus'; status: StatusKind; text: string }
+  /** 来たら知らせる */
+  | { t: 'watch'; name: string; on: boolean }
+  /** 声かけての人に「行ってもいい？」と聞く。to はユーザー ID */
+  | { t: 'askJoin'; to: string }
+  | { t: 'eventDelete'; id: string }
+  /** to はユーザー ID。セッションなら invited にも加える */
+  | { t: 'invite'; kind: 'session' | 'group'; id: string; to: string }
   | { t: 'sound'; id: string }
   /** ついていっている相手に視点のライブを頼む */
   | { t: 'liveRequest'; to: string }
@@ -168,7 +307,20 @@ export type ServerMsg =
   | { t: 'game'; sid: string; game: GameState }
   | { t: 'gameTile'; sid: string; tile: number; at: number }
   | { t: 'friendRequest'; from: string; fromName: string }
-  | { t: 'friends'; names: string[] };
+  | { t: 'friends'; names: string[] }
+  | { t: 'sessions'; list: SessionDef[] }
+  | { t: 'groups'; list: Group[] }
+  | { t: 'events'; list: EventDef[] }
+  | { t: 'invite'; kind: 'session' | 'group'; id: string; from: string; fromName: string }
+  /** 入ったときに 1 回。lastSeen は前回いなくなった時刻（初めてなら null） */
+  | { t: 'inbox'; convs: Record<string, Message[]>; reads: Record<string, number>; people: Person[]; watching: string[]; lastSeen: number | null; recentStatus: string[] }
+  /** 新しいメッセージか、同じ ID のものの更新（日程の返事など） */
+  | { t: 'msg'; conv: string; m: Message }
+  | { t: 'read'; conv: string; at: number }
+  | { t: 'people'; list: Person[] }
+  | { t: 'watching'; names: string[]; recentStatus: string[] }
+  | { t: 'askJoin'; from: string; fromName: string; session: string }
+  | { t: 'online'; from: string; fromName: string };
 
 /** 床は -ROOM_HALF..ROOM_HALF。スクリーンは北壁 (z = -ROOM_HALF) */
 export const ROOM_HALF = 10;

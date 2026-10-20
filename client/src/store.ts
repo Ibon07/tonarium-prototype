@@ -1,20 +1,20 @@
 import { create } from 'zustand';
-import type { AvatarState, ChatMessage, GuildConfig, Mode, User } from '../../shared/protocol.ts';
+import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Message, Mode, Person, User } from '../../shared/protocol.ts';
 import { SPAWN } from '../../shared/protocol.ts';
-import type { Item, ItemKind } from '../../shared/items.ts';
+import type { Item } from '../../shared/items.ts';
 import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
 import type { DieSides } from '../../shared/dice.ts';
 import { newGame, type GameState } from '../../shared/game.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
 export type WinMode = 'simple' | 'free';
-export type HubPage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'worlds' | 'items';
-export type SideWidget = 'now' | 'event' | 'sessions' | 'worlds' | 'items';
-/** ハブの右エリアに上書きで出す詳細 */
-export type HubDetail = { kind: 'session'; id: string } | { kind: 'item'; item: ItemKind } | null;
 /** ウィンドウのキー: share（画面共有）/ cam:<アイテムID> / view:<ユーザーID> / item:<アイテムID> */
 export interface Win { key: string; x: number; y: number }
-export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention'; from: string; key?: string; fromName: string; at: number; unread: boolean }
+/** key は attention ならウィンドウのキー、invite なら session:<id> / group:<id>、askJoin なら session:<id> */
+export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean }
+export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items';
+/** ホームの右の欄に出すもの */
+export type SideWidget = 'now' | 'events' | 'sessions' | 'worlds' | 'items';
 
 interface State {
   selfId: string;
@@ -23,6 +23,8 @@ interface State {
   wsConnected: boolean;
 
   guild: GuildConfig;
+  groups: Group[];
+  events: EventDef[];
   users: User[];
   chats: Record<string, ChatMessage[]>;
   avatarsBy: Record<string, Record<string, AvatarState>>;
@@ -30,6 +32,25 @@ interface State {
 
   session: string | null;
   mode: Mode;
+  /** 開いているホームのページ（最後に開いたページを覚えておき、セッション中のメニューはそこを開く） */
+  homePage: HomePage;
+  /** group ページで開いているグループと、グループごとに開いているチャンネル */
+  homeGroup: string | null;
+  homeChannel: Record<string, string>;
+  /** フレンドページで DM を開いている相手の名前 */
+  dmWith: string | null;
+
+  /** DM とチャンネルのメッセージ（会話のキー → 古い順） */
+  inbox: Record<string, Message[]>;
+  /** 会話のキー → 読んだ時刻 */
+  reads: Record<string, number>;
+  /** フレンドとグループの仲間（オフラインの人のステータスもここから） */
+  people: Record<string, Person>;
+  /** 来たら知らせる をつけている相手 */
+  watching: string[];
+  recentStatus: string[];
+  /** 前回いなくなった時刻（おかえりのまとめに使う）。まだ届いていなければ undefined */
+  lastSeen: number | null | undefined;
 
   // 以下は参加中セッションの分だけを recompute() で切り出したもの
   participants: User[];
@@ -57,11 +78,8 @@ interface State {
   loadScale: number;
   /** 動画・YouTube ごとの自分だけの音量（0〜1）。無ければ既定の半分 */
   volumes: Record<string, number>;
-  /** ハブ（メニュー）で最後に開いたページ。セッション中のメニューボタンはここを開く */
-  hubPage: HubPage;
-  /** セッション中にハブを重ねて開いている */
+  /** セッション中にホームを重ねて開いている */
   hubOpen: boolean;
-  hubDetail: HubDetail;
   sideWidget: SideWidget;
   /** セッションの外で選んでおく、次に入るときのモード */
   joinMode: Mode;
@@ -134,12 +152,25 @@ export const useStore = create<State>(() => ({
   joined: false,
   wsConnected: false,
   guild: { name: 'Tonarium', sessions: [] },
+  groups: [],
+  events: [],
   users: [],
   chats: {},
   avatarsBy: {},
   itemsBy: {},
   session: null,
   mode: '2d',
+  // 個別のグループは開き直せないので一覧に戻す
+  homePage: ((p: HomePage) => (p === 'group' ? 'groups' : p))(load<HomePage>('tonarium.homePage', 'home')),
+  homeGroup: null,
+  homeChannel: {},
+  dmWith: null,
+  inbox: {},
+  reads: {},
+  people: {},
+  watching: [],
+  recentStatus: [],
+  lastSeen: undefined,
   participants: [],
   avatars: {},
   items: {},
@@ -164,10 +195,8 @@ export const useStore = create<State>(() => ({
   switching: null,
   loadScale: load('tonarium.loadScale', 1),
   volumes: {},
-  hubPage: load('tonarium.hubPage', 'home'),
   hubOpen: false,
-  hubDetail: null,
-  sideWidget: load('tonarium.sideWidget', 'event'),
+  sideWidget: load('tonarium.sideWidget', 'events'),
   joinMode: load('tonarium.joinMode', '2d'),
   dice: load('tonarium.dice', { sides: 6 as DieSides, count: 2, secret: false }),
   notices: [],
@@ -244,4 +273,10 @@ export const gameOfSession = (s = get()) => (s.session && s.games[s.session]) ||
 
 export function showToast(text: string) {
   set({ toast: { text, at: Date.now() } });
+}
+
+/** 自分以外の人が送った、読んでいないメッセージの数 */
+export function unreadOf(s: { inbox: Record<string, Message[]>; reads: Record<string, number>; selfName: string }, conv: string) {
+  const read = s.reads[conv] ?? 0;
+  return (s.inbox[conv] ?? []).filter((m) => m.at > read && m.from !== s.selfName).length;
 }

@@ -1,25 +1,29 @@
-import type { ChatMedia, ChatScope, Mode } from '../../shared/protocol.ts';
+import type { ChatMedia, ChatScope, ClientMsg, Mode, Rsvp, StatusKind, Visibility } from '../../shared/protocol.ts';
+import type { WorldKind } from '../../shared/worlds.ts';
 import { approach } from '../../shared/places.ts';
 import { clampRoomPos } from './items/actions.ts';
-import { get, set, recompute, spawnPoint, save, nameOf, type Notice } from './store.ts';
+import { get, set, recompute, spawnPoint, save, nameOf, showToast, type Notice } from './store.ts';
 import { send } from './net/ws.ts';
 import { connectVoice, leaveVoice } from './net/livekit.ts';
 import { placesOf, resumeAudio } from './spatial.ts';
 
 export function joinSession(sid: string) {
-  if (get().session === sid) return;
+  if (get().session === sid) { set({ hubOpen: false }); return; }
   selectNote(null);
   resumeAudio();
-  set({ session: sid, mode: '2d', selfAvatar: spawnPoint(), windows: [], maxWin: null, notices: [] });
+  // フレンド申請と招待はセッションをまたいで残す
+  set((s) => ({ session: sid, mode: '2d', hubOpen: false, selfAvatar: spawnPoint(), windows: [], maxWin: null, notices: s.notices.filter((n) => n.kind === 'friend' || n.kind === 'invite' || n.kind === 'online') }));
   recompute();
   send({ t: 'join', sid });
   void connectVoice(sid);
+  // 外で 3D を選んでいたら、入った後に 3D へ
+  if (get().joinMode === '3d') setTimeout(() => switchMode('3d'), 400);
 }
 
 export function leaveSession() {
   if (!get().session) return;
   selectNote(null);
-  set({ session: null, mode: '2d', windows: [], maxWin: null });
+  set({ session: null, mode: '2d', hubOpen: false, windows: [], maxWin: null });
   recompute();
   send({ t: 'leave' });
   void leaveVoice();
@@ -110,6 +114,53 @@ export const friendRequest = (to: string) => send({ t: 'friendRequest', to });
 export function friendAccept(to: string, noticeId: number) {
   send({ t: 'friendAccept', to });
   set((s) => ({ notices: s.notices.filter((n) => n.id !== noticeId) }));
+}
+
+export const removeNotice = (noticeId: number) => set((s) => ({ notices: s.notices.filter((n) => n.id !== noticeId) }));
+
+export const createSession = (name: string, topic: string, world: WorldKind, visibility: Visibility, group?: string) =>
+  send({ t: 'sessionCreate', name, topic, world, visibility, group });
+export const deleteSession = (id: string) => send({ t: 'sessionDelete', id });
+export const createGroup = (name: string, color: string) => send({ t: 'groupCreate', name, color });
+export const joinGroup = (id: string) => send({ t: 'groupJoin', id });
+export const leaveGroup = (id: string) => send({ t: 'groupLeave', id });
+export const deleteGroup = (id: string) => send({ t: 'groupDelete', id });
+export const createEvent = (title: string, at: number, group: string | null, session: string | null) =>
+  send({ t: 'eventCreate', title, at, group, session });
+export const answerEvent = (id: string, answer: Rsvp | null) => send({ t: 'eventAttend', id, answer });
+export const createChannel = (group: string, name: string) => send({ t: 'channelCreate', group, name });
+export const setStatus = (status: StatusKind, text: string) => send({ t: 'setStatus', status, text });
+export const watchFriend = (name: string, on: boolean) => send({ t: 'watch', name, on });
+export function askJoin(to: string) {
+  send({ t: 'askJoin', to });
+  showToast(`${nameOf(to)} に「行ってもいい？」と聞きました`);
+}
+export const answerPlan = (conv: string, id: string, answer: Rsvp | null) => send({ t: 'rsvp', conv, id, answer });
+
+type Outgoing = Omit<Extract<ClientMsg, { t: 'msg' }>, 't' | 'conv'>;
+export function sendMessage(conv: string, m: Outgoing) {
+  send({ t: 'msg', conv, ...m });
+}
+/** 会話の最後まで読んだことにする */
+export function markRead(conv: string) {
+  const s = get();
+  const last = s.inbox[conv]?.at(-1)?.at ?? 0;
+  if (last <= (s.reads[conv] ?? 0)) return;
+  set({ reads: { ...s.reads, [conv]: last } });
+  send({ t: 'read', conv, at: last });
+}
+export function openDm(name: string) {
+  set({ homePage: 'friends', dmWith: name });
+  window.scrollTo(0, 0);
+}
+export function openGroup(id: string, channel?: string) {
+  set((s) => ({ homePage: 'group', homeGroup: id, homeChannel: channel ? { ...s.homeChannel, [id]: channel } : s.homeChannel }));
+  window.scrollTo(0, 0);
+}
+export const deleteEvent = (id: string) => send({ t: 'eventDelete', id });
+export function invite(kind: 'session' | 'group', id: string, to: string) {
+  send({ t: 'invite', kind, id, to });
+  showToast(`${nameOf(to)} を誘いました`);
 }
 
 export function toggleBlock(name: string) {

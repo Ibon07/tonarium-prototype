@@ -4,7 +4,7 @@ import { connectWs } from './net/ws.ts';
 import { iconUrl } from './icon.ts';
 import { ProfileDialog } from './Profile.tsx';
 import { HammerCursor, Lightbox } from './world/common.tsx';
-import { Hub } from './hub/Hub.tsx';
+import { Home } from './home/Home.tsx';
 import { WorldScreen } from './world/WorldScreen.tsx';
 import { PeekMascot, type MascotHandle } from './world/Mascot.tsx';
 
@@ -107,7 +107,7 @@ export function App() {
   if (!joined) return <JoinScreen />;
   return (
     <>
-      {session ? <WorldScreen /> : <Hub />}
+      {session ? <WorldScreen /> : <Home />}
       <Lightbox />
       <HammerCursor />
     </>

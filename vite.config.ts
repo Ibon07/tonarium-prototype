@@ -13,6 +13,8 @@ function allowedHosts(value: string | undefined): string[] | true {
 export default defineConfig(({ mode }) => {
   // root は client/ だが .env はサーバーと同じリポジトリ直下にある
   const env = loadEnv(mode, ROOT, '');
+  // ワークツリーを並べて動かすときは .env でポートをずらす
+  const api = `localhost:${env.SERVER_PORT || 3001}`;
   return {
     root: 'client',
     // .env の変更でも再起動させる。クライアントに渡るのは VITE_ 付きだけ
@@ -24,17 +26,17 @@ export default defineConfig(({ mode }) => {
     ],
     build: { outDir: 'dist', emptyOutDir: true },
     server: {
-      port: 5173,
+      port: Number(env.CLIENT_PORT || 5173),
       allowedHosts: allowedHosts(env.ALLOWED_HOSTS),
       proxy: {
-        '/token': 'http://localhost:3001',
-        '/icon': 'http://localhost:3001',
-        '/avatar': 'http://localhost:3001',
-        '/profile': 'http://localhost:3001',
-        '/report': 'http://localhost:3001',
-        '/ogp': 'http://localhost:3001',
-        '/media': 'http://localhost:3001',
-        '/ws': { target: 'ws://localhost:3001', ws: true },
+        '/token': `http://${api}`,
+        '/icon': `http://${api}`,
+        '/avatar': `http://${api}`,
+        '/profile': `http://${api}`,
+        '/report': `http://${api}`,
+        '/ogp': `http://${api}`,
+        '/media': `http://${api}`,
+        '/ws': { target: `ws://${api}`, ws: true },
       },
     },
   };

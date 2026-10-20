@@ -8,11 +8,12 @@ import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
-  AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, GuildConfig, Mode, ServerMsg, User,
+  AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, EventDef, Group, GuildConfig, Message, Mode, Person, Recap, Rsvp, ServerMsg, SessionDef, StatusKind, User,
 } from '../shared/protocol.ts';
-import { ROOM_HALF } from '../shared/protocol.ts';
+import { PLAN_QUORUM, ROOM_HALF, STATUS_INFO, STATUS_TEXT_MAX, VISIBILITY_INFO, channelKey, isGroupVisibility } from '../shared/protocol.ts';
+import { GROUP_COLORS, canSeeSession } from '../shared/home.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, isWorldKind, pushOut, type WorldKind } from '../shared/worlds.ts';
-import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, type Item } from '../shared/items.ts';
+import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, itemSummary, type Item } from '../shared/items.ts';
 import { sanitizeParams } from '../shared/avatar.ts';
 import { VOICE_RANGE, computePlaces } from '../shared/places.ts';
 import { SOUNDS } from '../shared/sounds.ts';
@@ -31,7 +32,21 @@ const ICON_DIR = path.join(DATA_DIR, 'icons');
 const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
 const PROFILE_DIR = path.join(DATA_DIR, 'profiles');
 const FRIENDS_FILE = path.join(DATA_DIR, 'friends.json');
+const HOME_FILE = path.join(DATA_DIR, 'home.json');
 const REPORTS_FILE = path.join(DATA_DIR, 'reports.log');
+const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
+const PEOPLE_FILE = path.join(DATA_DIR, 'people.json');
+const ITEMS_FILE = path.join(DATA_DIR, 'items.json');
+/** 2 人以上がこの時間以上いたセッションだけ、グループのチャンネルにまとめを残す */
+const RECAP_MIN_MS = Number(process.env.RECAP_MIN_MINUTES ?? 10) * 60_000;
+function readJson<T>(file: string, fallback: T): T {
+  try { return JSON.parse(fs.readFileSync(file, 'utf-8')) as T; } catch { return fallback; }
+}
+/** 書き込みが続いてもまとめて 1 回にする */
+function later(fn: () => void, ms = 800) {
+  let t: ReturnType<typeof setTimeout> | null = null;
+  return () => { if (!t) t = setTimeout(() => { t = null; fn(); }, ms); };
+}
 for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR]) fs.mkdirSync(d, { recursive: true });
 
 const normalizeName = (name: string) => name.trim().slice(0, 24) || 'ゲスト';
@@ -65,7 +80,16 @@ async function readBody(req: http.IncomingMessage, limit: number) {
 
 const SESSIONS_FILE = process.env.SESSIONS_FILE ?? path.join(ROOT, 'sessions.json');
 const guild = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')) as GuildConfig;
+// 画面から作ったセッション・グループ・イベント。sessions.json のセッションの後ろに並べる
+const home: { sessions: SessionDef[]; groups: Group[]; events: EventDef[] } = { sessions: [], groups: [], events: [] };
+try { Object.assign(home, JSON.parse(fs.readFileSync(HOME_FILE, 'utf-8'))); } catch { /* まだ無い */ }
+const defaultChannels = () => [{ id: 'general', name: '雑談' }];
+for (const g of home.groups) if (!g.channels?.length) g.channels = defaultChannels();
+for (const ev of home.events) { ev.maybe ??= []; ev.declined ??= []; }
+guild.sessions.push(...home.sessions);
+const saveHome = () => fs.writeFileSync(HOME_FILE, JSON.stringify(home));
 const sessionIds = new Set(guild.sessions.map((w) => w.id));
+const shortId = () => randomUUID().slice(0, 8);
 const livekitRoom = (sid: string) => `tonarium-${sid}`;
 
 // フレンドは名前の組で保存する（アイコンなどと同じく名前が本人の識別）
@@ -92,12 +116,49 @@ const items = new Map<string, Map<string, Item>>();
 const broadcastMode = new Map<string, boolean>();
 const lastAttention = new Map<string, number>();
 const worldOf = new Map<string, WorldKind>();
-for (const w of guild.sessions) worldOf.set(w.id, isWorldKind(w.world) ? w.world : 'room');
-for (const sid of sessionIds) {
-  chats.set(sid, []);
-  avatars.set(sid, new Map());
-  items.set(sid, new Map());
+// アイテムはだれもいなくなっても残し、再起動しても戻す（盤面の続きをするため）
+const savedItems = readJson<Record<string, Item[]>>(ITEMS_FILE, {});
+/** 持っている人や編集中の人は再起動でいなくなるので外す */
+function settle(it: Item) {
+  const x = it as Item & { holder?: string | null; editingBy?: string | null; live?: boolean; operator?: string | null };
+  if ('holder' in x) x.holder = null;
+  if ('editingBy' in x) x.editingBy = null;
+  if ('live' in x) { x.live = false; x.operator = null; }
+  return it;
 }
+function registerSession(def: SessionDef) {
+  sessionIds.add(def.id);
+  worldOf.set(def.id, isWorldKind(def.world) ? def.world : 'room');
+  chats.set(def.id, []);
+  avatars.set(def.id, new Map());
+  items.set(def.id, new Map((savedItems[def.id] ?? []).map((it) => [it.id, settle(it)])));
+}
+let lastItemsJson = '';
+setInterval(() => {
+  const json = JSON.stringify(Object.fromEntries([...items].filter(([, m]) => m.size).map(([sid, m]) => [sid, [...m.values()]])));
+  if (json === lastItemsJson) return;
+  lastItemsJson = json;
+  fs.writeFile(ITEMS_FILE, json, () => {});
+}, 5000);
+
+interface PersonRec { status: StatusKind; statusText: string; recent: string[]; lastSeen: number | null; watchers: string[] }
+const people = readJson<Record<string, PersonRec>>(PEOPLE_FILE, {});
+const savePeople = later(() => fs.writeFile(PEOPLE_FILE, JSON.stringify(people), () => {}));
+function personRec(name: string) {
+  return (people[name] ??= { status: 'online', statusText: '', recent: [], lastSeen: null, watchers: [] });
+}
+
+/** convs は会話ごとのメッセージ、reads は 名前 → 会話 → 読んだ時刻 */
+const inbox = readJson<{ convs: Record<string, Message[]>; reads: Record<string, Record<string, number>> }>(MESSAGES_FILE, { convs: {}, reads: {} });
+const saveInbox = later(() => fs.writeFile(MESSAGES_FILE, JSON.stringify(inbox), () => {}));
+
+/** セッションにだれかが入ってから全員が出るまで。終わったらまとめにする */
+const visits = new Map<string, { from: number; people: Set<string>; log: Recap['log'] }>();
+for (const w of guild.sessions) registerSession(w);
+const sessionsVisibleTo = (name: string) => guild.sessions.filter((d) => canSeeSession(d, name, friendsOf(name), home.groups, [...users.values()]));
+const broadcastSessions = () => { for (const u of users.values()) sendTo([u.id], { t: 'sessions', list: sessionsVisibleTo(u.name) }); };
+const broadcastGroups = () => broadcast({ t: 'groups', list: home.groups });
+const broadcastEvents = () => broadcast({ t: 'events', list: home.events });
 
 function send(ws: WebSocket, msg: ServerMsg) {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
@@ -113,6 +174,69 @@ function sendTo(ids: Iterable<string>, msg: ServerMsg) {
     for (const ws of sockets.get(id) ?? []) if (ws.readyState === WebSocket.OPEN) ws.send(data);
 }
 const idsByName = (name: string) => [...users.values()].filter((u) => u.name === name).map((u) => u.id);
+const isOnline = (name: string) => [...users.values()].some((u) => u.name === name);
+
+/** 会話に入っている人の名前。会話として成り立たなければ null */
+function convMembers(conv: string): string[] | null {
+  if (conv.startsWith('dm:')) {
+    const pair = conv.slice(3).split('\u0000');
+    return pair.length === 2 && friendPairs.has(pairKey(pair[0], pair[1])) ? pair : null;
+  }
+  const m = /^ch:([^:]+):([^:]+)$/.exec(conv);
+  const g = m && home.groups.find((x) => x.id === m[1]);
+  return g && g.channels.some((c) => c.id === m[2]) ? g.members : null;
+}
+function sendToNames(names: Iterable<string>, msg: ServerMsg) {
+  const set = new Set(names);
+  sendTo([...users.values()].filter((u) => set.has(u.name)).map((u) => u.id), msg);
+}
+function pushMessage(conv: string, m: Message) {
+  const list = (inbox.convs[conv] ??= []);
+  list.push(m);
+  if (list.length > 300) list.shift();
+  saveInbox();
+  sendToNames(convMembers(conv) ?? [], { t: 'msg', conv, m });
+}
+/** 見える会話だけ、新しい方から 100 件ずつ */
+function convsOf(name: string) {
+  const out: Record<string, Message[]> = {};
+  for (const [conv, list] of Object.entries(inbox.convs))
+    if (convMembers(conv)?.includes(name)) out[conv] = list.slice(-100);
+  return out;
+}
+
+/** フレンドと、同じグループの人 */
+function knownPeopleOf(name: string) {
+  const set = new Set(friendsOf(name));
+  for (const g of home.groups) if (g.members.includes(name)) for (const m of g.members) set.add(m);
+  set.delete(name);
+  return [...set];
+}
+function personOf(name: string): Person {
+  const r = personRec(name);
+  return { name, status: r.status, statusText: r.statusText, lastSeen: isOnline(name) ? null : r.lastSeen };
+}
+const watchingOf = (name: string) => Object.entries(people).filter(([, r]) => r.watchers.includes(name)).map(([n]) => n);
+function sendWatching(name: string) {
+  sendToNames([name], { t: 'watching', names: watchingOf(name), recentStatus: personRec(name).recent });
+}
+function broadcastPeople() {
+  for (const u of users.values()) sendTo([u.id], { t: 'people', list: knownPeopleOf(u.name).map(personOf) });
+}
+
+function finishVisit(sid: string) {
+  const v = visits.get(sid);
+  visits.delete(sid);
+  const def = guild.sessions.find((d) => d.id === sid);
+  const g = def && isGroupVisibility(def.visibility) ? home.groups.find((x) => x.id === def.group) : undefined;
+  if (!v || !def || !g || v.people.size < 2 || Date.now() - v.from < RECAP_MIN_MS) return;
+  const left = [...items.get(sid)!.values()].flatMap((it) => {
+    const summary = itemSummary(it);
+    return summary ? [{ id: it.id, kind: it.kind, summary, ...(it.kind === 'image' ? { image: it.url } : {}) }] : [];
+  });
+  const recap: Recap = { session: sid, sessionName: def.name, from: v.from, to: Date.now(), people: [...v.people], items: left.slice(0, 6), log: v.log };
+  pushMessage(channelKey(g.id, g.channels[0].id), { id: randomUUID(), from: '', at: Date.now(), text: '', recap });
+}
 /** 途中参加のスナップショットが重くならないよう、古い画像は捨てる */
 const MAX_IMAGES = 40;
 
@@ -132,6 +256,8 @@ function pushChat(sid: string, from: User | null, text: string, opt: { scope?: C
   };
   list.push(m);
   if (list.length > 500) list.shift();
+  const visit = visits.get(sid);
+  if (visit && from && text && m.scope !== 'near' && visit.log.length < 200) visit.log.push({ name: from.name, text: text.slice(0, 300), at: m.at });
   if (opt.image) {
     const withImage = list.filter((x) => x.image);
     for (const old of withImage.slice(0, -MAX_IMAGES)) { delete old.image; old.text += '（画像は古いため省略）'; }
@@ -274,35 +400,55 @@ function leaveSession(u: User) {
   u.viewing = [];
   u.display = null;
   event(sid, `${u.name} が退出しました`);
+  if (![...users.values()].some((x) => x.session === sid)) finishVisit(sid);
 }
 
 function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
   if (msg.t === 'hello') {
     state.id = msg.id;
+    const name = normalizeName(msg.name);
+    const rec = personRec(name);
+    const cameOnline = !isOnline(name);
+    const lastSeen = rec.lastSeen;
     if (!users.has(msg.id))
       users.set(msg.id, {
-        id: msg.id, name: normalizeName(msg.name), session: null, mode: '2d',
+        id: msg.id, name, session: null, mode: '2d',
         micOn: false, sharing: false, follow: null, pos: null,
-        icon: iconVersion(msg.name), avatar: avatarVersion(msg.name), bio: bioOf(msg.name), viewing: [], viewLive: false, display: null,
+        icon: iconVersion(msg.name), avatar: avatarVersion(msg.name), bio: bioOf(msg.name), status: rec.status, statusText: rec.statusText,
+        viewing: [], viewLive: false, display: null,
       });
     if (!sockets.has(msg.id)) sockets.set(msg.id, new Set());
     sockets.get(msg.id)!.add(ws);
     send(ws, {
       t: 'snapshot',
       s: {
-        guild,
+        guild: { ...guild, sessions: sessionsVisibleTo(normalizeName(msg.name)) },
         users: [...users.values()],
         chats: Object.fromEntries([...chats].map(([sid, list]) => [sid, list.filter((m) => !m.to || m.to.includes(msg.id))])),
         avatars: Object.fromEntries([...avatars].map(([sid, m]) => [sid, Object.fromEntries(m)])),
         items: Object.fromEntries([...items].map(([sid, m]) => [sid, [...m.values()]])),
         friends: friendsOf(normalizeName(msg.name)),
+        groups: home.groups,
+        events: home.events,
         broadcast: Object.fromEntries(broadcastMode),
         world: Object.fromEntries(worldOf),
         games: allGames(),
         now: Date.now(),
       },
     });
+    send(ws, {
+      t: 'inbox', convs: convsOf(name), reads: inbox.reads[name] ?? {}, people: knownPeopleOf(name).map(personOf),
+      watching: watchingOf(name), lastSeen, recentStatus: rec.recent,
+    });
     broadcastUsers();
+    if (cameOnline) {
+      // 来たら知らせる は 1 回きり
+      const watchers = rec.watchers;
+      rec.watchers = [];
+      if (watchers.length) savePeople();
+      for (const w of watchers) { sendToNames([w], { t: 'online', from: msg.id, fromName: name }); sendWatching(w); }
+      broadcastPeople();
+    }
     return;
   }
   const me = state.id ? users.get(state.id) : undefined;
@@ -329,23 +475,33 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
     friendPairs.add(pairKey(me.name, other.name));
     saveFriends();
     for (const n of [me.name, other.name]) sendTo(idsByName(n), { t: 'friends', names: friendsOf(n) });
+    broadcastSessions();
+    broadcastPeople();
     return;
   }
+  if (handleHome(me, msg)) return;
   const sid = me.session;
 
   switch (msg.t) {
     case 'join': {
-      if (!sessionIds.has(msg.sid) || sid === msg.sid) return;
+      const def = guild.sessions.find((d) => d.id === msg.sid);
+      if (!def || sid === msg.sid || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) return;
       leaveSession(me);
       me.session = msg.sid;
       me.mode = '2d';
+      const visit = visits.get(msg.sid) ?? { from: Date.now(), people: new Set<string>(), log: [] };
+      visit.people.add(me.name);
+      visits.set(msg.sid, visit);
       broadcastUsers();
       event(msg.sid, `${me.name} が入室しました`);
+      // フレンド+ のセッションは中にいる人で見える人が変わる
+      broadcastSessions();
       return;
     }
     case 'leave': {
       leaveSession(me);
       broadcastUsers();
+      broadcastSessions();
       return;
     }
   }
@@ -591,6 +747,210 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
   }
 }
 
+const trimTo = (v: unknown, n: number) => String(v ?? '').trim().slice(0, n);
+
+/** ホーム画面の操作（セッション外でもできる）。扱ったら true */
+function handleHome(me: User, msg: ClientMsg): boolean {
+  switch (msg.t) {
+    case 'sessionCreate': {
+      const name = trimTo(msg.name, 40);
+      const visibility = msg.visibility in VISIBILITY_INFO ? msg.visibility : 'public';
+      const group = isGroupVisibility(visibility) ? home.groups.find((g) => g.id === msg.group && g.members.includes(me.name))?.id : undefined;
+      if (!name || (isGroupVisibility(visibility) && !group)) return true;
+      const def: SessionDef = { id: shortId(), name, topic: trimTo(msg.topic, 100), world: isWorldKind(msg.world) ? msg.world : 'room', visibility, owner: me.name, group, invited: [] };
+      home.sessions.push(def);
+      guild.sessions.push(def);
+      registerSession(def);
+      saveHome();
+      broadcastSessions();
+      return true;
+    }
+    case 'sessionDelete': {
+      const def = home.sessions.find((d) => d.id === msg.id && d.owner === me.name);
+      if (!def || [...users.values()].some((u) => u.session === def.id)) return true;
+      home.sessions.splice(home.sessions.indexOf(def), 1);
+      guild.sessions.splice(guild.sessions.indexOf(def), 1);
+      sessionIds.delete(def.id);
+      items.get(def.id)?.clear();
+      for (const ev of home.events) if (ev.session === def.id) ev.session = null;
+      saveHome();
+      broadcastSessions();
+      broadcastEvents();
+      return true;
+    }
+    case 'groupCreate': {
+      const name = trimTo(msg.name, 40);
+      if (!name) return true;
+      home.groups.push({ id: shortId(), name, color: GROUP_COLORS.includes(msg.color) ? msg.color : GROUP_COLORS[0], owner: me.name, members: [me.name], channels: defaultChannels() });
+      saveHome();
+      broadcastGroups();
+      return true;
+    }
+    case 'groupJoin':
+    case 'groupLeave': {
+      const g = home.groups.find((x) => x.id === msg.id);
+      if (!g) return true;
+      if (msg.t === 'groupJoin' && !g.members.includes(me.name)) g.members.push(me.name);
+      if (msg.t === 'groupLeave') g.members = g.members.filter((n) => n !== me.name);
+      saveHome();
+      broadcastGroups();
+      broadcastSessions();
+      broadcastPeople();
+      // チャンネルが見えるようになった・見えなくなったので、メッセージを送り直す
+      sendToNames([me.name], { t: 'inbox', convs: convsOf(me.name), reads: inbox.reads[me.name] ?? {}, people: knownPeopleOf(me.name).map(personOf), watching: watchingOf(me.name), lastSeen: null, recentStatus: personRec(me.name).recent });
+      return true;
+    }
+    case 'channelCreate': {
+      const g = home.groups.find((x) => x.id === msg.group && x.owner === me.name);
+      const name = trimTo(msg.name, 20).replace(/^#\s*/, '');
+      if (!g || !name || g.channels.length >= 8 || g.channels.some((c) => c.name === name)) return true;
+      g.channels.push({ id: shortId(), name });
+      saveHome();
+      broadcastGroups();
+      return true;
+    }
+    case 'msg': {
+      const members = convMembers(msg.conv);
+      if (!members?.includes(me.name)) return true;
+      const text = trimTo(msg.text, 2000);
+      const voice = msg.voice && MEDIA_URL_RE.test(msg.voice.url) && msg.voice.url.endsWith('.webm') && mediaExists(msg.voice.url)
+        ? { url: msg.voice.url, sec: Math.max(1, Math.min(120, Math.round(Number(msg.voice.sec) || 1))) } : undefined;
+      const media = chatMedia(msg.media);
+      const at = Number(msg.plan?.at);
+      const visible = sessionsVisibleTo(me.name);
+      const plan = msg.plan && msg.conv.startsWith('ch:') && Number.isFinite(at)
+        ? { at, session: visible.find((d) => d.id === msg.plan!.session)?.id ?? null, answers: { [me.name]: 'yes' as Rsvp }, event: null } : undefined;
+      const invite = msg.invite && visible.some((d) => d.id === msg.invite) ? msg.invite : undefined;
+      const it = msg.item && visible.some((d) => d.id === msg.item!.session) ? items.get(msg.item.session)?.get(msg.item.id) : undefined;
+      const item = it ? { session: msg.item!.session, id: it.id, kind: it.kind, summary: itemSummary(it) ?? ITEM_INFO[it.kind].name } : undefined;
+      if (!text && !voice && !media && !plan && !invite && !item) return true;
+      pushMessage(msg.conv, {
+        id: randomUUID(), from: me.name, at: Date.now(), text,
+        ...(voice ? { voice } : {}), ...(media ? { media } : {}), ...(plan ? { plan } : {}), ...(invite ? { invite } : {}), ...(item ? { item } : {}),
+      });
+      // 送った会話は読んだことにする
+      (inbox.reads[me.name] ??= {})[msg.conv] = Date.now();
+      return true;
+    }
+    case 'read': {
+      if (!convMembers(msg.conv)?.includes(me.name)) return true;
+      const reads = (inbox.reads[me.name] ??= {});
+      const at = Math.min(Date.now(), Number(msg.at) || 0);
+      if (at <= (reads[msg.conv] ?? 0)) return true;
+      reads[msg.conv] = at;
+      saveInbox();
+      sendToNames([me.name], { t: 'read', conv: msg.conv, at });
+      return true;
+    }
+    case 'rsvp': {
+      const m = inbox.convs[msg.conv]?.find((x) => x.id === msg.id);
+      if (!m?.plan || !convMembers(msg.conv)?.includes(me.name)) return true;
+      const plan = m.plan;
+      if (msg.answer === null) delete plan.answers[me.name];
+      else if (msg.answer === 'yes' || msg.answer === 'maybe' || msg.answer === 'no') plan.answers[me.name] = msg.answer;
+      const who = (a: Rsvp) => Object.keys(plan.answers).filter((n) => plan.answers[n] === a);
+      let ev = plan.event ? home.events.find((x) => x.id === plan.event) : undefined;
+      if (!ev && who('yes').length >= PLAN_QUORUM) {
+        const group = msg.conv.split(':')[1];
+        ev = { id: shortId(), title: m.text.split('\n')[0].slice(0, 60) || '集まり', at: plan.at, group, session: plan.session, owner: m.from || me.name, attendees: [], maybe: [], declined: [] };
+        home.events.push(ev);
+        home.events.sort((a, b) => a.at - b.at);
+        plan.event = ev.id;
+      }
+      if (ev) { ev.attendees = who('yes'); ev.maybe = who('maybe'); ev.declined = who('no'); saveHome(); broadcastEvents(); }
+      saveInbox();
+      sendToNames(convMembers(msg.conv) ?? [], { t: 'msg', conv: msg.conv, m });
+      return true;
+    }
+    case 'setStatus': {
+      if (!(msg.status in STATUS_INFO)) return true;
+      const rec = personRec(me.name);
+      rec.status = msg.status;
+      rec.statusText = trimTo(msg.text, STATUS_TEXT_MAX);
+      if (rec.statusText) rec.recent = [rec.statusText, ...rec.recent.filter((t) => t !== rec.statusText)].slice(0, 5);
+      savePeople();
+      for (const u of users.values()) if (u.name === me.name) { u.status = rec.status; u.statusText = rec.statusText; }
+      broadcastUsers();
+      broadcastPeople();
+      sendWatching(me.name);
+      return true;
+    }
+    case 'watch': {
+      const name = normalizeName(msg.name);
+      if (!friendsOf(me.name).includes(name)) return true;
+      const rec = personRec(name);
+      rec.watchers = rec.watchers.filter((n) => n !== me.name);
+      if (msg.on) rec.watchers.push(me.name);
+      savePeople();
+      sendWatching(me.name);
+      return true;
+    }
+    case 'askJoin': {
+      const target = users.get(msg.to);
+      if (!target?.session || target.status === 'busy' || !friendsOf(me.name).includes(target.name)) return true;
+      sendTo([target.id], { t: 'askJoin', from: me.id, fromName: me.name, session: target.session });
+      return true;
+    }
+    case 'groupDelete': {
+      const g = home.groups.find((x) => x.id === msg.id && x.owner === me.name);
+      if (!g) return true;
+      home.groups.splice(home.groups.indexOf(g), 1);
+      // グループ限定だったセッションは作った人だけに残す
+      for (const d of home.sessions) if (d.group === g.id) { d.visibility = 'invite'; d.group = undefined; }
+      for (const ev of home.events) if (ev.group === g.id) ev.group = null;
+      saveHome();
+      broadcastGroups();
+      broadcastSessions();
+      broadcastEvents();
+      return true;
+    }
+    case 'eventCreate': {
+      const title = trimTo(msg.title, 60);
+      const at = Number(msg.at);
+      if (!title || !Number.isFinite(at)) return true;
+      const group = home.groups.find((g) => g.id === msg.group && g.members.includes(me.name))?.id ?? null;
+      const session = sessionsVisibleTo(me.name).find((d) => d.id === msg.session)?.id ?? null;
+      home.events.push({ id: shortId(), title, at, group, session, owner: me.name, attendees: [me.name], maybe: [], declined: [] });
+      home.events.sort((a, b) => a.at - b.at);
+      saveHome();
+      broadcastEvents();
+      return true;
+    }
+    case 'eventAttend': {
+      const ev = home.events.find((x) => x.id === msg.id);
+      if (!ev) return true;
+      for (const k of ['attendees', 'maybe', 'declined'] as const) ev[k] = ev[k].filter((n) => n !== me.name);
+      if (msg.answer === 'yes') ev.attendees.push(me.name);
+      if (msg.answer === 'maybe') ev.maybe.push(me.name);
+      if (msg.answer === 'no') ev.declined.push(me.name);
+      saveHome();
+      broadcastEvents();
+      return true;
+    }
+    case 'eventDelete': {
+      const ev = home.events.find((x) => x.id === msg.id && x.owner === me.name);
+      if (!ev) return true;
+      home.events.splice(home.events.indexOf(ev), 1);
+      saveHome();
+      broadcastEvents();
+      return true;
+    }
+    case 'invite': {
+      const other = users.get(msg.to);
+      // 取り込み中の人には誘いを届けない
+      if (!other || other.name === me.name || other.status === 'busy') return true;
+      if (msg.kind === 'session') {
+        const def = guild.sessions.find((d) => d.id === msg.id);
+        if (!def || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) return true;
+        if (def.owner && !def.invited!.includes(other.name)) { def.invited!.push(other.name); saveHome(); broadcastSessions(); }
+      } else if (!home.groups.find((g) => g.id === msg.id)?.members.includes(me.name)) return true;
+      sendTo(idsByName(other.name), { t: 'invite', kind: msg.kind, id: msg.id, from: me.id, fromName: me.name });
+      return true;
+    }
+  }
+  return false;
+}
+
 function onClose(ws: WebSocket, id: string | null) {
   if (!id) return;
   const set = sockets.get(id);
@@ -598,9 +958,16 @@ function onClose(ws: WebSocket, id: string | null) {
   if (set && set.size > 0) return;
   sockets.delete(id);
   const u = users.get(id);
+  const wasIn = !!u?.session;
   if (u) leaveSession(u);
   users.delete(id);
   broadcastUsers();
+  if (wasIn) broadcastSessions();
+  if (u && !isOnline(u.name)) {
+    personRec(u.name).lastSeen = Date.now();
+    savePeople();
+    broadcastPeople();
+  }
 }
 
 const MIME: Record<string, string> = {
@@ -721,7 +1088,7 @@ const server = http.createServer(async (req, res) => {
   if (DEV) {
     const host = (req.headers.host ?? '').replace(/:\d+$/, '');
     if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') {
-      res.writeHead(302, { Location: `http://localhost:5173${url.pathname}${url.search}` });
+      res.writeHead(302, { Location: `http://localhost:${process.env.CLIENT_PORT || 5173}${url.pathname}${url.search}` });
       res.end();
     } else {
       res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });

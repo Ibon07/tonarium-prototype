@@ -18,7 +18,7 @@ import { NoticeLog } from './NoticeLog.tsx';
 import { WindowLayer } from './WindowLayer.tsx';
 import { ProfileCard } from './ProfileCard.tsx';
 import { HoppingMascots } from './Mascot.tsx';
-import { SessionMenu } from '../hub/SessionMenu.tsx';
+import { SessionMenu } from '../home/SessionMenu.tsx';
 import { PortraitCanvas } from './Portraits.tsx';
 import { ConfirmOpen } from './Links.tsx';
 import { shareFiles, shareYouTube, youTubeId } from '../media.ts';
