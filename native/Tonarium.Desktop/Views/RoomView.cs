@@ -43,6 +43,7 @@ public sealed partial class RoomView : UserControl
     private readonly StackPanel _notices = new() { Spacing = 7 };
     private readonly StackPanel _status = new() { Spacing = 5, HorizontalAlignment = HorizontalAlignment.Center };
     private readonly ScrollViewer _logScroll;
+    private bool _chatFollowTail = true, _chatLayoutPending, _chatScrollQueued;
     private readonly ScrollViewer _itemScroll;
     private readonly TextBlock _worldName = Ui.Text("", 15);
     private readonly Border _broadcastPill = new() { IsVisible = false };
@@ -123,14 +124,25 @@ public sealed partial class RoomView : UserControl
         tabs.Spacing = 2; tabs.Margin = new Thickness(10, 6, 8, 0);
         rightContent.Children.Add(tabs);
         var noticeHead = PanelHeader("通知", null, Small("すべて既読", MarkNoticesRead)); Grid.SetRow(noticeHead, 1); rightContent.Children.Add(noticeHead);
-        var noticeScroll = new ScrollViewer { Content = _notices, MaxHeight = 165, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(10, 2, 10, 10) };
+        var noticeScroll = new ScrollViewer { Content = _notices, MaxHeight = 165, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Padding = new Thickness(10, 2, 10, 10) };
         Grid.SetRow(noticeScroll, 2); rightContent.Children.Add(noticeScroll);
         var rightSplit = PanelSplit(); Grid.SetRow(rightSplit, 3); rightContent.Children.Add(rightSplit);
         var logTabs = Ui.Row(Small("すべて", () => { _chatOnly = false; _chatSignature = ""; Refresh(); }), Small("チャット", () => { _chatOnly = true; _chatSignature = ""; Refresh(); })); logTabs.Spacing = 2;
         var logHead = PanelHeader("ログ", null, logTabs); Grid.SetRow(logHead, 4); rightContent.Children.Add(logHead);
         _logs.Spacing = 4; _logs.VerticalAlignment = VerticalAlignment.Bottom; _logCanvas.Children.Add(_logs);
-        _logScroll = new ScrollViewer { Content = _logCanvas, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(12, 4) };
+        // ScrollViewer自身のPaddingはスクロール可能範囲から外れるため、内容側に余白を持たせる。
+        _logCanvas.Margin = new Thickness(12, 4);
+        _logScroll = new ScrollViewer { Content = _logCanvas, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden };
         _logScroll.SizeChanged += (_, _) => _logCanvas.MinHeight = Math.Max(0, _logScroll.Bounds.Height - 8);
+        _logScroll.ScrollChanged += (_, e) =>
+        {
+            if (_chatLayoutPending) return;
+            if (e.ExtentDelta.Y != 0 || e.ViewportDelta.Y != 0)
+            {
+                if (_chatFollowTail) FollowChatTail();
+            }
+            else if (e.OffsetDelta.Y != 0) _chatFollowTail = IsChatAtBottom();
+        };
         Grid.SetRow(_logScroll, 5); rightContent.Children.Add(_logScroll);
         var scopeGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,1.2*") };
         for (var i = 0; i < 3; i++) { var index = i; var text = new[] { "声の範囲", "全体", "アナウンス" }[i]; var button = Small(text, () => SelectScope(index)); button.Content = i == 2 ? IconLabel("megaphone", text, 13) : Ui.Row(Dot(i == 0 ? "#D9A02B" : "#5B47A8", 8), Ui.Text(text, 12)); button.Height = 32; button.Padding = new Thickness(6, 0); button.HorizontalContentAlignment = HorizontalAlignment.Center; _scopeButtons[i] = button; Grid.SetColumn(button, i); scopeGrid.Children.Add(button); }
@@ -139,6 +151,9 @@ public sealed partial class RoomView : UserControl
         var attach = IconButton("attach", "画像・動画を添付", () => Run(() => AttachAsync()), 18); attach.Background = Brushes.White; attach.BorderBrush = Brush.Parse("#DCD5C8"); attach.BorderThickness = new Thickness(1); compose.Children.Add(attach);
         attach.Width = attach.Height = 38;
         _input.MinWidth = 0; _input.AcceptsReturn = true; _input.MaxHeight = 100; _input.VerticalContentAlignment = VerticalAlignment.Center;
+        _input.TextWrapping = TextWrapping.Wrap;
+        ScrollViewer.SetHorizontalScrollBarVisibility(_input, ScrollBarVisibility.Disabled);
+        ScrollViewer.SetVerticalScrollBarVisibility(_input, ScrollBarVisibility.Hidden);
         Grid.SetColumn(_input, 1); compose.Children.Add(_input);
         var send = IconButton("send", "送信", () => Run(SendChatAsync), 18); send.Background = Brush.Parse("#2F5FC4"); send.Foreground = Brushes.White; Grid.SetColumn(send, 2); compose.Children.Add(send);
         send.Content = new WebIcon("send", 18, Brushes.White); send.Width = send.Height = 38;
@@ -504,7 +519,8 @@ public sealed partial class RoomView : UserControl
     }
     private void RebuildChat(JsonArray chats)
     {
-        var atBottom = _logScroll.Offset.Y >= _logScroll.Extent.Height - _logScroll.Viewport.Height - 50;
+        var atBottom = _chatFollowTail || IsChatAtBottom();
+        _chatLayoutPending = true;
         var oldOffset = _logScroll.Offset; _logs.Children.Clear();
         foreach (var m in chats.Where(m => (!_chatOnly || J.Text(m, "from") != "") && !NativeSettings.BlockedNames.Contains(J.Text(m, "fromName", J.Text(m, "from")))).TakeLast(150))
         {
@@ -531,7 +547,23 @@ public sealed partial class RoomView : UserControl
             _logs.Children.Add(new Border { Child = row, Padding = new Thickness(8, 5), CornerRadius = new CornerRadius(10), Background = scope == "all" ? Brush.Parse("#EEEAF8") : scope == "announce" ? Brush.Parse("#1026262E") : Brushes.Transparent });
         }
         if (_logs.Children.Count == 0) _logs.Children.Add(Empty(_conversation is null ? "ここから会話をはじめよう" : "メッセージはまだありません"));
-        Dispatcher.UIThread.Post(() => { if (atBottom) _logScroll.ScrollToEnd(); else _logScroll.Offset = oldOffset; }, DispatcherPriority.Loaded);
+        Dispatcher.UIThread.Post(() =>
+        {
+            _chatFollowTail = atBottom;
+            if (atBottom) _logScroll.ScrollToEnd(); else _logScroll.Offset = oldOffset;
+            _chatLayoutPending = false;
+        }, DispatcherPriority.Loaded);
+    }
+    private bool IsChatAtBottom() => _logScroll.Offset.Y >= _logScroll.Extent.Height - _logScroll.Viewport.Height - 2;
+    private void FollowChatTail()
+    {
+        if (_chatScrollQueued) return;
+        _chatScrollQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _chatScrollQueued = false;
+            if (_chatFollowTail && !_chatLayoutPending) _logScroll.ScrollToEnd();
+        }, DispatcherPriority.Loaded);
     }
     private void OpenMedia(JsonNode message)
     {

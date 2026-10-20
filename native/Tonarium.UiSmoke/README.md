@@ -41,4 +41,10 @@ The focused canvas check sends actual headless mouse input through `SharedDrawin
 dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3020 native/artifacts/canvas-batched --canvas-sync http://localhost:3015
 ```
 
+The offline `--chat-scroll` check verifies wheel scrolling to the final row, late image loading, window/composer resizing, keeping an older reading position and hidden chat/input scrollbars:
+
+```powershell
+dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3016 native/artifacts/chat-scroll --chat-scroll
+```
+
 This is a happy-path integration smoke, not a failure-case unit suite. Headless input does not validate physical Windows IME composition, foreground window switching, GPU surfaces, microphone devices or Unity rendering; those require the separate runtime smoke. Its CPU sample includes the test harness and Skia software rendering, so it is evidence about this run, not a hardware-independent performance guarantee.
