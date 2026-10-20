@@ -1,0 +1,166 @@
+import { KokosyncClient, type Value } from '../../../vendor/kokosync/index.js';
+import type { AvatarState, RoomClientMsg, ServerMsg } from '../../../shared/protocol.ts';
+import { importKey, MAX_PACKET, open, pack, PACKET_TOPIC, receiveBlob, seal, sealBytes, sendPacket, type Envelope, type SyncConfig } from '../../../shared/session-wire.ts';
+import { get, set, showToast } from '../store.ts';
+import { resendViewing } from '../world/windows.ts';
+import { applySessionSnapshot, onMessage, send } from './ws.ts';
+
+let generation = 0;
+let requestId = '';
+let client: KokosyncClient | null = null;
+let config: SyncConfig | null = null;
+let key: CryptoKey | null = null;
+let ready = false;
+let retry = 0;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let deadline: ReturnType<typeof setTimeout> | undefined;
+let statsTimer: ReturnType<typeof setInterval> | undefined;
+let outgoing = Promise.resolve();
+let incoming = Promise.resolve();
+let sendSeq = 0;
+let receivedSeq = 0;
+let positionSeq = 0;
+let queuedBytes = 0;
+let pending: RoomClientMsg[] = [];
+const positions = new Map<string, number>();
+const initialPositions = new Map<string, AvatarState>();
+
+export function stopSessionSync(warn = false) {
+  if (warn && (queuedBytes > 0 || pending.length > 0)) showToast('通信が途切れました。直前の操作が反映されたか確認してください');
+  generation++;
+  clearTimeout(retryTimer); clearTimeout(deadline); clearInterval(statsTimer);
+  const old = client;
+  client = null; config = null; key = null; ready = false; requestId = '';
+  old?.close();
+  pending = []; queuedBytes = 0; positions.clear(); initialPositions.clear();
+  outgoing = Promise.resolve(); incoming = Promise.resolve();
+  set({ sync: 'off', syncError: null, syncTransport: null, syncRtt: null, syncStats: null });
+}
+
+export function startSessionSync() {
+  stopSessionSync();
+  if (!get().session || !get().wsConnected) return;
+  requestId = crypto.randomUUID();
+  set({ sync: 'connecting' });
+  send({ t: 'prepareSync', requestId });
+  const gen = generation;
+  deadline = setTimeout(() => { if (gen === generation) failed('同期の接続がタイムアウトしました'); }, 60_000);
+}
+
+function failed(message: string) {
+  const hadPending = queuedBytes > 0 || pending.length > 0;
+  stopSessionSync();
+  if (!get().session || !get().wsConnected) return;
+  set({ sync: 'unavailable', syncError: message });
+  if (hadPending) showToast('通信が途切れました。直前の操作が反映されたか確認してください');
+  retryTimer = setTimeout(startSessionSync, Math.min(8000, 500 * 2 ** Math.min(retry++, 4)));
+}
+export function syncError(id: string, message: string) { if (id === requestId) failed(message); }
+export function resetSessionSync(sid: string) { if (sid === get().session) failed('同期サーバーに再接続しています'); }
+
+export async function configureSessionSync(id: string, next: SyncConfig) {
+  if (id !== requestId || next.sid !== get().session) return;
+  const gen = generation;
+  try {
+    const encryptionKey = await importKey(next.key);
+    let connection: KokosyncClient;
+    try {
+      connection = await KokosyncClient.connect({
+        url: location.origin, room: next.room, peer: next.peer, timeout: 45_000, connectTimeout: 8000,
+        offerUrl: '/sync/offer', offerHeaders: { 'X-Tonarium-Sync': next.token },
+      });
+    } catch {
+      if (gen !== generation) return;
+      connection = await KokosyncClient.connect({
+        url: location.origin, room: next.room, peer: next.peer, timeout: 45_000, transport: 'websocket',
+        websocketUrl: `/sync/ws?token=${encodeURIComponent(next.token)}`,
+      });
+    }
+    if (gen !== generation) { connection.close(); return; }
+    client = connection; config = next; key = encryptionKey;
+    sendSeq = 0; receivedSeq = 0; positionSeq = 0;
+    set({ syncTransport: connection.transport });
+    const receive = async (raw: unknown, from: string, latest = false) => {
+      const p = raw as Envelope;
+      if (gen !== generation || from !== next.server || p?.grant !== next.token) return;
+      const apply = async () => {
+        const result = await open(encryptionKey, next.token, latest ? 'server-position' : 'server', p);
+        if (gen !== generation) return;
+        if (latest) {
+          const msg = result.value;
+          if (msg?.t !== 'avatar' || msg.sid !== next.sid || typeof msg.id !== 'string') return;
+          if ((positions.get(msg.id) ?? 0) >= result.seq) return;
+          positions.set(msg.id, result.seq);
+          if (ready) onMessage(msg);
+          else initialPositions.set(msg.id, msg.s);
+          return;
+        }
+        if (result.seq <= receivedSeq) return;
+        receivedSeq = result.seq;
+        if (result.value.kind === 'snapshot' && result.value.snapshot?.sid === next.sid) {
+          applySessionSnapshot(result.value.snapshot);
+          for (const [id, s] of initialPositions) onMessage({ t: 'avatar', sid: next.sid, id, s });
+          initialPositions.clear();
+          if (!ready) {
+            ready = true; retry = 0; clearTimeout(deadline);
+            set({ sync: 'connected', syncError: null });
+            const s = get();
+            roomSend({ t: 'mode', mode: s.mode });
+            roomSend({ t: 'status', micOn: !!s.micOn[s.selfId], sharing: s.sharer === s.selfId });
+            if (s.mode === '3d') roomSend({ t: 'avatar', s: s.selfAvatar });
+            resendViewing();
+            const buffered = pending; pending = [];
+            for (const msg of buffered) roomSend(msg);
+          }
+        } else if (ready && result.value.kind === 'message') onMessage(result.value.message as ServerMsg);
+      };
+      if (latest) await apply();
+      else { const task = incoming.then(apply); incoming = task.catch(() => {}); await task; }
+    };
+    connection.on('message', (f) => { if (f.topic === PACKET_TOPIC) return receive(f.value, f.peer).catch(() => { if (gen === generation) failed('同期データを読み直しています'); }); });
+    connection.on('latest', (f) => { if (f.key?.startsWith(`${PACKET_TOPIC}:${next.slot}:`)) return receive(f.value, f.peer, true).catch(() => {}); });
+    connection.on('blob_open', (f) => receiveBlob(connection, f, (peer) => peer === next.server, receive).catch(() => { if (gen === generation) failed('大きな同期データの受信に失敗しました'); }));
+    connection.on('close', () => { if (gen === generation) failed('同期の接続が切れました'); });
+    connection.on('error', () => { if (gen === generation) failed('同期の通信に失敗しました'); });
+    roomSend({ t: 'sync' });
+    statsTimer = setInterval(() => {
+      const start = performance.now();
+      void Promise.all([
+        connection.ping().then(() => { if (gen === generation) set({ syncRtt: Math.round(performance.now() - start) }); }),
+        connection.stats().then((stats) => { if (gen === generation) set({ syncStats: stats }); }),
+      ]).catch(() => { if (gen === generation) failed('同期サーバーから応答がありません'); });
+    }, 5000);
+  } catch (e) { if (gen === generation) failed((e as Error).message); }
+}
+
+export function roomSend(msg: RoomClientMsg) {
+  if (!get().session) return;
+  if (!ready && msg.t !== 'sync') {
+    if (['avatar', 'mode', 'status', 'viewing'].includes(msg.t)) return;
+    if (!requestId) { showToast('接続が完了してから、もう一度操作してください'); return; }
+    if (pending.length < 128 && pack(pending).length + pack(msg).length < 2 * 1024 * 1024) pending.push(msg);
+    else showToast('接続が完了してから、もう一度操作してください');
+    return;
+  }
+  const c = client, cfg = config, k = key, gen = generation;
+  if (!c || !cfg || !k) return;
+  if (msg.t === 'avatar') {
+    const seq = ++positionSeq;
+    void seal(k, cfg.token, 'client-position', seq, msg).then((p) => {
+      if (gen === generation && seq === positionSeq) c.latest(PACKET_TOPIC, p as unknown as Value, BigInt(seq));
+    }).catch(() => {});
+    return;
+  }
+  const bytes = pack(msg);
+  if (bytes.length > MAX_PACKET - 1024 || queuedBytes + bytes.length > MAX_PACKET * 2) {
+    showToast('同期データが大きすぎます。操作を分けてください'); return;
+  }
+  queuedBytes += bytes.length;
+  outgoing = outgoing.then(async () => {
+    if (gen !== generation) return;
+    await sendPacket(c, cfg.server, await sealBytes(k, cfg.token, 'client', ++sendSeq, bytes));
+  }).catch(() => { if (gen === generation) failed('操作の送信に失敗しました'); })
+    .finally(() => { if (gen === generation) queuedBytes -= bytes.length; });
+}
+
+if (import.meta.hot) import.meta.hot.dispose(stopSessionSync);

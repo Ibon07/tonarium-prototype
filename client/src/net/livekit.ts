@@ -1,70 +1,17 @@
 // 接続はここで1つだけ持ち、2D/3D の表示切替では切らない。セッションを移るときだけつなぎ直す。
 import {
-  ConnectionState, Room, RoomEvent, Track, LocalVideoTrack,
+  Room, RoomEvent, Track, LocalVideoTrack,
   type RemoteTrack, type RemoteTrackPublication, type Participant as LkParticipant, type LocalTrackPublication,
 } from 'livekit-client';
-import { ROOM_PACKET_MAX, SERVER_IDENTITY, type AvatarState, type RoomClientMsg, type ServerMsg, type SessionSnapshot } from '../../../shared/protocol.ts';
-import { clampAvatar } from '../../../shared/places.ts';
-import { get, set, useStore, worldKindOf } from '../store.ts';
+import { get, set, useStore } from '../store.ts';
 import { addVoice, removeAllVoices, removeVoice } from '../spatial.ts';
-import { resendViewing } from '../world/windows.ts';
-import { applySessionSnapshot, onMessage, send } from './ws.ts';
+import { send } from './ws.ts';
 
 // HMR でこのモジュールが読み直されても同じ接続を使う（別の Room が同じ ID で入ると、互いに蹴り出してつなぎ直しを繰り返す）
 const g = globalThis as unknown as { __tonariumRoom?: Room };
 export const room = (g.__tonariumRoom ??= new Room({ adaptiveStream: false, dynacast: true }));
 room.removeAllListeners();
 for (const topic of ['msg', 'snapshot']) room.unregisterTextStreamHandler(topic);
-
-const enc = new TextEncoder();
-const dec = new TextDecoder();
-
-/** 部屋へ送る。サーバー宛てが基本で、位置だけは全員へ損失許容で直接送る。パケットに収まらないものはストリームで */
-export function roomSend(msg: RoomClientMsg) {
-  if (room.state !== ConnectionState.Connected) return;
-  const lp = room.localParticipant;
-  const text = JSON.stringify(msg);
-  const task = msg.t === 'avatar'
-    ? lp.publishData(enc.encode(text), { reliable: false })
-    : text.length > ROOM_PACKET_MAX
-      ? lp.sendText(text, { topic: 'msg', destinationIdentities: [SERVER_IDENTITY] })
-      : lp.publishData(enc.encode(text), { reliable: true, destinationIdentities: [SERVER_IDENTITY] });
-  task.catch((e) => console.warn('room send', msg.t, e));
-}
-
-/** つないだ・つなぎ直した後に、中の状態をもらい直し、自分の状態を送り直す */
-export function resyncRoom() {
-  const s = get();
-  if (!s.session || room.state !== ConnectionState.Connected) return;
-  roomSend({ t: 'sync' });
-  if (s.mode === '3d') {
-    roomSend({ t: 'mode', mode: '3d' });
-    roomSend({ t: 'avatar', s: s.selfAvatar });
-  }
-  resendViewing();
-  // 送り直さないと全員からミュート扱いになる
-  reported = { micOn: false, sharing: false };
-  syncParticipants();
-}
-
-function onRoomData(payload: Uint8Array, identity: string | undefined) {
-  if (!identity) return;
-  let msg: ServerMsg | RoomClientMsg;
-  try { msg = JSON.parse(dec.decode(payload)) as ServerMsg | RoomClientMsg; } catch { return; }
-  if (identity === SERVER_IDENTITY) { onMessage(msg as ServerMsg); return; }
-  // 他の人から直接届くのは位置だけ（2D の人の分は recompute() が表示から外す）
-  const s = get();
-  if (msg.t !== 'avatar' || !s.session) return;
-  onMessage({ t: 'avatar', sid: s.session, id: identity, s: clampAvatar(worldKindOf(s), (msg as { s: AvatarState }).s) });
-}
-
-async function readFromServer<T>(reader: { readAll(): Promise<string> }, info: { identity: string }, apply: (v: T) => void) {
-  if (info.identity !== SERVER_IDENTITY) return;
-  try { apply(JSON.parse(await reader.readAll()) as T); }
-  catch (e) { console.warn('room stream', e); }
-}
-room.registerTextStreamHandler('msg', (reader, info) => readFromServer<ServerMsg>(reader, info, onMessage));
-room.registerTextStreamHandler('snapshot', (reader, info) => readFromServer<SessionSnapshot>(reader, info, applySessionSnapshot));
 
 /** 2D パネルと 3D スクリーン (VideoTexture) で共有する唯一の <video>（二重再生を防ぐ） */
 export const shareVideoEl = document.createElement('video');
@@ -97,7 +44,7 @@ function setCamFeed(id: string, on: boolean) {
 
 function syncParticipants() {
   if (get().voice !== 'connected') return;
-  const all: LkParticipant[] = [room.localParticipant, ...room.remoteParticipants.values()].filter((p) => p.identity !== SERVER_IDENTITY);
+  const all: LkParticipant[] = [room.localParticipant, ...room.remoteParticipants.values()];
   const speaking: Record<string, boolean> = {};
   const micOn: Record<string, boolean> = {};
   let sharer: string | null = null;
@@ -171,16 +118,16 @@ room
   .on(RoomEvent.ParticipantConnected, syncParticipants)
   .on(RoomEvent.ParticipantDisconnected, syncParticipants)
   .on(RoomEvent.ActiveSpeakersChanged, syncParticipants)
-  .on(RoomEvent.DataReceived, (payload, p, _kind, _topic, _enc, identity) => onRoomData(payload, p?.identity ?? identity))
   .on(RoomEvent.Reconnecting, () => set({ voice: 'connecting' }))
-  .on(RoomEvent.Reconnected, () => { set({ voice: 'connected' }); resyncRoom(); })
+  .on(RoomEvent.Reconnected, () => { set({ voice: 'connected' }); syncParticipants(); })
   .on(RoomEvent.Disconnected, (reason) => {
-    // 自分で切ったのでなければ、少し待ってつなぎ直す（切れている間はセッションの同期も止まる）
+    // 自分で切ったのでなければ、少し待ってつなぎ直す
     if (closing) return;
     console.warn('room disconnected', reason);
     const gen = generation;
     const sid = get().session;
     if (!sid) return;
+    send({ t: 'status', micOn: false, sharing: false });
     set({ voice: 'unavailable', voiceError: '接続が切れました。つなぎ直しています' });
     setTimeout(() => { if (gen === generation && get().session === sid) void connectVoice(sid); }, 3000);
   });
@@ -244,7 +191,7 @@ export async function connectVoice(sid: string) {
     if (gen !== generation) { await closeRoom(); return; }
     await room.startAudio();
     set({ voice: 'connected' });
-    resyncRoom();
+    syncParticipants();
   } catch (e) {
     if (gen === generation) set({ voice: 'unavailable', voiceError: String((e as Error).message ?? e) });
     return;

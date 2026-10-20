@@ -5,6 +5,7 @@ import { clampRoomPos } from './items/actions.ts';
 import { get, set, recompute, spawnPoint, save, nameOf, showToast, dropSession, type Notice } from './store.ts';
 import { send } from './net/ws.ts';
 import { connectVoice, leaveVoice } from './net/livekit.ts';
+import { startSessionSync, stopSessionSync } from './net/session.ts';
 import { placesOf, resumeAudio } from './spatial.ts';
 
 export function joinSession(sid: string) {
@@ -16,6 +17,7 @@ export function joinSession(sid: string) {
   set((s) => ({ session: sid, mode: '2d', hubOpen: false, selfAvatar: spawnPoint(), windows: [], maxWin: null, notices: s.notices.filter((n) => n.kind === 'friend' || n.kind === 'invite' || n.kind === 'online') }));
   recompute();
   send({ t: 'join', sid });
+  startSessionSync();
   void connectVoice(sid);
   // 外で 3D を選んでいたら、入った後に 3D へ
   if (get().joinMode === '3d') setTimeout(() => switchMode('3d'), 400);
@@ -28,6 +30,7 @@ export function leaveSession() {
   set({ session: null, mode: '2d', hubOpen: false, windows: [], maxWin: null });
   recompute();
   send({ t: 'leave' });
+  stopSessionSync();
   void leaveVoice();
 }
 

@@ -7,10 +7,11 @@ services:
       - SERVICE_FQDN_TONARIUM_3001
       # ブラウザが直接つなぐ LiveKit の URL（下の livekit サービスに割り当てたドメイン）
       - LIVEKIT_URL=wss://${LIVEKIT_DOMAIN}
-      # サーバー自身が部屋に入るときにつなぐ先（同じ compose の中なので直接）
-      - LIVEKIT_SERVER_URL=ws://livekit:7880
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - KOKOSYNC_URL=${KOKOSYNC_URL:-https://45.77.130.146}
+      - KOKOSYNC_USERNAME=${KOKOSYNC_USERNAME}
+      - KOKOSYNC_PASSWORD=${KOKOSYNC_PASSWORD}
       - SERVER_PORT=3001
       # - SESSIONS_FILE=/config/sessions.json
     expose:

@@ -23,7 +23,7 @@ import { getOgp } from './ogp.ts';
 import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
 import { eliminate, gameOf, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
-import { ensureRoom, inRoom, leaveRoom, livekitRoom, roomSend, roomSendSnapshot, shutdownRooms, type RoomHandlers } from './rooms.ts';
+import { createSyncGrant, handleSyncOffer, upgradeSync, revokeSync, revokeUserSync, leaveRoom, livekitRoom, roomSend, roomSendSnapshot, shutdownRooms, type RoomHandlers } from './rooms.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
 const DEV = process.argv.includes('--dev');
@@ -372,7 +372,6 @@ const roomHandlers: RoomHandlers = {
     try { handleSession(me, sid, msg); }
     catch (e) { console.error('bad room message', e); }
   },
-  onJoin: (sid, id) => { if (users.get(id)?.session === sid) sendSessionSnapshot(sid, id); },
 };
 const modeLabel = (m: Mode) => (m === '3d' ? '3D' : '2D');
 const clamp = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
@@ -427,6 +426,7 @@ const gameDeps: GameDeps = {
 };
 
 function leaveSession(u: Participant) {
+  revokeUserSync(u.id);
   const sid = u.session;
   if (!sid) return;
   eliminate(sid, u.id, gameDeps);
@@ -456,7 +456,7 @@ function leaveSession(u: Participant) {
   else { finishVisit(sid); void leaveRoom(sid); }
 }
 
-function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
+function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string }, msg: ClientMsg) {
   if (msg.t === 'hello') {
     state.id = msg.id;
     const name = normalizeName(msg.name);
@@ -531,6 +531,16 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
   const sid = me.session;
 
   switch (msg.t) {
+    case 'prepareSync': {
+      if (!sid || typeof msg.requestId !== 'string') return;
+      state.syncRequest = msg.requestId;
+      const current = () => state.syncRequest === msg.requestId && me.session === sid;
+      void createSyncGrant(sid, me.id, ws, roomHandlers, () => send(ws, { t: 'syncReset', sid }), current).then(
+        (config) => { if (current()) send(ws, { t: 'syncConfig', requestId: msg.requestId, config }); },
+        () => { if (current()) send(ws, { t: 'syncError', requestId: msg.requestId, error: 'kokosync に接続できません。サーバー設定と接続先を確認してください' }); },
+      );
+      return;
+    }
     case 'join': {
       const def = guild.sessions.find((d) => d.id === msg.sid);
       if (!def || sid === msg.sid || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) return;
@@ -544,8 +554,6 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       event(msg.sid, `${me.name} が入室しました`);
       // フレンド+ のセッションは中にいる人で見える人が変わる
       broadcastSessions();
-      // 部屋にはトークンを取りに来る前からつなぎ始める。WebSocket だけ切れて入り直した人は部屋に居続けているので、ここで状態を渡す
-      ensureRoom(msg.sid, roomHandlers).then(() => { if (inRoom(msg.sid, me.id)) sendSessionSnapshot(msg.sid, me.id); }, () => {});
       return;
     }
     case 'leave': {
@@ -782,9 +790,9 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg) {
     }
     case 'avatar': {
       // 2D の人の分も覚えるが、使う側はみな mode を見て 3D の人の分だけ使う（mode より先に届くことがある）
-      // 他の人へは本人から直接届いている。途中から入る人に渡す分だけ覚える
       const s = clampAvatar(worldOf.get(sid) ?? 'room', msg.s);
       avatars.get(sid)!.set(me.id, s);
+      roomSend(sid, { t: 'avatar', sid, id: me.id, s }, inSession(sid).filter((u) => u.id !== me.id).map((u) => u.id));
       // 2D から 3D に入ったときは、入った場所の前に立てる
       if (me.sharing && !me.display) { placeDisplay(sid, me, s); sendPresence(sid); }
       return;
@@ -999,6 +1007,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
 }
 
 function onClose(ws: WebSocket, id: string | null) {
+  revokeSync(ws);
   if (!id) return;
   const set = sockets.get(id);
   set?.delete(ws);
@@ -1024,6 +1033,7 @@ const MIME: Record<string, string> = {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
+  if (url.pathname === '/sync/offer') { await handleSyncOffer(req, res); return; }
   if (url.pathname === '/icon') {
     const name = url.searchParams.get('name') ?? '';
     if (req.method === 'POST') {
@@ -1126,13 +1136,8 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: '不正なリクエストです' }));
       return;
     }
-    // サーバーが先に部屋にいないと、入った人に中の状態を渡せない
-    try { await ensureRoom(sid, roomHandlers); } catch (e) {
-      res.end(JSON.stringify({ error: `サーバーが LiveKit につながりません（${(e as Error).message}）` }));
-      return;
-    }
     const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { identity: id, name, ttl: '12h' });
-    at.addGrant({ roomJoin: true, room: livekitRoom(sid), canPublish: true, canSubscribe: true, canPublishData: true });
+    at.addGrant({ roomJoin: true, room: livekitRoom(sid), canPublish: true, canSubscribe: true, canPublishData: false });
     res.end(JSON.stringify({ url: LIVEKIT_URL, token: await at.toJwt() }));
     return;
   }
@@ -1172,7 +1177,13 @@ const server = http.createServer(async (req, res) => {
   fs.createReadStream(file).pipe(res);
 });
 
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ noServer: true });
+server.on('upgrade', (req, socket, head) => {
+  const pathname = new URL(req.url ?? '/', 'http://local').pathname;
+  if (pathname === '/sync/ws') upgradeSync(req, socket, head);
+  else if (pathname === '/ws') wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  else socket.destroy();
+});
 wss.on('connection', (ws) => {
   const state = { id: null as string | null };
   ws.on('message', (raw) => {

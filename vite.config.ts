@@ -29,6 +29,7 @@ export default defineConfig(({ mode }) => {
       port: Number(env.CLIENT_PORT || 5173),
       allowedHosts: allowedHosts(env.ALLOWED_HOSTS),
       proxy: {
+        '/sync': { target: `http://${api}`, ws: true },
         '/token': `http://${api}`,
         '/icon': `http://${api}`,
         '/avatar': `http://${api}`,

@@ -30,17 +30,19 @@ cloudflared 以外（ngrok など）を使う場合は、`.env` の `ALLOWED_HOS
    - `LIVEKIT_DOMAIN`: LiveKit 用のサブドメイン（`livekit.example.com`。`https://` は付けない）
    - `LIVEKIT_API_KEY`: 好きな文字列（例: `tonarium`）
    - `LIVEKIT_API_SECRET`: 32 文字以上のランダムな文字列（例: `openssl rand -base64 32` の結果）
+   - `KOKOSYNC_URL`: データ同期先（既定は `https://45.77.130.146`）
+   - `KOKOSYNC_USERNAME` / `KOKOSYNC_PASSWORD`: 接続先で Basic 認証が必要な場合の値。サーバー用のシークレットとして設定する
 5. ドメインを設定する
    - `tonarium` サービス: アプリのドメイン（`SERVICE_FQDN_TONARIUM_3001` によりポート 3001 に転送。自動で付かなければ `https://<ドメイン>:3001` の形で指定）
    - `livekit` サービス: `https://<LIVEKIT_DOMAIN>:7880`（シグナリングの wss がここを通る）
 6. デプロイ。`/healthz` がヘルスチェックに使われる。通話に入れないときは、ドックの上に出る理由と `livekit` サービスのログを見る
 
 メモ:
-- HTTP・WebSocket（`/ws`）・LiveKit トークン（`/token`）はすべて同じポート。HTTPS は Coolify（Traefik）が付けるので、マイク・画面共有もそのまま使える
+- HTTP・ホーム用 WebSocket（`/ws`）・同期シグナリング（`/sync/offer`）・同期用 WebSocket（`/sync/ws`）・LiveKit トークン（`/token`）は同じポート。HTTPS は Coolify（Traefik）が付ける。`/sync/ws` も WebSocket Upgrade を許可する
 - アイコン・3D アバター・自己紹介・フレンド・通報は `tonarium-data` ボリューム（`/app/data`）に保存されるので再デプロイしても残る。作ったセッション・グループ・イベント、アイテム、DM とチャンネルのメッセージ、ステータスも同じボリュームに残る。セッション内のチャットはメモリ内だけなので、再デプロイ・再起動で消える。インスタンスは 1 つで動かすこと（複数にすると部屋が分かれる）
 - LiveKit の設定は `docker-compose.yml` の `LIVEKIT_CONFIG` にある。サーバーの外向きの IP は自動で調べる（`use_external_ip`）。社内ネットワークなど UDP が通らない人向けには TURN（UDP 3478）も動く
-- サーバー自身も LiveKit の部屋に入るので、サーバーがつなぐ先を `LIVEKIT_SERVER_URL` で指定している（compose の中の `ws://livekit:7880`）。無ければブラウザ向けの `LIVEKIT_URL` にそのままつなぐ
-- LiveKit Cloud に戻すときは、`livekit` サービスを消して `tonarium` の `LIVEKIT_URL` を Cloud の URL にし、`LIVEKIT_SERVER_URL` を消す
+- Tonarium サーバーは `KOKOSYNC_URL` の HTTPS/WSS に外向き接続する。ブラウザの WebRTC は kokosync サーバーの公開 UDP ポートにも届く必要がある。UDP が通らなければ同一オリジンの WebSocket 経由に切り替わる
+- LiveKit Cloud に戻すときは、`livekit` サービスを消して `tonarium` の `LIVEKIT_URL` を Cloud の URL にする。データ同期には影響しない
 - セッション構成を本番だけ変えたいときは、`docker-compose.yml` のコメントにある `SESSIONS_FILE` とボリュームを使う
 - Dockerfile だけで使う場合（Coolify の Dockerfile ビルドパックや手元）:
   ```bash

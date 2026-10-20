@@ -1,39 +1,63 @@
-# 同期の仕組み（WebSocket と LiveKit の部屋）
+# セッションの同期（kokosync）
 
-経路は 2 本。セッションの外でも使うものは WebSocket、セッションの中のものは LiveKit の部屋（データチャネル）で流す。状態の正はどちらもサーバーが持つ。
+セッション内のデータは kokosync、フレンド・DM・ホームは既存の WebSocket、音声・映像は LiveKit を使う。アプリ側の `send()` とメッセージ型は維持している。
 
-## 2 本の経路
-- **WebSocket（`/ws`）** クライアントは `client/src/net/ws.ts`、サーバーは `server/index.ts` の `handle`
-  - つないだときの `snapshot`（セッション一覧・オンラインの人 `users`・フレンド・グループ・イベント・`sessionInfo`）と `inbox`
-  - `join` / `leave`、プロフィール更新、フレンド申請、ホームの操作（セッション・グループ・イベントの作成、DM・チャンネル、ステータス、招待）
-- **LiveKit の部屋** セッションごとに `tonarium-<セッション ID>`（`LIVEKIT_ROOM_PREFIX` で変えられる）。サーバー自身も参加者 `server` として入る（`server/rooms.ts`、Node 用の `@livekit/rtc-node`）。最初の人がセッションに入るときにつなぎ、最後の人が出たら部屋から出る。`/token` はサーバーが部屋に入ってから返す（先に入っていないと、入った人に中の状態を渡せない）
-  - クライアント → サーバー（信頼モード、宛先は `server` だけ）: `mode` `status` `follow` `dropFollowers` `place2d` `displayMove` `chat` `viewing` `poke` `sound` `liveRequest` `viewLive` `itemCreate` `itemRemove` `itemMove` `itemAction` `attention` `broadcast` `world` `gameStart` `gameStep` `gameFell` `hit` `sync`
-  - クライアント → 全員（損失許容モード）: `avatar`（3D の位置）だけ。サーバーを経由せず SFU から直接届く。サーバーも受け取って、途中から入る人に渡す分を覚える
-  - サーバー → 部屋: `presence` `chat` `item` `itemRemove` `itemAction` `avatarRemove` `hit` `poke` `sound` `liveRequest` `attention` `broadcast` `worldPending` `world` `game` `gameTile`。宛先を絞るものは `destinationIdentities`（声の範囲のチャット、シークレットのサイコロ、自分が適用済みの差分）
-- `client/src/net/ws.ts` の `send()` が種類で振り分けるので、呼ぶ側は経路を意識しない（`shared/protocol.ts` の `isRoomClientMsg`）
+## 経路と担当
 
-## 入ったときの状態
-- 部屋に人が入るとサーバーがその人だけに `SessionSnapshot`（チャット・位置・アイテム・presence・ブロードキャスト・ワールド・ゲーム・サーバー時刻）をテキストストリーム（topic `snapshot`）で送る。クライアントもつないだ直後に `sync` を送るので、どちらが先に部屋に入っても届く
-- データパケットは 1 通 14KB まで（`ROOM_PACKET_MAX`）。超えるもの（画像付きのチャット、大きいキャンバスなど）はテキストストリーム（topic `msg`）で送る。クライアントからサーバーへも同じ
+| 経路 | 流すもの | 実装 |
+| --- | --- | --- |
+| `/ws` | 接続、参加・退出、フレンド、DM、グループ、招待、セッション一覧、プロフィール、同期の接続情報 | `client/src/net/ws.ts`、`server/index.ts` |
+| kokosync | チャット、アイテムとキャンバス差分、位置、presence、ワールド、ゲーム、通知、初回同期 | `client/src/net/session.ts`、`server/rooms.ts` |
+| LiveKit | 通話、画面共有、カメラ、視点のライブ配信 | `client/src/net/livekit.ts` |
 
-## User と Presence
-- `User`（WebSocket で全員に届く。ホームの「誰がどこにいるか」にも使う）: `id` `name` `session` `mode` `sharing` `icon` `avatar` `bio` `status` `statusText`
-- `Presence`（部屋でそのセッションの人にだけ届く）: `micOn` `follow` `pos`（2D の立ち位置） `viewing` `viewLive` `display`（配信ディスプレイの位置）。変わるたびにセッションの全員分をまとめて `presence` で配り直す
-- クライアントは `participants` = `User` + `Presence` に合成して使う（`store.ts` の `recompute`）。サーバーは 1 つのオブジェクトで持ち、WebSocket に出すときに `Presence` の項目を落とす
-- ホーム向けには `sessionInfo`（セッションごとのワールドとアイテムの要約）を WebSocket で配る。アイテムやワールドが変わったら 300ms でまとめて全員へ。セッションカードの「置いてあるもの」と、メッセージに添えたアイテムの表示に使う
+接続先の既定値は `https://45.77.130.146`。ブラウザは WebRTC、Tonarium サーバーは WebSocket で同じ kokosync ルームに参加する。UDP が使えないブラウザは、8秒の接続試行後に同一オリジンの `/sync/ws` を経由する WebSocket に切り替える。この互換接続では TCP の順序待ちがあるので、WebRTC と同じ低遅延は保証できない。
 
-## 位置
-- 3D の人は 30fps（33ms 間隔）で、変化したときだけ `avatar` を送る（`client/src/view3d/Player.tsx`）
-- 受け取った側は `shared/places.ts` の `clampAvatar` でそのワールドの範囲に収める。2D の人の分が残っていても表示しない（`mode` の変更より先に位置が届くことがあるので、届いた時点では捨てない）
-- 表示は届いた値に向かって毎フレーム寄せる補間（`View3D.tsx` の `Avatar3D`）
+Tonarium サーバーが参加を判定し、状態更新を処理する。位置も一度 Tonarium サーバーを通る。現在はクライアント同士の直結メッシュではない。サイコロなどの既存の処理は移動していないが、kokosync 自体がサーバーによる結果決定を要求するわけではない。
 
-## 切断とつなぎ直し
-- **WebSocket が切れた**: サーバーは退出扱いにする。つなぎ直したら `join` を送り直し、部屋はつながったままなので `sync`・`mode`・位置・`viewing`・`status` を送り直す（`livekit.ts` の `resyncRoom`）
-- **LiveKit が切れた**: 3 秒後につなぎ直す。切れている間はセッションの中の同期も止まる（ドックの上に出る）
-- **LiveKit につながらない人**: セッションに入ってもチャット・アイテム・位置は同期されない。ホームは見られる。WebSocket への切り戻しは無い
-- **サーバーの再起動**: セッションの中の状態（チャット・位置）は消える。アイテムは `data/items.json` から戻る
+## 参加と初回同期
 
-## 開発中の注意
-- `livekit.ts` が HMR で読み直されても `Room` は `globalThis` に 1 つ。2 つ目を作ると同じ ID で入って互いに蹴り出し、つなぎ直しを繰り返す
-- 複数のワークツリーで 1 つの LiveKit を共有すると、同じセッション ID の部屋が混ざる（サーバー同士も `server` の ID で蹴り合う）。片方の `.env` で `LIVEKIT_ROOM_PREFIX` を変える
-- サーバーがつなぐ先はブラウザと別に `LIVEKIT_SERVER_URL` で指定できる（docker-compose では `ws://livekit:7880`）。省略時は `LIVEKIT_URL`
+1. `/ws` の `join` で、既存の公開範囲チェックを受ける。
+2. `prepareSync` に対して、その接続専用の参加情報 `syncConfig` を返す。退出・切断・再発行まで有効。サーバー起動ごとの名前空間で、他の Tonarium インスタンスと部屋が混ざらない。
+3. ブラウザは `/sync/offer` に参加資格を渡して WebRTC を確立する。kokosync の Basic 認証情報は Tonarium サーバーだけが保持する。
+4. `sync` に対してアプリが `SessionSnapshot` を送る。チャット、キャンバスを含むアイテム、位置、presence、ワールド、ゲーム、サーバー時刻を一括して復元する。
+5. 復元後に mode、音声状態、位置、閲覧状態を送り直し、接続中に待っていた操作を送る。
+
+状態の正は既存の Tonarium サーバーにある。kokosync の state/checkpoint は使わず、初回同期はアプリが引き受ける。スナップショットを作った後の確実配送は、受信者ごとの同じ送信列に並ぶ。大きいスナップショットの受信・適用が終わる前に、後続の差分を適用しない。
+
+## 大きいデータと位置更新
+
+- 本文は MessagePack。省略可能フィールドの `undefined` はエンコード時に除く。
+- 48 KiB を超える暗号化パケットは、kokosync の宛先付き Blob 転送を使う。フロー制御とハッシュ検証は SDK が行う。受信完了時に一括適用する。
+- アプリの1パケット上限は暗号化前で約32 MiB、受信者ごとの送信待ちは64 MiB。超過・切断を黙って無視せず、再同期と画面への通知を行う。
+- サーバーからの大きい Blob はルームごとに直列化し、kokosync の同時転送枠を使い切らないようにする。遅い受信者が他の大きい転送を待たせることはある。
+- 位置は最大約30fpsで `latest` に流す。確実配送や Blob の送信列とは別に処理し、古い値を捨てる。描画側の補間は従来どおり。
+- 動画ファイルのアップロードは従来の `/media`、リアルタイム映像は LiveKit を維持する。動画をこの Blob 経路に載せ替えたわけではない。
+- 現在の kokosync の上限は1ルーム32 peer。この構成ではアプリサーバーが1枠使うので、参加者は最大31接続。1ユーザーが複数タブで参加すると、その分の枠を使う。空室の情報も中継サーバーが保持するため、開発で起動を繰り返す場合は中継側の総ルーム数上限にも注意する。
+
+## 宛先と参加資格
+
+kokosync の通常メッセージはルーム全員へ届くため、Tonarium は受信者ごとの AES-GCM 鍵で本文を暗号化する。声の範囲のチャット、シークレットのサイコロ、個人宛て通知は対象者だけに復号できる。サーバーは送信者の peer とホーム接続を照合し、クライアントの本文に書かれたユーザー ID を信用しない。方向・資格・通し番号も認証対象にして、別の方向への使い回しや再送を拒否する。
+
+退出、ホーム接続の切断、参加情報の再発行で古い資格を無効にする。WebRTC の中継接続自体が残る場合も、その資格による操作は受け付けず、新しい本文は送らない。ホームの名前・ユーザー ID に関する認証強度は既存プロトタイプのまま。実運用のアカウント認証を追加したものではない。
+
+## 再接続と診断
+
+- ホーム接続が切れたらデータ接続も破棄し、`join` からやり直す。
+- kokosync の切断やタイムアウト時は待ち時間を増やして再接続し、最新のスナップショットをもらう。送信済みか不明な操作を自動再実行しない。未確定の操作があるときは確認を促す。
+- LiveKit が切れてもデータ同期は続く。画面には同期と通話の状態を別々に出す。
+- `useStore.getState()` の `sync`、`syncTransport`、`syncRtt`、`syncStats`、`syncError` で状態を取得できる。`syncStats` は SDK の queuedBytes / sentBytes / receivedBytes / dropped 等。5秒ごとに更新する RTT はブラウザから kokosync 中継までの往復で、操作が全員へ反映される時間とは異なる。
+
+## 設定と検証
+
+`.env` / デプロイ環境に `KOKOSYNC_URL` と、必要なら `KOKOSYNC_USERNAME`・`KOKOSYNC_PASSWORD` を設定する。ローカルでは `KOKOSYNC_CREDENTIALS_FILE` に `Username:` / `Password:` 行のあるファイルを指定できる。`VITE_` を付けない。ブラウザは HTTPS または localhost で開く。
+
+```sh
+npm run typecheck
+npm run build
+npm run test:sync
+npm run test:chess
+```
+
+接続先を実際に使う統合テストは、環境変数 `KOKOSYNC_INTEGRATION=1` を設定して `npm run test:sync:integration`。一時データディレクトリの Tonarium を起動し、独立したルームで初回同期、大きい添付、転送を止めた間の位置更新、キャンバス差分、個別配送、再接続、重複の拒否、別セッションとの分離、退出後の資格無効化、フレンド・DMを確認する。実接続するため通常の単体テストとは分けている。多数同時接続時の性能試験は別途必要。
+
+SDK は `vendor/kokosync/` に同梱してあり、別リポジトリのチェックアウトを必要としない。出典と変更点は同ディレクトリの README を参照。

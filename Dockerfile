@@ -12,6 +12,7 @@ ENV NODE_ENV=production \
 COPY --from=build /app/node_modules ./node_modules
 COPY package.json tsconfig.json sessions.json ./
 COPY shared ./shared
+COPY vendor ./vendor
 COPY server ./server
 COPY --from=build /app/client/dist ./client/dist
 RUN mkdir -p /app/data && chown node:node /app/data

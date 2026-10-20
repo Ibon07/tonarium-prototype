@@ -122,6 +122,11 @@ interface State {
   selfAvatar: AvatarState;
 
   voice: VoiceStatus;
+  sync: VoiceStatus;
+  syncError: string | null;
+  syncTransport: string | null;
+  syncRtt: number | null;
+  syncStats: Record<string, unknown> | null;
   voiceError: string | null;
   /** 希望設定。未接続中も切り替えられ、参加時に適用する */
   micEnabled: boolean;
@@ -218,6 +223,11 @@ export const useStore = create<State>(() => ({
   aimHint: null,
   selfAvatar: spawnPoint(),
   voice: 'off',
+  sync: 'off',
+  syncError: null,
+  syncTransport: null,
+  syncRtt: null,
+  syncStats: null,
   voiceError: null,
   micEnabled: true,
   speaking: {},

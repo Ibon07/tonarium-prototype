@@ -126,8 +126,11 @@ function StatusChips() {
   const followers = s.participants.filter((p) => p.follow === s.selfId);
   const placedSelf = me?.mode === '2d' && !!me.pos && !me.follow;
   const chips: React.ReactNode[] = [];
-  if (s.voice === 'connecting') chips.push(<span key="v">セッションに接続中…</span>);
-  if (s.voice === 'unavailable') chips.push(<span key="v" title={s.voiceError ?? ''}>LiveKit に接続できません（同期と通話が止まっています）{s.voiceError ? `（${s.voiceError}）` : ''}</span>);
+  if (s.sync === 'connecting') chips.push(<span key="sync">セッションを同期中…</span>);
+  if (s.sync === 'unavailable') chips.push(<span key="sync" title={s.syncError ?? ''}>同期に再接続しています{ s.syncError ? `（${s.syncError}）` : ''}</span>);
+  if (s.sync === 'connected') chips.push(<span key="sync" title={`kokosync · ${s.syncTransport ?? ''}`}>同期 {s.syncRtt === null ? '接続済み' : `${s.syncRtt} ms`}{s.syncTransport === 'websocket' ? ' · 互換接続' : ''}</span>);
+  if (s.voice === 'connecting') chips.push(<span key="v">通話に接続中…</span>);
+  if (s.voice === 'unavailable') chips.push(<span key="v" title={s.voiceError ?? ''}>通話・映像に接続できません{ s.voiceError ? `（${s.voiceError}）` : ''}</span>);
   if (s.mode === '2d' && hammer) chips.push(<span key="h">ピコピコハンマーを持っています · 人をクリックで叩く<button className="chipbtn" onClick={dropHammer}>手放す</button></span>);
   if (placedSelf) chips.push(<span key="p"><Icon name="pin" size={14} />3D 空間の中にいます<button className="chipbtn" onClick={() => place2d(s.selfId, null)}>スポーンに戻る</button></span>);
   if (followers.length) {

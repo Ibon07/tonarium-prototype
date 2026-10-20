@@ -9,10 +9,13 @@
     "livekit": "docker compose -f docker-compose.dev.yml up -d",
     "livekit:stop": "docker compose -f docker-compose.dev.yml down",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test:chess": "tsx --test shared/chess.test.ts server/chess-ai.test.ts"
+    "test:chess": "tsx --test shared/chess.test.ts server/chess-ai.test.ts",
+    "test:sync": "tsx --test shared/session-wire.test.ts",
+    "test:sync:integration": "tsx --test server/session.integration.test.ts"
   },
   "dependencies": {
-    "@livekit/rtc-node": "^1.1.0",
+    "@msgpack/msgpack": "^3.1.3",
+    "@noble/hashes": "^2.4.0",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
     "chess.js": "^1.4.0",

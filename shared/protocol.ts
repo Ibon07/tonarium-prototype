@@ -2,6 +2,7 @@ import type { Item, ItemAction, ItemKind, MediaInit } from './items.ts';
 import type { WorldKind } from './worlds.ts';
 import type { DiceRoll } from './dice.ts';
 import type { GameState } from './game.ts';
+import type { SyncConfig } from './session-wire.ts';
 
 export type Mode = '2d' | '3d';
 
@@ -253,6 +254,7 @@ export type HomeClientMsg =
   | { t: 'hello'; id: string; name: string }
   | { t: 'join'; sid: string }
   | { t: 'leave' }
+  | { t: 'prepareSync'; requestId: string }
   /** /icon・/avatar・/profile へ保存した後に、同じ名前のオンラインの人へ反映させる */
   | { t: 'profileUpdated' }
   | { t: 'friendRequest'; to: string }
@@ -279,7 +281,7 @@ export type HomeClientMsg =
   /** to はユーザー ID。セッションなら invited にも加える */
   | { t: 'invite'; kind: 'session' | 'group'; id: string; to: string };
 
-/** LiveKit の部屋でサーバーへ送るもの（セッションの中だけ）。avatar だけは全員へ直接送る */
+/** kokosync でサーバーへ送るもの（セッションの中だけ）。 */
 export type RoomClientMsg =
   /** 部屋につないだ・つなぎ直した後に、中の状態を送ってもらう */
   | { t: 'sync' }
@@ -326,6 +328,9 @@ export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => m.t in ROOM
 
 /** WebSocket でサーバーから届くもの */
 export type HomeServerMsg =
+  | { t: 'syncConfig'; requestId: string; config: SyncConfig }
+  | { t: 'syncError'; requestId: string; error: string }
+  | { t: 'syncReset'; sid: string }
   | { t: 'snapshot'; s: Snapshot }
   | { t: 'users'; list: User[] }
   | { t: 'sessionInfo'; sessions: Record<string, SessionInfo> }
@@ -345,7 +350,7 @@ export type HomeServerMsg =
   | { t: 'askJoin'; from: string; fromName: string; session: string }
   | { t: 'online'; from: string; fromName: string };
 
-/** LiveKit の部屋で届くもの。avatar は他の人から直接届く（受け取り側で同じ形にそろえる） */
+/** kokosync でサーバーから届くもの。 */
 export type RoomServerMsg =
   | { t: 'presence'; sid: string; all: Record<string, Presence> }
   | { t: 'chat'; sid: string; m: ChatMessage }
@@ -367,11 +372,6 @@ export type RoomServerMsg =
   | { t: 'gameTile'; sid: string; tile: number; at: number };
 
 export type ServerMsg = HomeServerMsg | RoomServerMsg;
-
-/** 部屋のデータパケットに収まる大きさ。これを超えるものはテキストストリームで送る */
-export const ROOM_PACKET_MAX = 14_000;
-/** 部屋でサーバーが名乗る参加者 ID */
-export const SERVER_IDENTITY = 'server';
 
 /** 床は -ROOM_HALF..ROOM_HALF。スクリーンは北壁 (z = -ROOM_HALF) */
 export const ROOM_HALF = 10;

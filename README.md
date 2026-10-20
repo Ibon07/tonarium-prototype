@@ -8,12 +8,12 @@
 - `client/` Vite + React + TypeScript。3D は React Three Fiber。状態は zustand
   - `client/src/world/` ワールド画面（左のプレイヤー・アイテム、上の顔、右の通知・ログ、下のドック、背面のウィンドウ）
   - `client/src/home/` ホーム画面（セッション外。セッション・フレンド・イベント・グループ・ワールド・アイテムの一覧と作成）
-- `server/` Node + ws + LiveKit。オンラインのユーザーと、セッションごとの状態（チャット・アイテム・アバター位置）をメモリに保持し、LiveKit のトークンも発行。セッションの中の同期は、サーバーも参加者として入る LiveKit の部屋で行う（[docs/sync.md](docs/sync.md)）。画面から作ったセッション・グループ・イベントは `data/home.json` に保存
-- `shared/protocol.ts` WebSocket と LiveKit の部屋のメッセージ型、`shared/places.ts` 位置と距離（クライアントとサーバーで共用）
+- `server/` Node + ws + kokosync。オンラインのユーザーと、セッションごとの状態（チャット・アイテム・アバター位置）を保持する。セッション内のデータ同期は kokosync、フレンド・DM・ホームは従来の WebSocket（[docs/sync.md](docs/sync.md)）。LiveKit の通話トークンも発行。画面から作ったセッション・グループ・イベントは `data/home.json` に保存
+- `shared/protocol.ts` アプリのメッセージ型、`shared/session-wire.ts` MessagePack と同期パケット、`shared/places.ts` 位置と距離（クライアントとサーバーで共用）
 - `sessions.json` 最初からあるセッションの構成（各セッションが最初に読み込むワールド＝ 3D 空間も指定）。ホームの「セッションを作る」で増やしたものは `data/home.json`
 - `shared/worlds.ts` ワールドの種類（ホール・カフェ）と家具の当たり判定。見た目は `client/src/view3d/worlds3d.tsx`
 - `client/public/brand/` ロゴ・ファビコン・OGP 画像。OGP の絶対 URL は、サーバーが `index.html` を返すときにアクセスされたドメインで埋める（`__ORIGIN__`）
-- 音声・画面共有・セッション内の同期は LiveKit。本番は Coolify で自前の `livekit-server` を一緒に動かし、手元では Docker で開発用の LiveKit を動かす
+- 音声・画面共有は LiveKit。本番は Coolify で自前の `livekit-server` を一緒に動かし、手元では Docker で開発用の LiveKit を動かす。データ同期は独立した kokosync 接続を使う
 
 詳しい仕組みと使い方は [docs/](docs/) にある。
 
@@ -23,7 +23,9 @@ npm install
 cp .env.example .env   # 手元の LiveKit（devkey / secret）を使う設定になっている
 npm run livekit        # 開発用の LiveKit を Docker で起動（Docker Desktop が必要。止めるときは npm run livekit:stop）
 ```
-LiveKit が動いていないと、セッションに入っても中の同期（チャット・アイテム・位置）と通話が動かない（ホームは見られる。ドックの上に理由が出る）。
+`.env` の `KOKOSYNC_URL`（既定は `https://45.77.130.146`）と、必要な Basic 認証情報 `KOKOSYNC_USERNAME` / `KOKOSYNC_PASSWORD` を設定する。ブラウザには認証情報を配らず、Tonarium サーバーを経由して接続する。ローカルの認証ファイルを指定する方法と通信の上限は [docs/sync.md](docs/sync.md) を参照。
+
+LiveKit が動いていなくても、kokosync につながればチャット・アイテム・位置は同期する。通話・映像の接続状態はドックの上に別表示する。
 LiveKit Cloud を使う場合は `.env` の `LIVEKIT_*` をそのプロジェクトの値にする。
 
 ## 開発
@@ -53,7 +55,7 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 - 距離で変わる声、ブロードキャストモード、ついていく → [docs/audio.md](docs/audio.md)
 - アイテム（付箋・ハンマー・チェス・サイコロ・キャンバス・カメラ・2048）と画像・動画・YouTube の共有 → [docs/items.md](docs/items.md)
 - 外から試す（cloudflared）・Coolify へのデプロイ → [docs/deploy.md](docs/deploy.md)
-- 同期の仕組み（WebSocket と LiveKit の部屋、入ったときの状態、つなぎ直し）→ [docs/sync.md](docs/sync.md)
+- 同期の仕組み（kokosync、初回同期、大きいデータ、つなぎ直し、通信状態）→ [docs/sync.md](docs/sync.md)
 - 実装の設計 → [docs/architecture.md](docs/architecture.md)
 
 ## 参加者への注意

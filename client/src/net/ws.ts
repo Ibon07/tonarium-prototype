@@ -7,7 +7,7 @@ import { onHit } from '../items/effects.ts';
 import { pushNotice } from '../actions.ts';
 import { volumeFrom } from '../spatial.ts';
 import { playPoke, playSynth } from '../world/sounds.ts';
-import { resyncRoom, roomSend } from './livekit.ts';
+import { startSessionSync, stopSessionSync, roomSend, configureSessionSync, syncError, resetSessionSync } from './session.ts';
 
 /** 注目を集めたアイテムが光っている時間 */
 export const ATTENTION_MS = 10_000;
@@ -27,18 +27,20 @@ export function connectWs() {
     send({ t: 'hello', id: s.selfId, name: s.selfName });
     if (s.session) {
       send({ t: 'join', sid: s.session });
-      // 切断でサーバー側の状態は消えるので、部屋はつながったままでも中の状態を送り直す
-      resyncRoom();
+      // ホームの再接続後は、参加資格と部屋の状態も取り直す。
+      startSessionSync();
     }
   };
   ws.onmessage = (e) => onMessage(JSON.parse(e.data) as ServerMsg);
   ws.onclose = () => {
+    stopSessionSync(true);
     set({ wsConnected: false });
+    if (get().session) set({ sync: 'unavailable', syncError: 'ホームとの接続を待っています' });
     setTimeout(connectWs, Math.min(5000, 500 * 2 ** retry++));
   };
 }
 
-/** セッションの中の操作は LiveKit の部屋へ、それ以外は WebSocket へ */
+/** セッションの中の操作は kokosync へ、それ以外は WebSocket へ */
 export function send(msg: ClientMsg) {
   if (isRoomClientMsg(msg)) { roomSend(msg); return; }
   const ws = g.__tonariumWs;
@@ -66,6 +68,9 @@ export function applySessionSnapshot(snap: SessionSnapshot) {
 
 export function onMessage(msg: ServerMsg) {
   switch (msg.t) {
+    case 'syncConfig': void configureSessionSync(msg.requestId, msg.config); return;
+    case 'syncError': syncError(msg.requestId, msg.error); return;
+    case 'syncReset': resetSessionSync(msg.sid); return;
     case 'snapshot': {
       const { guild, users, friends, groups, events, sessions, now } = msg.s;
       set((s) => ({ groups, events, serverOffset: now - Date.now(), guild, users, friends, sessionInfo: sessions, worldBy: { ...s.worldBy, ...worldsOf(sessions) } }));
