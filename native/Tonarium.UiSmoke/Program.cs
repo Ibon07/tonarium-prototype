@@ -36,7 +36,8 @@ internal static class Program
         {
             try
             {
-                if (args.Contains("--side-panels")) await SidePanelProbe.Run(output, Pass);
+                if (args.Contains("--audio-transmit")) await AudioTransmitProbe.Run(output, Pass);
+                else if (args.Contains("--side-panels")) await SidePanelProbe.Run(output, Pass);
                 else if (args.Contains("--chat-scroll")) await ChatScrollProbe.Run(output, Pass);
                 else if (args.Contains("--audio-settings")) await AudioSettingsProbe.Run(output, Pass);
                 else if (args.Contains("--items")) await ItemBehaviorProbe.Run(server, output, Pass);

@@ -53,4 +53,10 @@ dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3016
 dotnet run --project native/Tonarium.UiSmoke -c Release -- unused native/artifacts/audio-settings --audio-settings
 ```
 
+`--audio-transmit` injects a generated 440Hz tone into the production capture conversion and sends it through local LiveKit for 16 seconds. It checks received sample energy at the beginning and after 12 seconds, rather than only counting packets. It queries the default input format but never starts microphone or desktop capture. Local LiveKit must run at `ws://127.0.0.1:7880` with the development credentials.
+
+```powershell
+dotnet run --project native/Tonarium.UiSmoke -c Release -- unused native/artifacts/audio-transmit --audio-transmit
+```
+
 This is a happy-path integration smoke, not a failure-case unit suite. Headless input does not validate physical Windows IME composition, foreground window switching, GPU surfaces, microphone devices or Unity rendering; those require the separate runtime smoke. Its CPU sample includes the test harness and Skia software rendering, so it is evidence about this run, not a hardware-independent performance guarantee.
