@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AvatarState, ChatMessage, GuildConfig, Mode, User } from '../../shared/protocol.ts';
+import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Mode, User } from '../../shared/protocol.ts';
 import { SPAWN } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
 import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
@@ -10,7 +10,9 @@ export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
 export type WinMode = 'simple' | 'free';
 /** ウィンドウのキー: share（画面共有）/ cam:<アイテムID> / view:<ユーザーID> / item:<アイテムID> */
 export interface Win { key: string; x: number; y: number }
-export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention'; from: string; key?: string; fromName: string; at: number; unread: boolean }
+/** key は attention ならウィンドウのキー、invite なら session:<id> / group:<id> */
+export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention' | 'invite'; from: string; key?: string; fromName: string; at: number; unread: boolean }
+export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'worlds' | 'items';
 
 interface State {
   selfId: string;
@@ -19,6 +21,8 @@ interface State {
   wsConnected: boolean;
 
   guild: GuildConfig;
+  groups: Group[];
+  events: EventDef[];
   users: User[];
   chats: Record<string, ChatMessage[]>;
   avatarsBy: Record<string, Record<string, AvatarState>>;
@@ -26,6 +30,8 @@ interface State {
 
   session: string | null;
   mode: Mode;
+  /** セッション外で開いているホームのページ */
+  homePage: HomePage;
 
   // 以下は参加中セッションの分だけを recompute() で切り出したもの
   participants: User[];
@@ -122,12 +128,15 @@ export const useStore = create<State>(() => ({
   joined: false,
   wsConnected: false,
   guild: { name: 'Tonarium', sessions: [] },
+  groups: [],
+  events: [],
   users: [],
   chats: {},
   avatarsBy: {},
   itemsBy: {},
   session: null,
   mode: '2d',
+  homePage: 'home',
   participants: [],
   avatars: {},
   items: {},

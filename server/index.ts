@@ -8,9 +8,10 @@ import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
-  AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, GuildConfig, Mode, ServerMsg, User,
+  AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, EventDef, Group, GuildConfig, Mode, ServerMsg, SessionDef, User,
 } from '../shared/protocol.ts';
-import { ROOM_HALF } from '../shared/protocol.ts';
+import { ROOM_HALF, VISIBILITY_INFO } from '../shared/protocol.ts';
+import { GROUP_COLORS, canSeeSession } from '../shared/home.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, isWorldKind, pushOut, type WorldKind } from '../shared/worlds.ts';
 import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, type Item } from '../shared/items.ts';
 import { sanitizeParams } from '../shared/avatar.ts';
@@ -31,6 +32,7 @@ const ICON_DIR = path.join(DATA_DIR, 'icons');
 const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
 const PROFILE_DIR = path.join(DATA_DIR, 'profiles');
 const FRIENDS_FILE = path.join(DATA_DIR, 'friends.json');
+const HOME_FILE = path.join(DATA_DIR, 'home.json');
 const REPORTS_FILE = path.join(DATA_DIR, 'reports.log');
 for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR]) fs.mkdirSync(d, { recursive: true });
 
@@ -65,7 +67,13 @@ async function readBody(req: http.IncomingMessage, limit: number) {
 
 const SESSIONS_FILE = process.env.SESSIONS_FILE ?? path.join(ROOT, 'sessions.json');
 const guild = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')) as GuildConfig;
+// 画面から作ったセッション・グループ・イベント。sessions.json のセッションの後ろに並べる
+const home: { sessions: SessionDef[]; groups: Group[]; events: EventDef[] } = { sessions: [], groups: [], events: [] };
+try { Object.assign(home, JSON.parse(fs.readFileSync(HOME_FILE, 'utf-8'))); } catch { /* まだ無い */ }
+guild.sessions.push(...home.sessions);
+const saveHome = () => fs.writeFileSync(HOME_FILE, JSON.stringify(home));
 const sessionIds = new Set(guild.sessions.map((w) => w.id));
+const shortId = () => randomUUID().slice(0, 8);
 const livekitRoom = (sid: string) => `tonarium-${sid}`;
 
 // フレンドは名前の組で保存する（アイコンなどと同じく名前が本人の識別）
@@ -92,12 +100,18 @@ const items = new Map<string, Map<string, Item>>();
 const broadcastMode = new Map<string, boolean>();
 const lastAttention = new Map<string, number>();
 const worldOf = new Map<string, WorldKind>();
-for (const w of guild.sessions) worldOf.set(w.id, isWorldKind(w.world) ? w.world : 'room');
-for (const sid of sessionIds) {
-  chats.set(sid, []);
-  avatars.set(sid, new Map());
-  items.set(sid, new Map());
+function registerSession(def: SessionDef) {
+  sessionIds.add(def.id);
+  worldOf.set(def.id, isWorldKind(def.world) ? def.world : 'room');
+  chats.set(def.id, []);
+  avatars.set(def.id, new Map());
+  items.set(def.id, new Map());
 }
+for (const w of guild.sessions) registerSession(w);
+const sessionsVisibleTo = (name: string) => guild.sessions.filter((d) => canSeeSession(d, name, friendsOf(name), home.groups, [...users.values()]));
+const broadcastSessions = () => { for (const u of users.values()) sendTo([u.id], { t: 'sessions', list: sessionsVisibleTo(u.name) }); };
+const broadcastGroups = () => broadcast({ t: 'groups', list: home.groups });
+const broadcastEvents = () => broadcast({ t: 'events', list: home.events });
 
 function send(ws: WebSocket, msg: ServerMsg) {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
@@ -290,12 +304,14 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
     send(ws, {
       t: 'snapshot',
       s: {
-        guild,
+        guild: { ...guild, sessions: sessionsVisibleTo(normalizeName(msg.name)) },
         users: [...users.values()],
         chats: Object.fromEntries([...chats].map(([sid, list]) => [sid, list.filter((m) => !m.to || m.to.includes(msg.id))])),
         avatars: Object.fromEntries([...avatars].map(([sid, m]) => [sid, Object.fromEntries(m)])),
         items: Object.fromEntries([...items].map(([sid, m]) => [sid, [...m.values()]])),
         friends: friendsOf(normalizeName(msg.name)),
+        groups: home.groups,
+        events: home.events,
         broadcast: Object.fromEntries(broadcastMode),
         world: Object.fromEntries(worldOf),
         games: allGames(),
@@ -329,23 +345,29 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
     friendPairs.add(pairKey(me.name, other.name));
     saveFriends();
     for (const n of [me.name, other.name]) sendTo(idsByName(n), { t: 'friends', names: friendsOf(n) });
+    broadcastSessions();
     return;
   }
+  if (handleHome(me, msg)) return;
   const sid = me.session;
 
   switch (msg.t) {
     case 'join': {
-      if (!sessionIds.has(msg.sid) || sid === msg.sid) return;
+      const def = guild.sessions.find((d) => d.id === msg.sid);
+      if (!def || sid === msg.sid || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) return;
       leaveSession(me);
       me.session = msg.sid;
       me.mode = '2d';
       broadcastUsers();
       event(msg.sid, `${me.name} が入室しました`);
+      // フレンド+ のセッションは中にいる人で見える人が変わる
+      broadcastSessions();
       return;
     }
     case 'leave': {
       leaveSession(me);
       broadcastUsers();
+      broadcastSessions();
       return;
     }
   }
@@ -591,6 +613,112 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
   }
 }
 
+const trimTo = (v: unknown, n: number) => String(v ?? '').trim().slice(0, n);
+
+/** ホーム画面の操作（セッション外でもできる）。扱ったら true */
+function handleHome(me: User, msg: ClientMsg): boolean {
+  switch (msg.t) {
+    case 'sessionCreate': {
+      const name = trimTo(msg.name, 40);
+      const visibility = msg.visibility in VISIBILITY_INFO ? msg.visibility : 'public';
+      const group = visibility === 'group' ? home.groups.find((g) => g.id === msg.group && g.members.includes(me.name))?.id : undefined;
+      if (!name || (visibility === 'group' && !group)) return true;
+      const def: SessionDef = { id: shortId(), name, topic: trimTo(msg.topic, 100), world: isWorldKind(msg.world) ? msg.world : 'room', visibility, owner: me.name, group, invited: [] };
+      home.sessions.push(def);
+      guild.sessions.push(def);
+      registerSession(def);
+      saveHome();
+      broadcastSessions();
+      return true;
+    }
+    case 'sessionDelete': {
+      const def = home.sessions.find((d) => d.id === msg.id && d.owner === me.name);
+      if (!def || [...users.values()].some((u) => u.session === def.id)) return true;
+      home.sessions.splice(home.sessions.indexOf(def), 1);
+      guild.sessions.splice(guild.sessions.indexOf(def), 1);
+      sessionIds.delete(def.id);
+      for (const ev of home.events) if (ev.session === def.id) ev.session = null;
+      saveHome();
+      broadcastSessions();
+      broadcastEvents();
+      return true;
+    }
+    case 'groupCreate': {
+      const name = trimTo(msg.name, 40);
+      if (!name) return true;
+      home.groups.push({ id: shortId(), name, color: GROUP_COLORS.includes(msg.color) ? msg.color : GROUP_COLORS[0], owner: me.name, members: [me.name] });
+      saveHome();
+      broadcastGroups();
+      return true;
+    }
+    case 'groupJoin':
+    case 'groupLeave': {
+      const g = home.groups.find((x) => x.id === msg.id);
+      if (!g) return true;
+      if (msg.t === 'groupJoin' && !g.members.includes(me.name)) g.members.push(me.name);
+      if (msg.t === 'groupLeave') g.members = g.members.filter((n) => n !== me.name);
+      saveHome();
+      broadcastGroups();
+      broadcastSessions();
+      return true;
+    }
+    case 'groupDelete': {
+      const g = home.groups.find((x) => x.id === msg.id && x.owner === me.name);
+      if (!g) return true;
+      home.groups.splice(home.groups.indexOf(g), 1);
+      // グループ限定だったセッションは作った人だけに残す
+      for (const d of home.sessions) if (d.group === g.id) { d.visibility = 'invite'; d.group = undefined; }
+      for (const ev of home.events) if (ev.group === g.id) ev.group = null;
+      saveHome();
+      broadcastGroups();
+      broadcastSessions();
+      broadcastEvents();
+      return true;
+    }
+    case 'eventCreate': {
+      const title = trimTo(msg.title, 60);
+      const at = Number(msg.at);
+      if (!title || !Number.isFinite(at)) return true;
+      const group = home.groups.find((g) => g.id === msg.group && g.members.includes(me.name))?.id ?? null;
+      const session = sessionsVisibleTo(me.name).find((d) => d.id === msg.session)?.id ?? null;
+      home.events.push({ id: shortId(), title, at, group, session, owner: me.name, attendees: [me.name] });
+      home.events.sort((a, b) => a.at - b.at);
+      saveHome();
+      broadcastEvents();
+      return true;
+    }
+    case 'eventAttend': {
+      const ev = home.events.find((x) => x.id === msg.id);
+      if (!ev) return true;
+      ev.attendees = ev.attendees.filter((n) => n !== me.name);
+      if (msg.on) ev.attendees.push(me.name);
+      saveHome();
+      broadcastEvents();
+      return true;
+    }
+    case 'eventDelete': {
+      const ev = home.events.find((x) => x.id === msg.id && x.owner === me.name);
+      if (!ev) return true;
+      home.events.splice(home.events.indexOf(ev), 1);
+      saveHome();
+      broadcastEvents();
+      return true;
+    }
+    case 'invite': {
+      const other = users.get(msg.to);
+      if (!other || other.name === me.name) return true;
+      if (msg.kind === 'session') {
+        const def = guild.sessions.find((d) => d.id === msg.id);
+        if (!def || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) return true;
+        if (def.owner && !def.invited!.includes(other.name)) { def.invited!.push(other.name); saveHome(); broadcastSessions(); }
+      } else if (!home.groups.find((g) => g.id === msg.id)?.members.includes(me.name)) return true;
+      sendTo(idsByName(other.name), { t: 'invite', kind: msg.kind, id: msg.id, from: me.id, fromName: me.name });
+      return true;
+    }
+  }
+  return false;
+}
+
 function onClose(ws: WebSocket, id: string | null) {
   if (!id) return;
   const set = sockets.get(id);
@@ -598,9 +726,11 @@ function onClose(ws: WebSocket, id: string | null) {
   if (set && set.size > 0) return;
   sockets.delete(id);
   const u = users.get(id);
+  const wasIn = !!u?.session;
   if (u) leaveSession(u);
   users.delete(id);
   broadcastUsers();
+  if (wasIn) broadcastSessions();
 }
 
 const MIME: Record<string, string> = {

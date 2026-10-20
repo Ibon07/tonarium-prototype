@@ -49,8 +49,10 @@ export function send(msg: ClientMsg) {
 function onMessage(msg: ServerMsg) {
   switch (msg.t) {
     case 'snapshot': {
-      const { guild, users, chats, avatars, items, friends, broadcast, world, games, now } = msg.s;
+      const { guild, users, chats, avatars, items, friends, groups, events, broadcast, world, games, now } = msg.s;
       set({
+        groups,
+        events,
         broadcast,
         worldBy: world,
         games,
@@ -160,6 +162,18 @@ function onMessage(msg: ServerMsg) {
       return;
     case 'friends':
       set({ friends: msg.names });
+      return;
+    case 'sessions':
+      set((s) => ({ guild: { ...s.guild, sessions: msg.list } }));
+      return;
+    case 'groups':
+      set({ groups: msg.list });
+      return;
+    case 'events':
+      set({ events: msg.list });
+      return;
+    case 'invite':
+      pushNotice('invite', msg.from, msg.fromName, `${msg.kind}:${msg.id}`);
       return;
   }
   recompute();

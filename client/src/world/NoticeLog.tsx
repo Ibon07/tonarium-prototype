@@ -3,7 +3,7 @@ import type { ChatMessage, ChatScope } from '../../../shared/protocol.ts';
 import { VOICE_RANGE } from '../../../shared/places.ts';
 import { DICE_COLORS, diceLabel, type DiceRoll } from '../../../shared/dice.ts';
 import { useStore, set, save, colorOf, isBroadcast, type Notice } from '../store.ts';
-import { friendAccept, goNear, markNoticesRead, poke, sendChat, setViewLive } from '../actions.ts';
+import { friendAccept, goNear, joinGroup, joinSession, markNoticesRead, poke, removeNotice, sendChat, setViewLive } from '../actions.ts';
 import { Icon } from './Icon.tsx';
 import { ChatImage, Face, itemLabel } from './common.tsx';
 import { openWindow } from './windows.ts';
@@ -31,12 +31,29 @@ const NOTICE_TEXT: Record<Notice['kind'], string> = {
   friend: ' からフレンド申請が届きました',
   live: ' が視点のライブをリクエストしました',
   attention: ' が注目を集めています',
+  invite: ' に誘われました',
 };
+
+/** 招待の通知が指しているセッションかグループ */
+export function inviteTarget(s: { guild: { sessions: { id: string; name: string }[] }; groups: { id: string; name: string }[] }, n: Notice) {
+  if (n.kind !== 'invite' || !n.key) return undefined;
+  const id = n.key.slice(n.key.indexOf(':') + 1);
+  return n.key.startsWith('group:') ? s.groups.find((g) => g.id === id) : s.guild.sessions.find((d) => d.id === id);
+}
+export function acceptInvite(n: Notice) {
+  const id = n.key!.slice(n.key!.indexOf(':') + 1);
+  if (n.key!.startsWith('group:')) joinGroup(id); else joinSession(id);
+  removeNotice(n.id);
+}
 
 function NoticeRow({ n }: { n: Notice }) {
   const target = useStore((s) => (n.key ? s.items[n.key.slice(n.key.indexOf(':') + 1)] : undefined));
-  const text = n.kind === 'attention' ? (target ? ` が「${itemLabel(target)}」に注目を集めています` : ' が注目を集めていたもの（片付けられました）') : NOTICE_TEXT[n.kind];
-  const reply = n.kind === 'attention'
+  const inviteTo = useStore((s) => inviteTarget(s, n));
+  const text = n.kind === 'attention' ? (target ? ` が「${itemLabel(target)}」に注目を集めています` : ' が注目を集めていたもの（片付けられました）')
+    : n.kind === 'invite' ? ` が${inviteTo ? `「${inviteTo.name}」` : '（もう無いもの）'}に誘っています` : NOTICE_TEXT[n.kind];
+  const reply = n.kind === 'invite'
+    ? <button className="ib reply" disabled={!inviteTo} onClick={() => acceptInvite(n)}>{n.key?.startsWith('group:') ? '入る' : '参加する'}</button>
+    : n.kind === 'attention'
     ? <button className="ib reply" disabled={!target} onClick={() => n.key && openWindow(n.key)}>開く</button>
     : n.kind === 'poke'
     ? <button className="ib reply" onClick={() => poke(n.from)}>つんつん返す</button>

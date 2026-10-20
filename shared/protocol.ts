@@ -5,6 +5,15 @@ import type { GameState } from './game.ts';
 
 export type Mode = '2d' | '3d';
 
+/** セッションを見られる人。省略時は public */
+export type Visibility = 'public' | 'friends' | 'group' | 'invite';
+export const VISIBILITY_INFO: Record<Visibility, { name: string; desc: string }> = {
+  public: { name: 'パブリック', desc: 'だれでも' },
+  friends: { name: 'フレンド+', desc: '作った人と中にいる人のフレンド' },
+  group: { name: 'グループ', desc: 'グループのメンバー' },
+  invite: { name: 'インバイト', desc: '誘われた人だけ' },
+};
+
 /** セッション（通話・配信・アイテムを持ち、ワールド＝ 3D 空間を 1 つ読み込む） */
 export interface SessionDef {
   id: string;
@@ -12,10 +21,39 @@ export interface SessionDef {
   topic?: string;
   /** 最初に読み込むワールド。省略時は room */
   world?: WorldKind;
+  visibility?: Visibility;
+  /** 作った人の名前。sessions.json のものは無い */
+  owner?: string;
+  /** visibility が group のときのグループ ID */
+  group?: string;
+  /** 誘われた人の名前 */
+  invited?: string[];
 }
 export interface GuildConfig {
   name: string;
   sessions: SessionDef[];
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  color: string;
+  owner: string;
+  /** メンバーの名前 */
+  members: string[];
+}
+
+export interface EventDef {
+  id: string;
+  title: string;
+  /** 開始時刻（ms） */
+  at: number;
+  group: string | null;
+  /** 会場のセッション */
+  session: string | null;
+  owner: string;
+  /** 参加表明した人の名前 */
+  attendees: string[];
 }
 
 export interface User {
@@ -98,6 +136,8 @@ export interface Snapshot {
   avatars: Record<string, Record<string, AvatarState>>;
   items: Record<string, Item[]>;
   friends: string[];
+  groups: Group[];
+  events: EventDef[];
   /** ワールドごとのブロードキャストモード（距離に関係なく音が聞こえる） */
   broadcast: Record<string, boolean>;
   /** セッションごとの今のワールド */
@@ -128,6 +168,17 @@ export type ClientMsg =
   | { t: 'poke'; to: string }
   | { t: 'friendRequest'; to: string }
   | { t: 'friendAccept'; to: string }
+  | { t: 'sessionCreate'; name: string; topic: string; world: WorldKind; visibility: Visibility; group?: string }
+  | { t: 'sessionDelete'; id: string }
+  | { t: 'groupCreate'; name: string; color: string }
+  | { t: 'groupJoin'; id: string }
+  | { t: 'groupLeave'; id: string }
+  | { t: 'groupDelete'; id: string }
+  | { t: 'eventCreate'; title: string; at: number; group: string | null; session: string | null }
+  | { t: 'eventAttend'; id: string; on: boolean }
+  | { t: 'eventDelete'; id: string }
+  /** to はユーザー ID。セッションなら invited にも加える */
+  | { t: 'invite'; kind: 'session' | 'group'; id: string; to: string }
   | { t: 'sound'; id: string }
   /** ついていっている相手に視点のライブを頼む */
   | { t: 'liveRequest'; to: string }
@@ -168,7 +219,11 @@ export type ServerMsg =
   | { t: 'game'; sid: string; game: GameState }
   | { t: 'gameTile'; sid: string; tile: number; at: number }
   | { t: 'friendRequest'; from: string; fromName: string }
-  | { t: 'friends'; names: string[] };
+  | { t: 'friends'; names: string[] }
+  | { t: 'sessions'; list: SessionDef[] }
+  | { t: 'groups'; list: Group[] }
+  | { t: 'events'; list: EventDef[] }
+  | { t: 'invite'; kind: 'session' | 'group'; id: string; from: string; fromName: string };
 
 /** 床は -ROOM_HALF..ROOM_HALF。スクリーンは北壁 (z = -ROOM_HALF) */
 export const ROOM_HALF = 10;

@@ -7,9 +7,10 @@
 ## 構成
 - `client/` Vite + React + TypeScript。3D は React Three Fiber。状態は zustand
   - `client/src/world/` ワールド画面（左のプレイヤー・アイテム、上の顔、右の通知・ログ、下のドック、背面のウィンドウ）
-- `server/` Node + ws。オンラインのユーザーと、セッションごとの状態（チャット・アイテム・アバター位置）をメモリに保持し、LiveKit のトークンも発行
+  - `client/src/home/` ホーム画面（セッション外。セッション・フレンド・イベント・グループ・ワールド・アイテムの一覧と作成）
+- `server/` Node + ws。オンラインのユーザーと、セッションごとの状態（チャット・アイテム・アバター位置）をメモリに保持し、LiveKit のトークンも発行。画面から作ったセッション・グループ・イベントは `data/home.json` に保存
 - `shared/protocol.ts` WebSocket メッセージ型、`shared/places.ts` 位置と距離（クライアントとサーバーで共用）
-- `sessions.json` セッションの構成（各セッションが最初に読み込むワールド＝ 3D 空間も指定）
+- `sessions.json` 最初からあるセッションの構成（各セッションが最初に読み込むワールド＝ 3D 空間も指定）。ホームの「セッションを作る」で増やしたものは `data/home.json`
 - `shared/worlds.ts` ワールドの種類（ホール・カフェ）と家具の当たり判定。見た目は `client/src/view3d/worlds3d.tsx`
 - `client/public/brand/` ロゴ・ファビコン・OGP 画像。OGP の絶対 URL は、サーバーが `index.html` を返すときにアクセスされたドメインで埋める（`__ORIGIN__`）
 - 音声・画面共有は LiveKit。本番は Coolify で自前の `livekit-server` を一緒に動かし、手元では Docker で開発用の LiveKit を動かす
@@ -30,6 +31,7 @@ LiveKit Cloud を使う場合は `.env` の `LIVEKIT_*` をそのプロジェク
 npm run dev
 ```
 http://localhost:5173 を開く。同じブラウザで別人として入るには `?as=b` のように付ける（名前はブラウザ共通で覚えるので、入る前に変える）。
+動作確認で作ったセッション・グループ・イベントを消したいときは `data/home.json` を消してサーバーを再起動する。
 
 ## セッション構成の変更
 `sessions.json` を編集する。
@@ -38,9 +40,11 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 ```
 - `id` は英数字で一意に。セッションごとに別の LiveKit ルーム（`tonarium-<id>`）・3D空間・アイテム・チャットになる
 - `world` は最初に読み込むワールド（`room` ＝ホール、`cafe` ＝カフェ、`game` ＝ゲーム（板わたり）。省略時は `room`）
+- ここに書いたセッションはパブリック（だれでも見える）。公開範囲を絞ったセッションはホームの「セッションを作る」で作る
 - `npm run dev` 中は保存するとサーバーが再起動する（メモリ内のチャット・アイテムは消える）。`npm start` の場合は再起動が必要
 
 ## 主な機能
+- ホーム（セッション外の画面。セッション・フレンド・イベント・グループの一覧と作成、公開範囲、招待）→ [docs/home.md](docs/home.md)
 - 2D の画面（距離ごとのプレイヤー・アイテムのリスト、顔、通知・チャット、ウィンドウ）→ [docs/screens.md](docs/screens.md)
 - 3D 空間（FPS 風の操作、ワールドの切り替え、お絵描きアバター、配信ディスプレイ）→ [docs/3d.md](docs/3d.md)
 - 距離で変わる声、ブロードキャストモード、ついていく → [docs/audio.md](docs/audio.md)
