@@ -14,7 +14,7 @@ using Tonarium.Desktop.ThreeD;
 
 namespace Tonarium.Desktop.Views;
 
-public sealed class MainWindow : Window
+public sealed partial class MainWindow : Window
 {
     private readonly TonariumClient client = new(persistSettings: !Program.Arguments.Contains("--demo") && !Program.Arguments.Contains("--smoke"));
     private readonly NativeMedia media;
@@ -60,6 +60,7 @@ public sealed class MainWindow : Window
         nameInput = Ui.Input("なまえ", Program.Argument("--name") ?? client.State.Name);
         toast = new Border { Child = toastText, Background = Ui.Brush("#ED26262E"), CornerRadius = new(12), Padding = new(20, 12), Margin = new(24, 24, 24, 40), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, MaxWidth = 760, IsVisible = false };
         root.Children.Add(screen); root.Children.Add(toast);
+        ConfigureMediaInput();
         Content = root;
         screen.Content = LoginView();
         client.State.Changed += QueueRefresh;
@@ -78,6 +79,8 @@ public sealed class MainWindow : Window
         threeD.HomeRequested += () => ShowHome("toggle");
         threeD.ChatRequested += () => { room?.FocusChat(); threeDOverlay?.Activate(); };
         threeD.SidePanelsToggleRequested += ToggleSidePanels;
+        threeD.MediaPasteRequested += () => RunMediaInput(() => room?.PasteMediaAsync() ?? Task.CompletedTask);
+        threeD.MediaFilesDropped += paths => RunMediaInput(() => room?.DropMediaPathsAsync(paths) ?? Task.CompletedTask);
         Closing += (_, e) =>
         {
             if (closing) return;
@@ -288,7 +291,7 @@ public sealed class MainWindow : Window
 
     private IReadOnlyList<Rect>? GetOverlayRegions()
     {
-        if(context.HomeIsOpen)return null;
+        if(context.HomeIsOpen || mediaDropHint.IsVisible)return null;
         var regions=room?.OverlayRegions(root).ToList()??[];
         if(toast.IsVisible&&toast.TranslatePoint(default,root) is { } position)regions.Add(new Rect(position,toast.Bounds.Size));
         return regions;

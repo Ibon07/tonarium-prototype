@@ -35,6 +35,7 @@ namespace Tonarium.UnityClient
         bool lastInputLocked;
         bool lastRelativeInput;
         WindowsRelativePointer relativePointer;
+        WindowsMediaInput mediaInput;
         IntPtr pointerWindow;
         string pointerInitializationError;
         public Vector2 PointerDelta { get; private set; }
@@ -100,6 +101,8 @@ namespace Tonarium.UnityClient
             {
                 relativePointer?.Dispose();relativePointer=null;
                 pointerWindow=new IntPtr((long?)m["hwnd"]??0);
+                mediaInput?.Dispose(); mediaInput = null;
+                WindowsMediaInput.TryCreate(pointerWindow, paths => bridge.Send(new { t = "dropMedia", paths }), out mediaInput);
                 if(!WindowsRelativePointer.TryCreate(out relativePointer,pointerWindow))pointerInitializationError=WindowsRelativePointer.LastCreateError;
                 if(!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TONARIUM_INPUT_DIAGNOSTICS")))Debug.Log("TONARIUM_POINTER_INIT "+(relativePointer!=null?"ready":pointerInitializationError));
                 return;
@@ -337,6 +340,7 @@ namespace Tonarium.UnityClient
             }
             bool controls = !menu && !chatOpen && selected == null && chessPromotionTo < 0;
             if (embedded && controls && Input.GetKeyDown(KeyCode.Tab)) bridge.Send(new { t = "toggleSidePanels" });
+            if (embedded && controls && (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)) && Input.GetKeyDown(KeyCode.V)) bridge.Send(new { t = "pasteMedia" });
             bool justLocked = controls && Input.GetMouseButtonDown(0) && Cursor.lockState != CursorLockMode.Locked;
             if (justLocked)
             {
@@ -587,7 +591,7 @@ namespace Tonarium.UnityClient
         }
         public void ReturnTo2D() { if (returnSent) return; returnSent = true; EndNoteEditing(); Unlock(); bridge.Send(new { t = "return2d" }); if (!bridge.Connected) Application.Quit(); }
         void OnApplicationQuit() { ReturnTo2D(); }
-        void OnDestroy() { relativePointer?.Dispose(); DisposeCameraCapture(); }
+        void OnDestroy() { mediaInput?.Dispose(); relativePointer?.Dispose(); DisposeCameraCapture(); }
         long Now => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + (long)serverOffset;
         static Vector3 ToUnity(Vector3 p) => new Vector3(p.x, p.y, -p.z);
         static Vector3 Position(JObject p) => ToUnity(new Vector3(Float(p, "x"), Float(p, "y"), Float(p, "z")));

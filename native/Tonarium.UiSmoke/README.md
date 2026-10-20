@@ -27,6 +27,14 @@ dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3015
 
 It persists a custom texture and nondefault manifest for a unique name absent from online users, opens the actual native profile by that name, and verifies the stored texture, parsed parameters and nonblank rendered preview.
 
+The focused chat-media happy path runs against an isolated local server:
+
+```powershell
+dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3016 native/artifacts/chat-media --chat-media
+```
+
+It uses real native storage items and synthetic Avalonia file/bitmap transfers, uploads a generated 640×360 image and the small checked-in MP4 fixture, and confirms receipt through a second KokoSync client. It verifies inline image dimensions, pointer and keyboard viewer opening/closing, clipboard image paste, 2D versus 3D item creation, selected DM routing, and ordinary Ctrl+V text through the real MainWindow key handler. It does not open an OS file picker or save dialog, or publish to external services.
+
 The focused canvas check sends actual headless mouse input through `SharedDrawingCanvas`, verifies 50 ms batching, release flushing, single dots, and every received point's order. Start `node native/Tonarium.Smoke/canvas-delay-proxy.cjs 3020 http://localhost:3015 20`, then run:
 
 ```powershell

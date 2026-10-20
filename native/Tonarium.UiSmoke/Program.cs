@@ -42,6 +42,7 @@ internal static class Program
                     args.Contains("--unity-chess") ? args.ElementAtOrDefault(Array.IndexOf(args, "--unity-chess") + 1) : null);
                 else if (args.Contains("--canvas-sync")) await CanvasSyncProbe.Run(server, args.ElementAtOrDefault(3) ?? server, output, Pass);
                 else if (args.Contains("--offline-avatar")) await AvatarProbe.VerifyOffline(server, output, Pass);
+                else if (args.Contains("--chat-media")) await ChatMediaProbe.Run(server, output, Pass);
                 else await Run(server, !args.Contains("--menu"));
             }
             catch (Exception error) { failure = error; Console.Error.WriteLine(error); }

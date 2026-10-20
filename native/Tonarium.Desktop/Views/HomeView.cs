@@ -236,7 +236,7 @@ public sealed class HomeView : UserControl
                     var messages=(s.Conversations[key] as JsonArray??new()).Where(m=>N(m,"at")>N(s.Reads,key)&&T(m,"from")!=s.Name).ToArray();var last=messages.Last();
                     var body=Col(8,Text(ConversationTitle(key),12,Muted,FontWeight.Bold));body.Children.Add(Row(Face(T(last,"from"),32),Col(6,Row(Text(T(last,"from"),13,weight:FontWeight.Bold),Text(TimeLabel(N(last,"at")),12,Muted)),Text(T(last,"text"),13))));
                     if(last?["voice"] is JsonObject voice)body.Children.Add(IconTextButton("play","音声メッセージ",()=>HomeVoiceMessage.Play(_context,T(voice,"url"))));
-                    if(last?["media"] is JsonObject media)body.Children.Add(T(media,"kind")=="image"?MessageImage(T(media,"url")):IconTextButton("play","動画",()=>OpenUrl(T(media,"url"))));
+                    if(last?["media"] is JsonObject media)body.Children.Add(T(media,"kind")=="image"?new ChatMediaPreview(_context,T(media,"url")):IconTextButton("play","動画",()=>OpenUrl(T(media,"url"))));
                     var reply=SmallButton(key.StartsWith("dm:")?"返信":"開く",()=>OpenConversation(key));reply.HorizontalAlignment=HorizontalAlignment.Right;body.Children.Add(reply);cards.Children.Add(new Border{Background=Brush(Paper),BorderBrush=Brush(Line),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(16),Padding=new Thickness(14,12),Child=body});
                 }
                 section.Children.Add(cards);col.Children.Add(section);
@@ -350,7 +350,7 @@ public sealed class HomeView : UserControl
             var from=T(message,"from","システム");var bubble=Col(6,Row(Text(from.Length>0?from:"セッションのまとめ",12,weight:FontWeight.SemiBold),Text(TimeLabel(N(message,"at")),10,Muted)));
             var text=T(message,"text");if(text.Length>0)bubble.Children.Add(Text(text,13));
             if(message?["voice"] is JsonObject voice)bubble.Children.Add(Btn($"▶ 音声メッセージ ({N(voice,"sec"):0} 秒)",()=>HomeVoiceMessage.Play(_context,T(voice,"url"))));
-            if(message?["media"] is JsonObject media){if(T(media,"kind")=="image")bubble.Children.Add(MessageImage(T(media,"url")));bubble.Children.Add(Btn("▧ 添付"+(T(media,"kind")=="video"?"動画":"画像")+"を開く",()=>OpenUrl(T(media,"url"))));}
+            if(message?["media"] is JsonObject media){if(T(media,"kind")=="image")bubble.Children.Add(new ChatMediaPreview(_context,T(media,"url")));else bubble.Children.Add(IconTextButton("play","添付動画を開く",()=>OpenUrl(T(media,"url"))));}
             if(message?["plan"] is JsonObject plan)
             {
                 var id=T(message,"id");bubble.Children.Add(Text("▦ "+TimeLabel(N(plan,"at")),13,Purple));
@@ -369,9 +369,21 @@ public sealed class HomeView : UserControl
         // shortcut in the tunnel route, while leaving IME pre-edit untouched.
         draft.AddHandler(InputElement.KeyDownEvent,(_,e)=>
         {
-            if(e.Key!=Key.Enter||!e.KeyModifiers.HasFlag(KeyModifiers.Control))return;
+            if(!e.KeyModifiers.HasFlag(KeyModifiers.Control))return;
             if(draft.GetVisualDescendants().OfType<TextPresenter>().Any(p=>!string.IsNullOrEmpty(p.PreeditText)))return;
-            e.Handled=true;Submit();
+            if(e.Key==Key.V&&!e.KeyModifiers.HasFlag(KeyModifiers.Alt)){e.Handled=true;Run(()=>PasteAttachmentsAsync(key,draft));}
+            else if(e.Key==Key.Enter){e.Handled=true;Submit();}
+        },RoutingStrategies.Tunnel);
+        DragDrop.SetAllowDrop(panel,true);
+        panel.AddHandler(DragDrop.DragOverEvent,(_,e)=>
+        {
+            if(!e.DataTransfer.Formats.Contains(DataFormat.File)&&!e.DataTransfer.Formats.Contains(DataFormat.Bitmap))return;
+            e.DragEffects=DragDropEffects.Copy;e.Handled=true;
+        },RoutingStrategies.Tunnel);
+        panel.AddHandler(DragDrop.DropEvent,(_,e)=>
+        {
+            var media=MediaInput.ReadDrop(e.DataTransfer);if(!media.HasMedia)return;
+            e.Handled=true;Run(()=>SendAttachmentsAsync(key,draft,media));
         },RoutingStrategies.Tunnel);
         var composer=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto,Auto,Auto,Auto"),ColumnSpacing=2};composer.Children.Add(draft);
         var attach=IconButton("image","画像・動画を添付",()=>Run(()=>AttachAsync(key,draft)));Grid.SetColumn(attach,1);composer.Children.Add(attach);var voiceButton=IconButton("mic","音声メッセージ",()=>HomeVoiceMessage.ShowRecorder(_context,key));Grid.SetColumn(voiceButton,2);composer.Children.Add(voiceButton);
@@ -517,15 +529,58 @@ public sealed class HomeView : UserControl
     void OpenConversation(string key){if(key.StartsWith("dm:"))Navigate("dm:"+(key[3..].Split('\0').FirstOrDefault(n=>n!=_context.State.Name)??_context.State.Name));else{var parts=key.Split(':');if(parts.Length>=3){_group=parts[1];_channel=parts[2];Navigate("group");}}}
     string ConversationTitle(string key){if(key.StartsWith("dm:"))return(key[3..].Split('\0').FirstOrDefault(n=>n!=_context.State.Name)??_context.State.Name)+" · DM";var p=key.Split(':');if(p.Length<3)return key;var g=Find(_context.State.Groups,p[1]);return T(g,"name","グループ")+" #"+T(A(g,"channels").FirstOrDefault(x=>T(x,"id")==p[2]),"name");}
     void Send(object message)=>Run(()=>_context.Client.SendAsync(message));
+    sealed record AttachmentTarget(string Server,string Name,string SelfId);
+    AttachmentTarget AttachmentDestination()=>new(_context.State.ServerUrl,_context.State.Name,_context.State.SelfId);
+    bool IsAttachmentDestination(AttachmentTarget target)=>target.Server==_context.State.ServerUrl&&target.Name==_context.State.Name&&target.SelfId==_context.State.SelfId;
     async Task AttachAsync(string conversation,TextBox draft)
     {
+        var target=AttachmentDestination();
         var picker=TopLevel.GetTopLevel(this)?.StorageProvider;if(picker==null)return;
-        var files=await picker.OpenFilePickerAsync(new FilePickerOpenOptions{Title="画像・動画を添付",AllowMultiple=false,FileTypeFilter=[new FilePickerFileType("画像・動画"){Patterns=["*.jpg","*.jpeg","*.png","*.gif","*.webp","*.mp4","*.webm"]}]});
+        var files=await picker.OpenFilePickerAsync(new FilePickerOpenOptions{Title="画像・動画を添付",AllowMultiple=true,FileTypeFilter=[new FilePickerFileType("画像・動画"){Patterns=["*.jpg","*.jpeg","*.png","*.gif","*.webp","*.mp4","*.webm"]}]});
         if(files.Count==0)return;
-        await using var file=await files[0].OpenReadAsync();using var data=new MemoryStream();await file.CopyToAsync(data);var ext=Path.GetExtension(files[0].Name).ToLowerInvariant();var video=ext is ".mp4" or ".webm";if(data.Length>(video?50:10)*1024*1024){_context.Notify(video?"動画は 50MB までです":"画像は 10MB までです");return;}
-        var width=16;var height=9;if(!video){data.Position=0;using var bitmap=new Bitmap(data);width=bitmap.PixelSize.Width;height=bitmap.PixelSize.Height;}
-        _context.Notify("添付をアップロードしています…");using var body=new ByteArrayContent(data.ToArray());using var response=await Http.PostAsync(new Uri(new Uri(_context.State.ServerUrl.TrimEnd('/')+"/"),"media"),body);var result=JsonNode.Parse(await response.Content.ReadAsStringAsync());var url=T(result,"url");if(!response.IsSuccessStatusCode||url.Length==0)throw new InvalidOperationException(T(result,"error","アップロードできませんでした"));
-        await _context.Client.SendAsync(new{t="msg",conv=conversation,text=draft.Text??"",media=new{kind=video?"video":"image",url,w=width,h=height}});draft.Text="";_drafts["message:"+conversation]="";_context.Notify("添付を送りました");
+        await SendAttachmentsAsync(conversation,draft,new MediaInputContent(files,null,""),target);
+    }
+    async Task PasteAttachmentsAsync(string conversation,TextBox draft)
+    {
+        var target=AttachmentDestination();
+        var clipboard=TopLevel.GetTopLevel(draft)?.Clipboard;if(clipboard==null)return;
+        var input=await MediaInput.ReadClipboardAsync(clipboard);
+        if(input.HasMedia)await SendAttachmentsAsync(conversation,draft,input,target);
+        else if(IsAttachmentDestination(target))draft.Paste();
+    }
+    async Task SendAttachmentsAsync(string conversation,TextBox draft,MediaInputContent input,AttachmentTarget? target=null)
+    {
+        if(!input.HasMedia)return;
+        target??=AttachmentDestination();
+        var caption=draft.Text??"";var sent=0;var failed=0;
+        bool StillCurrent()
+        {
+            if(IsAttachmentDestination(target))return true;
+            _context.Notify("接続先またはユーザーが変わったため、添付の送信を中止しました");return false;
+        }
+        if(!StillCurrent())return;
+        _context.Notify("添付をアップロードしています…");
+        async Task<bool> SendMedia(JsonObject media)
+        {
+            if(!StillCurrent())return false;
+            await _context.Client.SendAsync(new{t="msg",conv=conversation,text=sent==0?caption:"",media});
+            sent++;
+            if(sent==1&&IsAttachmentDestination(target)&&draft.Text==caption){draft.Text="";_drafts["message:"+conversation]="";}
+            return true;
+        }
+        foreach(var file in input.Files.Where(f=>MediaAttachments.IsSupportedFileName(f.Name)).Take(MediaAttachments.MaxFiles))
+        {
+            if(!StillCurrent())return;
+            try{if(!await SendMedia(await MediaAttachments.UploadAsync(target.Server,file)))return;}
+            catch(Exception error){failed++;_context.Notify(file.Name+": "+error.Message);}
+        }
+        if(input.Files.Count==0&&input.PngBytes is {Length:>0} png)
+        {
+            if(!StillCurrent())return;
+            try{if(!await SendMedia(await MediaAttachments.UploadBytesAsync(target.Server,png,"clipboard.png")))return;}
+            catch(Exception error){failed++;_context.Notify("クリップボード画像: "+error.Message);}
+        }
+        if(sent>0)_context.Notify(failed>0?$"添付を {sent} 件送りました（{failed} 件は送信できませんでした）":sent>1?$"添付を {sent} 件送りました":"添付を送りました");
     }
     Control MessageImage(string url)
     {

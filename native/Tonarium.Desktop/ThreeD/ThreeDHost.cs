@@ -33,6 +33,8 @@ public sealed partial class ThreeDHost : IAsyncDisposable
     public event Action? HomeRequested;
     public event Action? ChatRequested;
     public event Action? SidePanelsToggleRequested;
+    public event Action? MediaPasteRequested;
+    public event Action<string[]>? MediaFilesDropped;
     public bool IsRunning => player is { HasExited: false };
     public string? PlayerPath { get; private set; }
     public string? LastError { get; private set; }
@@ -163,6 +165,16 @@ public sealed partial class ThreeDHost : IAsyncDisposable
                         break;
                     case "toggleSidePanels":
                         await Dispatcher.UIThread.InvokeAsync(() => SidePanelsToggleRequested?.Invoke());
+                        break;
+                    case "pasteMedia":
+                        await Dispatcher.UIThread.InvokeAsync(() => MediaPasteRequested?.Invoke());
+                        break;
+                    case "dropMedia":
+                        if (message["paths"] is JsonArray paths)
+                        {
+                            var files = paths.Take(MediaAttachments.MaxFiles).Select(p => p?.GetValue<string>()).OfType<string>().ToArray();
+                            await Dispatcher.UIThread.InvokeAsync(() => MediaFilesDropped?.Invoke(files));
+                        }
                         break;
                     case "openItem":
                         if (message["id"]?.ToString() is { } itemId)

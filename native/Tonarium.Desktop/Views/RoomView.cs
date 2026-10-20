@@ -25,7 +25,7 @@ using Tonarium.Desktop.Media;
 namespace Tonarium.Desktop.Views;
 
 /// <summary>The persistent native room shell. Input and scroll controls survive realtime updates.</summary>
-public sealed class RoomView : UserControl
+public sealed partial class RoomView : UserControl
 {
     private readonly NativeContext _ctx;
     private readonly Grid _root = new();
@@ -519,7 +519,12 @@ public sealed class RoomView : UserControl
             var url = Regex.Match(text, @"https?://[^\s<>]+").Value;
             if (url.Length > 0) { var link = Small("リンクを開く", () => ConfirmLink(url)); link.Content = IconLabel("link", "リンクを開く", 12); body.Children.Add(link); }
             var dice = m?["dice"]; if (dice is not null) body.Children.Add(Ui.Text("🎲 " + J.Array(dice, "results").ToJsonString(), 14));
-            var media = m?["media"]; if (media is not null || J.Text(m, "image") != "") { var mediaButton = Small((J.Text(media, "kind") == "video" ? "動画" : "画像") + "を開く", () => OpenMedia(m!)); mediaButton.Content = IconLabel("image", (J.Text(media, "kind") == "video" ? "動画" : "画像") + "を開く", 12); body.Children.Add(mediaButton); }
+            var media = m?["media"];
+            if (J.Text(m, "image") is { Length: > 0 } inlineImage) body.Children.Add(new ChatMediaPreview(_ctx, inlineImage));
+            if (J.Text(media, "kind") == "image") body.Children.Add(new ChatMediaPreview(_ctx, J.Text(media, "url")));
+            if (J.Text(media, "kind") == "video") { var mediaButton = Small("動画を開く", () => OpenMedia(m!)); mediaButton.Content = IconLabel("play", "動画を開く", 12); body.Children.Add(mediaButton); }
+            if (media is not null || J.Text(m, "image") != "" || MediaAttachments.TryYouTubeId(text) is not null)
+                body.Children.Add(Small("アイテムにする", () => Run(() => ItemizeMessageAsync(m!))));
             var row = new Grid { ColumnDefinitions = new ColumnDefinitions("22,*"), ColumnSpacing = 8 };
             var person = _ctx.State.Users.FirstOrDefault(u => J.Text(u, "id") == userId) ?? new JsonObject { ["id"] = userId, ["name"] = from };
             var face = Face(person, 22); face.VerticalAlignment = VerticalAlignment.Top; face.Margin = new Thickness(0, 1, 0, 0); row.Children.Add(face); Grid.SetColumn(body, 1); row.Children.Add(body);
@@ -532,7 +537,8 @@ public sealed class RoomView : UserControl
     {
         var media = message["media"]; var url = J.Text(media, "url", J.Text(message, "image"));
         if (url == "") return;
-        var box = Ui.Column(Ui.Title("共有されたメディア"), Ui.Button("目の前に出す", () => Run(() => SpawnAsync(J.Text(media, "kind", "image"), new { url, w = J.Number(media, "w", 640), h = J.Number(media, "h", 480) }))));
+        if (J.Text(media, "kind") != "video") { ChatMediaPreview.ShowViewer(_ctx, url); return; }
+        var box = Ui.Column(Ui.Title("共有されたメディア"), Ui.Button("目の前に出す", () => Run(() => ItemizeMessageAsync(message))));
         if (J.Text(media, "kind") == "video")
         {
             var clock = new JsonObject { ["playing"] = false, ["base"] = 0, ["at"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
@@ -548,7 +554,6 @@ public sealed class RoomView : UserControl
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) }; timer.Tick += (_, _) => player.UpdateClock(clock); timer.Start();
             window.Closed += (_, _) => { timer.Stop(); player.Dispose(); }; window.Show(_ctx.Owner); return;
         }
-        if (J.Text(media, "kind") != "video") { var image = new Image { MaxHeight = 450, Stretch = Stretch.Uniform }; box.Children.Insert(1, image); Run(async () => { var bytes = url.StartsWith("data:") ? Convert.FromBase64String(url[(url.IndexOf(',') + 1)..]) : await Http.GetByteArrayAsync(new Uri(new Uri(_ctx.State.ServerUrl), url)); image.Source = new Bitmap(new System.IO.MemoryStream(bytes)); }); }
         ShowPopup(box, 560);
     }
     private void RebuildNotices()
@@ -649,19 +654,7 @@ public sealed class RoomView : UserControl
     private async Task AttachAsync(bool asItem = false)
     {
         var files = await _ctx.Owner.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "画像・動画を共有", AllowMultiple = true, FileTypeFilter = new[] { new FilePickerFileType("画像・動画") { Patterns = new[] { "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.mp4", "*.webm" } } } });
-        foreach (var file in files.Take(5))
-        {
-            await using var input = await file.OpenReadAsync(); var video = file.Name.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) || file.Name.EndsWith(".webm", StringComparison.OrdinalIgnoreCase); var max = video ? 50_000_000 : 10_000_000;
-            if (input.Length > max) { _ctx.Notify("画像は10MB、動画は50MBまで共有できます"); continue; }
-            using var memory = new System.IO.MemoryStream(); await input.CopyToAsync(memory); var bytes = memory.ToArray(); var w = 16; var h = 9;
-            if (!video) { using var bmp = new Bitmap(new System.IO.MemoryStream(bytes)); w = bmp.PixelSize.Width; h = bmp.PixelSize.Height; }
-            using var content = new ByteArrayContent(bytes); content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(video ? file.Name.EndsWith(".webm") ? "video/webm" : "video/mp4" : file.Name.EndsWith(".png") ? "image/png" : file.Name.EndsWith(".gif") ? "image/gif" : file.Name.EndsWith(".webp") ? "image/webp" : "image/jpeg");
-            using var response = await Http.PostAsync(new Uri(new Uri(_ctx.State.ServerUrl), "/media"), content); response.EnsureSuccessStatusCode(); var result = JsonNode.Parse(await response.Content.ReadAsStringAsync()); var url = J.Text(result, "url");
-            if (asItem) await SpawnAsync(video ? "video" : "image", new { url, w, h });
-            else if (_conversation is not null) await _ctx.Client.SendAsync(new { t = "msg", conv = _conversation, text = _input.Text ?? "", media = new { kind = video ? "video" : "image", url, w, h } });
-            else await _ctx.Client.SendRoomAsync(new { t = "chat", text = _input.Text ?? "", scope = _scopeIndex == 1 ? "all" : _scopeIndex == 2 ? "announce" : "near", media = new { kind = video ? "video" : "image", url, w, h } });
-            _input.Text = ""; _ctx.Notify("共有しました");
-        }
+        await ShareMediaFilesAsync(files, asItem, useDraft: !asItem);
     }
     private Control Face(JsonNode user, double size)
     {
