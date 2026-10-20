@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Message, Mode, Person, User } from '../../shared/protocol.ts';
-import { SPAWN } from '../../shared/protocol.ts';
+import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, SessionInfo, User } from '../../shared/protocol.ts';
+import { EMPTY_PRESENCE, SPAWN } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
 import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
 import type { DieSides } from '../../shared/dice.ts';
@@ -26,9 +26,14 @@ interface State {
   groups: Group[];
   events: EventDef[];
   users: User[];
+  /** ホーム向けの、セッションごとの軽い情報（WebSocket で届く） */
+  sessionInfo: Record<string, SessionInfo>;
+  // 以下はいるセッションの分だけ LiveKit の部屋から届く（出たら捨てる）
   chats: Record<string, ChatMessage[]>;
   avatarsBy: Record<string, Record<string, AvatarState>>;
   itemsBy: Record<string, Record<string, Item>>;
+  /** 同じセッションにいる人の、中だけの状態 */
+  presence: Record<string, Presence>;
 
   session: string | null;
   mode: Mode;
@@ -53,7 +58,7 @@ interface State {
   lastSeen: number | null | undefined;
 
   // 以下は参加中セッションの分だけを recompute() で切り出したもの
-  participants: User[];
+  participants: Participant[];
   avatars: Record<string, AvatarState>;
   items: Record<string, Item>;
 
@@ -155,9 +160,11 @@ export const useStore = create<State>(() => ({
   groups: [],
   events: [],
   users: [],
+  sessionInfo: {},
   chats: {},
   avatarsBy: {},
   itemsBy: {},
+  presence: {},
   session: null,
   mode: '2d',
   // 個別のグループは開き直せないので一覧に戻す
@@ -232,12 +239,26 @@ const EMPTY: Record<string, never> = {};
 export function recompute() {
   const s = get();
   const sid = s.session;
-  const avatars = { ...(sid ? s.avatarsBy[sid] : EMPTY) };
-  delete avatars[s.selfId];
+  const participants = sid ? s.users.filter((u) => u.session === sid).map((u) => ({ ...EMPTY_PRESENCE, ...s.presence[u.id], ...u })) : [];
+  // 位置は本人から直接届くので、2D の人や自分の分が残っていても表示しない
+  const avatars: Record<string, AvatarState> = {};
+  for (const u of participants) {
+    const a = u.mode === '3d' && u.id !== s.selfId ? s.avatarsBy[sid!]?.[u.id] : undefined;
+    if (a) avatars[u.id] = a;
+  }
   set({
-    participants: sid ? s.users.filter((u) => u.session === sid) : [],
+    participants,
     items: (sid && s.itemsBy[sid]) || EMPTY,
     avatars,
+  });
+}
+
+/** セッションを出たら中の状態は捨てる（次に入るときは部屋から届き直す） */
+export function dropSession(sid: string | null) {
+  if (!sid) return;
+  set((s) => {
+    const omit = <T,>(m: Record<string, T>) => { const { [sid]: _, ...rest } = m; return rest; };
+    return { chats: omit(s.chats), avatarsBy: omit(s.avatarsBy), itemsBy: omit(s.itemsBy), games: omit(s.games), broadcast: omit(s.broadcast), presence: {} };
   });
 }
 

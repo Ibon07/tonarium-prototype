@@ -1,4 +1,5 @@
-import { spawnSlot, type AvatarState, type User } from './protocol.ts';
+import { ROOM_HALF, spawnSlot, type AvatarState, type Participant } from './protocol.ts';
+import { WORLDS, type WorldKind } from './worlds.ts';
 
 export interface Place { x: number; z: number; ry: number; small: boolean }
 
@@ -7,14 +8,14 @@ export const NEAR_RANGE = 3;
 export const VOICE_RANGE = 15;
 
 /** 3D 表示・リスト・音・声の範囲チャットで共通の、各参加者の位置 */
-export function computePlaces(participants: User[], avatarOf: (id: string) => AvatarState | undefined): Map<string, Place> {
+export function computePlaces(participants: Participant[], avatarOf: (id: string) => AvatarState | undefined): Map<string, Place> {
   const out = new Map<string, Place>();
   for (const u of participants) {
     if (u.mode !== '3d') continue;
     const a = avatarOf(u.id);
     if (a) out.set(u.id, { ...a, small: false });
   }
-  const followers = new Map<string, User[]>();
+  const followers = new Map<string, Participant[]>();
   let queue = 0;
   for (const u of participants) {
     if (u.mode !== '2d') continue;
@@ -52,4 +53,20 @@ export function approach(from: { x: number; z: number } | undefined, target: { x
   const x = target.x + dx * gap;
   const z = target.z + dz * gap;
   return { x, z, ry: Math.atan2(-(target.x - x), -(target.z - z)) };
+}
+
+const clampRoom = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
+/** 3D の人の位置を、そのワールドでいられる範囲に収める（他の人から直接届くので、受け取った側でもそろえる） */
+export function clampAvatar(world: WorldKind, s: AvatarState): AvatarState {
+  const ext = WORLDS[world].extent;
+  const within = (v: unknown, lo: number, hi: number) => Math.max(lo + 0.2, Math.min(hi - 0.2, Number(v) || 0));
+  const y = Number(s.y);
+  return {
+    x: ext ? within(s.x, ext.minX, ext.maxX) : clampRoom(Number(s.x) || 0),
+    z: ext ? within(s.z, ext.minZ, ext.maxZ) : clampRoom(Number(s.z) || 0),
+    ry: Number(s.ry) || 0,
+    ...(Number.isFinite(y) ? { y: Math.max(-30, Math.min(40, y)) } : {}),
+    pitch: Math.max(-1.5, Math.min(1.5, Number(s.pitch) || 0)),
+    jump: Math.max(0, Math.floor(Number(s.jump) || 0)),
+  };
 }

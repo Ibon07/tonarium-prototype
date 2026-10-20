@@ -8,20 +8,22 @@ import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
-  AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, EventDef, Group, GuildConfig, Message, Mode, Person, Recap, Rsvp, ServerMsg, SessionDef, StatusKind, User,
+  AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, Recap, RoomClientMsg, Rsvp,
+  ServerMsg, SessionDef, SessionInfo, StatusKind, User,
 } from '../shared/protocol.ts';
 import { PLAN_QUORUM, ROOM_HALF, STATUS_INFO, STATUS_TEXT_MAX, VISIBILITY_INFO, channelKey, isGroupVisibility } from '../shared/protocol.ts';
 import { GROUP_COLORS, canSeeSession } from '../shared/home.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, isWorldKind, pushOut, type WorldKind } from '../shared/worlds.ts';
 import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, itemSummary, type Item } from '../shared/items.ts';
 import { sanitizeParams } from '../shared/avatar.ts';
-import { VOICE_RANGE, computePlaces } from '../shared/places.ts';
+import { VOICE_RANGE, clampAvatar, computePlaces } from '../shared/places.ts';
 import { SOUNDS } from '../shared/sounds.ts';
 import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts';
 import { getOgp } from './ogp.ts';
 import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
-import { allGames, eliminate, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
+import { eliminate, gameOf, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
+import { ensureRoom, inRoom, leaveRoom, livekitRoom, roomSend, roomSendSnapshot, shutdownRooms, type RoomHandlers } from './rooms.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
 const DEV = process.argv.includes('--dev');
@@ -90,7 +92,6 @@ guild.sessions.push(...home.sessions);
 const saveHome = () => fs.writeFileSync(HOME_FILE, JSON.stringify(home));
 const sessionIds = new Set(guild.sessions.map((w) => w.id));
 const shortId = () => randomUUID().slice(0, 8);
-const livekitRoom = (sid: string) => `tonarium-${sid}`;
 
 // フレンドは名前の組で保存する（アイコンなどと同じく名前が本人の識別）
 const pairKey = (a: string, b: string) => [a, b].sort().join('\u0000');
@@ -108,7 +109,7 @@ function friendsOf(name: string) {
 /** 申請先の名前 → 申請した人の名前 */
 const pendingFriends = new Map<string, Set<string>>();
 
-const users = new Map<string, User>();
+const users = new Map<string, Participant>();
 const sockets = new Map<string, Set<WebSocket>>(); // 同じIDで複数タブを開ける
 const chats = new Map<string, ChatMessage[]>();
 const avatars = new Map<string, Map<string, AvatarState>>();
@@ -262,8 +263,7 @@ function pushChat(sid: string, from: User | null, text: string, opt: { scope?: C
     const withImage = list.filter((x) => x.image);
     for (const old of withImage.slice(0, -MAX_IMAGES)) { delete old.image; old.text += '（画像は古いため省略）'; }
   }
-  if (m.to) sendTo(m.to, { t: 'chat', sid, m });
-  else broadcast({ t: 'chat', sid, m });
+  roomSend(sid, { t: 'chat', sid, m }, m.to);
 }
 
 const event = (sid: string, text: string, about?: string) => pushChat(sid, null, text, { about });
@@ -279,7 +279,7 @@ function rollDice(sid: string, me: User, it: Item & { kind: 'dice' }, sides: unk
   const roll: DiceRoll = { id: randomUUID(), by: me.id, sides, count: n, results, secret, at: Date.now() };
   it.roll = secret ? { ...roll, results: null } : roll;
   it.updatedBy = me.id;
-  broadcast({ t: 'item', sid, item: it });
+  sendItem(sid, it);
   setTimeout(() => {
     if (me.session !== sid) return;
     if (!secret) { pushChat(sid, me, '', { dice: roll }); return; }
@@ -315,15 +315,65 @@ function releaseCameras(sid: string, u: User, at?: AvatarState) {
       changed = true;
     }
     if (it.live && it.operator === u.id) { it.live = false; it.operator = null; changed = true; }
-    if (changed) broadcast({ t: 'item', sid, item: it });
+    if (changed) sendItem(sid, it);
   }
 }
+/** 部屋の中だけの項目を落として、ホームにも配る形にする */
+const publicUser = ({ micOn, follow, pos, viewing, viewLive, display, ...u }: Participant): User => u;
+const presenceOf = ({ micOn, follow, pos, viewing, viewLive, display }: Participant): Presence => ({ micOn, follow, pos, viewing, viewLive, display });
+const inSession = (sid: string) => [...users.values()].filter((u) => u.session === sid);
+const othersIn = (sid: string, me: string) => inSession(sid).filter((u) => u.id !== me).map((u) => u.id);
 function broadcastUsers() {
-  // 視点のライブは、ついてくる人がいなくなったら止める
-  for (const u of users.values())
-    if (u.viewLive && (u.mode !== '3d' || ![...users.values()].some((f) => f.follow === u.id))) u.viewLive = false;
-  broadcast({ t: 'users', list: [...users.values()] });
+  broadcast({ t: 'users', list: [...users.values()].map(publicUser) });
 }
+/** セッションの中の人の状態を、その部屋の全員に配り直す */
+function sendPresence(sid: string) {
+  const here = inSession(sid);
+  // 視点のライブは、ついてくる人がいなくなったら止める
+  for (const u of here)
+    if (u.viewLive && (u.mode !== '3d' || !here.some((f) => f.follow === u.id))) u.viewLive = false;
+  roomSend(sid, { t: 'presence', sid, all: Object.fromEntries(here.map((u) => [u.id, presenceOf(u)])) });
+}
+function sessionInfoOf(sid: string): SessionInfo {
+  const list = [...(items.get(sid)?.values() ?? [])].flatMap((it) => {
+    const summary = itemSummary(it);
+    return summary ? [{ id: it.id, kind: it.kind, summary }] : [];
+  });
+  return { world: worldOf.get(sid) ?? 'room', items: list };
+}
+const allSessionInfo = () => Object.fromEntries([...sessionIds].map((sid) => [sid, sessionInfoOf(sid)]));
+/** アイテムやワールドが変わったら、ホーム向けの軽い情報を全員に配り直す（続けて起きた変更はまとめる） */
+const broadcastSessionInfo = later(() => broadcast({ t: 'sessionInfo', sessions: allSessionInfo() }), 300);
+function sendItem(sid: string, it: Item) {
+  roomSend(sid, { t: 'item', sid, item: it });
+  broadcastSessionInfo();
+}
+function sendItemRemove(sid: string, id: string) {
+  roomSend(sid, { t: 'itemRemove', sid, id });
+  broadcastSessionInfo();
+}
+function sendSessionSnapshot(sid: string, id: string) {
+  roomSendSnapshot(sid, id, {
+    sid,
+    chats: (chats.get(sid) ?? []).filter((m) => !m.to || m.to.includes(id)),
+    avatars: Object.fromEntries(avatars.get(sid) ?? []),
+    items: [...(items.get(sid)?.values() ?? [])],
+    presence: Object.fromEntries(inSession(sid).map((u) => [u.id, presenceOf(u)])),
+    broadcast: broadcastMode.get(sid) ?? false,
+    world: worldOf.get(sid) ?? 'room',
+    game: gameOf(sid),
+    now: Date.now(),
+  });
+}
+const roomHandlers: RoomHandlers = {
+  onMessage: (sid, from, msg) => {
+    const me = users.get(from);
+    if (!me || me.session !== sid) return;
+    try { handleSession(me, sid, msg); }
+    catch (e) { console.error('bad room message', e); }
+  },
+  onJoin: (sid, id) => { if (users.get(id)?.session === sid) sendSessionSnapshot(sid, id); },
+};
 const modeLabel = (m: Mode) => (m === '3d' ? '3D' : '2D');
 const clamp = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
 const solidsOf = (sid: string) => WORLDS[worldOf.get(sid) ?? 'room'].solids;
@@ -335,7 +385,7 @@ function placeIn(sid: string, x: number, z: number, r: number) {
 const clamp2d = (sid: string, p: AvatarState): AvatarState => ({ ...placeIn(sid, p.x, p.z, PERSON_R), ry: p.ry });
 
 /** 配信ディスプレイを本人の 1.3m 前の床に、本人の方へ向けて立てる */
-function placeDisplay(sid: string, u: User, av: AvatarState) {
+function placeDisplay(sid: string, u: Participant, av: AvatarState) {
   const p = placeIn(sid, av.x - Math.sin(av.ry) * 1.3, av.z - Math.cos(av.ry) * 1.3, 0.3);
   u.display = { ...p, ry: av.ry };
 }
@@ -348,14 +398,14 @@ function switchWorld(sid: string, world: WorldKind, clear: boolean, byName: stri
   resetGame(sid, gameDeps);
   const sessItems = items.get(sid)!;
   if (clear) {
-    for (const id of [...sessItems.keys()]) { sessItems.delete(id); broadcast({ t: 'itemRemove', sid, id }); }
+    for (const id of [...sessItems.keys()]) { sessItems.delete(id); sendItemRemove(sid, id); }
   } else {
     for (const it of sessItems.values()) {
       if ('holder' in it && it.holder) continue;
       const p = placeIn(sid, it.x, it.z, itemRadius(it) * 0.6);
       if (Math.abs(p.x - it.x) + Math.abs(p.z - it.z) < 1e-3) continue;
       Object.assign(it, p);
-      broadcast({ t: 'item', sid, item: it });
+      sendItem(sid, it);
     }
   }
   for (const u of users.values()) {
@@ -364,29 +414,30 @@ function switchWorld(sid: string, world: WorldKind, clear: boolean, byName: stri
     // 配信ディスプレイは、戻った先で次に位置が届いたときに立て直す
     u.display = null;
   }
-  broadcast({ t: 'world', sid, world });
-  broadcastUsers();
+  roomSend(sid, { t: 'world', sid, world });
+  broadcastSessionInfo();
+  sendPresence(sid);
   event(sid, `${byName} がワールドを「${WORLDS[world].name}」に切り替えました${clear ? '（アイテムはすべて片付けました）' : ''}`);
 }
 
 const gameDeps: GameDeps = {
-  sendGame: (sid, game) => broadcast({ t: 'game', sid, game }),
-  sendTile: (sid, tile, at) => broadcast({ t: 'gameTile', sid, tile, at }),
+  sendGame: (sid, game) => roomSend(sid, { t: 'game', sid, game }),
+  sendTile: (sid, tile, at) => roomSend(sid, { t: 'gameTile', sid, tile, at }),
   event: (sid, text) => event(sid, text),
 };
 
-function leaveSession(u: User) {
+function leaveSession(u: Participant) {
   const sid = u.session;
   if (!sid) return;
   eliminate(sid, u.id, gameDeps);
   const av = avatars.get(sid)!.get(u.id);
-  if (avatars.get(sid)!.delete(u.id)) broadcast({ t: 'avatarRemove', sid, id: u.id });
+  if (avatars.get(sid)!.delete(u.id)) roomSend(sid, { t: 'avatarRemove', sid, id: u.id });
   for (const it of items.get(sid)!.values()) {
-    if (it.kind === 'note' && it.editingBy === u.id) { it.editingBy = null; broadcast({ t: 'item', sid, item: it }); }
+    if (it.kind === 'note' && it.editingBy === u.id) { it.editingBy = null; sendItem(sid, it); }
     if (it.kind === 'hammer' && it.holder === u.id) {
       it.holder = null;
       if (av) { it.x = av.x; it.z = av.z; }
-      broadcast({ t: 'item', sid, item: it });
+      sendItem(sid, it);
     }
   }
   releaseCameras(sid, u, av);
@@ -398,9 +449,11 @@ function leaveSession(u: User) {
   u.micOn = false;
   u.sharing = false;
   u.viewing = [];
+  u.viewLive = false;
   u.display = null;
   event(sid, `${u.name} が退出しました`);
-  if (![...users.values()].some((x) => x.session === sid)) finishVisit(sid);
+  if (inSession(sid).length) sendPresence(sid);
+  else { finishVisit(sid); void leaveRoom(sid); }
 }
 
 function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
@@ -423,16 +476,11 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       t: 'snapshot',
       s: {
         guild: { ...guild, sessions: sessionsVisibleTo(normalizeName(msg.name)) },
-        users: [...users.values()],
-        chats: Object.fromEntries([...chats].map(([sid, list]) => [sid, list.filter((m) => !m.to || m.to.includes(msg.id))])),
-        avatars: Object.fromEntries([...avatars].map(([sid, m]) => [sid, Object.fromEntries(m)])),
-        items: Object.fromEntries([...items].map(([sid, m]) => [sid, [...m.values()]])),
+        users: [...users.values()].map(publicUser),
         friends: friendsOf(normalizeName(msg.name)),
         groups: home.groups,
         events: home.events,
-        broadcast: Object.fromEntries(broadcastMode),
-        world: Object.fromEntries(worldOf),
-        games: allGames(),
+        sessions: allSessionInfo(),
         now: Date.now(),
       },
     });
@@ -492,10 +540,12 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       const visit = visits.get(msg.sid) ?? { from: Date.now(), people: new Set<string>(), log: [] };
       visit.people.add(me.name);
       visits.set(msg.sid, visit);
-      broadcastUsers();
+      broadcastUsers(); sendPresence(msg.sid);
       event(msg.sid, `${me.name} が入室しました`);
       // フレンド+ のセッションは中にいる人で見える人が変わる
       broadcastSessions();
+      // 部屋にはトークンを取りに来る前からつなぎ始める。WebSocket だけ切れて入り直した人は部屋に居続けているので、ここで状態を渡す
+      ensureRoom(msg.sid, roomHandlers).then(() => { if (inRoom(msg.sid, me.id)) sendSessionSnapshot(msg.sid, me.id); }, () => {});
       return;
     }
     case 'leave': {
@@ -505,10 +555,16 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       return;
     }
   }
+}
 
-  if (!sid) return;
+/** 部屋で届いたセッション内の操作。送った人がそのセッションにいるときだけ呼ばれる */
+function handleSession(me: Participant, sid: string, msg: RoomClientMsg) {
   const sessItems = items.get(sid)!;
   switch (msg.t) {
+    case 'sync': {
+      sendSessionSnapshot(sid, me.id);
+      return;
+    }
     case 'chat': {
       const text = String(msg.text ?? '').trim().slice(0, 1000);
       const image = typeof msg.image === 'string' && /^data:image\/(jpeg|png);base64,/.test(msg.image) && msg.image.length < 2_000_000
@@ -522,13 +578,13 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       const keys = Array.isArray(msg.keys) ? msg.keys.filter((k) => typeof k === 'string').slice(0, 20).map((k) => k.slice(0, 80)) : [];
       if (keys.join('\n') === me.viewing.join('\n')) return;
       me.viewing = keys;
-      broadcastUsers();
+      sendPresence(sid);
       return;
     }
     case 'poke': {
       const target = users.get(msg.to);
       if (!target || target.session !== sid || target.id === me.id) return;
-      broadcast({ t: 'poke', sid, from: me.id, to: target.id });
+      roomSend(sid, { t: 'poke', sid, from: me.id, to: target.id });
       event(sid, `${me.name} が ${target.name} をつんつんしました`, target.id);
       return;
     }
@@ -539,7 +595,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       // 連打で通知が埋まらないように
       if (Date.now() - (lastAttention.get(me.id) ?? 0) < 3000) return;
       lastAttention.set(me.id, Date.now());
-      broadcast({ t: 'attention', sid, from: me.id, key });
+      roomSend(sid, { t: 'attention', sid, from: me.id, key });
       const name = it.kind === 'youtube' && it.title ? it.title : ITEM_INFO[it.kind].name;
       event(sid, `${me.name} が「${name}」に注目を集めています`);
       return;
@@ -548,7 +604,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       const on = !!msg.on;
       if ((broadcastMode.get(sid) ?? false) === on) return;
       broadcastMode.set(sid, on);
-      broadcast({ t: 'broadcast', sid, on });
+      roomSend(sid, { t: 'broadcast', sid, on });
       event(sid, on ? `${me.name} がブロードキャストモードをオンにしました（距離に関係なく声が届きます）` : `${me.name} がブロードキャストモードをオフにしました`);
       return;
     }
@@ -570,27 +626,27 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       const clear = !!msg.clearItems;
       const world = msg.world;
       worldPending.add(sid);
-      broadcast({ t: 'worldPending', sid, world, at: Date.now() + WORLD_COUNTDOWN_MS, by: me.id, clearItems: clear });
+      roomSend(sid, { t: 'worldPending', sid, world, at: Date.now() + WORLD_COUNTDOWN_MS, by: me.id, clearItems: clear });
       setTimeout(() => switchWorld(sid, world, clear, me.name), WORLD_COUNTDOWN_MS);
       return;
     }
     case 'liveRequest': {
       const target = users.get(msg.to);
       if (!target || me.follow !== target.id || target.session !== sid) return;
-      sendTo([target.id], { t: 'liveRequest', sid, from: me.id });
+      roomSend(sid, { t: 'liveRequest', sid, from: me.id }, [target.id]);
       return;
     }
     case 'viewLive': {
       const on = !!msg.on && me.mode === '3d' && [...users.values()].some((f) => f.follow === me.id);
       if (me.viewLive === on) return;
       me.viewLive = on;
-      broadcastUsers();
+      sendPresence(sid);
       event(sid, on ? `${me.name} が視点のライブを始めました（ついてきている人向け）` : `${me.name} が視点のライブを止めました`);
       return;
     }
     case 'sound': {
       if (!SOUNDS.some((s) => s.id === msg.id)) return;
-      broadcast({ t: 'sound', sid, from: me.id, id: msg.id });
+      roomSend(sid, { t: 'sound', sid, from: me.id, id: msg.id });
       return;
     }
     case 'itemCreate': {
@@ -612,14 +668,14 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       if (!it) return;
       if (it.kind === 'note' && msg.text) it.text = msg.text.slice(0, 300);
       sessItems.set(it.id, it);
-      broadcast({ t: 'item', sid, item: it });
+      sendItem(sid, it);
       event(sid, `${me.name} が ${ITEM_INFO[msg.kind].name} を出しました`);
       return;
     }
     case 'itemRemove': {
       const it = sessItems.get(msg.id);
       if (!it || !sessItems.delete(msg.id)) return;
-      broadcast({ t: 'itemRemove', sid, id: msg.id });
+      sendItemRemove(sid, msg.id);
       event(sid, `${me.name} が ${ITEM_INFO[it.kind].name} をしまいました`);
       return;
     }
@@ -627,7 +683,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       const it = sessItems.get(msg.id);
       if (!it || (it.kind === 'hammer' && it.holder)) return;
       Object.assign(it, placeIn(sid, msg.x, msg.z, itemRadius(it) * 0.6), { ry: msg.ry });
-      broadcast({ t: 'item', sid, item: it });
+      sendItem(sid, it);
       return;
     }
     case 'itemAction': {
@@ -639,7 +695,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
         for (const other of sessItems.values())
           if (other !== it && other.kind === 'camera' && other.live && other.operator === me.id) {
             other.live = false; other.operator = null;
-            broadcast({ t: 'item', sid, item: other });
+            sendItem(sid, other);
           }
       if (it.kind === 'dice' && msg.action.a === 'diceRoll') {
         rollDice(sid, me, it, msg.action.sides, msg.action.count, !!msg.action.secret);
@@ -648,16 +704,16 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       if (msg.action.a === 'drop') Object.assign(msg.action, placeIn(sid, msg.action.x, msg.action.z, 0.3));
       if (!applyItemAction(it, msg.action, me.id, Math.random)) return;
       // 送り主は手元で適用済み
-      if (isDeltaAction(msg.action)) broadcast({ t: 'itemAction', sid, id: it.id, action: msg.action, by: me.id }, ws);
-      else broadcast({ t: 'item', sid, item: it });
-      if (it.kind === 'chessAi') scheduleChessAiReply(it, () => sessItems.get(it.id), () => broadcast({ t: 'item', sid, item: it }));
+      if (isDeltaAction(msg.action)) roomSend(sid, { t: 'itemAction', sid, id: it.id, action: msg.action, by: me.id }, othersIn(sid, me.id));
+      else sendItem(sid, it);
+      if (it.kind === 'chessAi') scheduleChessAiReply(it, () => sessItems.get(it.id), () => sendItem(sid, it));
       return;
     }
     case 'hit': {
       const holding = [...sessItems.values()].some((h) => h.kind === 'hammer' && h.holder === me.id);
       const target = users.get(msg.to);
       if (!holding || !target || target.session !== sid || target.id === me.id) return;
-      broadcast({ t: 'hit', sid, from: me.id, to: target.id });
+      roomSend(sid, { t: 'hit', sid, from: me.id, to: target.id });
       event(sid, `${me.name} がピコピコハンマーで ${target.name} を叩きました`, target.id);
       return;
     }
@@ -673,9 +729,9 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
         me.display = null;
         dropFollowersOf(me);
         releaseCameras(sid, me, av);
-        if (avatars.get(sid)!.delete(me.id)) broadcast({ t: 'avatarRemove', sid, id: me.id });
+        if (avatars.get(sid)!.delete(me.id)) roomSend(sid, { t: 'avatarRemove', sid, id: me.id });
       }
-      broadcastUsers();
+      broadcastUsers(); sendPresence(sid);
       event(sid, `${me.name} が ${modeLabel(msg.mode)} に切り替えました`);
       return;
     }
@@ -684,7 +740,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       if (msg.target && (!target || target.session !== sid || target.mode !== '3d' || target.id === me.id || me.mode !== '2d')) return;
       if (me.follow === (target?.id ?? null)) return;
       me.follow = target?.id ?? null;
-      broadcastUsers();
+      sendPresence(sid);
       if (target) event(sid, `${me.name} が ${target.name} についていきました`);
       return;
     }
@@ -694,19 +750,19 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       if (me.mode !== '3d' && target.id !== me.id) return;
       target.pos = msg.pos ? clamp2d(sid, msg.pos) : null;
       target.follow = null;
-      broadcastUsers();
+      sendPresence(sid);
       return;
     }
     case 'displayMove': {
       const target = users.get(msg.target);
       if (!target?.display || target.session !== sid || me.mode !== '3d') return;
       target.display = { ...placeIn(sid, msg.x, msg.z, 0.3), ry: Number(msg.ry) || 0 };
-      broadcastUsers();
+      sendPresence(sid);
       return;
     }
     case 'dropFollowers': {
       if (dropFollowersOf(me)) {
-        broadcastUsers();
+        sendPresence(sid);
         event(sid, `${me.name} がついてくる人を解除しました`);
       }
       return;
@@ -721,27 +777,16 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
         const av = avatars.get(sid)!.get(me.id);
         if (av) placeDisplay(sid, me, av);
       }
-      broadcastUsers();
+      broadcastUsers(); sendPresence(sid);
       return;
     }
     case 'avatar': {
-      if (me.mode !== '3d') return;
-      // ゲームの塔のように、ワールドによっては部屋の外にもいられる
-      const ext = WORLDS[worldOf.get(sid) ?? 'room'].extent;
-      const within = (v: number, lo: number, hi: number) => Math.max(lo + 0.2, Math.min(hi - 0.2, Number(v) || 0));
-      const y = Number(msg.s.y);
-      const s: AvatarState = {
-        x: ext ? within(msg.s.x, ext.minX, ext.maxX) : clamp(msg.s.x),
-        z: ext ? within(msg.s.z, ext.minZ, ext.maxZ) : clamp(msg.s.z),
-        ry: msg.s.ry,
-        ...(Number.isFinite(y) ? { y: Math.max(-30, Math.min(40, y)) } : {}),
-        pitch: Math.max(-1.5, Math.min(1.5, Number(msg.s.pitch) || 0)),
-        jump: Math.max(0, Math.floor(Number(msg.s.jump) || 0)),
-      };
+      // 2D の人の分も覚えるが、使う側はみな mode を見て 3D の人の分だけ使う（mode より先に届くことがある）
+      // 他の人へは本人から直接届いている。途中から入る人に渡す分だけ覚える
+      const s = clampAvatar(worldOf.get(sid) ?? 'room', msg.s);
       avatars.get(sid)!.set(me.id, s);
-      broadcast({ t: 'avatar', sid, id: me.id, s }, ws);
       // 2D から 3D に入ったときは、入った場所の前に立てる
-      if (me.sharing && !me.display) { placeDisplay(sid, me, s); broadcastUsers(); }
+      if (me.sharing && !me.display) { placeDisplay(sid, me, s); sendPresence(sid); }
       return;
     }
   }
@@ -763,6 +808,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       registerSession(def);
       saveHome();
       broadcastSessions();
+      broadcastSessionInfo();
       return true;
     }
     case 'sessionDelete': {
@@ -772,6 +818,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       guild.sessions.splice(guild.sessions.indexOf(def), 1);
       sessionIds.delete(def.id);
       items.get(def.id)?.clear();
+      broadcastSessionInfo();
       for (const ev of home.events) if (ev.session === def.id) ev.session = null;
       saveHome();
       broadcastSessions();
@@ -1079,6 +1126,11 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: '不正なリクエストです' }));
       return;
     }
+    // サーバーが先に部屋にいないと、入った人に中の状態を渡せない
+    try { await ensureRoom(sid, roomHandlers); } catch (e) {
+      res.end(JSON.stringify({ error: `サーバーが LiveKit につながりません（${(e as Error).message}）` }));
+      return;
+    }
     const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { identity: id, name, ttl: '12h' });
     at.addGrant({ roomJoin: true, room: livekitRoom(sid), canPublish: true, canSubscribe: true, canPublishData: true });
     res.end(JSON.stringify({ url: LIVEKIT_URL, token: await at.toJwt() }));
@@ -1132,13 +1184,13 @@ wss.on('connection', (ws) => {
 
 // 2D の人が他の人やアイテムと重なっていたら押し出す
 setInterval(() => {
-  let moved = false;
   for (const sid of sessionIds) {
-    const here = [...users.values()].filter((u) => u.session === sid);
-    if (here.some((u) => u.mode === '2d' && u.pos && !u.follow)) moved = pushApart2D(here, avatars.get(sid)!, items.get(sid)!.values(), (p) => clamp2d(sid, p)) || moved;
+    const here = inSession(sid);
+    if (here.some((u) => u.mode === '2d' && u.pos && !u.follow) && pushApart2D(here, avatars.get(sid)!, items.get(sid)!.values(), (p) => clamp2d(sid, p))) sendPresence(sid);
   }
-  if (moved) broadcastUsers();
 }, 200);
+
+for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => { shutdownRooms().finally(() => process.exit(0)); });
 
 server.listen(PORT, () => {
   console.log(`server on http://localhost:${PORT}`);

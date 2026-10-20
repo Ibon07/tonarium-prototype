@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { jumpHeight, spawnSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
+import { jumpHeight, spawnSlot, type AvatarState, type Participant } from '../../../shared/protocol.ts';
 import { NOTE_COLORS } from '../../../shared/items.ts';
 import { useStore, get, colorOf, nameOf, heldHammer, heldCamera, worldKindOf } from '../store.ts';
 import { selectNote } from '../actions.ts';
@@ -28,7 +28,7 @@ function ChatBubble({ id, y }: { id: string; y: number }) {
 }
 
 /** 2D で参加している人。3D の人と同じアバターで、スポーンエリア・置かれた場所・ついていく相手の後ろに立つ */
-function Standee({ user }: { user: User }) {
+function Standee({ user }: { user: Participant }) {
   const speaking = useStore((s) => !!s.speaking[user.id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[user.id] === false);
   const ref = useRef<THREE.Group>(null);

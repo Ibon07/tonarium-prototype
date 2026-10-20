@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { User } from '../../../shared/protocol.ts';
+import type { Participant } from '../../../shared/protocol.ts';
 import { useStore, get, set, save, heldHammer } from '../store.ts';
 import { formatDistance } from '../spatial.ts';
 import { recentlyHit } from '../items/effects.ts';
@@ -42,7 +42,7 @@ function clickFace(id: string) {
   else openWindow(`face:${id}`);
 }
 
-function BigFace({ u, d, self = false, width }: { u: User; d: number; self?: boolean; width?: number }) {
+function BigFace({ u, d, self = false, width }: { u: Participant; d: number; self?: boolean; width?: number }) {
   const poked = usePoked(u.id);
   const speaking = useStore((s) => !!s.speaking[u.id]);
   const sharer = useStore((s) => s.sharer);
@@ -109,7 +109,7 @@ function gridTile(n: number, w: number, h: number, gap = 12) {
 }
 
 /** ウィンドウを開いていないときは、声が届く人を画面中央に並べる（ビデオ通話のギャラリー風） */
-function FaceGrid({ list }: { list: { user: User; d: number; self?: boolean }[] }) {
+function FaceGrid({ list }: { list: { user: Participant; d: number; self?: boolean }[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 800, h: 500 });
   useLayoutEffect(() => {

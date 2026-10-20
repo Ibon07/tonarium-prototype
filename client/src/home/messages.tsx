@@ -118,7 +118,7 @@ function InviteCard({ sid }: { sid: string }) {
 
 function ItemRefCard({ item }: { item: NonNullable<Message['item']> }) {
   const s = useStore((st) => st.guild.sessions.find((d) => d.id === item.session));
-  const live = useStore((st) => st.itemsBy[item.session]?.[item.id]);
+  const live = useStore((st) => st.sessionInfo[item.session]?.items.some((i) => i.id === item.id));
   const info = ITEM_INFO[item.kind];
   return (
     <div className="refcard">

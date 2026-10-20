@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { User } from '../../../shared/protocol.ts';
+import type { Participant } from '../../../shared/protocol.ts';
 import { ITEM_INFO, ONLY_3D, type Item, type ItemKind } from '../../../shared/items.ts';
 import { useStore, get, set, save, nameOf, heldHammer } from '../store.ts';
 import { follow, goNear, poke } from '../actions.ts';
@@ -21,7 +21,7 @@ export function pickUser(id: string) {
   else set({ profileOf: id });
 }
 
-function LiveButton({ u, small = false }: { u: User; small?: boolean }) {
+function LiveButton({ u, small = false }: { u: Participant; small?: boolean }) {
   const open = useIsOpen('share');
   const sharer = useStore((s) => s.sharer);
   if (!u.sharing || sharer !== u.id) return null;
@@ -47,7 +47,7 @@ function Equip({ id }: { id: string }) {
   );
 }
 
-function statusOf(u: User, friends: string[]) {
+function statusOf(u: Participant, friends: string[]) {
   const parts: string[] = [];
   if (friends.includes(u.name)) parts.push('フレンド');
   if (!u.micOn) parts.push('ミュート');

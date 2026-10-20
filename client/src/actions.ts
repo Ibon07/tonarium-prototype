@@ -2,7 +2,7 @@ import type { ChatMedia, ChatScope, ClientMsg, Mode, Rsvp, StatusKind, Visibilit
 import type { WorldKind } from '../../shared/worlds.ts';
 import { approach } from '../../shared/places.ts';
 import { clampRoomPos } from './items/actions.ts';
-import { get, set, recompute, spawnPoint, save, nameOf, showToast, type Notice } from './store.ts';
+import { get, set, recompute, spawnPoint, save, nameOf, showToast, dropSession, type Notice } from './store.ts';
 import { send } from './net/ws.ts';
 import { connectVoice, leaveVoice } from './net/livekit.ts';
 import { placesOf, resumeAudio } from './spatial.ts';
@@ -11,6 +11,7 @@ export function joinSession(sid: string) {
   if (get().session === sid) { set({ hubOpen: false }); return; }
   selectNote(null);
   resumeAudio();
+  dropSession(get().session);
   // フレンド申請と招待はセッションをまたいで残す
   set((s) => ({ session: sid, mode: '2d', hubOpen: false, selfAvatar: spawnPoint(), windows: [], maxWin: null, notices: s.notices.filter((n) => n.kind === 'friend' || n.kind === 'invite' || n.kind === 'online') }));
   recompute();
@@ -23,6 +24,7 @@ export function joinSession(sid: string) {
 export function leaveSession() {
   if (!get().session) return;
   selectNote(null);
+  dropSession(get().session);
   set({ session: null, mode: '2d', hubOpen: false, windows: [], maxWin: null });
   recompute();
   send({ t: 'leave' });

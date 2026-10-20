@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ChatMessage, User } from '../../../shared/protocol.ts';
+import type { ChatMessage, Participant } from '../../../shared/protocol.ts';
 import { ITEM_INFO, type Item } from '../../../shared/items.ts';
 import { NEAR_RANGE, VOICE_RANGE } from '../../../shared/places.ts';
 import { useStore, set, colorOf, heldHammer } from '../store.ts';
@@ -52,7 +52,7 @@ export const BANDS: { band: Band; label: string; range: string; dot: string }[] 
 ];
 
 /** trend は -1（近づいている）〜 1（離れていく） */
-export interface PlayerEntry { user: User; d: number; band: Band; child: boolean; trend: number }
+export interface PlayerEntry { user: Participant; d: number; band: Band; child: boolean; trend: number }
 
 // 距離の変化の速さ（m/秒）をならしたもの。止まると 0 に戻っていく
 const motion = new Map<string, { d: number; t: number; v: number }>();
