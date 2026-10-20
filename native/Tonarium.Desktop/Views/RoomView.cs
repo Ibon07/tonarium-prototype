@@ -130,7 +130,7 @@ public sealed class RoomView : UserControl
         var compose = new Grid { ColumnDefinitions = new ColumnDefinitions("38,*,38"), Margin = new Thickness(10, 8, 10, 10), ColumnSpacing = 6 };
         var attach = IconButton("attach", "画像・動画を添付", () => Run(() => AttachAsync()), 18); attach.Background = Brushes.White; attach.BorderBrush = Brush.Parse("#DCD5C8"); attach.BorderThickness = new Thickness(1); compose.Children.Add(attach);
         attach.Width = attach.Height = 38;
-        _input.MinWidth = 0; _input.AcceptsReturn = true; _input.MaxHeight = 100;
+        _input.MinWidth = 0; _input.AcceptsReturn = true; _input.MaxHeight = 100; _input.VerticalContentAlignment = VerticalAlignment.Center;
         Grid.SetColumn(_input, 1); compose.Children.Add(_input);
         var send = IconButton("send", "送信", () => Run(SendChatAsync), 18); send.Background = Brush.Parse("#2F5FC4"); send.Foreground = Brushes.White; Grid.SetColumn(send, 2); compose.Children.Add(send);
         send.Content = new WebIcon("send", 18, Brushes.White); send.Width = send.Height = 38;

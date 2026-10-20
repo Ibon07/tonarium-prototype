@@ -20,11 +20,15 @@ public sealed class App : Application
         });
         Styles.Add(new Style(x => x.OfType<Button>())
         {
-            Setters = { new Setter(Button.CornerRadiusProperty, new CornerRadius(10)), new Setter(Button.BorderBrushProperty, Ui.Brush("#DCD5C8")), new Setter(Button.BackgroundProperty, Ui.Brush(Ui.Paper)), new Setter(Button.MinHeightProperty, 36d) }
+            Setters = { new Setter(Button.CornerRadiusProperty, new CornerRadius(10)), new Setter(Button.BorderBrushProperty, Ui.Brush("#DCD5C8")), new Setter(Button.BackgroundProperty, Ui.Brush(Ui.Paper)), new Setter(Button.MinHeightProperty, 36d), new Setter(Button.HorizontalContentAlignmentProperty, Avalonia.Layout.HorizontalAlignment.Center), new Setter(Button.VerticalContentAlignmentProperty, Avalonia.Layout.VerticalAlignment.Center) }
         });
         Styles.Add(new Style(x => x.OfType<TextBox>())
         {
             Setters = { new Setter(TextBox.CornerRadiusProperty, new CornerRadius(10)), new Setter(TextBox.BorderBrushProperty, Ui.Brush("#DCD5C8")), new Setter(TextBox.BackgroundProperty, Brushes.White), new Setter(TextBox.PaddingProperty, new Thickness(12, 8)) }
+        });
+        Styles.Add(new Style(x => x.OfType<TextBox>().PropertyEquals(TextBox.AcceptsReturnProperty, false))
+        {
+            Setters = { new Setter(TextBox.VerticalContentAlignmentProperty, Avalonia.Layout.VerticalAlignment.Center) }
         });
     }
 
