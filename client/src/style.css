@@ -809,7 +809,7 @@ img.av { object-fit: cover; display: block; }
 .thread { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 8px; }
 .msg { display: flex; gap: 10px; align-items: flex-start; }
 .msg.sys { padding-left: 42px; }
-.mbody { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+.msgbody { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
 .mhead { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
 .mtext { margin: 0; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 .mtext a { color: var(--accent); }

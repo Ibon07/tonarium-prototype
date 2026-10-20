@@ -134,7 +134,7 @@ export function MessageView({ conv, m }: { conv: string; m: Message }) {
   return (
     <div className="msg">
       <NameFace name={m.from} size={32} />
-      <div className="mbody">
+      <div className="msgbody">
         <span className="mhead"><b>{m.from}</b><span className="sub">{timeLabel(m.at)}</span></span>
         {m.text && <p className="mtext"><Linkified text={m.text} /></p>}
         {m.voice && <audio className="mvoice" src={m.voice.url} controls preload="metadata" aria-label={`声のメッセージ ${m.voice.sec} 秒`} />}
