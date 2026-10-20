@@ -339,19 +339,28 @@ function Image3D({ item }: { item: Item & { kind: 'image' } }) {
 function Video3D({ item }: { item: Item & { kind: 'video' } }) {
   // <video> は MediaSync が作るので、できるまで待つ
   const [tex, setTex] = useState<THREE.VideoTexture | null>(null);
+  const shown = useRef(-1);
   useFrame(() => {
-    if (tex) return;
     const el = videoEls.get(item.id);
     if (!el) return;
-    const t = new THREE.VideoTexture(el);
-    t.colorSpace = THREE.SRGBColorSpace;
-    setTex(t);
+    if (!tex) {
+      const t = new THREE.VideoTexture(el);
+      t.colorSpace = THREE.SRGBColorSpace;
+      setTex(t);
+      return;
+    }
+    // 新しいフレームの通知は再生中しか来ないので、止まっているときの最初の 1 枚やシーク後はここで描き直す
+    if (el.paused && el.readyState >= 2 && el.currentTime !== shown.current) {
+      shown.current = el.currentTime;
+      tex.needsUpdate = true;
+    }
   });
   useEffect(() => () => tex?.dispose(), [tex]);
   const [w, h] = boardSize(item.w, item.h);
   return (
     <Board item={item} w={w} h={h} data={playToggle(item)} label={item.clock.playing ? '▶ 動画' : '❚❚ 動画（クリックで再生）'}>
-      {tex ? <meshBasicMaterial map={tex} toneMapped={false} /> : <meshBasicMaterial color="#111" />}
+      {/* 同じ種類の要素だと R3F はマテリアルを使い回し、仮の暗い color が残って映像が真っ黒になるので key で作り直す */}
+      {tex ? <meshBasicMaterial key="video" map={tex} toneMapped={false} /> : <meshBasicMaterial key="empty" color="#111" />}
     </Board>
   );
 }

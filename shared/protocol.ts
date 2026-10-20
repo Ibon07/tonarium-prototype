@@ -1,6 +1,7 @@
 import type { Item, ItemAction, ItemKind, MediaInit } from './items.ts';
 import type { WorldKind } from './worlds.ts';
 import type { DiceRoll } from './dice.ts';
+import type { GameState } from './game.ts';
 
 export type Mode = '2d' | '3d';
 
@@ -36,6 +37,8 @@ export interface User {
   viewing: string[];
   /** ついてきている人に向けて自分の視点をライブ配信している（3D のみ） */
   viewLive: boolean;
+  /** 3D で画面共有中に床に立てた配信ディスプレイ。2D のとき（頭の上に出す）や共有していないときは null */
+  display: AvatarState | null;
 }
 
 /** near は声の範囲（送信時点で近くにいた人だけに届く）、announce は上部に固定するお知らせ */
@@ -74,11 +77,13 @@ export interface AvatarState {
    * （途中の高さを送ると、届く間隔のむらでカクつく）
    */
   jump?: number;
+  /** 床（高さ 0）以外にいるときの足元の高さ。ゲームの塔の上など。あればジャンプの放物線より優先する */
+  y?: number;
 }
 
 /** 初速 4.2m/s・重力 12m/s² で 0.7m ほど跳ぶ */
-const JUMP_V = 4.2;
-const GRAVITY = 12;
+export const JUMP_V = 4.2;
+export const GRAVITY = 12;
 /** 跳んでから ms 経ったときの足元の高さ（m） */
 export function jumpHeight(ms: number) {
   const t = ms / 1000;
@@ -97,6 +102,8 @@ export interface Snapshot {
   broadcast: Record<string, boolean>;
   /** セッションごとの今のワールド */
   world: Record<string, WorldKind>;
+  /** セッションごとのゲームワールドのゲーム */
+  games: Record<string, GameState>;
   /** 再生位置をそろえるためのサーバー時刻 */
   now: number;
 }
@@ -111,6 +118,8 @@ export type ClientMsg =
   | { t: 'dropFollowers' }
   /** pos が null ならスポーンエリアに戻る */
   | { t: 'place2d'; target: string; pos: AvatarState | null }
+  /** 3D で配信ディスプレイを持ち運ぶ */
+  | { t: 'displayMove'; target: string; x: number; z: number; ry: number }
   /** /icon・/avatar・/profile へ保存した後に、同じ名前のオンラインの人へ反映させる */
   | { t: 'profileUpdated' }
   | { t: 'chat'; text: string; image?: string; media?: ChatMedia; scope: ChatScope }
@@ -127,7 +136,12 @@ export type ClientMsg =
   /** key はウィンドウのキー（item:<id> / cam:<id>） */
   | { t: 'attention'; key: string }
   | { t: 'broadcast'; on: boolean }
-  | { t: 'world'; world: WorldKind }
+  /** clearItems ならアイテムをすべて片付けてから切り替える */
+  | { t: 'world'; world: WorldKind; clearItems?: boolean }
+  | { t: 'gameStart' }
+  /** 自分が乗った板（サーバーが消える時刻を決める） */
+  | { t: 'gameStep'; tile: number }
+  | { t: 'gameFell' }
   | { t: 'itemRemove'; id: string }
   | { t: 'itemMove'; id: string; x: number; z: number; ry: number }
   | { t: 'itemAction'; id: string; action: ItemAction }
@@ -148,7 +162,11 @@ export type ServerMsg =
   | { t: 'liveRequest'; sid: string; from: string }
   | { t: 'attention'; sid: string; from: string; key: string }
   | { t: 'broadcast'; sid: string; on: boolean }
+  /** at（サーバー時刻）に切り替わる予告 */
+  | { t: 'worldPending'; sid: string; world: WorldKind; at: number; by: string; clearItems: boolean }
   | { t: 'world'; sid: string; world: WorldKind }
+  | { t: 'game'; sid: string; game: GameState }
+  | { t: 'gameTile'; sid: string; tile: number; at: number }
   | { t: 'friendRequest'; from: string; fromName: string }
   | { t: 'friends'; names: string[] };
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore, set } from './store.ts';
 import { connectWs } from './net/ws.ts';
 import { iconUrl } from './icon.ts';
@@ -6,6 +6,7 @@ import { ProfileDialog } from './Profile.tsx';
 import { HammerCursor, Lightbox } from './world/common.tsx';
 import { WorldSelect } from './world/WorldSelect.tsx';
 import { WorldScreen } from './world/WorldScreen.tsx';
+import { PeekMascot, type MascotHandle } from './world/Mascot.tsx';
 
 function loadId() {
   try {
@@ -40,6 +41,17 @@ function JoinScreen() {
     const n = name.trim();
     void fetch(iconUrl(n)).then((r) => setIcon(r.ok ? iconUrl(n) : null));
   };
+  const tona = useRef<MascotHandle>(null);
+  const rimu = useRef<MascotHandle>(null);
+  const lastHop = useRef(0);
+  // 名前を打つと、交互にぴょんと反応する
+  const typed = (v: string) => {
+    setName(v);
+    const now = performance.now();
+    if (now - lastHop.current < 700) return;
+    lastHop.current = now;
+    (v.length % 2 ? tona : rimu).current?.hop();
+  };
   const join = () => {
     const n = name.trim() || 'ゲスト';
     try { localStorage.setItem('tonarium.name', n); } catch { /* ignore */ }
@@ -49,34 +61,41 @@ function JoinScreen() {
   return (
     <div className="joinbg">
       {profile && <ProfileDialog name={name} onClose={closeProfile} />}
-      <div className="join">
-        <h1 className="joinlogo"><img src="/brand/logo.png" alt="Tonarium" /></h1>
-        <p>2D と 3D を行き来できるワールド（プロトタイプ）</p>
-        <div className="joinicon">
-          <button className="avbtn" title="アイコン・3D アバターを設定" onClick={() => setProfile(true)} disabled={!name.trim()}>
-            {icon ? <img className="av" src={icon} alt="" /> : <div className="av noicon">{name.trim().slice(0, 1) || '?'}</div>}
-          </button>
-          <small>{name.trim() ? 'クリックでアイコン・3D アバター・自己紹介を設定' : '名前を入れるとプロフィールを設定できます'}</small>
+      <div className="joinstage">
+        <PeekMascot who="tona" ref={tona} />
+        <PeekMascot who="rimu" ref={rimu} />
+        <div className="join">
+          <h1 className="joinlogo"><img src="/brand/logo.png" alt="Tonarium" /></h1>
+          <p>2D と 3D を行き来できるワールド（プロトタイプ）</p>
+          <div className="joinicon">
+            <button className="avbtn" title="アイコン・3D アバターを設定" onClick={() => setProfile(true)} disabled={!name.trim()}>
+              {icon ? <img className="av" src={icon} alt="" /> : <div className="av noicon">{name.trim().slice(0, 1) || '?'}</div>}
+            </button>
+            <small>{name.trim() ? 'クリックでアイコン・3D アバター・自己紹介を設定' : '名前を入れるとプロフィールを設定できます'}</small>
+          </div>
+          <label htmlFor="joinname">表示名</label>
+          <input
+            id="joinname" autoFocus value={name} maxLength={24}
+            onChange={(e) => typed(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && join()}
+          />
+          <button className="primary" onClick={join}>はじめる</button>
+          <small>推奨: デスクトップ版 Chrome / Edge</small>
         </div>
-        <label htmlFor="joinname">表示名</label>
-        <input
-          id="joinname" autoFocus value={name} maxLength={24}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && join()}
-        />
-        <button className="primary" onClick={join}>はじめる</button>
-        <small>推奨: デスクトップ版 Chrome / Edge</small>
       </div>
       <aside className="joinnotice" aria-label="このサイトについて">
-        <h2>このサイトについて</h2>
-        <p>
-          Tonarium は、ユーザー体験を試すためだけに作ったプロトタイプです。パフォーマンスやセキュリティなど、
-          本来考えるべきことはすべて後回しにしています。試験が終わったら、データも含めてすべて破棄します。
-        </p>
-        <ul>
-          <li>名前・アイコン・チャットなどは誰でも見られます。個人情報や大切な情報は入力しないでください</li>
-          <li>小さな VPS で動いています。たくさんのタブで入る、大きな画像を何度も送るなど、負荷をかけすぎないようにお願いします</li>
-        </ul>
+        <div className="jnbody">
+          <h2><span className="jnsign" aria-hidden="true">!</span>このサイトについて</h2>
+          <p className="jnlead">
+            <span>Tonarium は、<b>理想のユーザー体験を試すためのプロトタイプ</b>です。</span>
+            <span>性能や安全性などの現実的な制約は後回しにしているため、<b>実際の完成形は大きく変わります</b>。</span>
+            <span>試験終了後は、<b>ソースコードもデータもすべて破棄</b>し、引き継ぎません。</span>
+          </p>
+          <ul>
+            <li>名前・アイコン・チャットなどは誰でも見られます。個人情報や大切な情報は入力しないでください</li>
+            <li>小さな VPS で動いています。たくさんのタブで入る、大きな画像を何度も送るなど、負荷をかけすぎないようにお願いします</li>
+          </ul>
+        </div>
       </aside>
     </div>
   );
