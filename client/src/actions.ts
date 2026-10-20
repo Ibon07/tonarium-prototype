@@ -8,20 +8,22 @@ import { connectVoice, leaveVoice } from './net/livekit.ts';
 import { placesOf, resumeAudio } from './spatial.ts';
 
 export function joinSession(sid: string) {
-  if (get().session === sid) return;
+  if (get().session === sid) { set({ hubOpen: false }); return; }
   selectNote(null);
   resumeAudio();
   // フレンド申請と招待はセッションをまたいで残す
-  set((s) => ({ session: sid, mode: '2d', selfAvatar: spawnPoint(), windows: [], maxWin: null, notices: s.notices.filter((n) => n.kind === 'friend' || n.kind === 'invite' || n.kind === 'online') }));
+  set((s) => ({ session: sid, mode: '2d', hubOpen: false, selfAvatar: spawnPoint(), windows: [], maxWin: null, notices: s.notices.filter((n) => n.kind === 'friend' || n.kind === 'invite' || n.kind === 'online') }));
   recompute();
   send({ t: 'join', sid });
   void connectVoice(sid);
+  // 外で 3D を選んでいたら、入った後に 3D へ
+  if (get().joinMode === '3d') setTimeout(() => switchMode('3d'), 400);
 }
 
 export function leaveSession() {
   if (!get().session) return;
   selectNote(null);
-  set({ session: null, mode: '2d', windows: [], maxWin: null });
+  set({ session: null, mode: '2d', hubOpen: false, windows: [], maxWin: null });
   recompute();
   send({ t: 'leave' });
   void leaveVoice();

@@ -210,8 +210,8 @@ img.av { object-fit: cover; display: block; }
 .fpline { width: 24px; height: 1px; background: rgba(38, 38, 46, .14); }
 
 .worldbadge {
-  position: absolute; left: 20px; top: 20px; display: flex; align-items: center; gap: 10px; padding: 7px; border-radius: 16px;
-  background: rgba(255, 253, 249, .9); backdrop-filter: blur(14px); box-shadow: 0 2px 10px rgba(60, 40, 10, .08); max-width: 320px;
+  position: absolute; left: 76px; top: 20px; display: flex; align-items: center; gap: 10px; padding: 7px; border-radius: 16px;
+  background: rgba(255, 253, 249, .9); backdrop-filter: blur(14px); box-shadow: 0 2px 10px rgba(60, 40, 10, .08); max-width: 264px;
 }
 .wname { font-family: "Zen Maru Gothic", sans-serif; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vline { width: 1px; height: 20px; background: rgba(38, 38, 46, .14); flex: none; }
@@ -370,8 +370,6 @@ img.av { object-fit: cover; display: block; }
 .dk.muted { background: #F06A5A; }
 .dk.muted:hover { background: #E25646 !important; }
 .dk.active { background: var(--speak); }
-.dk.mode { width: auto; padding: 0 18px; background: #fff; color: var(--ink); font-weight: 700; gap: 8px; }
-.dk.mode:hover { background: #F1ECE3 !important; }
 .dk.leave { background: var(--danger); }
 .dk.leave:hover { background: #A8321F !important; }
 .dsep { width: 1px; height: 32px; background: #4A4B55; }
@@ -902,6 +900,61 @@ img.av { object-fit: cover; display: block; }
   .fpage { grid-template-columns: 1fr; }
   .dmpane { position: static; max-height: none; }
   .gside { max-width: none; }
+}
+
+/* main のハブから移したもの：セッション中のメニューとシート、クライアントモード、ページのタブ、月のカレンダー */
+.hclient { margin-top: 10px; }
+.hseg { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(38, 38, 46, .08); }
+.hseg button { flex: 1; min-width: 0; height: 32px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; gap: 4px; }
+.hseg button.on { background: #fff; color: var(--accent); box-shadow: 0 1px 3px rgba(40, 30, 10, .18); }
+.hleave { color: var(--danger); margin-bottom: 4px; }
+.hhere { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 10px; background: #E3F2E8; color: #2E6E4E; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.hhere i { width: 8px; height: 8px; border-radius: 50%; background: var(--speak); }
+.hcurrent { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--paper); border-radius: 16px; box-shadow: var(--shadow); flex-wrap: wrap; }
+.hcurrent .finfo { flex: none; }
+.hcurrent button { gap: 6px; }
+.htabs { display: flex; gap: 4px; }
+.htabs button { height: 34px; padding: 0 14px; border-radius: 10px; font-size: 13px; color: var(--muted2); gap: 6px; }
+.htabs button.on { background: var(--paper); color: var(--accent); font-weight: 700; box-shadow: var(--shadow); }
+.hsec h2 .htabs { margin-left: 8px; }
+.wcard.current { box-shadow: var(--shadow), inset 0 0 0 2px var(--speak); }
+.wface { position: relative; }
+.wface .hhere { position: absolute; left: 10px; top: 10px; height: 26px; padding: 0 9px; font-size: 11px; }
+.ispawn { align-self: flex-start; margin-top: 4px; gap: 4px; }
+
+.hcalwrap { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: var(--paper); border-radius: 18px; box-shadow: var(--shadow); }
+.hcalhead { display: flex; align-items: center; gap: 8px; }
+.hcalhead h3 { font-size: 16px; }
+.hcalhead button.square { width: 36px; height: 36px; }
+.hcal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.hcalwd { text-align: center; font-size: 11px; color: var(--muted); padding: 4px 0; }
+.hcalday { height: auto; min-height: 72px; padding: 6px; border: 1px solid var(--line2); border-radius: 10px; background: #fff; display: flex; flex-direction: column; align-items: stretch; gap: 3px; text-align: left; font-size: 12px; }
+.hcalday > span:first-child { font-weight: 700; }
+.hcalday.today { border-color: var(--accent); }
+.hcalday.today > span:first-child { color: var(--accent); }
+.hcalday.on { background: var(--accentbg); box-shadow: inset 0 0 0 2px var(--accent); }
+.hcalev { display: block; padding: 1px 6px; border-radius: 6px; background: var(--sand); font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hcalev.more { background: transparent; color: var(--muted); font-weight: 400; }
+
+/* セッション中：左上のメニューボタン。ホバーで左のメニューが出て、押すとホームをシートで重ねる */
+.smenu { position: fixed; left: 0; top: 0; z-index: 46; }
+.smenubtn { position: absolute; left: 20px; top: 20px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 14px; background: rgba(255, 253, 249, .92); color: var(--ink); box-shadow: 0 2px 10px rgba(60, 40, 10, .12); }
+.smenubtn.on { background: var(--paper); color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent), 0 2px 10px rgba(60, 40, 10, .12); }
+.smenubridge { position: absolute; left: 12px; top: 60px; width: 228px; height: 16px; }
+.smenunav { position: absolute; left: 12px; top: 72px; width: 228px; max-height: calc(100vh - 100px); transform: translateX(-12px); opacity: 0; pointer-events: none; transition: transform .16s ease-out, opacity .16s ease-out; }
+.smenunav.show { transform: none; opacity: 1; pointer-events: auto; }
+.smenunav .hside { position: static; max-height: calc(100vh - 100px); min-height: 0; }
+.world.locked .smenu { opacity: .4; pointer-events: none; }
+.hoverlay { position: fixed; inset: 0; z-index: 45; }
+.hoverlaybg { position: absolute; inset: 0; background: rgba(30, 28, 24, .42); backdrop-filter: blur(8px) saturate(.9); }
+.hnow { position: absolute; left: 76px; top: 20px; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 14px; background: rgba(20, 20, 24, .45); color: #fff; font-size: 13px; pointer-events: none; }
+.hnow i { width: 8px; height: 8px; border-radius: 50%; background: #5BD394; }
+.hnow span { opacity: .8; }
+.hoverlayclose { position: absolute; right: 24px; top: 20px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 14px; background: rgba(20, 20, 24, .45); color: #fff; }
+.home.sheet { position: absolute; inset: 72px 24px 88px 12px; min-height: 0; overflow-y: auto; border-radius: 20px; box-shadow: 0 30px 80px rgba(0, 0, 0, .35); background-color: var(--ground); background-image: radial-gradient(var(--dots) 1px, transparent 1px); background-size: 22px 22px; }
+.home.sheet .hside, .home.sheet .hevents { position: static; max-height: none; }
+@media (max-width: 720px) {
+  .home.sheet { inset: 72px 8px 80px 8px; }
 }
 
 @media (max-width: 1100px) {

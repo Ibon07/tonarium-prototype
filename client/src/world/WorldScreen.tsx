@@ -4,7 +4,7 @@ import { SOUNDS } from '../../../shared/sounds.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, WORLD_KINDS } from '../../../shared/worlds.ts';
 import { useStore, get, set, nameOf, sessionOf, isBroadcast, worldKindOf, serverNow } from '../store.ts';
 import { send } from '../net/ws.ts';
-import { dropFollowers, follow, leaveSession, playSound, requestLive, setViewLive, switchMode } from '../actions.ts';
+import { dropFollowers, follow, leaveSession, playSound, requestLive, setViewLive } from '../actions.ts';
 import { dropHammer, place2d } from '../items/actions.ts';
 import { consumeHitFx } from '../items/effects.ts';
 import { toggleMic, toggleShare } from '../net/livekit.ts';
@@ -18,6 +18,7 @@ import { NoticeLog } from './NoticeLog.tsx';
 import { WindowLayer } from './WindowLayer.tsx';
 import { ProfileCard } from './ProfileCard.tsx';
 import { HoppingMascots } from './Mascot.tsx';
+import { SessionMenu } from '../home/SessionMenu.tsx';
 import { PortraitCanvas } from './Portraits.tsx';
 import { ConfirmOpen } from './Links.tsx';
 import { shareFiles, shareYouTube, youTubeId } from '../media.ts';
@@ -85,7 +86,7 @@ function Soundboard({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
 }
 
 function Dock() {
-  const { voice, micEnabled, sharer, selfId, mode, winMode, switching } = useStore();
+  const { voice, micEnabled, sharer, selfId, winMode } = useStore();
   const [sb, setSb] = useState<DOMRect | null>(null);
   const ok = voice === 'connected';
   const sharingSelf = sharer === selfId;
@@ -111,9 +112,6 @@ function Dock() {
         </button>
       </div>
       <span className="dsep" />
-      <button className="dk mode" disabled={!!switching} onClick={() => switchMode(mode === '2d' ? '3d' : '2d')} title={mode === '2d' ? '3D 空間に入る' : '2D に戻る'}>
-        <Icon name={mode === '2d' ? 'cube' : 'flat'} size={20} />{mode === '2d' ? '3D' : '2D'}
-      </button>
       <button className="dk leave" onClick={leaveSession} aria-label="切断" title="切断（セッション選択に戻る）"><Icon name="leave" size={22} /></button>
       {sb && <Soundboard anchor={sb} onClose={() => setSb(null)} />}
     </div>
@@ -361,7 +359,7 @@ function DropHint() {
   );
 }
 
-function Toast() {
+export function Toast() {
   const toast = useStore((s) => s.toast);
   const [, tick] = useState(0);
   useEffect(() => {
@@ -414,6 +412,7 @@ export function WorldScreen() {
       <ConfirmWorld />
       <ConfirmOpen />
       <ProfileCard />
+      <SessionMenu />
       <HitFxLayer root={root} />
     </div>
   );

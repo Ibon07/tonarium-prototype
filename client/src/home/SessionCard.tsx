@@ -29,6 +29,7 @@ export function SessionCard({ s, showDelete }: { s: SessionDef; showDelete?: boo
   const sharing = here.some((u) => u.sharing);
   const vis = s.visibility ?? 'public';
   const invitedByOwner = s.owner && s.owner !== selfName && s.invited?.includes(selfName);
+  const current = useStore((st) => st.session);
   return (
     <article className="scard">
       <div className="schead" style={{ background: WORLD_TINT[world] }}>
@@ -36,7 +37,9 @@ export function SessionCard({ s, showDelete }: { s: SessionDef; showDelete?: boo
         {sharing && <span className="livechip"><Icon name="screen" size={11} />画面共有</span>}
         <span className="spacer" />
         <span className="scworld"><Icon name="globe" size={13} />{WORLDS[world].name}</span>
-        <button className="primary scjoin" onClick={() => joinSession(s.id)}>参加する</button>
+        {current === s.id
+          ? <span className="hhere"><i />参加中</span>
+          : <button className="primary scjoin" onClick={() => joinSession(s.id)}>{current ? '移動する' : '参加する'}</button>}
       </div>
       <div className="scbody">
         <div className="sctitle">

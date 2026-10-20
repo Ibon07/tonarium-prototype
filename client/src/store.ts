@@ -30,7 +30,7 @@ interface State {
 
   session: string | null;
   mode: Mode;
-  /** セッション外で開いているホームのページ */
+  /** 開いているホームのページ（最後に開いたページを覚えておき、セッション中のメニューはそこを開く） */
   homePage: HomePage;
   /** group ページで開いているグループと、グループごとに開いているチャンネル */
   homeGroup: string | null;
@@ -76,6 +76,10 @@ interface State {
   loadScale: number;
   /** 動画・YouTube ごとの自分だけの音量（0〜1）。無ければ既定の半分 */
   volumes: Record<string, number>;
+  /** セッション中にホームを重ねて開いている */
+  hubOpen: boolean;
+  /** セッションの外で選んでおく、次に入るときのモード */
+  joinMode: Mode;
   /** サイコロを振る種類・個数（手元に保存） */
   dice: { sides: DieSides; count: number; secret: boolean };
   /** 視点のライブを頼んだ相手。始まったらウィンドウを開く */
@@ -153,7 +157,8 @@ export const useStore = create<State>(() => ({
   itemsBy: {},
   session: null,
   mode: '2d',
-  homePage: 'home',
+  // 個別のグループは開き直せないので一覧に戻す
+  homePage: ((p: HomePage) => (p === 'group' ? 'groups' : p))(load<HomePage>('tonarium.homePage', 'home')),
   homeGroup: null,
   homeChannel: {},
   dmWith: null,
@@ -187,6 +192,8 @@ export const useStore = create<State>(() => ({
   switching: null,
   loadScale: load('tonarium.loadScale', 1),
   volumes: {},
+  hubOpen: false,
+  joinMode: load('tonarium.joinMode', '2d'),
   dice: load('tonarium.dice', { sides: 6 as DieSides, count: 2, secret: false }),
   notices: [],
   friends: [],

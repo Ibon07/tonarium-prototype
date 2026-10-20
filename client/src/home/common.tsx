@@ -74,3 +74,15 @@ export function EventAnswer({ ev }: { ev: EventDef }) {
     </span>
   );
 }
+
+export function Tabs<T extends string>({ items, value, onChange }: { items: { id: T; label: string; badge?: number }[]; value: T; onChange: (v: T) => void }) {
+  return (
+    <div className="htabs" role="tablist">
+      {items.map((x) => (
+        <button key={x.id} role="tab" aria-selected={x.id === value} className={`ib ${x.id === value ? 'on' : ''}`} onClick={() => onChange(x.id)}>
+          {x.label}{!!x.badge && <span className="badge">{x.badge}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}

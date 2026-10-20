@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { get, unreadOf, useStore, type HomePage, type Notice } from '../store.ts';
+import { get, save, set, showToast, unreadOf, useStore, type HomePage, type Notice } from '../store.ts';
 import { sortForHome } from '../../../shared/home.ts';
 import { dmPeer, type Group, type Message } from '../../../shared/protocol.ts';
-import { friendAccept, markNoticesRead, markRead, openDm, openGroup, removeNotice } from '../actions.ts';
+import { friendAccept, leaveSession, markNoticesRead, markRead, openDm, openGroup, removeNotice, switchMode } from '../actions.ts';
 import { ProfileDialog } from '../Profile.tsx';
 import { Face } from '../world/common.tsx';
 import { Icon, type IconName } from '../world/Icon.tsx';
@@ -49,7 +49,33 @@ function convTitle(conv: string, groups: Group[], selfName: string) {
 }
 const useUpcoming = () => useStore((s) => s.events).filter((e) => e.at > Date.now() - 3_600_000 && e.at < Date.now() + WEEK);
 
-function Sidebar() {
+/** セッション中は今の 2D/3D を切り替え、外では次に入るときのモードを選ぶ。VR はまだ無い */
+function ClientMode() {
+  const session = useStore((s) => s.session);
+  const mode = useStore((s) => (s.session ? s.mode : s.joinMode));
+  const switching = useStore((s) => !!s.switching);
+  const pick = (m: '2d' | '3d') => {
+    if (get().session) switchMode(m);
+    else { save('tonarium.joinMode', m); set({ joinMode: m }); }
+  };
+  return (
+    <div className="hside-sec hclient">
+      <span className="hlabel">クライアントモード</span>
+      <div role="radiogroup" aria-label="クライアントモード" className="hseg">
+        {(['2d', '3d'] as const).map((m) => (
+          <button key={m} role="radio" aria-checked={mode === m} aria-label={`${m.toUpperCase()} モード`} className={mode === m ? 'on' : ''} disabled={switching}
+            title={session ? undefined : '次にセッションへ入るときのモード'} onClick={() => pick(m)}>
+            <Icon name={m === '2d' ? 'flat' : 'cube'} size={14} />{m.toUpperCase()}
+          </button>
+        ))}
+        <button role="radio" aria-checked={false} aria-label="VR モード" title="準備中" onClick={() => showToast('VR は準備中です')}><Icon name="vr" size={14} />VR</button>
+      </div>
+    </div>
+  );
+}
+
+/** 左のメニュー。ホームの左列と、セッション中のホバーメニューで同じものを使う */
+export function Sidebar({ inSession, onPick }: { inSession?: boolean; onPick?: () => void }) {
   const page = useStore((s) => s.homePage);
   const selfId = useStore((s) => s.selfId);
   const selfName = useStore((s) => s.selfName);
@@ -69,7 +95,7 @@ function Sidebar() {
       <ul className="hnav">
         {NAV.map((n) => (
           <li key={n.page}>
-            <button className={`ib hnavbtn ${page === n.page ? 'on' : ''}`} onClick={() => goHome(n.page)}>
+            <button className={`ib hnavbtn ${page === n.page ? 'on' : ''}`} onClick={() => { goHome(n.page); onPick?.(); }}>
               <Icon name={n.icon} size={18} />{n.name}
               {!!badge[n.page] && <span className={`hbadge ${n.page === 'friends' && unreadDm ? 'red' : ''}`}>{badge[n.page]}</span>}
             </button>
@@ -84,14 +110,16 @@ function Sidebar() {
             const has = unread.some((c) => c.startsWith(`ch:${g.id}:`));
             const on = page === 'group' && homeGroup === g.id;
             return (
-              <button key={g.id} className={`gmark ${on ? 'on' : ''}`} style={{ background: g.color }} title={g.name} aria-label={`${g.name}${has ? '（未読あり）' : ''}`} onClick={() => openGroup(g.id)}>
+              <button key={g.id} className={`gmark ${on ? 'on' : ''}`} style={{ background: g.color }} title={g.name} aria-label={`${g.name}${has ? '（未読あり）' : ''}`} onClick={() => { openGroup(g.id); onPick?.(); }}>
                 {g.name.slice(0, 1)}{has && <i className="gunread" />}
               </button>
             );
           })}
         </div>
       </div>
+      <ClientMode />
       <span className="spacer" />
+      {inSession && <button className="ib hnavbtn hleave" onClick={leaveSession}><Icon name="leave" size={18} />セッションから離脱</button>}
       <div className="hself">
         <button className="ib hselfst" onClick={() => setStatus(true)} title="ステータスを変える">
           <span className="fface"><Face id={selfId} name={selfName} size={36} /><StatusDot st={st} /></span>
@@ -301,15 +329,16 @@ function HomePageView({ q }: { q: string }) {
   );
 }
 
-export function Home() {
+/** sheet はセッション中に重ねて開く形（SessionMenu） */
+export function Home({ sheet }: { sheet?: boolean }) {
   const page = useStore((s) => s.homePage);
   const wsConnected = useStore((s) => s.wsConnected);
   const [q, setQ] = useState('');
   const [create, setCreate] = useState(false);
   const title = NAV.find((n) => n.page === page)?.name;
   return (
-    <div className="home">
-      <Sidebar />
+    <div className={`home ${sheet ? 'sheet' : ''}`} role={sheet ? 'dialog' : undefined} aria-label={sheet ? title : undefined}>
+      <Sidebar inSession={sheet} />
       <main className="hmain">
         <header className="hhead">
           {page === 'group' ? <GroupTitle /> : title && <h1>{title}</h1>}
