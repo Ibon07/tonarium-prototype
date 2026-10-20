@@ -185,23 +185,26 @@ namespace Tonarium.UnityClient
         }
 
         static void PaintStrokes(ItemRaster pixels, JObject item, int x, int y)
+            => PaintStrokesScaled(pixels, item, x, y, 1);
+
+        static void PaintStrokesScaled(ItemRaster pixels, JObject item, int x, int y, float scale)
         {
-            pixels.Clip = new RectInt(x, y, 620, 450);
+            pixels.Clip = new RectInt(x, y, Mathf.RoundToInt(620 * scale), Mathf.RoundToInt(450 * scale));
             if (item["strokes"] is JArray strokes) foreach (var stroke in strokes.OfType<JObject>())
             {
-                PaintStroke(pixels, stroke, x, y, 0);
+                PaintStroke(pixels, stroke, x, y, 0, scale);
             }
             pixels.Clip = new RectInt(0, 0, pixels.Width, pixels.Height);
         }
 
-        static void PaintStroke(ItemRaster pixels, JObject stroke, int x, int y, int firstPoint)
+        static void PaintStroke(ItemRaster pixels, JObject stroke, int x, int y, int firstPoint, float scale = 1)
         {
             if (!(stroke["pts"] is JArray pts) || pts.Count < 2) return;
             string color = (string)stroke["color"] == "erase" ? "#ffffff" : (string)stroke["color"];
-            float radius = Float(stroke, "size", 3) / 2;
-            if (firstPoint == 0) pixels.Disc(x + (float)pts[0], y + (float)pts[1], radius, color);
+            float radius = Float(stroke, "size", 3) * scale / 2;
+            if (firstPoint == 0) pixels.Disc(x + (float)pts[0] * scale, y + (float)pts[1] * scale, radius, color);
             for (int i = Math.Max(2, firstPoint); i + 1 < pts.Count; i += 2)
-                pixels.Line(x + (float)pts[i - 2], y + (float)pts[i - 1], x + (float)pts[i], y + (float)pts[i + 1], radius, color);
+                pixels.Line(x + (float)pts[i - 2] * scale, y + (float)pts[i - 1] * scale, x + (float)pts[i] * scale, y + (float)pts[i + 1] * scale, radius, color);
         }
 
         void Build2048Panel(Transform root, JObject item)

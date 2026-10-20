@@ -85,12 +85,17 @@ namespace Tonarium.UnityClient
                 if (arg == "--tonarium-avatar-parity") gameObject.AddComponent<AvatarParityProbe>();
                 if (arg == "--tonarium-item-parity") gameObject.AddComponent<ItemParityProbe>();
                 if (arg == "--tonarium-canvas-perf") gameObject.AddComponent<CanvasPerformanceProbe>();
+                if (arg == "--tonarium-chess-probe") gameObject.AddComponent<ChessInteractionProbe>();
+                if (arg == "--tonarium-item-behavior") gameObject.AddComponent<ItemBehaviorProbe>();
+                if (arg == "--tonarium-media-playback") gameObject.AddComponent<MediaPlaybackProbe>();
             }
         }
 
         void Receive(JObject m)
         {
             string type = (string)m["t"];
+            if (type == "notice") { notice = (string)m["text"] ?? ""; return; }
+            if (type == "nativeItems") { SetNativeOpenItems(m["ids"] as JArray); return; }
             if(type=="pointerWindow")
             {
                 relativePointer?.Dispose();relativePointer=null;
@@ -99,7 +104,7 @@ namespace Tonarium.UnityClient
                 if(!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TONARIUM_INPUT_DIAGNOSTICS")))Debug.Log("TONARIUM_POINTER_INIT "+(relativePointer!=null?"ready":pointerInitializationError));
                 return;
             }
-            if (type == "releaseInput") { EndCanvasStroke(); CommitNote(); selected = null; menu = false; Unlock(); return; }
+            if (type == "releaseInput") { EndCanvasStroke(); EndNoteEditing(); menu = false; Unlock(); return; }
             if (type == "videoFrame") { ReceiveVideo(m); return; }
             if (type == "resize")
             {
@@ -211,6 +216,7 @@ namespace Tonarium.UnityClient
         {
             if (m == null) return;
             RecordAvatarChat(m);
+            RecordDiceChat(m);
             chat.Add(((string)m["fromName"] ?? "お知らせ") + "  " + (string)m["text"]);
             if (chat.Count > 50) chat.RemoveAt(0);
         }
@@ -315,9 +321,10 @@ namespace Tonarium.UnityClient
         void Update()
         {
             PointerDelta = Vector2.zero;
-            if (Input.GetKeyDown(KeyCode.Escape)) { EndCanvasStroke(); CommitNote(); selected = null; menu = false; Unlock(); }
+            ValidateChessSelection();
+            if (Input.GetKeyDown(KeyCode.Escape)) { EndCanvasStroke(); EndNoteEditing(); ClearChessSelection(); menu = false; Unlock(); }
             if (Input.GetKeyDown(KeyCode.F2)) ReturnTo2D();
-            if (Input.GetKeyDown(KeyCode.Return) && !menu && selected == null)
+            if (Input.GetKeyDown(KeyCode.Return) && !menu && selected == null && chessPromotionTo < 0)
             {
                 if (embedded) { Unlock(); bridge.Send(new {t="focusChat"}); }
                 else { chatOpen = !chatOpen; if (chatOpen) Unlock(); else SendChat(); }
@@ -326,9 +333,9 @@ namespace Tonarium.UnityClient
             {
                 var point=new Vector2(Input.mousePosition.x/uiScale,(Screen.height-Input.mousePosition.y)/uiScale);
                 float width=Mathf.Min(480,HudWidth-32);
-                if(!new Rect((HudWidth-width)/2,HudHeight-296,width,186).Contains(point)){CommitNote();selected=null;}
+                if(!new Rect((HudWidth-width)/2,HudHeight-296,width,186).Contains(point))EndNoteEditing();
             }
-            bool controls = !menu && !chatOpen && selected == null;
+            bool controls = !menu && !chatOpen && selected == null && chessPromotionTo < 0;
             bool justLocked = controls && Input.GetMouseButtonDown(0) && Cursor.lockState != CursorLockMode.Locked;
             if (justLocked)
             {
@@ -365,7 +372,7 @@ namespace Tonarium.UnityClient
                 if (canvasStroke != null && Input.GetMouseButtonUp(0)) EndCanvasStroke();
                 if (Input.GetMouseButtonDown(1)) ToggleCarry();
                 if (Input.GetKeyDown(KeyCode.Q) && held != null) DropHeld();
-                if (Input.GetKeyDown(KeyCode.C) && held != null && (string)items[held]["kind"] == "camera") StartCoroutine(TakePhoto());
+                if (Input.GetKeyDown(KeyCode.C) && AimedCamera() is string photoCamera) StartCoroutine(TakeItemPhoto(photoCamera));
                 if (Input.GetKeyDown(KeyCode.L))
                 {
                     string id=held;if(id==null&&Aim(out var cameraTarget))id=cameraTarget.Id;
@@ -413,6 +420,7 @@ namespace Tonarium.UnityClient
             }
             foreach (var pair in brokenTiles) if (pair.Value <= Now && tiles.TryGetValue(pair.Key, out var tile)) tile.SetActive(false);
             UpdateVideoScreens();
+            UpdateCameraCapture();
             bool locked=Cursor.lockState==CursorLockMode.Locked;
             bool relativeInput=RelativePointerActive;
             if(locked!=lastInputLocked||relativeInput!=lastRelativeInput)
@@ -443,10 +451,61 @@ namespace Tonarium.UnityClient
             return target != null;
         }
         int chessFrom = -1;
+        string chessItem;
+        int chessRevision = -1;
+        int chessPromotionTo = -1;
+
+        void ClearChessSelection()
+        {
+            chessFrom = -1; chessItem = null; chessRevision = -1; chessPromotionTo = -1; notice = "";
+        }
+
+        void ValidateChessSelection()
+        {
+            if (chessItem != null && (!items.TryGetValue(chessItem, out var item) || ((int?)item["chess"]?["revision"] ?? 0) != chessRevision)) ClearChessSelection();
+        }
+
+        void CompleteChessPromotion(string promotion)
+        {
+            if (promotion != "q" && promotion != "r" && promotion != "b" && promotion != "n") return;
+            ValidateChessSelection();
+            if (chessPromotionTo < 0 || chessFrom < 0 || chessItem == null) return;
+            Room(new JObject { ["t"] = "itemAction", ["id"] = chessItem, ["action"] = new JObject
+            { ["a"] = "chessMove", ["from"] = chessFrom, ["to"] = chessPromotionTo, ["revision"] = chessRevision, ["promotion"] = promotion } });
+            ClearChessSelection();
+        }
+
+        void InteractChessSquare(string id, JObject item, int square)
+        {
+            int revision = (int?)item["chess"]?["revision"] ?? 0;
+            var board = item["board"] as JArray;
+            if (square < 0 || square >= 64 || board == null || board.Count != 64 || revision < 0) return;
+            string piece = (string)board[square];
+            var fen = ((string)item["chess"]?["fen"] ?? "").Split(' ');
+            char turn = fen.Length > 1 && fen[1] == "b" ? 'b' : 'w';
+            if ((string)item["kind"] == "chessAi" && turn == 'b') { ClearChessSelection(); return; }
+            bool ownPiece = !string.IsNullOrEmpty(piece) && piece[0] == turn;
+            if (chessItem != id || chessRevision != revision) ClearChessSelection();
+            if (chessFrom < 0 || ownPiece)
+            {
+                chessItem = id; chessRevision = revision; chessFrom = ownPiece ? square : -1;
+                notice = chessFrom >= 0 ? "移動先のマスをクリック" : "手番の駒をクリック";
+                return;
+            }
+            var action = new JObject { ["a"] = "chessMove", ["from"] = chessFrom, ["to"] = square, ["revision"] = revision };
+            string moving = (string)board[chessFrom];
+            // 昇格は駒を選んでから送り、選択中に盤が更新されたら取り消す。
+            if (moving == "wP" && square / 8 == 0 || moving == "bP" && square / 8 == 7)
+            {
+                chessPromotionTo = square; notice = "昇格する駒を選んでください"; Unlock(); return;
+            }
+            Room(new JObject { ["t"] = "itemAction", ["id"] = id, ["action"] = action });
+            ClearChessSelection();
+        }
         void Interact()
         {
             if(carrying!=null){FinishCarry();return;}
-            if(held!=null&&items.TryGetValue(held,out var heldItem)&&(string)heldItem["kind"]=="camera"){StartCoroutine(TakePhoto());return;}
+            if(held!=null&&items.TryGetValue(held,out var heldItem)&&(string)heldItem["kind"]=="camera"){StartCoroutine(TakeItemPhoto(held));return;}
             if (!Physics.Raycast(eye.transform.position, eye.transform.forward, out var hit, 30)) return;
             if (hit.collider.GetComponent<GameStart>() != null) { Room(new { t = "gameStart" }); return; }
             var target = hit.collider.GetComponentInParent<WorldTarget>(); if (target == null) return;
@@ -464,14 +523,14 @@ namespace Tonarium.UnityClient
             if(InteractItemSurface(target,hit))return;
             string kind = (string)item["kind"];
             if (kind == "hammer" || kind == "camera") { Room(new { t = "itemAction", id = target.Id, action = new { a = "pick" } }); return; }
-            if (kind == "dice") { Room(new { t = "itemAction", id = target.Id, action = new { a = "diceRoll", sides = 6, count = 2, secret = false } }); return; }
+            if (kind == "dice") { OpenDiceItem(target.Id); return; }
             if ((kind == "chess" || kind == "chessAi") && hit.collider.GetComponent<ChessSquare>() is ChessSquare square)
             {
-                if (chessFrom < 0) { chessFrom = square.Index; notice = "移動先のマスをクリック"; }
-                else { Room(new { t = "itemAction", id = target.Id, action = new { a = "chessMove", from = chessFrom, to = square.Index, revision = (int?)item["chess"]?["revision"] ?? 0, promotion = "Q" } }); chessFrom = -1; }
+                InteractChessSquare(target.Id, item, square.Index);
                 return;
             }
-            selected = target.Id; noteDraft = (string)item["text"] ?? ""; noteSent = noteDraft; Unlock();
+            if (kind == "note") BeginNoteEditing(target.Id);
+            else OpenNativeItem(target.Id);
         }
         void ToggleCarry()
         {
@@ -511,32 +570,23 @@ namespace Tonarium.UnityClient
         void EndCanvasStroke(){FlushCanvasStroke();canvasStroke=null;canvasItem=null;}
         void DropHeld()
         {
-            var p = controller.transform.position + controller.transform.forward;
+            float gap = items.TryGetValue(held, out var item) && (string)item["kind"] == "camera" ? .7f : 1.2f;
+            var p = controller.transform.position + controller.transform.forward * gap;
+            p.x = Mathf.Clamp(p.x, -9.5f, 9.5f); p.z = Mathf.Clamp(p.z, -9.5f, 9.5f);
             Room(new { t = "itemAction", id = held, action = new { a = "drop", x = p.x, z = -p.z, ry = -yaw * Mathf.Deg2Rad, pitch = -pitch * Mathf.Deg2Rad } }); held = null;
         }
         void Room(object value) => bridge.Send(new { t = "room", message = value });
         void Unlock() { EndCanvasStroke();FinishCarry();relativePointer?.SetLocked(false);Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
         void OnApplicationFocus(bool focused){if(!focused)Unlock();}
         void SendChat() { if (!string.IsNullOrWhiteSpace(draft)) Room(new { t = "chat", text = draft, scope = "all" }); draft = ""; }
-        IEnumerator TakePhoto()
+        string AimedCamera()
         {
-            yield return new WaitForEndOfFrame();
-            var target = RenderTexture.GetTemporary(1280, 720, 24);
-            var previous = RenderTexture.active;
-            var previousTarget = eye.targetTexture;
-            var texture = new Texture2D(1280, 720, TextureFormat.RGB24, false);
-            try
-            {
-                eye.targetTexture = target; eye.Render(); RenderTexture.active = target;
-                texture.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0); texture.Apply();
-                Room(new { t = "chat", text = "写真を撮りました", image = "data:image/jpeg;base64," + Convert.ToBase64String(texture.EncodeToJPG(82)), scope = "all" });
-                notice = "写真をチャットに送りました";
-            }
-            finally { eye.targetTexture = previousTarget; RenderTexture.active = previous; RenderTexture.ReleaseTemporary(target); Destroy(texture); }
+            if (held != null && items.TryGetValue(held, out var heldItem) && (string)heldItem["kind"] == "camera") return held;
+            return Aim(out var target) && items.TryGetValue(target.Id, out var item) && (string)item["kind"] == "camera" ? target.Id : null;
         }
-        public void ReturnTo2D() { if (returnSent) return; returnSent = true; Unlock(); bridge.Send(new { t = "return2d" }); if (!bridge.Connected) Application.Quit(); }
+        public void ReturnTo2D() { if (returnSent) return; returnSent = true; EndNoteEditing(); Unlock(); bridge.Send(new { t = "return2d" }); if (!bridge.Connected) Application.Quit(); }
         void OnApplicationQuit() { ReturnTo2D(); }
-        void OnDestroy() { relativePointer?.Dispose(); }
+        void OnDestroy() { relativePointer?.Dispose(); DisposeCameraCapture(); }
         long Now => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + (long)serverOffset;
         static Vector3 ToUnity(Vector3 p) => new Vector3(p.x, p.y, -p.z);
         static Vector3 Position(JObject p) => ToUnity(new Vector3(Float(p, "x"), Float(p, "y"), Float(p, "z")));

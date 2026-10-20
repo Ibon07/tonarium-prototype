@@ -42,7 +42,7 @@ namespace Tonarium.UnityClient
             var helpStyle=new GUIStyle(labelStyle){fontSize=locked?12:15,alignment=TextAnchor.MiddleCenter,clipping=TextClipping.Clip};
             float helpWidth=Mathf.Min(helpStyle.CalcSize(new GUIContent(help)).x+32,HudWidth*.78f);
             var helpRect=new Rect((HudWidth-helpWidth)/2,locked?HudHeight-170:HudHeight/2,helpWidth,locked?28:40);
-            if(!menu&&selected==null){HudPanel(helpRect,"#141418BD");GUI.Label(helpRect,help,helpStyle);}
+            if(!menu&&selected==null&&chessPromotionTo<0){HudPanel(helpRect,"#141418BD");GUI.Label(helpRect,help,helpStyle);}
             if(locked)
             {
                 string hint=AimHint();bool active=!string.IsNullOrEmpty(hint);float diameter=active?18:10;
@@ -76,6 +76,20 @@ namespace Tonarium.UnityClient
             }
             if(menu&&!embedded)MenuGUI();
             if(selected!=null&&items.TryGetValue(selected,out var item))ItemGUI(item);
+            if(chessPromotionTo>=0)ChessPromotionGUI();
+        }
+
+        void ChessPromotionGUI()
+        {
+            float width = Mathf.Min(420, HudWidth - 24), height = 214;
+            var rect = new Rect((HudWidth - width) / 2, (HudHeight - height) / 2, width, height);
+            HudPanel(rect, "#fffdf9");
+            GUI.Label(new Rect(rect.x + 16, rect.y + 14, width - 32, 32), "昇格する駒を選んでください", new GUIStyle(titleStyle) { fontSize = 18, normal = { textColor = ColorValue("#26262e") } });
+            string[] values = { "q", "r", "b", "n" }, names = { "クイーン", "ルーク", "ビショップ", "ナイト" };
+            float gap = 10, buttonWidth = (width - 42) / 2;
+            for (int i = 0; i < 4; i++)
+                if (GUI.Button(new Rect(rect.x + 16 + (i % 2) * (buttonWidth + gap), rect.y + 58 + (i / 2) * 48, buttonWidth, 38), names[i], buttonStyle)) CompleteChessPromotion(values[i]);
+            if (GUI.Button(new Rect(rect.x + width - 110, rect.y + 164, 94, 32), "取り消す", buttonStyle)) ClearChessSelection();
         }
 
         string AimHint()
@@ -127,7 +141,7 @@ namespace Tonarium.UnityClient
             {GUI.backgroundColor=ColorValue(color);if(GUI.Button(new Rect(x,rect.y+96,24,24),"",buttonStyle))Room(new{t="itemAction",id=selected,action=new{a="noteEdit",color}});x+=30;}
             GUI.backgroundColor=Color.white;
             if(GUI.Button(new Rect(x+4,rect.y+94,118,30),"こちらに向ける",buttonStyle)){var p=itemObjects[selected].transform.position;Room(new{t="itemMove",id=selected,x=p.x,z=-p.z,ry=-yaw*Mathf.Deg2Rad});}
-            if(GUI.Button(new Rect(rect.x+width-76,rect.y+94,64,30),"閉じる",buttonStyle)){CommitNote();selected=null;}
+            if(GUI.Button(new Rect(rect.x+width-76,rect.y+94,64,30),"閉じる",buttonStyle))EndNoteEditing();
             GUI.Label(new Rect(rect.x+12,rect.y+140,width-24,30),"空間をクリックすると操作に戻ります",new GUIStyle(bodyStyle){fontSize=12,normal={textColor=ColorValue("#5e5c64")}});
         }
 
@@ -135,7 +149,30 @@ namespace Tonarium.UnityClient
         {
             // 自動保存待ちの最後の入力も、編集欄を閉じる前に同期する。
             if(selected==null||noteDraft==noteSent||!items.TryGetValue(selected,out var item)||(string)item["kind"]!="note")return;
-            noteSent=noteDraft;Room(new{t="itemAction",id=selected,action=new{a="noteEdit",text=noteDraft}});
+            noteSent=noteDraft;
+            item["text"] = noteDraft; ApplyItem(item);
+            Room(new{t="itemAction",id=selected,action=new{a="noteEdit",text=noteDraft}});
+        }
+
+        void BeginNoteEditing(string id)
+        {
+            if (!items.TryGetValue(id, out var item) || (string)item["kind"] != "note") return;
+            if (selected != id) EndNoteEditing();
+            selected = id; noteDraft = (string)item["text"] ?? ""; noteSent = noteDraft; noteSentAt = Time.unscaledTime;
+            Room(new { t = "itemAction", id, action = new { a = "noteLock", @lock = true } });
+            Unlock();
+        }
+
+        void EndNoteEditing()
+        {
+            if (selected == null) return;
+            string id = selected;
+            if (items.TryGetValue(id, out var item) && (string)item["kind"] == "note")
+            {
+                CommitNote();
+                Room(new { t = "itemAction", id, action = new { a = "noteLock", @lock = false } });
+            }
+            selected = null;
         }
 
         void HudPanel(Rect rect,string color)

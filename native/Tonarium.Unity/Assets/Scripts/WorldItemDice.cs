@@ -8,6 +8,22 @@ namespace Tonarium.UnityClient
 {
     public sealed partial class TonariumWorld
     {
+        readonly Dictionary<string, JArray> privateDiceResults = new Dictionary<string, JArray>();
+
+        void OpenDiceItem(string id) => OpenNativeItem(id);
+
+        void RecordDiceChat(JObject message)
+        {
+            var dice = message?["dice"] as JObject;
+            string id = (string)dice?["id"];
+            if (string.IsNullOrEmpty(id) || !(dice?["results"] is JArray results)) return;
+            privateDiceResults[id] = (JArray)results.DeepClone();
+            if (privateDiceResults.Count > 128) privateDiceResults.Remove(privateDiceResults.Keys.First());
+            foreach (var item in items.Values.ToArray())
+                if ((string)item["kind"] == "dice" && (string)item["roll"]?["id"] == id && (string)item["roll"]?["by"] == selfId)
+                    ApplyItem(item);
+        }
+
         void BuildDice(Transform root, JObject item)
         {
             Cylinder(root, "Dice stand", new Vector3(0, .68f, 0), .52f, .04f, "#7a4e30");
@@ -29,6 +45,8 @@ namespace Tonarium.UnityClient
             var random = new ItemDiceRandom((string)roll["id"] ?? "");
             float offset = random.Next() * Mathf.PI * 2;
             var paths = new List<ItemDiceMotion.Path>(); var results = roll["results"] as JArray;
+            // 秘密の出目は本人宛てチャットからだけ復元する。
+            if (results == null && (string)roll["by"] == selfId) privateDiceResults.TryGetValue((string)roll["id"] ?? "", out results);
             string color = sides == 4 ? "#e0604c" : sides == 6 ? "#f3efe6" : sides == 8 ? "#4b7fd9" : sides == 10 ? "#3f9f66" : sides == 12 ? "#8f5cc9" : sides == 20 ? "#e2ad35" : "#33404f";
             for (int i = 0; i < count; i++)
             {
@@ -44,7 +62,7 @@ namespace Tonarium.UnityClient
             var motion = bowl.AddComponent<ItemDiceMotion>(); motion.Paths = paths; motion.StartAt = (long?)roll["at"] ?? Now; motion.ServerOffset = (long)serverOffset;
             string by = (string)users.OfType<JObject>().FirstOrDefault(u => (string)u["id"] == (string)roll["by"])?["name"] ?? "参加者";
             string dice = count + "d" + sides;
-            string summary = results == null ? by + " がシークレットで " + dice + " を振りました" : by + "：" + dice + " = " + results.Sum(v => (int)v);
+            string summary = results == null ? by + " がシークレットで " + dice + " を振りました" : by + "：" + dice + " = " + results.Sum(v => (int)v) + ((bool?)roll["secret"] == true ? "（あなただけ）" : "");
             motion.SettledLabel = ItemBadge(root, summary, new Vector3(0, 1.25f, 0), .1f);
             motion.RollingLabel = ItemBadge(root, by + " が " + dice + " を振っています…", new Vector3(0, 1.25f, 0), .1f);
             motion.Refresh();

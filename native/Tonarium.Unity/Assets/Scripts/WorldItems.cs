@@ -13,6 +13,17 @@ namespace Tonarium.UnityClient
     {
         readonly Dictionary<string, string> canvasColors = new Dictionary<string, string>();
         readonly Dictionary<string, float> canvasSizes = new Dictionary<string, float>();
+        readonly HashSet<string> nativeOpenItems = new HashSet<string>();
+
+        void SetNativeOpenItems(JArray ids)
+        {
+            nativeOpenItems.Clear();
+            if (ids != null) foreach (var id in ids) nativeOpenItems.Add((string)id);
+            // 同じ動画をネイティブ画面でも開いた場合、音を二重に再生しない。
+            foreach (var pair in itemObjects)
+                if (items.TryGetValue(pair.Key, out var item) && (string)item["kind"] == "video")
+                    foreach (var audio in pair.Value.GetComponentsInChildren<AudioSource>()) audio.volume = nativeOpenItems.Contains(pair.Key) ? 0 : .5f;
+        }
 
         void ApplyItem(JObject item)
         {
@@ -20,6 +31,14 @@ namespace Tonarium.UnityClient
             string id = (string)item["id"], kind = (string)item["kind"];
             if (kind == "canvas") PreserveCanvasPreview(id, item);
             items[id] = item;
+            if ((kind == "image" || kind == "video" || kind == "youtube") && itemObjects.TryGetValue(id, out var mediaRoot)
+                && mediaRoot.GetComponent<ItemMediaIdentity>() is ItemMediaIdentity mediaIdentity && mediaIdentity.Matches(item))
+            {
+                mediaRoot.transform.position = Position(item);
+                mediaRoot.transform.rotation = Quaternion.Euler(0, -Float(item, "ry") * Mathf.Rad2Deg, 0);
+                mediaRoot.GetComponentInChildren<ItemMediaPlayback>()?.SetClock(item["clock"] as JObject, serverOffset);
+                return;
+            }
             // 描画差分のたびに板を捨てると入力と表示が途切れる。
             if (kind == "canvas" && itemObjects.TryGetValue(id, out var existing) && existing.GetComponentInChildren<ItemPanelSurface>() is ItemPanelSurface surface)
             {
@@ -140,6 +159,7 @@ namespace Tonarium.UnityClient
         void BuildMediaBoard(Transform root, JObject item)
         {
             string kind = (string)item["kind"];
+            root.gameObject.AddComponent<ItemMediaIdentity>().Configure(item);
             float aspect = kind == "youtube" ? 16f / 9 : Mathf.Max(.01f, Float(item, "w", 16)) / Mathf.Max(.01f, Float(item, "h", 9));
             float width = 1.8f, height = width / aspect; if (height > 1.3f) { height = 1.3f; width = height * aspect; }
             var face = BuildBoard(root, width, height, 1.6f, 0, 0);
@@ -152,12 +172,14 @@ namespace Tonarium.UnityClient
             }
             if (kind == "video")
             {
-                var video = face.gameObject.AddComponent<VideoPlayer>(); video.url = MediaUrl((string)item["url"]);
+                var video = face.gameObject.AddComponent<VideoPlayer>(); video.playOnAwake = false; video.url = MediaUrl((string)item["url"]);
                 video.renderMode = VideoRenderMode.MaterialOverride; video.targetMaterialRenderer = face.GetComponent<Renderer>(); video.targetMaterialProperty = "_MainTex";
                 video.isLooping = false; video.audioOutputMode = VideoAudioOutputMode.AudioSource;
                 var audio = face.gameObject.AddComponent<AudioSource>(); audio.spatialBlend = 1; audio.minDistance = 2; audio.maxDistance = 15; video.SetTargetAudioSource(0, audio);
-                video.prepareCompleted += v => { v.time = MediaTime(item); if ((bool?)item["clock"]?["playing"] == true) v.Play(); }; video.Prepare();
-                ItemBadge(root, (bool?)item["clock"]?["playing"] == true ? "▶ 動画" : "❚❚ 動画（クリックで再生）", new Vector3(0, 1.6f + height / 2 + .18f, 0), .16f);
+                audio.volume = nativeOpenItems.Contains((string)item["id"]) ? 0 : .5f;
+                var badge = ItemBadge(root, "動画（クリックで再生）", new Vector3(0, 1.6f + height / 2 + .18f, 0), .16f);
+                face.gameObject.AddComponent<ItemMediaPlayback>().Configure(video, badge.GetComponentInChildren<TextMesh>(), item["clock"] as JObject, serverOffset);
+                video.Prepare();
             }
         }
 
@@ -177,7 +199,15 @@ namespace Tonarium.UnityClient
             var action = hit.collider.GetComponent<ItemActionTarget>();
             if (action != null) { Room(new { t = "itemAction", id = target.Id, action = new { a = action.Action } }); return true; }
             string kind = (string)item["kind"];
-            if (kind == "video" || kind == "youtube") { Room(new { t = "itemAction", id = target.Id, action = new { a = (bool?)item["clock"]?["playing"] == true ? "mediaPause" : "mediaPlay", pos = MediaTime(item) } }); return true; }
+            if (kind == "youtube") { OpenNativeItem(target.Id); return true; }
+            if (kind == "video")
+            {
+                var playback = itemObjects[target.Id].GetComponentInChildren<ItemMediaPlayback>();
+                if (playback != null && playback.Failed) { OpenNativeItem(target.Id); return true; }
+                bool ended = playback != null && playback.Ended;
+                Room(new { t = "itemAction", id = target.Id, action = new { a = !ended && (bool?)item["clock"]?["playing"] == true ? "mediaPause" : "mediaPlay", pos = ended ? 0 : MediaTime(item) } });
+                return true;
+            }
             var surface = hit.collider.GetComponent<ItemPanelSurface>(); if (surface == null) return false; var p = surface.Point(hit);
             if (kind == "g2048")
             {
@@ -199,18 +229,111 @@ namespace Tonarium.UnityClient
             id = null; point = default; var surface = hit.collider.GetComponent<ItemPanelSurface>(); var target = hit.collider.GetComponentInParent<WorldTarget>();
             if (surface == null || target == null || !items.TryGetValue(target.Id, out var item) || (string)item["kind"] != "canvas") return false;
             var p = surface.Point(hit); if (!InRect(p, 10, 58, 620, 450)) return false;
-            id = target.Id; point = new Vector2(p.x - 10, p.y - 58); return true;
+            id = target.Id; point = new Vector2(Mathf.Floor(p.x - 10 + .5f), Mathf.Floor(p.y - 58 + .5f)); return true;
         }
         string CanvasPenColor(string id) => canvasColors.TryGetValue(id, out var color) ? color : "#111111";
         float CanvasPenSize(string id) => CanvasPenColor(id) == "erase" ? 28 : canvasSizes.TryGetValue(id, out var size) ? size : 3;
         static bool InRect(Vector2 p, float x, float y, float w, float h) => p.x >= x && p.x < x + w && p.y >= y && p.y < y + h;
         void SaveCanvas(JObject item)
         {
-            var pixels = new ItemRaster(620, 450, "#ffffff"); PaintStrokes(pixels, item, 0, 0); var tex = pixels.Texture();
+            var pixels = new ItemRaster(1240, 900, "#ffffff"); PaintStrokesScaled(pixels, item, 0, 0, 2); var tex = pixels.Texture();
             Room(new { t = "chat", text = "🎨 キャンバスを保存しました", image = "data:image/jpeg;base64," + Convert.ToBase64String(tex.EncodeToJPG(85)), scope = "all" }); Destroy(tex);
         }
         void RemoveItemObject(string id) { if (itemObjects.TryGetValue(id, out var old)) { old.SetActive(false); Destroy(old); } itemObjects.Remove(id); }
         void RemoveItem(string id) { if (id == null) return; RemoveItemObject(id); items.Remove(id); canvasColors.Remove(id); canvasSizes.Remove(id); if (selected == id) selected = null; if (held == id) held = null; }
         double MediaTime(JObject item) => Float(item["clock"] as JObject, "base") + ((bool?)item["clock"]?["playing"] == true ? Math.Max(0, Now - ((double?)item["clock"]?["at"] ?? Now)) / 1000 : 0);
+
+        void OpenNativeItem(string id)
+        {
+            Unlock(); selected = null;
+            if (bridge.Connected) bridge.Send(new { t = "openItem", id });
+            else notice = "この操作はネイティブアプリのアイテム画面で利用できます";
+        }
+    }
+
+    public sealed class ItemMediaIdentity : MonoBehaviour
+    {
+        string kind, asset;
+        float width, height;
+        public void Configure(JObject item) { kind = (string)item["kind"]; asset = (string)(item["url"] ?? item["videoId"]); width = (float?)item["w"] ?? 16; height = (float?)item["h"] ?? 9; }
+        public bool Matches(JObject item) => kind == (string)item["kind"] && asset == (string)(item["url"] ?? item["videoId"])
+            && width == ((float?)item["w"] ?? 16) && height == ((float?)item["h"] ?? 9);
+    }
+
+    public sealed class ItemMediaPlayback : MonoBehaviour
+    {
+        VideoPlayer player;
+        TextMesh label;
+        double baseTime, at, offset;
+        bool playing;
+        bool seekPending = true;
+        bool waitingForPausedFrame, previousMute;
+        double pausedTarget;
+        AudioSource audio;
+        float nextSync;
+        public bool Failed { get; private set; }
+        public bool Ended => player != null && player.isPrepared && player.length > 0 && ClockPosition() >= player.length - .2;
+        public void Configure(VideoPlayer value, TextMesh caption, JObject clock, double serverOffset)
+        {
+            player = value; label = caption;
+            player.waitForFirstFrame = true;
+            audio = value.GetComponent<AudioSource>();
+            player.prepareCompleted += Prepared;
+            player.errorReceived += Error;
+            player.frameReady += FrameReady;
+            SetClock(clock, serverOffset);
+        }
+        public void SetClock(JObject clock, double serverOffset)
+        {
+            double nextBase = Math.Max(0, (double?)clock?["base"] ?? 0), nextAt = (double?)clock?["at"] ?? 0;
+            bool nextPlaying = (bool?)clock?["playing"] == true;
+            if (nextBase != baseTime || nextAt != at || nextPlaying != playing) seekPending = true;
+            baseTime = nextBase; at = nextAt; playing = nextPlaying; offset = serverOffset; Sync();
+        }
+        double ClockPosition() => baseTime + (playing ? Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + offset - at) / 1000 : 0);
+        void Prepared(VideoPlayer value) => Sync();
+        void FrameReady(VideoPlayer value, long frame)
+        {
+            if (!waitingForPausedFrame || playing) return;
+            double tolerance = value.frameRate > 0 ? 1.5 / value.frameRate : .08;
+            double frameTime = value.frameRate > 0 ? frame / value.frameRate : value.time;
+            if (Math.Abs(frameTime - pausedTarget) > tolerance) return;
+            value.Pause(); RestorePausedAudio();
+        }
+        void RestorePausedAudio()
+        {
+            if (waitingForPausedFrame && audio != null) audio.mute = previousMute;
+            waitingForPausedFrame = false;
+            if (player != null) player.sendFrameReadyEvents = false;
+        }
+        void Error(VideoPlayer value, string error) { Failed = true; if (label != null) label.text = "動画を開くにはクリック"; }
+        void Update() { if (Time.unscaledTime >= nextSync) { nextSync = Time.unscaledTime + .3f; Sync(); } }
+        void Sync()
+        {
+            if (player == null || Failed) return;
+            if (label != null) label.text = playing && !Ended ? "▶ 動画（クリックで一時停止）" : "❚❚ 動画（クリックで再生）";
+            if (!player.isPrepared) return;
+            double target = ClockPosition();
+            bool ended = player.length > 0 && target >= player.length;
+            if (player.length > 0) target = Math.Min(target, Math.Max(0, player.length - .001));
+            // 移動や時計更新ではプレイヤーを作り直さず、ずれた位置だけ合わせる。
+            // 明示的なシークは短い移動も反映し、同じ時計の定期同期だけ許容差を使う。
+            if (seekPending || Math.Abs(player.time - target) > .8)
+            {
+                if (!playing || ended)
+                {
+                    if (!waitingForPausedFrame && audio != null) { previousMute = audio.mute; audio.mute = true; }
+                    waitingForPausedFrame = true; pausedTarget = target; player.sendFrameReadyEvents = true;
+                    // 停止中のシークも一枚だけデコードしてから止める。
+                    player.Play();
+                }
+                else RestorePausedAudio();
+                player.time = target;
+            }
+            seekPending = false;
+            if (playing && !ended) { RestorePausedAudio(); if (!player.isPlaying) player.Play(); }
+            else if (player.isPlaying && !waitingForPausedFrame) player.Pause();
+        }
+        void OnDestroy() { RestorePausedAudio(); if (player != null) { player.prepareCompleted -= Prepared; player.errorReceived -= Error; player.frameReady -= FrameReady; } }
     }
 }
