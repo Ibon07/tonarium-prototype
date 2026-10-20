@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -18,8 +19,10 @@ internal sealed class SharedDrawingCanvas : Control
     private readonly Func<JsonObject?> item;
     private readonly Action<object> send;
     private readonly List<Preview> pending = [];
+    private readonly List<double> bufferedPoints = [];
     private Preview? active;
     private Point last;
+    private long lastSend;
     public string PenColor { get; set; } = "#111111";
     public double PenSize { get; set; } = 3;
 
@@ -30,8 +33,10 @@ internal sealed class SharedDrawingCanvas : Control
         PointerPressed += (_, e) =>
         {
             if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+            EndStroke();
             var p = ClampPoint(e.GetPosition(this)); last = p;
             active = new Preview(Guid.NewGuid().ToString("N"), PenColor, PenSize); active.Points.Add(p); pending.Add(active);
+            lastSend = Stopwatch.GetTimestamp();
             send(new { a = "strokeStart", id = active.Id, color = active.Color, size = active.Size, x = p.X, y = p.Y });
             e.Pointer.Capture(this); e.Handled = true; InvalidateVisual();
         };
@@ -39,13 +44,25 @@ internal sealed class SharedDrawingCanvas : Control
         {
             if (active is null) return; var p = ClampPoint(e.GetPosition(this));
             if (Math.Abs(p.X - last.X) + Math.Abs(p.Y - last.Y) < 2) return;
-            last = p; active.Points.Add(p); send(new { a = "strokeAdd", id = active.Id, pts = new[] { p.X, p.Y } }); InvalidateVisual();
+            last = p; active.Points.Add(p); bufferedPoints.Add(p.X); bufferedPoints.Add(p.Y);
+            // Web版と同じ50ms単位で送り、点ごとの応答待ちが積み上がるのを防ぐ。
+            if (Stopwatch.GetElapsedTime(lastSend).TotalMilliseconds >= 50) FlushPoints();
+            InvalidateVisual();
         };
-        PointerReleased += (_, e) => { active = null; e.Pointer.Capture(null); InvalidateVisual(); };
-        PointerCaptureLost += (_, _) => active = null;
+        PointerReleased += (_, e) => { EndStroke(); e.Pointer.Capture(null); InvalidateVisual(); };
+        PointerCaptureLost += (_, _) => EndStroke();
+        DetachedFromVisualTree += (_, _) => EndStroke();
     }
 
-    public void ClearPreview() { pending.Clear(); active = null; InvalidateVisual(); }
+    private void FlushPoints()
+    {
+        if (active is null || bufferedPoints.Count == 0) return;
+        var points = bufferedPoints.ToArray(); bufferedPoints.Clear();
+        lastSend = Stopwatch.GetTimestamp();
+        send(new { a = "strokeAdd", id = active.Id, pts = points });
+    }
+    private void EndStroke() { FlushPoints(); active = null; }
+    public void ClearPreview() { pending.Clear(); bufferedPoints.Clear(); active = null; InvalidateVisual(); }
     private static Point ClampPoint(Point p) => new(Math.Round(Math.Clamp(p.X, 0, 620)), Math.Round(Math.Clamp(p.Y, 0, 450)));
 
     public override void Render(DrawingContext context)

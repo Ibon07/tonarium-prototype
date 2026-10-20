@@ -36,7 +36,8 @@ internal static class Program
         {
             try
             {
-                if (args.Contains("--offline-avatar")) await AvatarProbe.VerifyOffline(server, output, Pass);
+                if (args.Contains("--canvas-sync")) await CanvasSyncProbe.Run(server, args.ElementAtOrDefault(3) ?? server, output, Pass);
+                else if (args.Contains("--offline-avatar")) await AvatarProbe.VerifyOffline(server, output, Pass);
                 else await Run(server);
             }
             catch (Exception error) { failure = error; Console.Error.WriteLine(error); }

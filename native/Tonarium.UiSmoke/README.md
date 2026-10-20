@@ -27,4 +27,10 @@ dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3015
 
 It persists a custom texture and nondefault manifest for a unique name absent from online users, opens the actual native profile by that name, and verifies the stored texture, parsed parameters and nonblank rendered preview.
 
+The focused canvas check sends actual headless mouse input through `SharedDrawingCanvas`, verifies 50 ms batching, release flushing, single dots, and every received point's order. Start `node native/Tonarium.Smoke/canvas-delay-proxy.cjs 3020 http://localhost:3015 20`, then run:
+
+```powershell
+dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3020 native/artifacts/canvas-batched --canvas-sync http://localhost:3015
+```
+
 This is a happy-path integration smoke, not a failure-case unit suite. Headless input does not validate physical Windows IME composition, foreground window switching, GPU surfaces, microphone devices or Unity rendering; those require the separate runtime smoke. Its CPU sample includes the test harness and Skia software rendering, so it is evidence about this run, not a hardware-independent performance guarantee.
