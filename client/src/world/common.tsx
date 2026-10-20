@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { User } from '../../../shared/protocol.ts';
+import type { ChatMessage, User } from '../../../shared/protocol.ts';
 import { ITEM_INFO, type Item } from '../../../shared/items.ts';
 import { NEAR_RANGE, VOICE_RANGE } from '../../../shared/places.ts';
 import { useStore, set, colorOf, heldHammer } from '../store.ts';
@@ -107,6 +107,23 @@ export const itemLabel = (item: Item) =>
   item.kind === 'note' ? (item.text.split('\n')[0].slice(0, 16) || '付箋（空）')
     : item.kind === 'youtube' && item.title ? item.title.slice(0, 24)
     : ITEM_INFO[item.kind].name;
+
+/** 直近 30 秒の発言。上部の顔と 3D の頭の上の吹き出しに出す */
+const BUBBLE_MS = 30_000;
+const NO_CHAT: ChatMessage[] = [];
+
+export function useLastSaid(id: string) {
+  const chat = useStore((s) => (s.session ? s.chats[s.session] ?? NO_CHAT : NO_CHAT));
+  const [, tick] = useState(0);
+  const last = [...chat].reverse().find((m) => m.from === id && m.text);
+  const fresh = last && Date.now() - last.at < BUBBLE_MS;
+  useEffect(() => {
+    if (!fresh || !last) return;
+    const t = setTimeout(() => tick((n) => n + 1), BUBBLE_MS - (Date.now() - last.at) + 50);
+    return () => clearTimeout(t);
+  }, [fresh, last]);
+  return fresh ? last.text : null;
+}
 
 export function ChatImage({ src }: { src?: string }) {
   if (!src) return null;

@@ -17,7 +17,7 @@ description: Tonarium に新しいアイテム（サイコロ・チェス・付�
    - `createItem` に初期状態、`applyItemAction` に操作の適用を書く。クライアントとサーバーの両方で使われる
 2. `server/spacing.ts`：`ITEM_R` に床で占める半径（2D の人の押し出しと、出すときの空き場所探しに使う）
 3. `server/index.ts`（必要なときだけ）：乱数で結果を決める・秘密がある・遅れて何かする操作は、`case 'itemAction'` の `applyItemAction` より前で受けて専用の関数で処理する（例：`rollDice`、チェスAIの `scheduleChessAiReply`）
-4. 3D：`client/src/view3d/items3d.tsx` の `Item3D` の switch に足す。部品は新しいファイル（例：`dice3d.tsx`）に書き、`itemHelpers.ts` の `useFollow`（運んでいる間の追従）と `removable`（G で運ぶ・X で片付ける）を使う。照準の操作は `userData` に `Interactable`（`use`・`hint` など）を置く。キャンバスで描くパネルで足りるなら `client/src/items/panels.ts` の `PANELS` に足すだけで 2D と 3D の両方に出る
+4. 3D：`client/src/view3d/items3d.tsx` の `Item3D` の switch に足す。部品は新しいファイル（例：`dice3d.tsx`）に書き、`itemHelpers.ts` の `useFollow`（運んでいる間の追従）と `removable`（右クリックで運ぶ・X で片付ける）を使う。照準の操作は `userData` に `Interactable`（`use`・`hint` など）を置く。キャンバスで描くパネルで足りるなら `client/src/items/panels.ts` の `PANELS` に足すだけで 2D と 3D の両方に出る
 5. 2D：`client/src/world/WindowLayer.tsx` の `useResolved` でウィンドウの中身を返す。React で作るなら別ファイル（例：`DiceBody.tsx`）にし、`Kind` に種類を足すとウィンドウに `k-<種類>` のクラスが付く。`compact`（カンタンモードの下の小さい表示）のときは操作部品を出さない
 6. チャットに残すなら `shared/protocol.ts` の `ChatMessage` にフィールドを足し、`client/src/world/NoticeLog.tsx` の `LogLine` で表示する。サーバーでは `pushChat` に渡す（`to` を付けると宛先だけに届く）
 7. スタイルは `client/src/style.css`、手元だけの設定（人ごとの選択など）は `client/src/store.ts` に `load`/`save` で持つ
@@ -35,6 +35,6 @@ description: Tonarium に新しいアイテム（サイコロ・チェス・付�
 
 - `npm run typecheck` と `npm run build` は必須
 - ブラウザで確かめる場合（効果が高いときだけ）：`npm run dev`（`.claude/launch.json` の `dev`）を起動し、`?as=a` と `?as=b` で別人として入る。参加後は次が使える
-  - `window.__t3d`（3D のときだけ、開発時のみ）：`pos(x, z)`・`look(yaw, pitch)`（yaw 0 で -Z 向き、π で +Z 向き）・`use()`（照準の先をクリック）・`key('KeyG')`・`state()`（ストアの中身）
+  - `window.__t3d`（3D のときだけ、開発時のみ）：`pos(x, z)`・`look(yaw, pitch)`（yaw 0 で -Z 向き、π で +Z 向き）・`use()`（照準の先をクリック）・`key('KeyX')`・`state()`（ストアの中身）
   - `globalThis.__tonariumWs.send(JSON.stringify(msg))` でサーバーへ直接送れる
   - 3D の描画は前面のタブでしか進まない。マイク・画面共有はブラウザペインでは使えない

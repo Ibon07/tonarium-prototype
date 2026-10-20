@@ -1,32 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { ChatMessage, User } from '../../../shared/protocol.ts';
+import type { User } from '../../../shared/protocol.ts';
 import { useStore, get, set, save, heldHammer } from '../store.ts';
 import { formatDistance } from '../spatial.ts';
 import { recentlyHit } from '../items/effects.ts';
 import { Icon } from './Icon.tsx';
-import { Badge3D, Face, usePlayers, type PlayerEntry } from './common.tsx';
+import { Badge3D, Face, useLastSaid, usePlayers, type PlayerEntry } from './common.tsx';
 import { AvatarView } from './Portraits.tsx';
 import { pickProfile, pickUser } from './NearList.tsx';
 import { openWindow, toggleFromList, useIsOpen } from './windows.ts';
 
 const NEAR_MAX = 4;
 const MID_MAX = 3;
-const BUBBLE_MS = 30_000;
-const NO_CHAT: ChatMessage[] = [];
-
-function useLastSaid(id: string) {
-  const chat = useStore((s) => (s.session ? s.chats[s.session] ?? NO_CHAT : NO_CHAT));
-  const [, tick] = useState(0);
-  const last = [...chat].reverse().find((m) => m.from === id && m.text);
-  const fresh = last && Date.now() - last.at < BUBBLE_MS;
-  useEffect(() => {
-    if (!fresh || !last) return;
-    const t = setTimeout(() => tick((n) => n + 1), BUBBLE_MS - (Date.now() - last.at) + 50);
-    return () => clearTimeout(t);
-  }, [fresh, last]);
-  return fresh ? last.text : null;
-}
-
 const POKE_MS = 1100;
 
 /** つんつんされた直後だけ true。終わったら描き直す */
