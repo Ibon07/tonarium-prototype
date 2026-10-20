@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { clockTime, type Item } from '../../shared/items.ts';
-import { useStore, get, serverNow } from './store.ts';
+import { useStore, get, set, serverNow } from './store.ts';
 import { itemAction } from './items/actions.ts';
 import { volumeAt } from './spatial.ts';
 import { Icon } from './world/Icon.tsx';
@@ -19,10 +19,31 @@ const DRIFT = 0.8;
 
 const windowOpen = (id: string) => get().windows.some((w) => w.key === `item:${id}`);
 
-/** ウィンドウで見ているなら等倍、3D では距離で小さく、2D でウィンドウを閉じていれば無音 */
+const DEFAULT_VOLUME = 0.5;
+export const userVolume = (id: string, s = get()) => s.volumes[id] ?? DEFAULT_VOLUME;
+export const setUserVolume = (id: string, v: number) => set((s) => ({ volumes: { ...s.volumes, [id]: Math.max(0, Math.min(1, v)) } }));
+
+/** 自分で決めた音量に、ウィンドウで見ているなら等倍、3D では距離で小さく、2D でウィンドウを閉じていれば無音を掛ける */
 export function mediaVolume(item: Item) {
-  if (windowOpen(item.id)) return 1;
-  return get().mode === '3d' ? volumeAt(item.x, item.z) : 0;
+  const base = userVolume(item.id);
+  if (windowOpen(item.id)) return base;
+  return get().mode === '3d' ? base * volumeAt(item.x, item.z) : 0;
+}
+
+function VolumeControl({ id }: { id: string }) {
+  const vol = useStore((s) => userVolume(id, s));
+  const [before, setBefore] = useState(DEFAULT_VOLUME);
+  const mute = () => {
+    if (vol > 0) { setBefore(vol); setUserVolume(id, 0); } else setUserVolume(id, before || DEFAULT_VOLUME);
+  };
+  return (
+    <span className="mvol">
+      <button className="ib mbtn" onClick={mute} aria-label={vol > 0 ? 'ミュート（自分だけ）' : 'ミュート解除'} title="音量（自分だけ）">
+        <Icon name={vol > 0 ? 'volume' : 'volumeOff'} size={16} />
+      </button>
+      <input type="range" min={0} max={1} step={0.05} value={vol} aria-label="音量（自分だけ）" onChange={(e) => setUserVolume(id, Number(e.target.value))} />
+    </span>
+  );
 }
 
 function syncVideo(el: HTMLVideoElement, item: VideoItem) {
@@ -128,6 +149,7 @@ export function MediaControls({ item, duration }: { item: ClockItem; duration: (
         aria-label="再生位置" onChange={(e) => setSeeking(Number(e.target.value))} onPointerUp={commit} onKeyUp={commit}
       />
       <span className="mtime">{fmt(shown)} / {fmt(dur)}</span>
+      <VolumeControl id={item.id} />
     </div>
   );
 }

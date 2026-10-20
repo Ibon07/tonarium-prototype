@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { jumpHeight, type AvatarState } from '../../../shared/protocol.ts';
-import { get, set, heldHammer, heldCamera, nameOf, solidsOf } from '../store.ts';
+import { GRAVITY, JUMP_V, type AvatarState } from '../../../shared/protocol.ts';
+import { ARENA, FALL_Y, LAYER_Y, inArena, startTile, tileBelow, tileCenter } from '../../../shared/game.ts';
+import { get, set, heldHammer, heldCamera, nameOf, solidsOf, worldKindOf, gameOfSession, serverNow, spawnPoint } from '../store.ts';
 import { pushOut } from '../../../shared/worlds.ts';
 import { send } from '../net/ws.ts';
 import { selectNote } from '../actions.ts';
@@ -15,6 +16,20 @@ import { cameraHelp } from './camera3d.tsx';
 
 const SPEED = 4;
 const BODY_R = 0.3;
+
+type Store = ReturnType<typeof get>;
+
+/** (x, z) で足元 y から落ちたときに着く高さ。塔の上で下に板が無ければ null（落ち続ける） */
+function groundAt(s: Store, x: number, z: number, y: number): { y: number; tile: number | null } | null {
+  if (worldKindOf(s) !== 'game' || !inArena(x, z)) return y >= -0.05 ? { y: 0, tile: null } : null;
+  const t = tileBelow(gameOfSession(s), x, z, y, serverNow());
+  return t ? { y: t.y, tile: t.i } : null;
+}
+
+/** 塔の上にいる間は塔の端から出られない（ロビーへはガラスで戻れない） */
+const clampTo = (onTower: boolean) => (onTower
+  ? (v: number, c: number) => Math.max(c - ARENA.half + 0.25, Math.min(c + ARENA.half - 0.25, v))
+  : (v: number) => clampRoom(v));
 const SENS = 0.0025;
 
 const isTyping = (t: EventTarget | null) =>
@@ -34,10 +49,11 @@ function hintFor(aim: { data: Interactable; hit: THREE.Intersection } | null): s
   return parts.length ? parts.join(' ・ ') : null;
 }
 
-/** `user:<ID>` は 2D の人の立ち姿 */
+/** `user:<ID>` は 2D の人の立ち姿、`display:<ID>` はその人の配信ディスプレイ */
 function sendCarry(c: { id: string; x: number; z: number; ry: number }) {
   // 立ち姿の前は -Z なので、運ぶ人の方を向けるには +180°
   if (c.id.startsWith('user:')) place2d(c.id.slice(5), { x: c.x, z: c.z, ry: c.ry + Math.PI });
+  else if (c.id.startsWith('display:')) send({ t: 'displayMove', target: c.id.slice(8), x: c.x, z: c.z, ry: c.ry });
   else moveItem(c.id, c.x, c.z, c.ry);
 }
 
@@ -53,8 +69,9 @@ export function Player() {
   const keys = useRef<Record<string, boolean>>({});
   const look = useRef({ yaw: get().selfAvatar.ry, pitch: -0.05 });
   // NaN だと比較が常に false になり一度も送られないので Infinity
-  const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, jump: 0 });
-  const jump = useRef({ n: get().selfAvatar.jump ?? 0, at: -Infinity });
+  const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, jump: 0, y: 0 });
+  // 足元の高さ・上下の速さ・跳んだ回数。stepped は最後に踏んだと伝えた板、round は塔の上に移ったゲームの回
+  const body = useRef({ y: get().selfAvatar.y ?? 0, vy: 0, grounded: true, n: get().selfAvatar.jump ?? 0, stepped: -1, round: -1 });
   const aim = useRef<ReturnType<typeof aimAt>>(null);
   const hammerRef = useRef<THREE.Group>(null);
   const dragging = useRef<{ data: Interactable; obj: THREE.Object3D; hit: THREE.Intersection | null } | null>(null);
@@ -97,8 +114,8 @@ export function Player() {
       if (e.code === 'Escape') selectNote(null);
       if (e.code === 'Space') {
         e.preventDefault();
-        const j = jump.current;
-        if (jumpHeight(performance.now() - j.at) <= 0) { j.n++; j.at = performance.now(); }
+        const b = body.current;
+        if (b.grounded) { b.vy = JUMP_V; b.grounded = false; b.n++; }
       }
       if (e.code === 'KeyG') {
         if (carrying.current) finishCarry();
@@ -175,45 +192,90 @@ export function Player() {
 
   useFrame((_, dt) => {
     const s = get();
-    if (s.teleport) {
-      camera.position.x = s.teleport.x;
-      camera.position.z = s.teleport.z;
-      look.current.yaw = s.teleport.ry;
+    const b = body.current;
+    const toLobby = () => {
+      const p = spawnPoint();
+      set({ teleport: p });
+    };
+    const g = gameOfSession(s);
+    if (worldKindOf(s) === 'game') {
+      const meIdx = g.players.findIndex((p) => p.id === s.selfId && p.out === null);
+      // ゲームが始まったら参加者は最上段の自分の板へ
+      if (g.phase === 'running' && meIdx >= 0 && b.round !== g.round) {
+        b.round = g.round;
+        b.stepped = -1;
+        const c = tileCenter(startTile(meIdx));
+        set({ teleport: { x: c.x, z: c.z, ry: Math.atan2(c.x - ARENA.x, c.z - ARENA.z), y: LAYER_Y[0] } });
+      }
+      // 次のゲームを待つ間に塔に残っていたら（勝った人）ロビーへ
+      if (g.phase === 'idle' && inArena(camera.position.x, camera.position.z) && !s.teleport) toLobby();
+      if (b.y < FALL_Y) {
+        if (meIdx >= 0) send({ t: 'gameFell' });
+        toLobby();
+      }
+    }
+    const tp = get().teleport;
+    if (tp) {
+      camera.position.x = tp.x;
+      camera.position.z = tp.z;
+      look.current.yaw = tp.ry;
+      b.y = tp.y ?? 0;
+      b.vy = 0;
+      b.grounded = false;
       set({ teleport: null });
     }
     const { yaw, pitch } = look.current;
     const shake = bump(s.hits[s.selfId]);
     camera.rotation.set(pitch - shake * 0.15, yaw + Math.sin(performance.now() / 30) * shake * 0.03, 0);
-    const j = jump.current;
-    camera.position.y = EYE + jumpHeight(performance.now() - j.at) - shake * 0.12;
 
     const k = keys.current;
     const f = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0);
     const r = (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
+    const onTower = worldKindOf(s) === 'game' && inArena(camera.position.x, camera.position.z);
+    const cl = clampTo(onTower);
     if (f || r) {
       const step = (SPEED * Math.min(dt, 0.1)) / Math.hypot(f, r);
-      camera.position.x = clampRoom(camera.position.x + (-Math.sin(yaw) * f + Math.cos(yaw) * r) * step);
-      camera.position.z = clampRoom(camera.position.z + (-Math.cos(yaw) * f - Math.sin(yaw) * r) * step);
+      camera.position.x = cl(camera.position.x + (-Math.sin(yaw) * f + Math.cos(yaw) * r) * step, ARENA.x);
+      camera.position.z = cl(camera.position.z + (-Math.cos(yaw) * f - Math.sin(yaw) * r) * step, ARENA.z);
     }
     // ワールドの切り替えやテレポートで家具の中に入ったときも、ここで外へ出る
     const solids = solidsOf(s);
-    if (solids.length) {
+    if (solids.length && !onTower) {
       const p = pushOut(camera.position.x, camera.position.z, BODY_R, solids);
       camera.position.x = clampRoom(p.x);
       camera.position.z = clampRoom(p.z);
     }
 
+    // 先に横へ動かしてから、その場所の足元で上下を決める（板が消えた・端から出たときも落ちる）
+    const fdt = Math.min(dt, 0.05);
+    const ground = groundAt(s, camera.position.x, camera.position.z, b.y);
+    if (b.grounded && (!ground || ground.y < b.y - 0.001)) b.grounded = false;
+    if (!b.grounded) {
+      b.vy -= GRAVITY * fdt;
+      b.y += b.vy * fdt;
+      if (ground && b.vy <= 0 && b.y <= ground.y) { b.y = ground.y; b.vy = 0; b.grounded = true; }
+    }
+    if (b.grounded && ground?.tile != null && ground.tile !== b.stepped && g.phase === 'running') {
+      b.stepped = ground.tile;
+      if (g.players.some((p) => p.id === s.selfId && p.out === null)) send({ t: 'gameStep', tile: ground.tile });
+    }
+    camera.position.y = EYE + b.y - shake * 0.12;
+
     const now = performance.now();
     const x = camera.position.x;
     const z = camera.position.z;
     const st = sent.current;
-    const jumped = j.n !== st.jump;
+    const jumped = b.n !== st.jump;
+    // 塔の上や落ちている間は高さも送る。床でのジャンプは回数だけ送り、相手の画面で放物線を描く
+    const sendY = onTower || b.y < -0.01;
+    const yNow = sendY ? b.y : undefined;
     const changed = Math.abs(x - st.x) > 0.01 || Math.abs(z - st.z) > 0.01 || Math.abs(yaw - st.ry) > 0.01
-      || Math.abs(pitch - st.pitch) > 0.03;
+      || Math.abs(pitch - st.pitch) > 0.03 || (yNow ?? 0) !== st.y;
+    const interval = sendY && !b.grounded ? 50 : 100;
     // 跳んだことは待たずに送る（相手の放物線が遅れて始まらないように）
-    if (jumped || (now - st.t > 100 && changed)) {
-      Object.assign(st, { t: now, x, z, ry: yaw, pitch, jump: j.n });
-      const a: AvatarState = { x, z, ry: yaw, pitch, jump: j.n };
+    if (jumped || (now - st.t > interval && changed)) {
+      Object.assign(st, { t: now, x, z, ry: yaw, pitch, jump: b.n, y: yNow ?? 0 });
+      const a: AvatarState = { x, z, ry: yaw, pitch, jump: b.n, ...(yNow !== undefined ? { y: yNow } : {}) };
       set({ selfAvatar: a });
       send({ t: 'avatar', s: a });
     }

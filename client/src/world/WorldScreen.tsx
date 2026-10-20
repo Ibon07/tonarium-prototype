@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SOUNDS } from '../../../shared/sounds.ts';
-import { WORLDS, WORLD_KINDS } from '../../../shared/worlds.ts';
-import { useStore, get, set, nameOf, sessionOf, isBroadcast, worldKindOf } from '../store.ts';
+import { WORLDS, WORLD_COUNTDOWN_MS, WORLD_KINDS } from '../../../shared/worlds.ts';
+import { useStore, get, set, nameOf, sessionOf, isBroadcast, worldKindOf, serverNow } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { dropFollowers, follow, leaveSession, playSound, requestLive, setViewLive, switchMode } from '../actions.ts';
 import { dropHammer, place2d } from '../items/actions.ts';
@@ -17,6 +17,7 @@ import { FaceStrip } from './FaceStrip.tsx';
 import { NoticeLog } from './NoticeLog.tsx';
 import { WindowLayer } from './WindowLayer.tsx';
 import { ProfileCard } from './ProfileCard.tsx';
+import { HoppingMascots } from './Mascot.tsx';
 import { PortraitCanvas } from './Portraits.tsx';
 import { ConfirmOpen } from './Links.tsx';
 import { shareFiles, shareYouTube, youTubeId } from '../media.ts';
@@ -29,6 +30,7 @@ function WorldBadge() {
   const wsConnected = useStore((s) => s.wsConnected);
   const broadcast = useStore((s) => isBroadcast(s));
   const kind = useStore((s) => worldKindOf(s));
+  const pending = useStore((s) => !!s.worldPending && s.worldPending.sid === s.session);
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const [profile, setProfile] = useState(false);
   return (
@@ -54,8 +56,8 @@ function WorldBadge() {
           <div className="worldpick" role="radiogroup" aria-label="ワールド">
             {WORLD_KINDS.map((k) => (
               <button
-                key={k} role="radio" aria-checked={k === kind} className={`ib wpick ${k === kind ? 'on' : ''}`}
-                onClick={() => send({ t: 'world', world: k })}
+                key={k} role="radio" aria-checked={k === kind} className={`ib wpick ${k === kind ? 'on' : ''}`} disabled={pending}
+                onClick={() => { if (k !== kind) { setMenu(null); set({ confirmWorld: k }); } }}
               >
                 <b>{WORLDS[k].name}</b><span className="sub wrap">{WORLDS[k].desc}</span>
               </button>
@@ -168,9 +170,73 @@ function SwitchLoading() {
   return (
     <div className={`switchload ${to3d ? 'to3d' : 'to2d'}`} role="status" aria-live="polite">
       <div className="slbox">
-        <Icon name={to3d ? 'cube' : 'flat'} size={40} stroke={1.6} />
+        <HoppingMascots to={switching.to} />
         <b>{to3d ? `${world?.name ?? ''} の 3D 空間に入っています…` : '2D に切り替えています…'}</b>
         <div className="slbar"><span style={{ animationDuration: `${switching.dur}ms` }} /></div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmWorld() {
+  const world = useStore((s) => s.confirmWorld);
+  const [clear, setClear] = useState(false);
+  if (!world) return null;
+  const cancel = () => { set({ confirmWorld: null }); setClear(false); };
+  const ok = () => { send({ t: 'world', world, clearItems: clear }); cancel(); };
+  return (
+    <div className="modalbg light" onClick={cancel}>
+      <div role="alertdialog" aria-modal="true" aria-label="ワールドの切り替えの確認" className="confirm" onClick={(e) => e.stopPropagation()}>
+        <h2>ワールドを「{WORLDS[world].name}」に切り替えますか？</h2>
+        <span className="sub wrap">このセッションの全員の画面が {WORLD_COUNTDOWN_MS / 1000} 秒後に切り替わり、全員がスポーン地点に戻ります。</span>
+        <label className="checkrow">
+          <input type="checkbox" checked={clear} onChange={(e) => setClear(e.target.checked)} />
+          <span>置いてあるアイテムをすべて片付ける</span>
+        </label>
+        <div className="row end">
+          <button onClick={cancel}>キャンセル</button>
+          <button className="dark" autoFocus onClick={ok}>切り替える</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 切り替わる前に全員の上部へ出すカウントダウン */
+function WorldCountdown() {
+  const p = useStore((s) => (s.worldPending?.sid === s.session ? s.worldPending : null));
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!p) return;
+    const t = setInterval(() => tick((n) => n + 1), 100);
+    return () => clearInterval(t);
+  }, [p]);
+  if (!p) return null;
+  const left = Math.max(1, Math.ceil((p.at - serverNow()) / 1000));
+  return (
+    <div className="worldcount" role="status" aria-live="assertive">
+      <b className="wcnum" key={left}>{left}</b>
+      <span>
+        ワールドが「{WORLDS[p.world].name}」に切り替わります<span className="sub">（{nameOf(p.by)} が切り替え{p.clearItems ? '・アイテムは片付けられます' : ''}）</span>
+      </span>
+    </div>
+  );
+}
+
+function WorldLoading() {
+  const loading = useStore((s) => s.worldLoading);
+  useEffect(() => {
+    if (!loading) return;
+    const t = setTimeout(() => set({ worldLoading: null }), loading.dur);
+    return () => clearTimeout(t);
+  }, [loading]);
+  if (!loading || loading.dur <= 0) return null;
+  return (
+    <div className="switchload to3d" role="status" aria-live="polite">
+      <div className="slbox">
+        <HoppingMascots to="3d" />
+        <b>「{WORLDS[loading.world].name}」を読み込んでいます…</b>
+        <div className="slbar"><span style={{ animationDuration: `${loading.dur}ms` }} /></div>
       </div>
     </div>
   );
@@ -342,7 +408,10 @@ export function WorldScreen() {
       <Toast />
       {dragging && <DropHint />}
       <SwitchLoading />
+      <WorldLoading />
+      <WorldCountdown />
       <ConfirmClose />
+      <ConfirmWorld />
       <ConfirmOpen />
       <ProfileCard />
       <HitFxLayer root={root} />

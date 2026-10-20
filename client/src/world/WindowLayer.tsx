@@ -13,7 +13,7 @@ import { Icon } from './Icon.tsx';
 import { ItemMark, Viewers, itemLabel } from './common.tsx';
 import { closeWindow, moveWindow, raiseWindow, toggleMax } from './windows.ts';
 import { AvatarView } from './Portraits.tsx';
-import { MediaControls, VideoHost, videoEls } from '../mediaSync.tsx';
+import { MediaControls, VideoHost, mediaVolume, videoEls } from '../mediaSync.tsx';
 import { YouTubePlayer, youTubeDuration } from '../youtube.tsx';
 import { send } from '../net/ws.ts';
 import { DiceBody } from './DiceBody.tsx';
@@ -112,7 +112,7 @@ function useResolved(key: string, compact: boolean): Resolved | null {
   if (item.kind === 'youtube') {
     return {
       kind: 'media', dark: true, item, title: item.title || 'YouTube', sub, width: 640, aspect: 16 / 9,
-      body: <><YouTubePlayer item={item} volume={() => 1} /><MediaControls item={item} duration={() => youTubeDuration(item.id)} /></>,
+      body: <><YouTubePlayer item={item} volume={() => mediaVolume(item)} /><MediaControls item={item} duration={() => youTubeDuration(item.id)} /></>,
     };
   }
   if (item.kind === 'dice') return { kind: 'dice', dark: false, item, title: ITEM_INFO.dice.name, sub, width: 400, body: <DiceBody item={item} interactive={!compact} /> };

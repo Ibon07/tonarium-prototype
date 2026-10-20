@@ -1,16 +1,14 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { ROOM_HALF, jumpHeight, spawnSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
+import { jumpHeight, spawnSlot, type AvatarState, type User } from '../../../shared/protocol.ts';
 import { NOTE_COLORS } from '../../../shared/items.ts';
 import { useStore, get, colorOf, nameOf, heldHammer, heldCamera, worldKindOf } from '../store.ts';
-import { shareVideoEl } from '../net/livekit.ts';
 import { selectNote } from '../actions.ts';
 import { pitchOf, placesOf } from '../spatial.ts';
 import { publishView } from '../net/livekit.ts';
 import { editNote, moveItem, removeItem } from '../items/actions.ts';
 import { bump, recentlyHit } from '../items/effects.ts';
-import { drawText, makeCanvasTexture } from './textTexture.ts';
 import { EYE, carrying, type Interactable } from './interact.ts';
 import { Player } from './Player.tsx';
 import { AttentionGlow, HammerModel, Item3D } from './items3d.tsx';
@@ -18,51 +16,7 @@ import { Label } from './Label.tsx';
 import { OekakiAvatar } from './OekakiAvatar.tsx';
 import { CameraModel, CameraStreamer, CamMonitor } from './camera3d.tsx';
 import { WORLD_BG, WorldMesh } from './worlds3d.tsx';
-
-const H = ROOM_HALF;
-
-function Screen() {
-  const sharer = useStore((s) => s.sharer);
-  useStore((s) => s.participants);
-  const videoTex = useMemo(() => {
-    const t = new THREE.VideoTexture(shareVideoEl);
-    t.colorSpace = THREE.SRGBColorSpace;
-    return t;
-  }, []);
-  const idle = useMemo(() => {
-    const { canvas, tex } = makeCanvasTexture(1024, 576);
-    drawText(canvas, [{ text: '配信はありません', size: 64 }, { text: '🖥 ボタンから画面を配信できます', size: 40 }], {
-      bg: '#1c1917', fg: '#e7e5e4', pad: 60,
-    });
-    tex.needsUpdate = true;
-    return tex;
-  }, []);
-  const [aspect, setAspect] = useState(16 / 9);
-  useEffect(() => {
-    const f = () => { if (shareVideoEl.videoWidth) setAspect(shareVideoEl.videoWidth / shareVideoEl.videoHeight); };
-    shareVideoEl.addEventListener('resize', f);
-    shareVideoEl.addEventListener('loadedmetadata', f);
-    f();
-    return () => {
-      shareVideoEl.removeEventListener('resize', f);
-      shareVideoEl.removeEventListener('loadedmetadata', f);
-    };
-  }, []);
-  const a = sharer ? aspect : 16 / 9;
-  const h = Math.min(4.5, 8 / a);
-  const w = h * a;
-  return (
-    <group position={[0, 2.4, -H + 0.12]}>
-      <mesh>
-        <planeGeometry args={[w, h]} />
-        <meshBasicMaterial map={sharer ? videoTex : idle} toneMapped={false} />
-      </mesh>
-      {sharer && (
-        <Label position={[0, h / 2 + 0.3, 0]} height={0.3} text={`🔴 ${nameOf(sharer)} の配信`} bg="rgba(237,66,69,0.95)" />
-      )}
-    </group>
-  );
-}
+import { ShareDisplay } from './shareDisplay.tsx';
 
 /** 2D で参加している人。3D の人と同じアバターで、スポーンエリア・置かれた場所・ついていく相手の後ろに立つ */
 function Standee({ user }: { user: User }) {
@@ -143,7 +97,8 @@ function Avatar3D({ id, state, self = false }: { id: string; state: AvatarState;
     g.position.z += (state.z - g.position.z) * k;
     const j = jump.current;
     if ((state.jump ?? 0) !== j.n) { j.n = state.jump ?? 0; j.at = performance.now(); }
-    g.position.y = jumpHeight(performance.now() - j.at);
+    if (state.y !== undefined) g.position.y += (state.y - g.position.y) * Math.min(1, dt * 15);
+    else g.position.y = jumpHeight(performance.now() - j.at);
     let d = state.ry - g.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     g.rotation.y += d * k;
@@ -286,7 +241,7 @@ export function View3D() {
       <Canvas camera={{ fov: 70, near: 0.05, far: 100, position: [a0.x, EYE, a0.z] }}>
         <color attach="background" args={[WORLD_BG[world]]} />
         <WorldMesh kind={world} />
-        <Screen />
+        <ShareDisplay />
         <Entrance />
         {Object.entries(avatars).map(([id, s]) => <Avatar3D key={id} id={id} state={s} />)}
         <Avatar3D id={selfId} state={selfAvatar} self />

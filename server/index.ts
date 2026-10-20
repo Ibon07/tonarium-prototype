@@ -11,7 +11,7 @@ import type {
   AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, GuildConfig, Mode, ServerMsg, User,
 } from '../shared/protocol.ts';
 import { ROOM_HALF } from '../shared/protocol.ts';
-import { WORLDS, isWorldKind, pushOut, type WorldKind } from '../shared/worlds.ts';
+import { WORLDS, WORLD_COUNTDOWN_MS, isWorldKind, pushOut, type WorldKind } from '../shared/worlds.ts';
 import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, type Item } from '../shared/items.ts';
 import { sanitizeParams } from '../shared/avatar.ts';
 import { VOICE_RANGE, computePlaces } from '../shared/places.ts';
@@ -20,6 +20,7 @@ import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts'
 import { getOgp } from './ogp.ts';
 import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
+import { allGames, eliminate, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
 const DEV = process.argv.includes('--dev');
@@ -207,9 +208,51 @@ function placeIn(sid: string, x: number, z: number, r: number) {
 }
 const clamp2d = (sid: string, p: AvatarState): AvatarState => ({ ...placeIn(sid, p.x, p.z, PERSON_R), ry: p.ry });
 
+/** 配信ディスプレイを本人の 1.3m 前の床に、本人の方へ向けて立てる */
+function placeDisplay(sid: string, u: User, av: AvatarState) {
+  const p = placeIn(sid, av.x - Math.sin(av.ry) * 1.3, av.z - Math.cos(av.ry) * 1.3, 0.3);
+  u.display = { ...p, ry: av.ry };
+}
+
+const worldPending = new Set<string>();
+/** ワールドごとに広さや家具が違うので、全員をスポーンエリアに戻す（3D の人は各自の手元で戻る） */
+function switchWorld(sid: string, world: WorldKind, clear: boolean, byName: string) {
+  worldPending.delete(sid);
+  worldOf.set(sid, world);
+  resetGame(sid, gameDeps);
+  const sessItems = items.get(sid)!;
+  if (clear) {
+    for (const id of [...sessItems.keys()]) { sessItems.delete(id); broadcast({ t: 'itemRemove', sid, id }); }
+  } else {
+    for (const it of sessItems.values()) {
+      if ('holder' in it && it.holder) continue;
+      const p = placeIn(sid, it.x, it.z, itemRadius(it) * 0.6);
+      if (Math.abs(p.x - it.x) + Math.abs(p.z - it.z) < 1e-3) continue;
+      Object.assign(it, p);
+      broadcast({ t: 'item', sid, item: it });
+    }
+  }
+  for (const u of users.values()) {
+    if (u.session !== sid) continue;
+    u.pos = null;
+    // 配信ディスプレイは、戻った先で次に位置が届いたときに立て直す
+    u.display = null;
+  }
+  broadcast({ t: 'world', sid, world });
+  broadcastUsers();
+  event(sid, `${byName} がワールドを「${WORLDS[world].name}」に切り替えました${clear ? '（アイテムはすべて片付けました）' : ''}`);
+}
+
+const gameDeps: GameDeps = {
+  sendGame: (sid, game) => broadcast({ t: 'game', sid, game }),
+  sendTile: (sid, tile, at) => broadcast({ t: 'gameTile', sid, tile, at }),
+  event: (sid, text) => event(sid, text),
+};
+
 function leaveSession(u: User) {
   const sid = u.session;
   if (!sid) return;
+  eliminate(sid, u.id, gameDeps);
   const av = avatars.get(sid)!.get(u.id);
   if (avatars.get(sid)!.delete(u.id)) broadcast({ t: 'avatarRemove', sid, id: u.id });
   for (const it of items.get(sid)!.values()) {
@@ -229,6 +272,7 @@ function leaveSession(u: User) {
   u.micOn = false;
   u.sharing = false;
   u.viewing = [];
+  u.display = null;
   event(sid, `${u.name} が退出しました`);
 }
 
@@ -239,7 +283,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       users.set(msg.id, {
         id: msg.id, name: normalizeName(msg.name), session: null, mode: '2d',
         micOn: false, sharing: false, follow: null, pos: null,
-        icon: iconVersion(msg.name), avatar: avatarVersion(msg.name), bio: bioOf(msg.name), viewing: [], viewLive: false,
+        icon: iconVersion(msg.name), avatar: avatarVersion(msg.name), bio: bioOf(msg.name), viewing: [], viewLive: false, display: null,
       });
     if (!sockets.has(msg.id)) sockets.set(msg.id, new Set());
     sockets.get(msg.id)!.add(ws);
@@ -254,6 +298,7 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
         friends: friendsOf(normalizeName(msg.name)),
         broadcast: Object.fromEntries(broadcastMode),
         world: Object.fromEntries(worldOf),
+        games: allGames(),
         now: Date.now(),
       },
     });
@@ -351,21 +396,26 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       event(sid, on ? `${me.name} がブロードキャストモードをオンにしました（距離に関係なく声が届きます）` : `${me.name} がブロードキャストモードをオフにしました`);
       return;
     }
+    case 'gameStart': {
+      if (worldOf.get(sid) !== 'game' || me.mode !== '3d') return;
+      startGame(sid, me, [...users.values()].filter((u) => u.session === sid), avatars.get(sid)!, gameDeps);
+      return;
+    }
+    case 'gameStep': {
+      stepTile(sid, me, Number(msg.tile), gameDeps);
+      return;
+    }
+    case 'gameFell': {
+      eliminate(sid, me.id, gameDeps);
+      return;
+    }
     case 'world': {
-      if (!isWorldKind(msg.world) || worldOf.get(sid) === msg.world) return;
-      worldOf.set(sid, msg.world);
-      broadcast({ t: 'world', sid, world: msg.world });
-      // 新しい家具にめり込んだ 2D の人とアイテムを外へ出す（3D の人は各自の手元で出る）
-      for (const u of users.values()) if (u.session === sid && u.pos) u.pos = clamp2d(sid, u.pos);
-      for (const it of sessItems.values()) {
-        if ('holder' in it && it.holder) continue;
-        const p = placeIn(sid, it.x, it.z, itemRadius(it) * 0.6);
-        if (Math.abs(p.x - it.x) + Math.abs(p.z - it.z) < 1e-3) continue;
-        Object.assign(it, p);
-        broadcast({ t: 'item', sid, item: it });
-      }
-      broadcastUsers();
-      event(sid, `${me.name} がワールドを「${WORLDS[msg.world].name}」に切り替えました`);
+      if (!isWorldKind(msg.world) || worldOf.get(sid) === msg.world || worldPending.has(sid)) return;
+      const clear = !!msg.clearItems;
+      const world = msg.world;
+      worldPending.add(sid);
+      broadcast({ t: 'worldPending', sid, world, at: Date.now() + WORLD_COUNTDOWN_MS, by: me.id, clearItems: clear });
+      setTimeout(() => switchWorld(sid, world, clear, me.name), WORLD_COUNTDOWN_MS);
       return;
     }
     case 'liveRequest': {
@@ -460,9 +510,11 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       me.mode = msg.mode;
       if (msg.mode === '3d') { me.follow = null; me.pos = null; }
       if (msg.mode === '2d') {
+        eliminate(sid, me.id, gameDeps);
         // スポーンエリアには戻さず、3D でいた場所にとどまる
         const av = avatars.get(sid)!.get(me.id);
         me.pos = av ? { ...av } : null;
+        me.display = null;
         dropFollowersOf(me);
         releaseCameras(sid, me, av);
         if (avatars.get(sid)!.delete(me.id)) broadcast({ t: 'avatarRemove', sid, id: me.id });
@@ -489,6 +541,13 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       broadcastUsers();
       return;
     }
+    case 'displayMove': {
+      const target = users.get(msg.target);
+      if (!target?.display || target.session !== sid || me.mode !== '3d') return;
+      target.display = { ...placeIn(sid, msg.x, msg.z, 0.3), ry: Number(msg.ry) || 0 };
+      broadcastUsers();
+      return;
+    }
     case 'dropFollowers': {
       if (dropFollowersOf(me)) {
         broadcastUsers();
@@ -501,18 +560,32 @@ function handle(ws: WebSocket, state: { id: string | null }, msg: ClientMsg) {
       if (msg.sharing && !me.sharing) event(sid, `${me.name} が画面共有を開始しました`);
       me.micOn = msg.micOn;
       me.sharing = msg.sharing;
+      if (!me.sharing) me.display = null;
+      else if (me.mode === '3d' && !me.display) {
+        const av = avatars.get(sid)!.get(me.id);
+        if (av) placeDisplay(sid, me, av);
+      }
       broadcastUsers();
       return;
     }
     case 'avatar': {
       if (me.mode !== '3d') return;
+      // ゲームの塔のように、ワールドによっては部屋の外にもいられる
+      const ext = WORLDS[worldOf.get(sid) ?? 'room'].extent;
+      const within = (v: number, lo: number, hi: number) => Math.max(lo + 0.2, Math.min(hi - 0.2, Number(v) || 0));
+      const y = Number(msg.s.y);
       const s: AvatarState = {
-        x: clamp(msg.s.x), z: clamp(msg.s.z), ry: msg.s.ry,
+        x: ext ? within(msg.s.x, ext.minX, ext.maxX) : clamp(msg.s.x),
+        z: ext ? within(msg.s.z, ext.minZ, ext.maxZ) : clamp(msg.s.z),
+        ry: msg.s.ry,
+        ...(Number.isFinite(y) ? { y: Math.max(-30, Math.min(40, y)) } : {}),
         pitch: Math.max(-1.5, Math.min(1.5, Number(msg.s.pitch) || 0)),
         jump: Math.max(0, Math.floor(Number(msg.s.jump) || 0)),
       };
       avatars.get(sid)!.set(me.id, s);
       broadcast({ t: 'avatar', sid, id: me.id, s }, ws);
+      // 2D から 3D に入ったときは、入った場所の前に立てる
+      if (me.sharing && !me.display) { placeDisplay(sid, me, s); broadcastUsers(); }
       return;
     }
   }

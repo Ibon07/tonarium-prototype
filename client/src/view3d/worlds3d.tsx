@@ -1,53 +1,20 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
-import { ROOM_HALF, SPAWN } from '../../../shared/protocol.ts';
+import { ROOM_HALF } from '../../../shared/protocol.ts';
 import { CAFE, CAFE_TABLE_R, type WorldKind } from '../../../shared/worlds.ts';
 import { makeCanvasTexture } from './textTexture.ts';
+import { Box, Cyl, SpawnArea } from './parts3d.tsx';
+import { GameWorld } from './game3d.tsx';
 
 const H = ROOM_HALF;
 const WALL_H = 4;
 
-type V3 = [number, number, number];
-
-function Box({ p, s, color, ry = 0, rough = 0.8 }: { p: V3; s: V3; color: string; ry?: number; rough?: number }) {
-  return (
-    <mesh position={p} rotation-y={ry}>
-      <boxGeometry args={s} />
-      <meshStandardMaterial color={color} roughness={rough} />
-    </mesh>
-  );
-}
-
-function Cyl({ p, r, h, color, r2 = r, seg = 24 }: { p: V3; r: number; h: number; color: string; r2?: number; seg?: number }) {
-  return (
-    <mesh position={p}>
-      <cylinderGeometry args={[r, r2, h, seg]} />
-      <meshStandardMaterial color={color} roughness={0.7} />
-    </mesh>
-  );
-}
-
-interface Palette { floor: string; wall: string; spawn: string }
+export interface Palette { floor: string; wall: string; spawn: string }
 const PALETTES: Record<WorldKind, Palette> = {
   room: { floor: '#565961', wall: '#80848e', spawn: '#7fb3ff' },
   cafe: { floor: '#8a5a3b', wall: '#eadcc4', spawn: '#ffd28a' },
+  game: { floor: '#3b3f6b', wall: '#2a2d52', spawn: '#9cf0ff' },
 };
-
-/** 入ってきた人が現れる丸いエリア */
-function SpawnArea({ color }: { color: string }) {
-  return (
-    <group position={[SPAWN.x, 0, SPAWN.z]} userData={{ noRay: true }}>
-      <mesh rotation-x={-Math.PI / 2} position-y={0.006}>
-        <circleGeometry args={[SPAWN.r, 48]} />
-        <meshBasicMaterial color={color} transparent opacity={0.16} depthWrite={false} />
-      </mesh>
-      <mesh rotation-x={-Math.PI / 2} position-y={0.008}>
-        <ringGeometry args={[SPAWN.r - 0.06, SPAWN.r, 64]} />
-        <meshBasicMaterial color={color} transparent opacity={0.8} depthWrite={false} />
-      </mesh>
-    </group>
-  );
-}
 
 /** 床と壁。どのワールドも同じ形で、色だけ変える */
 function Shell({ pal, floor }: { pal: Palette; floor?: THREE.Texture }) {
@@ -262,8 +229,7 @@ function Cafe() {
       <directionalLight position={[4, 10, 6]} intensity={0.7} color="#ffe0b8" />
       <Shell pal={pal} floor={planks} />
       {/* 腰壁 */}
-      {/* スクリーンの裏にはかけない */}
-      {[-1, 1].map((sx) => <Box key={sx} p={[sx * (H + 4.6) / 2, 0.55, -H + 0.13]} s={[H - 4.6, 1.1, 0.06]} color="#7a5038" />)}
+      <Box p={[0, 0.55, -H + 0.13]} s={[2 * H, 1.1, 0.06]} color="#7a5038" />
       <Box p={[H - 0.13, 0.55, 0]} s={[0.06, 1.1, 2 * H]} color="#7a5038" />
       <Box p={[0, 0.55, H - 0.13]} s={[2 * H, 1.1, 0.06]} color="#7a5038" />
       <mesh rotation-x={Math.PI / 2} position-y={WALL_H}>
@@ -282,7 +248,8 @@ function Cafe() {
 }
 
 export function WorldMesh({ kind }: { kind: WorldKind }) {
+  if (kind === 'game') return <GameWorld pal={PALETTES.game} />;
   return kind === 'cafe' ? <Cafe /> : <Hall />;
 }
 
-export const WORLD_BG: Record<WorldKind, string> = { room: '#2b2d31', cafe: '#1f1a17' };
+export const WORLD_BG: Record<WorldKind, string> = { room: '#2b2d31', cafe: '#1f1a17', game: '#7fb6e6' };

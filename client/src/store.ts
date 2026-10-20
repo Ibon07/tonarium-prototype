@@ -1,8 +1,10 @@
 import { create } from 'zustand';
 import type { AvatarState, ChatMessage, GuildConfig, Mode, User } from '../../shared/protocol.ts';
+import { SPAWN } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
 import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
 import type { DieSides } from '../../shared/dice.ts';
+import { newGame, type GameState } from '../../shared/game.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
 export type WinMode = 'simple' | 'free';
@@ -39,10 +41,18 @@ interface State {
   /** たたんでいる前面パネル */
   folded: { left: boolean; right: boolean; faces: boolean };
   confirmClose: string | null;
+  /** 切り替えを確認しているワールド */
+  confirmWorld: WorldKind | null;
+  /** ワールドの切り替えの予告（at はサーバー時刻） */
+  worldPending: { sid: string; world: WorldKind; at: number; by: string; clearItems: boolean } | null;
+  /** ワールドを読み込んでいる疑似ローディング */
+  worldLoading: { world: WorldKind; dur: number } | null;
   /** 2D/3D 切り替え中の疑似ローディング */
   switching: { to: Mode; dur: number } | null;
   /** 疑似ローディングの長さの倍率（手元に保存） */
   loadScale: number;
+  /** 動画・YouTube ごとの自分だけの音量（0〜1）。無ければ既定の半分 */
+  volumes: Record<string, number>;
   /** サイコロを振る種類・個数（手元に保存） */
   dice: { sides: DieSides; count: number; secret: boolean };
   /** 視点のライブを頼んだ相手。始まったらウィンドウを開く */
@@ -51,6 +61,8 @@ interface State {
   serverOffset: number;
   broadcast: Record<string, boolean>;
   worldBy: Record<string, WorldKind>;
+  /** セッションごとの板わたりのゲーム */
+  games: Record<string, GameState>;
   /** 注目を集めているアイテム ID → 光らせる期限（performance.now） */
   attention: Record<string, number>;
   toast: { text: string; at: number } | null;
@@ -97,8 +109,11 @@ export function save(key: string, value: unknown) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* 保存できない環境では今回だけ */ }
 }
 
+/** スポーンエリアの中のどこか（スクリーン側の北を向く） */
 export function spawnPoint(): AvatarState {
-  return { x: (Math.random() - 0.5) * 5, z: 7 + Math.random() * 1.5, ry: 0 };
+  const r = Math.sqrt(Math.random()) * (SPAWN.r - 0.3);
+  const a = Math.random() * Math.PI * 2;
+  return { x: SPAWN.x + Math.sin(a) * r, z: SPAWN.z + Math.cos(a) * r, ry: 0 };
 }
 
 export const useStore = create<State>(() => ({
@@ -122,16 +137,21 @@ export const useStore = create<State>(() => ({
   winMode: load('tonarium.winMode', 'simple'),
   folded: load('tonarium.folded', { left: false, right: false, faces: false }),
   confirmClose: null,
+  confirmWorld: null,
+  worldPending: null,
+  worldLoading: null,
   profileOf: null,
   openUrl: null,
   serverOffset: 0,
   broadcast: {},
   worldBy: {},
+  games: {},
   attention: {},
   toast: null,
   liveRequested: null,
   switching: null,
   loadScale: load('tonarium.loadScale', 1),
+  volumes: {},
   dice: load('tonarium.dice', { sides: 6 as DieSides, count: 2, secret: false }),
   notices: [],
   friends: [],
@@ -202,6 +222,8 @@ export const serverNow = () => Date.now() + get().serverOffset;
 export const isBroadcast = (s = get()) => !!(s.session && s.broadcast[s.session]);
 export const worldKindOf = (s = get(), sid = s.session): WorldKind => (sid && s.worldBy[sid]) || 'room';
 export const solidsOf = (s = get()) => WORLDS[worldKindOf(s)].solids;
+const NO_GAME = newGame();
+export const gameOfSession = (s = get()) => (s.session && s.games[s.session]) || NO_GAME;
 
 export function showToast(text: string) {
   set({ toast: { text, at: Date.now() } });

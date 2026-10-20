@@ -1,5 +1,5 @@
 import type { ClientMsg, ServerMsg } from '../../../shared/protocol.ts';
-import { get, set, recompute } from '../store.ts';
+import { get, set, recompute, spawnPoint } from '../store.ts';
 import { applyDelta } from '../items/actions.ts';
 import { onHit } from '../items/effects.ts';
 import { pushNotice } from '../actions.ts';
@@ -49,10 +49,11 @@ export function send(msg: ClientMsg) {
 function onMessage(msg: ServerMsg) {
   switch (msg.t) {
     case 'snapshot': {
-      const { guild, users, chats, avatars, items, friends, broadcast, world, now } = msg.s;
+      const { guild, users, chats, avatars, items, friends, broadcast, world, games, now } = msg.s;
       set({
         broadcast,
         worldBy: world,
+        games,
         serverOffset: now - Date.now(),
         guild,
         users,
@@ -129,9 +130,28 @@ function onMessage(msg: ServerMsg) {
     case 'broadcast':
       set((s) => ({ broadcast: { ...s.broadcast, [msg.sid]: msg.on } }));
       return;
-    case 'world':
-      set((s) => ({ worldBy: { ...s.worldBy, [msg.sid]: msg.world } }));
+    case 'game':
+      set((s) => ({ games: { ...s.games, [msg.sid]: msg.game } }));
       return;
+    case 'gameTile':
+      set((s) => {
+        const g = s.games[msg.sid];
+        return g ? { games: { ...s.games, [msg.sid]: { ...g, tiles: { ...g.tiles, [msg.tile]: msg.at } } } } : {};
+      });
+      return;
+    case 'worldPending':
+      set({ worldPending: msg });
+      return;
+    case 'world': {
+      set((s) => ({ worldBy: { ...s.worldBy, [msg.sid]: msg.world }, worldPending: s.worldPending?.sid === msg.sid ? null : s.worldPending }));
+      const s = get();
+      if (msg.sid !== s.session) return;
+      if (s.mode === '3d') {
+        const p = spawnPoint();
+        set({ teleport: p, selfAvatar: p, worldLoading: { world: msg.world, dur: 1400 * s.loadScale } });
+      }
+      return;
+    }
     case 'liveRequest':
       if (msg.sid === get().session) pushNotice('live', msg.from);
       return;

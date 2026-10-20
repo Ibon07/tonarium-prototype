@@ -1,10 +1,18 @@
+import { ARENA, START_BUTTON } from './game.ts';
+
 /** ワールド＝ 3D 空間の種類。セッションはどれか 1 つを読み込み、途中で切り替えられる */
-export type WorldKind = 'room' | 'cafe';
+export type WorldKind = 'room' | 'cafe' | 'game';
 
 /** 床の上の通り抜けられない物。r があれば円、なければ w×d の箱（x, z が中心） */
 export type Solid = { x: number; z: number; r: number } | { x: number; z: number; w: number; d: number };
 
-export interface WorldInfo { name: string; desc: string; solids: Solid[] }
+export interface WorldInfo {
+  name: string;
+  desc: string;
+  solids: Solid[];
+  /** 3D の人がいられる範囲がいつもの部屋より広いとき（ゲームの塔など） */
+  extent?: { minX: number; maxX: number; minZ: number; maxZ: number };
+}
 
 const chairsAround = (x: number, z: number, n: number, dist: number, start = 0): Solid[] =>
   Array.from({ length: n }, (_, i) => {
@@ -17,7 +25,7 @@ export const CAFE = {
   counter: { x: -8.3, z: -1, w: 1.1, d: 8 },
   shelf: { x: -9.6, z: -1, w: 0.5, d: 8 },
   stools: [-4.2, -2.6, -1, 0.6, 2.2].map((z) => ({ x: -7.25, z, r: 0.22 })),
-  /** 2 人用の丸テーブル。中央の通路とスポーンエリアはあけておく */
+  /** 2 人用の丸テーブル。スポーンエリアはあけておく */
   tables: [
     { x: 3.2, z: -3.5 }, { x: 6.8, z: -3.5 },
     { x: 3.2, z: 0.5 }, { x: 6.8, z: 0.5 },
@@ -31,7 +39,7 @@ export const CAFE = {
 export const CAFE_TABLE_R = 0.5;
 
 export const WORLDS: Record<WorldKind, WorldInfo> = {
-  room: { name: 'ホール', desc: '大きなスクリーンのある広い部屋', solids: [] },
+  room: { name: 'ホール', desc: '何も置いていない広い部屋', solids: [] },
   cafe: {
     name: 'カフェ',
     desc: 'カウンターとテーブル席のある落ち着いたカフェ',
@@ -42,7 +50,16 @@ export const WORLDS: Record<WorldKind, WorldInfo> = {
       ...CAFE.plants.map((p) => ({ ...p, r: 0.4 })),
     ],
   },
+  game: {
+    name: 'ゲーム',
+    desc: '板わたりサバイバル。ガラスの向こうの 5 層の塔で、最後まで落ちずに残った人が勝ち',
+    solids: [{ x: START_BUTTON.x, z: START_BUTTON.z, r: 0.45 }],
+    extent: { minX: -10, maxX: 10, minZ: ARENA.z - ARENA.half, maxZ: 10 },
+  },
 };
+
+/** 切り替えを決めてから実際に切り替わるまで（全員に予告を出す） */
+export const WORLD_COUNTDOWN_MS = 3000;
 
 export const WORLD_KINDS = Object.keys(WORLDS) as WorldKind[];
 export const isWorldKind = (v: unknown): v is WorldKind => typeof v === 'string' && v in WORLDS;
