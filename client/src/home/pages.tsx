@@ -185,15 +185,13 @@ export function SessionsPage({ q }: { q: string }) {
   const sessions = useStore((s) => s.guild.sessions);
   const worldBy = useStore((s) => s.worldBy);
   const inSession = useStore((s) => !!s.session);
-  const [create, setCreate] = useState(false);
   const list = sessions.filter((d) => match(q, d.name, d.topic, WORLDS[worldBy[d.id] ?? d.world ?? 'room'].name));
   return (
     <section className="hsec">
       {inSession && <CurrentSession onWorlds={() => goHome('worlds')} />}
-      <h2>セッション <span className="sub">参加できる {sessions.length} 件</span><span className="spacer" /><button className="dark" onClick={() => setCreate(true)}><Icon name="plus" size={14} />セッションを作る</button></h2>
+      <h2>参加できるセッション <span className="sub">{sessions.length} 件</span></h2>
       {list.length === 0 && <Empty>見つかりません</Empty>}
       <div className="scards">{list.map((d) => <SessionCard key={d.id} s={d} showDelete />)}</div>
-      {create && <CreateSessionDialog onClose={() => setCreate(false)} />}
     </section>
   );
 }
