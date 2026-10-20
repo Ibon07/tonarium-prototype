@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using Avalonia.Threading;
 using LiveKit.Proto;
 using LiveKit.Rtc;
+using SkiaSharp;
 using Tonarium.Desktop.Core;
 
 namespace Tonarium.Desktop.Media;
@@ -17,6 +18,102 @@ namespace Tonarium.Desktop.Media;
 /// </summary>
 public static class NativeMediaSmoke
 {
+    /// <summary>Virtual-camera-only loopback: does not open a microphone, speaker, or desktop capture.</summary>
+    public static async Task<JsonObject> RunCameraAsync(string livekitUrl = "ws://127.0.0.1:7880",
+        string apiKey = "devkey", string apiSecret = "secret", CancellationToken cancellationToken = default)
+    {
+        if (!Dispatcher.UIThread.CheckAccess()) throw new InvalidOperationException("Run camera smoke on the Avalonia UI dispatcher.");
+        var roomName = "tonarium-camera-smoke-" + Guid.NewGuid().ToString("N");
+        var reservation = new TcpListener(IPAddress.Loopback, 0); reservation.Start();
+        var port = ((IPEndPoint)reservation.LocalEndpoint).Port; reservation.Stop();
+        using var listener = new HttpListener(); listener.Prefixes.Add($"http://127.0.0.1:{port}/"); listener.Start();
+        var serve = Task.Run(async () =>
+        {
+            while (listener.IsListening)
+                try
+                {
+                    var context = await listener.GetContextAsync();
+                    var bytes = JsonSerializer.SerializeToUtf8Bytes(new { url = livekitUrl, token = Token(context.Request.QueryString["id"] ?? "camera-source", roomName, apiKey, apiSecret) });
+                    context.Response.ContentType = "application/json";
+                    await context.Response.OutputStream.WriteAsync(bytes, cancellationToken); context.Response.Close();
+                }
+                catch (Exception ex) when (ex is HttpListenerException or ObjectDisposedException) { break; }
+        }, cancellationToken);
+        try
+        {
+            var state = new ClientState(); await using var client = new TonariumClient(state);
+            state.SelfId = "camera-source"; state.ServerUrl = $"http://127.0.0.1:{port}";
+            state.SessionId = roomName; state.Mode = "3d";
+            state.Items["virtual-camera"] = new JsonObject { ["kind"]="camera", ["live"]=true, ["operator"]=state.SelfId };
+            await using var media = new NativeMedia(client, initialMicrophoneEnabled: false, persistPreferences: false);
+            long previewFrames = 0, previewClears = 0, receivedFrames = 0, bootstrapFrames = 0;
+            var observedSizes = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>();
+            media.VideoFrameJpeg += (id, jpeg) =>
+            {
+                if (id != "camera:virtual-camera") return;
+                if (jpeg.Length > 2 && jpeg[0] == 0xff && jpeg[1] == 0xd8) Interlocked.Increment(ref previewFrames);
+                else if (jpeg.Length == 0) Interlocked.Increment(ref previewClears);
+            };
+            await media.ConnectAsync(roomName);
+            if (!media.Connected) throw new InvalidOperationException(media.Status);
+            using var peer = new Room(); using var end = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var firstFrame = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var unpublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task receive = Task.CompletedTask;
+            peer.TrackUnpublished += (_, e) => { if (e.Publication.Name == "camera:virtual-camera") unpublished.TrySetResult(); };
+            peer.TrackSubscribed += (_, e) =>
+            {
+                if (e.Publication.Name != "camera:virtual-camera" || e.Track is not RemoteVideoTrack track) return;
+                receive = Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var stream = new VideoStream(track, VideoBufferType.Bgra);
+                        await foreach (var frame in stream.WithCancellation(end.Token))
+                        {
+                            var width = frame.Frame.Width; var height = frame.Frame.Height;
+                            observedSizes.TryAdd($"{width}x{height}", 0);
+                            // 最初の実画像より先に届く8×8の初期化画像は、受信成功に数えない。
+                            if (width < 160 || height < 90) { Interlocked.Increment(ref bootstrapFrames); continue; }
+                            if (Math.Abs((double)width / height - 16d / 9) > .05) throw new InvalidOperationException($"Camera aspect changed: {width}x{height}.");
+                            var center = ((height / 2) * width + width / 2) * 4;
+                            var pixels = frame.Frame.DataBytes;
+                            if (pixels[center] < 180 || pixels[center + 1] < 100 || pixels[center + 1] > 195 || pixels[center + 2] > 150)
+                                continue;
+                            Interlocked.Increment(ref receivedFrames); firstFrame.TrySetResult();
+                        }
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex) { firstFrame.TrySetException(ex); throw; }
+                }, end.Token);
+            };
+            try
+            {
+                await peer.ConnectAsync(livekitUrl, Token("camera-viewer", roomName, apiKey, apiSecret));
+                using var bitmap = new SKBitmap(640, 360);
+                using (var canvas = new SKCanvas(bitmap)) canvas.Clear(SKColors.CornflowerBlue);
+                using var image = SKImage.FromBitmap(bitmap); using var encoded = image.Encode(SKEncodedImageFormat.Jpeg, 75);
+                var jpeg = encoded.ToArray();
+                for (var i = 0; i < 30; i++) { media.SubmitCameraFrame("virtual-camera", jpeg); await Task.Delay(67, cancellationToken); }
+                await firstFrame.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+                if (previewFrames == 0) throw new InvalidOperationException("Local virtual-camera preview did not receive a frame.");
+                state.Items["virtual-camera"]!["live"] = false; state.Touch();
+                await unpublished.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+                if (previewClears == 0) throw new InvalidOperationException("Virtual-camera preview did not clear.");
+                return new JsonObject { ["status"]="pass", ["publishedFrames"]=media.PublishedCameraFrames,
+                    ["peerReceivedFrames"]=receivedFrames, ["localPreviewFrames"]=previewFrames,
+                    ["stopped"]=true, ["physicalDevicesUsed"]=false, ["bootstrapFrames"]=bootstrapFrames,
+                    ["decodedSizes"]=string.Join(",", observedSizes.Keys.OrderBy(x => x)) };
+            }
+            finally
+            {
+                end.Cancel(); await peer.DisconnectAsync();
+                try { await receive; } catch (OperationCanceledException) { }
+            }
+        }
+        finally { listener.Stop(); await serve; }
+    }
+
     public static async Task<JsonObject> RunAsync(string livekitUrl = "ws://127.0.0.1:7880",
         string apiKey = "devkey", string apiSecret = "secret", CancellationToken cancellationToken = default)
     {
@@ -52,6 +149,7 @@ public static class NativeMediaSmoke
             state.Broadcast = true; state.Mode = "3d";
             state.Users.Add(new JsonObject { ["id"] = state.SelfId, ["name"] = state.Name, ["session"] = roomName, ["mode"] = "2d" });
             state.Users.Add(new JsonObject { ["id"] = "native-peer", ["name"] = "Native peer", ["session"] = roomName, ["mode"] = "2d" });
+            state.Items["smoke-camera"] = new JsonObject { ["id"]="smoke-camera", ["kind"]="camera", ["live"]=true, ["operator"]=state.SelfId };
             await using var media = new NativeMedia(client, initialMicrophoneEnabled: false, persistPreferences: false);
             long jpegFrames = 0;
             media.VideoFrameJpeg += (_, bytes) => { if (bytes.Length > 2 && bytes[0] == 0xff && bytes[1] == 0xd8) Interlocked.Increment(ref jpegFrames); };
@@ -59,7 +157,7 @@ public static class NativeMediaSmoke
             if (!media.Connected) throw new InvalidOperationException(media.Status);
             using var peer = new Room();
             using var end = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            long microphoneFrames = 0, screenFrames = 0, loopbackFrames = 0;
+            long microphoneFrames = 0, screenFrames = 0, loopbackFrames = 0, cameraFrames = 0;
             var receivers = new List<Task>();
             peer.TrackSubscribed += (_, e) =>
             {
@@ -79,7 +177,9 @@ public static class NativeMediaSmoke
                         else if (e.Track is RemoteVideoTrack video)
                         {
                             using var stream = new VideoStream(video);
-                            await foreach (var frame in stream.WithCancellation(end.Token)) Interlocked.Increment(ref screenFrames);
+                            await foreach (var frame in stream.WithCancellation(end.Token))
+                                if (e.Publication.Name == "camera:smoke-camera") Interlocked.Increment(ref cameraFrames);
+                                else Interlocked.Increment(ref screenFrames);
                         }
                     }
                     catch (OperationCanceledException) { }
@@ -97,6 +197,11 @@ public static class NativeMediaSmoke
                 await media.SetMicrophoneAsync(true);
                 await media.StartScreenShareAsync(DesktopCapture.EnumerateSources().First(), systemAudio: true);
                 if (!state.MicOn || !state.Sharing) throw new InvalidOperationException(media.Status);
+                using var cameraBitmap = new SKBitmap(640, 360);
+                using (var canvas = new SKCanvas(cameraBitmap)) canvas.Clear(SKColors.CornflowerBlue);
+                using var cameraImage = SKImage.FromBitmap(cameraBitmap);
+                using var cameraEncoded = cameraImage.Encode(SKEncodedImageFormat.Jpeg, 75);
+                var cameraJpeg = cameraEncoded.ToArray();
                 for (var tick = 0; tick < 300; tick++)
                 {
                     var pcm = new short[480];
@@ -104,6 +209,7 @@ public static class NativeMediaSmoke
                     await sineSource.CaptureFrameAsync(new AudioFrame(pcm, 48000, 1, 480), cancellationToken);
                     if (tick % 5 == 0)
                     {
+                        media.SubmitCameraFrame("smoke-camera", cameraJpeg);
                         var pixels = new byte[160 * 90 * 4];
                         for (var i = 0; i < pixels.Length; i += 4) { pixels[i] = 90; pixels[i + 1] = 170; pixels[i + 2] = 210; pixels[i + 3] = 255; }
                         imageSource.CaptureFrame(new VideoFrame(160, 90, VideoBufferType.Bgra, pixels));
@@ -117,10 +223,16 @@ public static class NativeMediaSmoke
                     ["peerReceivedMicrophoneFrames"] = microphoneFrames,
                     ["peerReceivedScreenFrames"] = screenFrames,
                     ["peerReceivedSystemAudioFrames"] = loopbackFrames,
+                    ["peerReceivedCameraFrames"] = cameraFrames,
+                    ["publishedCameraFrames"] = media.PublishedCameraFrames,
                     ["unityJpegFrames"] = jpegFrames
                 };
-                if (media.ReceivedAudioFrames == 0 || media.ReceivedVideoFrames == 0 || microphoneFrames == 0 || screenFrames == 0 || jpegFrames == 0)
+                if (media.ReceivedAudioFrames == 0 || media.ReceivedVideoFrames == 0 || microphoneFrames == 0 || screenFrames == 0 || cameraFrames == 0 || jpegFrames == 0)
                     throw new InvalidOperationException("Native media flow incomplete: " + result.ToJsonString());
+                state.Items["smoke-camera"]!["live"] = false; state.Touch();
+                for (var i = 0; i < 40 && media.ActiveCameraPublications > 0; i++) await Task.Delay(50, cancellationToken);
+                if (media.ActiveCameraPublications > 0) throw new InvalidOperationException("Camera publication did not stop.");
+                result["cameraStopped"] = true;
                 await media.SetMicrophoneAsync(false); await media.SetScreenShareAsync(false);
                 if (state.MicOn || state.Sharing) throw new InvalidOperationException("Capture did not stop.");
                 await media.DisconnectAsync(); await media.ConnectAsync(roomName);

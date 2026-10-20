@@ -92,6 +92,14 @@ public sealed class MainWindow : Window
         AddHandler(KeyDownEvent, Escape, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         Opened += async (_, _) =>
         {
+            if (Program.Arguments.Contains("--camera-smoke"))
+            {
+                var resultPath = Program.Argument("--output") ?? Path.Combine(AppContext.BaseDirectory, "camera-smoke.json");
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(resultPath))!);
+                try { var result = await NativeMediaSmoke.RunCameraAsync(); await File.WriteAllTextAsync(resultPath, result.ToJsonString()); }
+                catch (Exception e) { Environment.ExitCode = 1; Program.Log(e.ToString()); await File.WriteAllTextAsync(resultPath, new JsonObject { ["passed"] = false, ["error"] = e.Message }.ToJsonString()); }
+                await Shutdown(); return;
+            }
             if (Program.Arguments.Contains("--media-smoke"))
             {
                 var resultPath = Program.Argument("--output") ?? Path.Combine(AppContext.BaseDirectory, "media-smoke.json");
@@ -230,6 +238,7 @@ public sealed class MainWindow : Window
                     parent = await unitySurface.GetHandleAsync().WaitAsync(TimeSpan.FromSeconds(5));
                 }
                 await threeD.StartAsync(parent);
+                await threeD.SetOpenItemsAsync(itemWindows.Keys);
                 unitySurface?.ResizePlayer(threeD.PlayerWindowHandle);
                 unitySurface?.SetCovered(threeDOverlay is null && context.HomeIsOpen);
             }
@@ -257,7 +266,9 @@ public sealed class MainWindow : Window
         _ = UpdateViewing();
     }
 
-    private Task UpdateViewing() => client.State.SessionId is null ? Task.CompletedTask : client.SendRoomAsync(new { t = "viewing", keys = itemWindows.Keys.Select(id => "item:" + id).ToArray() });
+    private Task UpdateViewing() => client.State.SessionId is null ? Task.CompletedTask : Task.WhenAll(
+        client.SendRoomAsync(new { t = "viewing", keys = itemWindows.Keys.Select(id => (J.Text(client.State.Items[id], "kind") == "camera" ? "cam:" : "item:") + id).ToArray() }),
+        threeD.SetOpenItemsAsync(itemWindows.Keys));
 
     private void ShowProfile(string id) => new ProfileWindow(context, id).Show(context.Owner);
 

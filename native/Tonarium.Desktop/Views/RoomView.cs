@@ -346,7 +346,7 @@ public sealed class RoomView : UserControl
     private void PickUser(string id)
     {
         var held = _ctx.State.Items.FirstOrDefault(p => J.Text(p.Value, "kind") == "hammer" && J.Text(p.Value, "holder") == _ctx.State.SelfId);
-        if (held.Key is not null && id != _ctx.State.SelfId) Run(async () => { await _ctx.Client.SendRoomAsync(new { t = "hit", to = id }); await GoNearAsync(id); });
+        if (held.Key is not null && id != _ctx.State.SelfId) Run(async () => { await _ctx.Client.SendRoomAsync(new { t = "hit", to = id }); if (_ctx.State.Mode == "2d") await GoNearAsync(id, .8); });
         else _ctx.OpenProfile(id);
     }
     private void UserMenu(JsonNode user)
@@ -406,7 +406,11 @@ public sealed class RoomView : UserControl
         var id = J.Text(user, "id"); var self = id == _ctx.State.SelfId; var color = PortraitColor(id); var height = width * .75;
         var portrait = new AvatarPortrait(_ctx, id, small) { Height = height, Width = width };
         var content = new Grid(); content.Children.Add(portrait);
-        var button = Small("", () => OpenPortrait(user)); button.Content = content; button.Padding = new Thickness(0); button.Width = width; button.Height = height; button.CornerRadius = new CornerRadius(small ? 10 : 14); button.ClipToBounds = true;
+        var button = Small("", () =>
+        {
+            if (_ctx.State.Mode == "2d" && id != _ctx.State.SelfId && _ctx.State.Items.Any(p => J.Text(p.Value, "kind") == "hammer" && J.Text(p.Value, "holder") == _ctx.State.SelfId)) PickUser(id);
+            else OpenPortrait(user);
+        }); button.Content = content; button.Padding = new Thickness(0); button.Width = width; button.Height = height; button.CornerRadius = new CornerRadius(small ? 10 : 14); button.ClipToBounds = true;
         var body = new Grid(); body.Children.Add(button);
         if (small)
         {
@@ -467,13 +471,13 @@ public sealed class RoomView : UserControl
         var p = _places.GetValueOrDefault(_ctx.State.SelfId);
         return _ctx.Client.SendRoomAsync(new { t = "itemCreate", kind, media, x = Math.Clamp(p.X - Math.Sin(p.Yaw) * 1.2, -9.5, 9.5), z = Math.Clamp(p.Z - Math.Cos(p.Yaw) * 1.2, -9.5, 9.5), ry = p.Yaw });
     }
-    private async Task GoNearAsync(string id)
+    private async Task GoNearAsync(string id, double gap = 1)
     {
         var me = _places.GetValueOrDefault(_ctx.State.SelfId); (double X, double Z, double Yaw) target;
         if (id.StartsWith("item:")) { var it = _ctx.State.Items[id[5..]]; var holder = J.Text(it, "holder"); target = holder != "" ? _places.GetValueOrDefault(holder) : (J.Number(it, "x"), J.Number(it, "z"), J.Number(it, "ry")); }
         else target = _places.GetValueOrDefault(id);
         var dx = me.X - target.X; var dz = me.Z - target.Z; var len = Math.Sqrt(dx * dx + dz * dz); if (len < .01) { dx = 0; dz = 1; } else { dx /= len; dz /= len; }
-        var x = Math.Clamp(target.X + dx, -9.5, 9.5); var z = Math.Clamp(target.Z + dz, -9.5, 9.5); var ry = Math.Atan2(-(target.X - x), -(target.Z - z));
+        var x = Math.Clamp(target.X + dx * gap, -9.5, 9.5); var z = Math.Clamp(target.Z + dz * gap, -9.5, 9.5); var ry = Math.Atan2(-(target.X - x), -(target.Z - z));
         if (_ctx.State.Mode == "3d") await _ctx.TeleportAsync(x, z, ry);
         else await _ctx.Client.SendRoomAsync(new { t = "place2d", target = _ctx.State.SelfId, pos = new { x, z, ry } });
     }

@@ -132,10 +132,20 @@ public sealed partial class ThreeDHost : IAsyncDisposable
                         ready?.TrySetResult();
                         break;
                     case "room" when message["message"] is JsonObject room:
+                        if (room["action"] is JsonObject action && action["a"]?.ToString() == "camLive" &&
+                            action["on"]?.GetValue<bool>() == true && media?.Connected != true)
+                        {
+                            await SendAsync(new { t = "notice", text = "通話に接続していないので配信できません" });
+                            break;
+                        }
                         await client.SendRoomAsync(room);
                         break;
                     case "home" when message["message"] is JsonObject home:
                         await client.SendAsync(home);
+                        break;
+                    case "cameraFrame" when media is NativeMedia native:
+                        if (message["id"]?.ToString() is { } cameraId && message["jpeg"]?.ToString() is { Length: > 0 and < 2097152 } encoded)
+                            native.SubmitCameraFrame(cameraId, Convert.FromBase64String(encoded));
                         break;
                     case "return2d":
                         _ = StopAsync();
@@ -221,6 +231,7 @@ public sealed partial class ThreeDHost : IAsyncDisposable
     }
 
     public Task ReleaseInputAsync()=>writer is null?Task.CompletedTask:SendAsync(new {t="releaseInput"});
+    public Task SetOpenItemsAsync(IEnumerable<string> ids) => writer is null ? Task.CompletedTask : SendAsync(new { t = "nativeItems", ids = ids.ToArray() });
 
     private async void ForwardVideoFrame(string identity, byte[] jpeg)
     {

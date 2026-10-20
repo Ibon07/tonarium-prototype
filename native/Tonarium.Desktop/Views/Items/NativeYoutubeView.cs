@@ -26,6 +26,7 @@ internal sealed class NativeYoutubeView : NativeControlHost, IDisposable
     private DateTime lastUpdate = DateTime.MinValue;
     private bool lastPlaying;
     private double lastBase = -1;
+    private double lastAt = -1;
 
     public NativeYoutubeView(string videoId, Action<object> send, Action<string> report)
     {
@@ -97,11 +98,20 @@ internal sealed class NativeYoutubeView : NativeControlHost, IDisposable
     public async void UpdateClock(JsonObject? clock, long offset)
     {
         if (clock is null || disposed) return;
-        var playing = ItemWindow.Bool(clock, "playing"); var basePosition = ItemWindow.Num(clock, "base");
-        pendingClock = JsonSerializer.Serialize(new { playing, position = ItemWindow.ClockPosition(clock, offset) });
-        if (controller is null || updating || DateTime.UtcNow - lastUpdate < TimeSpan.FromMilliseconds(500) && playing == lastPlaying && basePosition == lastBase) return;
-        updating = true; lastUpdate = DateTime.UtcNow; lastPlaying = playing; lastBase = basePosition;
-        try { await controller.CoreWebView2.ExecuteScriptAsync("window.applyClock && window.applyClock(" + pendingClock + ")"); }
+        var playing = ItemWindow.Bool(clock, "playing"); var basePosition = ItemWindow.Num(clock, "base"); var at = ItemWindow.Num(clock, "at");
+        pendingClock = JsonSerializer.Serialize(new { playing, position = ItemWindow.ClockPosition(clock, offset), revision = new { playing, basePosition, at } });
+        if (controller is null || updating || DateTime.UtcNow - lastUpdate < TimeSpan.FromMilliseconds(500) && playing == lastPlaying && basePosition == lastBase && at == lastAt) return;
+        updating = true; lastUpdate = DateTime.UtcNow; lastPlaying = playing; lastBase = basePosition; lastAt = at;
+        try
+        {
+            // スクリプト実行中に届いたシークや停止も、最後の時計まで順に反映する。
+            string applied;
+            do
+            {
+                applied = pendingClock;
+                await controller.CoreWebView2.ExecuteScriptAsync("window.applyClock && window.applyClock(" + applied + ")");
+            } while (!disposed && controller is not null && applied != pendingClock);
+        }
         catch (Exception) when (disposed || controller is null) { }
         catch (Exception ex) { report("YouTubeの再生同期を再試行しています: " + ex.Message); }
         finally { updating = false; }
@@ -133,18 +143,21 @@ internal sealed class NativeYoutubeView : NativeControlHost, IDisposable
         <style>html,body,#player{width:100%;height:100%;margin:0;overflow:hidden;background:#17151c;color:#eee;font:14px system-ui}#loading{position:absolute;inset:0;display:grid;place-items:center}</style>
         <div id="loading">YouTube を読み込み中…</div><div id="player"></div>
         <script>
-        let player,ready=false,desired={playing:false,position:0},suppressUntil=0,lastTime=0,lastTick=performance.now(),lastState=-1;
+        let player,ready=false,desired={playing:false,position:0},suppressUntil=0,lastTime=0,lastTick=performance.now(),lastState=-1,appliedRevision='';
         const post=(m)=>window.chrome.webview.postMessage(m);
         window.applyClock=(clock)=>{
           desired=clock;if(!ready)return;
-          const current=player.getCurrentTime()||0,state=player.getPlayerState();
-          const seek=Math.abs(current-clock.position)>1.8;
-          const toggle=clock.playing ? state!==1&&state!==3 : state===1||state===3;
+          const current=player.getCurrentTime()||0,state=player.getPlayerState(),duration=player.getDuration()||Infinity;
+          const position=Math.min(clock.position,duration),playing=clock.playing&&clock.position<duration-.2;
+          const revision=JSON.stringify(clock.revision),explicit=revision!==appliedRevision;
+          appliedRevision=revision;
+          const seek=explicit||Math.abs(current-position)>1.2;
+          const toggle=playing ? state!==1&&state!==3 : state===1||state===3;
           if(!seek&&!toggle)return;
           suppressUntil=performance.now()+900;
-          if(seek)player.seekTo(clock.position,true);
-          if(toggle){if(clock.playing)player.playVideo();else player.pauseVideo();}
-          lastTime=clock.position;lastTick=performance.now();
+          if(seek)player.seekTo(position,true);
+          if(toggle){if(playing)player.playVideo();else player.pauseVideo();}
+          lastTime=position;lastTick=performance.now();
         };
         window.onYouTubeIframeAPIReady=()=>{
           player=new YT.Player('player',{videoId:new URLSearchParams(location.search).get('id'),
@@ -159,7 +172,7 @@ internal sealed class NativeYoutubeView : NativeControlHost, IDisposable
         };
         setInterval(()=>{if(!ready)return;const now=performance.now(),pos=player.getCurrentTime()||0;
           const expected=lastTime+(lastState===1?(now-lastTick)/1000:0);
-          if(now>suppressUntil&&Math.abs(pos-expected)>1.2){post({a:'mediaSeek',pos});suppressUntil=now+500;}
+          if(now>suppressUntil&&Math.abs(pos-expected)>.35){post({a:'mediaSeek',pos});suppressUntil=now+500;}
           lastTime=pos;lastTick=now;
         },300);
         const script=document.createElement('script');script.src='https://www.youtube.com/iframe_api';document.head.append(script);

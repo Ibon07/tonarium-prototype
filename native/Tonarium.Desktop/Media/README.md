@@ -8,8 +8,11 @@
 - `ShowAudioSettingsAsync()` は既定または指定の入出力デバイスを選択します。
 - マイクは現在エコーキャンセルを行いません。LiveKit の低レベル定義には音声処理設定がありますが、採用した .NET SDK の `AudioSource` はその指定と再生音声の参照入力を公開していません。ヘッドホンで通話してください。PC 音声の共有には通話相手の音声も含まれます。
 - `VideoFrameJpeg` は Unity 表示時かつ購読時のみ JPEG を生成します (最大 960px、5fps)。空のバイト配列はトラック終了です。
+- `SubmitCameraFrame(itemId, jpeg)` は Unity の仮想カメラ映像を受け取り、`camera:<itemId>` として LiveKit に配信します。現在のユーザーが配信担当のカメラだけを受け付け、3D 終了・配信停止・担当変更時にトラックを停止します。フレームは最新の 1 枚だけを待機させます。
 
 ## 実機スモーク
+
+仮想カメラだけを確認する場合は `NativeMediaSmoke.RunCameraAsync()` を使用します。生成した JPEG を実際の LiveKit 参加者へ送信し、ローカルプレビューと停止まで確認します。このチェックはマイク・スピーカー・画面取得を開始しません。
 
 `npm run livekit` で開発用 LiveKit を起動し、デスクトップアプリを `--media-smoke` で実行します。
 
@@ -21,4 +24,4 @@ dotnet run --project native/Tonarium.Desktop -- --media-smoke
 
 CLI は初期化済み Avalonia UI スレッドで `await NativeMediaSmoke.RunAsync()` を呼び、戻り値の JSON を出力します。既定の接続先は `ws://127.0.0.1:7880`、開発キーです。別サーバーの場合はメソッド引数で URL・API キー・シークレットを渡せます。トークンやシークレットは結果に含めません。
 
-実際の別参加者とのマイク、音声受信、映像受信、画面送信、Unity 用 JPEG、停止・ミュート後の再入室を確認します。PC 音声が無音なら loopback のフレーム数が 0 になる場合があります。
+実際の別参加者とのマイク、音声受信、映像受信、画面送信、仮想カメラ送信と停止、Unity 用 JPEG、停止・ミュート後の再入室を確認します。PC 音声が無音なら loopback のフレーム数が 0 になる場合があります。

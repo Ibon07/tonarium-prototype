@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -33,7 +34,9 @@ public sealed class ItemWindow : Window
     private bool canvasDirty = true;
     private JsonObject? canvasItem;
     private JsonNode? canvasStrokes;
+    private SharedDrawingCanvas? drawingCanvas;
     private TextBox? note;
+    private string? pendingNoteText;
     private DispatcherTimer? noteTimer;
     private NativeVideoView? video;
     private NativeYoutubeView? youtube;
@@ -88,12 +91,20 @@ public sealed class ItemWindow : Window
             type == "itemAction" && Str(message, "id") == itemId ||
             type == "item" && Str(message["item"], "id") == itemId)
             canvasDirty = true;
+        if (type == "itemAction" && Str(message, "id") == itemId && Str(message["action"], "a") == "canvasClear")
+            drawingCanvas?.ClearPreview();
     }
 
     public void Refresh()
     {
         var item = Item;
-        if (item is null) { status.Text = "このアイテムは片付けられました"; body.IsEnabled = false; return; }
+        if (item is null)
+        {
+            status.Text = "このアイテムは片付けられました"; body.IsEnabled = false;
+            // Web's WindowLayer removes a resolved window as soon as its item disappears.
+            if (IsLoaded) Close();
+            return;
+        }
         var nextKind = Str(item, "kind");
         if (kind != nextKind) { kind = nextKind; Build(item); }
         applying = true;
@@ -177,7 +188,7 @@ public sealed class ItemWindow : Window
         note = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 180, MaxLength = 300, FontSize = 15, Padding = new Thickness(2), BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(0), Background = Brushes.Transparent, Foreground = Brush("#1c1917"), PlaceholderText = "付箋に書く" };
         noteTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(240) };
         noteTimer.Tick += (_, _) => { noteTimer.Stop(); FlushNote(); };
-        note.TextChanged += (_, _) => { if (!applying) { noteTimer.Stop(); noteTimer.Start(); } };
+        note.TextChanged += (_, _) => { if (!applying) { pendingNoteText = note.Text ?? ""; noteTimer.Stop(); noteTimer.Start(); } };
         note.GotFocus += (_, _) => Send(new { a = "noteLock", @lock = true });
         note.LostFocus += (_, _) => { FlushNote(); Send(new { a = "noteLock", @lock = false }); };
         var colors = Row(); colors.Spacing = 6;
@@ -191,7 +202,10 @@ public sealed class ItemWindow : Window
         var wrap = new Border { Child = contents }; body.Children.Add(wrap);
         refreshers.Add(it =>
         {
-            if (!note.IsKeyboardFocusWithin && !noteTimer.IsEnabled && note.Text != Str(it, "text")) note.Text = Str(it, "text");
+            var authoritative = Str(it, "text");
+            if (pendingNoteText == authoritative) pendingNoteText = null;
+            // フォーカス移動直後の位置更新で、まだ返っていない入力を上書きしない。
+            if (pendingNoteText is null && !note.IsKeyboardFocusWithin && !noteTimer.IsEnabled && note.Text != authoritative) note.Text = authoritative;
             wrap.Background = Brush(Str(it, "color", "#fde68a"));
             var editor = Str(it, "editingBy"); status.Text = editor.Length > 0 && editor != context.Client.State.SelfId ? UserName(editor) + " が編集中" : "更新: " + UserName(Str(it, "updatedBy"));
         });
@@ -199,13 +213,15 @@ public sealed class ItemWindow : Window
     private void FlushNote()
     {
         if (note is null || Item is not { } it || Str(it, "text") == (note.Text ?? "")) return;
-        Send(new { a = "noteEdit", text = note.Text ?? "" });
+        pendingNoteText = note.Text ?? "";
+        Send(new { a = "noteEdit", text = pendingNoteText });
     }
 
     private void BuildCanvas()
     {
         Width = 658; Height = 576;
         var canvas = new SharedDrawingCanvas(() => Item, Send);
+        drawingCanvas = canvas;
         var toolbar = Row(); toolbar.Spacing = 6;
         var swatches = new List<Button>();
         string selectedColor = "#111111"; int selectedSize = 3; bool erase = false;
@@ -244,10 +260,17 @@ public sealed class ItemWindow : Window
     {
         try
         {
-            using var bitmap = new RenderTargetBitmap(new PixelSize(620, 450), new Vector(96, 96));
+            // Web exports at PANEL_SCALE=2 and JPEG quality .85, without the toolbar.
+            using var bitmap = new RenderTargetBitmap(new PixelSize(1240, 900), new Vector(192, 192));
             bitmap.Render(canvas);
-            using var stream = new MemoryStream(); bitmap.Save(stream);
-            _ = context.Client.SendRoomAsync(new { t = "chat", text = "キャンバスを保存しました", image = "data:image/png;base64," + Convert.ToBase64String(stream.ToArray()), scope = "all" });
+            using var png = new MemoryStream(); bitmap.Save(png); png.Position = 0;
+            using var decoded = System.Drawing.Image.FromStream(png);
+            using var encoded = new MemoryStream();
+            var codec = System.Drawing.Imaging.ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == System.Drawing.Imaging.ImageFormat.Jpeg.Guid);
+            using var parameters = new System.Drawing.Imaging.EncoderParameters(1);
+            parameters.Param[0] = new System.Drawing.Imaging.EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 85L);
+            decoded.Save(encoded, codec, parameters);
+            _ = context.Client.SendRoomAsync(new { t = "chat", text = "🎨 キャンバスを保存しました", image = "data:image/jpeg;base64," + Convert.ToBase64String(encoded.ToArray()), scope = "all" });
             status.Text = "ログに保存しました";
         }
         catch (Exception error) { context.Notify("キャンバスを保存できませんでした: " + error.Message); }
@@ -260,24 +283,43 @@ public sealed class ItemWindow : Window
         var trayShell=new Border { MinHeight=120,Padding=new Thickness(14),CornerRadius=new CornerRadius(14),Child=tray,Background=new RadialGradientBrush{Center=new RelativePoint(.5,.4,RelativeUnit.Relative),GradientOrigin=new RelativePoint(.5,.4,RelativeUnit.Relative),RadiusX=new RelativeScalar(.75,RelativeUnit.Relative),RadiusY=new RelativeScalar(.75,RelativeUnit.Relative),GradientStops=[new GradientStop(Color.Parse("#b98258"),0),new GradientStop(Color.Parse("#7a4e30"),1)]} };
         tray.Children.Add(Text("まだ振っていません",13,"#f4e6cf"));
         var result = Text("種類と個数を選んで振ってください", 13); result.TextAlignment=TextAlignment.Center; result.HorizontalAlignment=HorizontalAlignment.Center;result.MinHeight=20;
-        int sides = 6, count = 1;
+        var settingsKey = "dice." + Uri.EscapeDataString(context.State.Name);
+        (int Sides, int Count, bool Secret) ReadSettings()
+        {
+            try
+            {
+                var stored = JsonNode.Parse(NativeSettings.GetString(settingsKey, "{}"));
+                var s = (int)Num(stored, "sides", 6); var n = (int)Num(stored, "count", 1);
+                return (new[] { 4, 6, 8, 10, 12, 20, 100 }.Contains(s) ? s : 6, Math.Clamp(n, 1, 10), Bool(stored, "secret"));
+            }
+            catch (System.Text.Json.JsonException) { return (6, 1, false); }
+        }
+        var settings = ReadSettings(); int sides = settings.Sides, count = settings.Count; bool restoringChoice = false;
         var sideButtons = new List<Button>(); var options = Row(); options.Spacing=4; options.HorizontalAlignment=HorizontalAlignment.Center;
-        var secret = new CheckBox { Content = "シークレット", FontSize=12,Foreground = Brush("#26262E"),MinHeight=28,Padding=new Thickness(0) };
+        var secret = new CheckBox { Content = "シークレット", IsChecked = settings.Secret, FontSize=12,Foreground = Brush("#26262E"),MinHeight=28,Padding=new Thickness(0) };
         var number = Text("1", 13, "#26262E", true);number.MinWidth=24;number.TextAlignment=TextAlignment.Center;
         var roll = Button("1d6 を振る", () => Send(new { a = "diceRoll", sides, count, secret = secret.IsChecked == true }));roll.Background=Brush("#2F5FC4");roll.Foreground=Brush("#FFFFFF");roll.BorderBrush=roll.Background;roll.FontWeight=FontWeight.Bold;
         foreach (var n in new[] { 4, 6, 8, 10, 12, 20, 100 })
         {
             var b = Button("d" + n, () => { sides = n; UpdateChoice(); }); b.Height=30;b.MinHeight=0;b.FontSize=12;b.FontWeight=FontWeight.Bold;b.CornerRadius=new CornerRadius(8);b.Padding=new Thickness(10,0);sideButtons.Add(b); options.Children.Add(b);
         }
-        void UpdateChoice() { for (int i = 0; i < sideButtons.Count; i++) {bool on=new[] { 4, 6, 8, 10, 12, 20, 100 }[i]==sides;sideButtons[i].Background=on?Brush("#2F5FC4"):Brushes.Transparent;sideButtons[i].Foreground=on?Brushes.White:Brush("#26262E");sideButtons[i].BorderBrush=on?Brush("#2F5FC4"):Brush("#EEE8DD");} number.Text = count.ToString(); roll.Content = $"{count}d{sides} を振る"; }
+        void UpdateChoice(bool persist = true) { for (int i = 0; i < sideButtons.Count; i++) {bool on=new[] { 4, 6, 8, 10, 12, 20, 100 }[i]==sides;sideButtons[i].Background=on?Brush("#2F5FC4"):Brushes.Transparent;sideButtons[i].Foreground=on?Brushes.White:Brush("#26262E");sideButtons[i].BorderBrush=on?Brush("#2F5FC4"):Brush("#EEE8DD");} number.Text = count.ToString(); roll.Content = $"{count}d{sides} を振る"; if (persist) { NativeSettings.SetString(settingsKey, System.Text.Json.JsonSerializer.Serialize(new { sides, count, secret = secret.IsChecked == true })); context.State.Touch(); } }
         var minus=Button("−",()=>{count=Math.Max(1,count-1);UpdateChoice();});var plus=Button("＋",()=>{count=Math.Min(10,count+1);UpdateChoice();}); foreach(var b in new[]{minus,plus}){b.Width=28;b.Height=28;b.MinHeight=0;b.Padding=new Thickness(0);b.CornerRadius=new CornerRadius(8);b.BorderBrush=Brush("#EEE8DD");}
         var countRow=Row(minus,number,plus);countRow.Spacing=6;
         var controls=new Grid{ColumnDefinitions=new ColumnDefinitions("Auto,Auto,*,Auto")};controls.Children.Add(countRow);Grid.SetColumn(secret,1);secret.Margin=new Thickness(10,0,0,0);controls.Children.Add(secret);Grid.SetColumn(roll,3);controls.Children.Add(roll);
         var panel=Column(trayShell,result,options,controls);panel.Spacing=10;panel.Margin=new Thickness(14);body.Children.Add(panel);
-        UpdateChoice();
+        UpdateChoice(false);
+        secret.IsCheckedChanged += (_, _) => { if (!restoringChoice) UpdateChoice(); };
         string displayKey = "";
         refreshers.Add(it =>
         {
+            var currentChoice = ReadSettings();
+            if (currentChoice.Sides != sides || currentChoice.Count != count || currentChoice.Secret != (secret.IsChecked == true))
+            {
+                restoringChoice = true;
+                sides = currentChoice.Sides; count = currentChoice.Count; secret.IsChecked = currentChoice.Secret;
+                UpdateChoice(false); restoringChoice = false;
+            }
             if (it["roll"] is not JsonObject r) return;
             var elapsed = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + context.Client.State.ServerOffset - Num(r, "at"); var rolling = elapsed < 1800;
             var values = r["results"] as JsonArray;
@@ -309,7 +351,13 @@ public sealed class ItemWindow : Window
         foreach(var pair in new[]{("left","←"),("up","↑"),("down","↓"),("right","→")}) {var direction=pair.Item1;var button=PanelButton(pair.Item2,()=>Slide(direction),"#5865f2",34);button.Width=92;button.Height=72;arrows.Children.Add(button);}
         panel.Children.Add(arrows);
         body.Children.Add(new Border{Background=Brush("#2b2d31"),CornerRadius=new CornerRadius(6),Padding=new Thickness(12,16),Child=panel});
-        KeyDown += (_, e) => { var dir = e.Key switch { Key.Left or Key.A => "left", Key.Right or Key.D => "right", Key.Up or Key.W => "up", Key.Down or Key.S => "down", _ => null }; if (dir is null) return; Slide(dir); e.Handled = true; };
+        AddHandler(InputElement.KeyDownEvent, (_, e) =>
+        {
+            if (e.Source is TextBox || e.Source is Control source && source.GetVisualAncestors().OfType<TextBox>().Any()) return;
+            var dir = e.Key switch { Key.Left or Key.A => "left", Key.Right or Key.D => "right", Key.Up or Key.W => "up", Key.Down or Key.S => "down", _ => null };
+            if (dir is null) return;
+            Slide(dir); e.Handled = true;
+        }, RoutingStrategies.Tunnel);
         refreshers.Add(it => { var data = Arr(it, "grid"); for (int i = 0; i < 16; i++) { int val = i < data.Count ? (int)Num(data[i]) : 0; values[i].Text = val > 0 ? val.ToString() : ""; values[i].Foreground = Brush(val > 4 ? "#FFF8EF" : "#776E65"); values[i].FontSize = val < 100 ? 40 : val < 1000 ? 34 : 28; cells[i].Background = Brush(val switch { 0 => "#3a3c42", 2 => "#EEE4DA", 4 => "#EDE0C8", 8 => "#F2B179", 16 => "#F59563", 32 => "#F67C5F", 64 => "#F65E3B", _ => "#EDC750" }); } score.Text = "スコア " + Num(it, "score"); over.IsVisible=Bool(it,"over"); status.Text = Bool(it, "over") ? "ゲームオーバー · 新しく始められます" : "矢印キー / WASD / ボタンで操作"; });
     }
 
@@ -322,10 +370,19 @@ public sealed class ItemWindow : Window
         var buttons = new Button[64]; var movesLabel = Text("棋譜はここに表示されます", 14, "#b5bac1");
         var promotions = Row(); promotions.IsVisible = false;
         int selected = -1, revision = -1, promotionTo = -1; bool resetConfirm = false; string lastRender = "";
+        Button? reset = null;
         var legal = new List<NativeChess.Move>();
-        void Move(int to, string? promotion = null) { Send(new { a = "chessMove", from = selected, to, revision, promotion }); selected = -1; promotionTo = -1; legal.Clear(); promotions.IsVisible = false; lastRender = ""; }
+        void CancelReset() { resetConfirm = false; if (reset is not null) reset.Content = "新しい対局"; }
+        void Move(int to, string? promotion = null)
+        {
+            var action = new JsonObject { ["a"] = "chessMove", ["from"] = selected, ["to"] = to, ["revision"] = revision };
+            // 通常の手にnullの昇格を付けると、Webと同じ合法手に一致しない。
+            if (promotion is not null) action["promotion"] = promotion;
+            Send(action); selected = -1; promotionTo = -1; legal.Clear(); promotions.IsVisible = false; lastRender = "";
+        }
         void Choose(int index)
         {
+            CancelReset();
             if (Item is not { } it || it["chess"] is not JsonObject chess) return;
             var position = new NativeChess(Str(chess, "fen"));
             if (position.IsOver(Arr(chess, "positions")) || (kind == "chessAi" && position.Turn == 'b')) return;
@@ -336,7 +393,7 @@ public sealed class ItemWindow : Window
         }
         for (int i = 0; i < 64; i++) { var index = i; var b = Button("", () => Choose(index)); b.Height = double.NaN; b.MinHeight = 0; b.Padding = new Thickness(0); b.Margin = new Thickness(0); b.HorizontalAlignment = HorizontalAlignment.Stretch; b.VerticalAlignment = VerticalAlignment.Stretch; b.CornerRadius = new CornerRadius(0); b.FontSize = 40; b.FontFamily = new FontFamily("Segoe UI Symbol"); Grid.SetRow(b, i / 8); Grid.SetColumn(b, i % 8); grid.Children.Add(b); buttons[i] = b; }
         foreach (var pair in new[] { ("q", "♛ クイーン"), ("r", "♜ ルーク"), ("b", "♝ ビショップ"), ("n", "♞ ナイト") }) promotions.Children.Add(PanelButton(pair.Item2, () => Move(promotionTo, pair.Item1)));
-        var reset = PanelButton("新しい対局", () => { if (!resetConfirm) { resetConfirm = true; status.Text = "もう一度「新しい対局」で初期化"; return; } resetConfirm = false; selected = -1; Send(new { a = "chessReset" }); });
+        reset = PanelButton("新しい対局", () => { if (!resetConfirm) { resetConfirm = true; reset!.Content = "本当に初期化？"; status.Text = "もう一度押すと初期化します"; return; } CancelReset(); selected = -1; Send(new { a = "chessReset" }); });
                 panel.Children.Add(Row(Text(kind == "chessAi" ? "♟ チェスAI" : "♟ チェス",22,"#f2f3f5",true),reset));
         panel.Children.Add(heading);
         panel.Children.Add(Text(kind == "chessAi" ? "白：みんなで操作 / 黒：AI（自動で応手）" : "参加登録なし · 手番の色の駒を誰でも動かせます",13,"#b5bac1"));
@@ -347,7 +404,7 @@ public sealed class ItemWindow : Window
         {
             if (it["chess"] is not JsonObject chess) return;
             int nowRevision = (int)Num(chess, "revision");
-            if (revision != nowRevision) { revision = nowRevision; selected = -1; legal.Clear(); promotions.IsVisible = false; }
+            if (revision != nowRevision) { revision = nowRevision; selected = -1; legal.Clear(); promotions.IsVisible = false; CancelReset(); }
             var key = chess.ToJsonString() + ":" + selected; if (key == lastRender) return; lastRender = key;
             var pos = new NativeChess(Str(chess, "fen")); var check = pos.InCheck(pos.Turn); var over = pos.IsOver(Arr(chess, "positions"));
             heading.Text = over ? pos.AllLegal().Count == 0 && check ? (pos.Turn == 'w' ? "黒" : "白") + "の勝ち" : "引き分け" : kind == "chessAi" && pos.Turn == 'b' ? "AIが考えています…" : (pos.Turn == 'w' ? "白" : "黒") + "の手番" + (check ? " · チェック！" : "");
@@ -370,7 +427,7 @@ public sealed class ItemWindow : Window
 
     private void BuildHandheld(bool camera)
     {
-        var held = Text("", 18); var hold = Button("手に持つ", () => { if (Item is not { } it) return; if (Str(it, "holder") == context.Client.State.SelfId) Send(new { a = "drop", x = Num(it, "x"), z = Num(it, "z"), ry = Num(it, "ry"), pitch = Num(it, "pitch") }); else Send(new { a = "pick" }); });
+        var held = Text("", 18); var hold = Button("手に持つ", () => { if (Item is not { } it) return; if (Str(it, "holder") == context.Client.State.SelfId) DropHeld(it); else Send(new { a = "pick" }); });
         body.Children.Add(held); body.Children.Add(hold);
         if (camera)
         {
@@ -381,9 +438,64 @@ public sealed class ItemWindow : Window
         {
             body.Children.Add(Text("持った状態で相手を選ぶと、そばへ移動して叩きます。", 14));
             var people = Column(); body.Children.Add(people); string previous = "";
-            refreshers.Add(itemState => { var ids = string.Join(",", context.Client.State.Users.Select(u => Str(u, "id") + ":" + Str(u, "session"))); if (previous == ids) return; previous = ids; people.Children.Clear(); foreach (var user in context.Client.State.Users.OfType<JsonObject>().Where(u => Str(u, "id") != context.Client.State.SelfId && Str(u, "session") == context.Client.State.SessionId)) { var id = Str(user, "id"); people.Children.Add(Button("槌  " + Str(user, "name"), () => { if (Str(Item, "holder") != context.Client.State.SelfId) { context.Notify("先にハンマーを手に持ってください"); return; } _ = context.Client.SendRoomAsync(new { t = "hit", to = id }); })); } });
+            refreshers.Add(itemState => { var ids = string.Join(",", context.Client.State.Users.Select(u => Str(u, "id") + ":" + Str(u, "session"))); if (previous == ids) return; previous = ids; people.Children.Clear(); foreach (var user in context.Client.State.Users.OfType<JsonObject>().Where(u => Str(u, "id") != context.Client.State.SelfId && Str(u, "session") == context.Client.State.SessionId)) { var id = Str(user, "id"); people.Children.Add(Button("槌  " + Str(user, "name"), () => HitWithHammer(id))); } });
         }
         refreshers.Add(it => { var holder = Str(it, "holder"); held.Text = holder.Length == 0 ? "床に置いてあります" : UserName(holder) + " が持っています"; hold.Content = holder == context.Client.State.SelfId ? "床に置く" : "手に持つ"; hold.IsEnabled = holder.Length == 0 || holder == context.Client.State.SelfId; status.Text = camera ? Bool(it, "live") ? "ライブ配信中" : "配信していません" : "ピコッ"; });
+    }
+
+    private async void HitWithHammer(string target)
+    {
+        var state = context.State;
+        if (Str(Item, "holder") != state.SelfId) { context.Notify("先にハンマーを手に持ってください"); return; }
+        var places = ParticipantPlaces();
+        var canMove = state.Mode == "2d" && places.TryGetValue(target, out _);
+        var me = places.GetValueOrDefault(state.SelfId, (X: 0d, Z: 6.5, Yaw: 0d));
+        var other = places.GetValueOrDefault(target);
+        try
+        {
+            await context.Client.SendRoomAsync(new { t = "hit", to = target });
+            if (!canMove) return;
+            var dx = me.X - other.X; var dz = me.Z - other.Z; var distance = Math.Sqrt(dx * dx + dz * dz);
+            if (distance < .01) { dx = 0; dz = 1; } else { dx /= distance; dz /= distance; }
+            await context.Client.SendRoomAsync(new { t = "place2d", target = state.SelfId,
+                pos = new { x = other.X + dx * .8, z = other.Z + dz * .8, ry = Math.Atan2(dx, dz) } });
+        }
+        catch (Exception error) { context.Notify(error.Message); }
+    }
+
+    private void DropHeld(JsonObject item)
+    {
+        if (context.State.Mode != "3d") { Send(new { a = "drop", x = Num(item, "x"), z = Num(item, "z"), ry = Num(item, "ry"), pitch = Num(item, "pitch") }); return; }
+        var p = ParticipantPlaces().GetValueOrDefault(context.State.SelfId, (X: 0d, Z: 6.5, Yaw: 0d));
+        var gap = Str(item, "kind") == "camera" ? .7 : 1.2;
+        Send(new { a = "drop", x = Math.Clamp(p.X - Math.Sin(p.Yaw) * gap, -9.5, 9.5), z = Math.Clamp(p.Z - Math.Cos(p.Yaw) * gap, -9.5, 9.5), ry = p.Yaw,
+            pitch = Num(context.State.Avatars[context.State.SelfId], "pitch") });
+    }
+
+    private Dictionary<string, (double X, double Z, double Yaw)> ParticipantPlaces()
+    {
+        var state = context.State;
+        var users = state.Users.Where(u => Str(u, "session") == state.SessionId).ToArray();
+        var places = new Dictionary<string, (double X, double Z, double Yaw)>();
+        foreach (var user in users.Where(u => Str(u, "mode") == "3d"))
+        {
+            var id = Str(user, "id");
+            if (state.Avatars[id] is { } avatar) places[id] = (Num(avatar, "x"), Num(avatar, "z"), Num(avatar, "ry"));
+        }
+        var followers = new Dictionary<string, int>(); var queue = 0;
+        foreach (var user in users.Where(u => Str(u, "mode") != "3d"))
+        {
+            var id = Str(user, "id"); var presence = state.Presence[id]; var follow = Str(presence, "follow");
+            if (places.TryGetValue(follow, out var leader))
+            {
+                var i = followers.GetValueOrDefault(follow); followers[follow] = i + 1;
+                var side = (i % 2 == 1 ? -1 : 1) * Math.Ceiling(i / 2d) * .45; var back = .9 + Math.Floor(i / 3d) * .35;
+                places[id] = (leader.X + Math.Sin(leader.Yaw) * back + Math.Cos(leader.Yaw) * side, leader.Z + Math.Cos(leader.Yaw) * back - Math.Sin(leader.Yaw) * side, leader.Yaw);
+            }
+            else if (presence?["pos"] is { } p) places[id] = (Num(p, "x"), Num(p, "z"), Num(p, "ry"));
+            else { var radius = .45 * Math.Sqrt(queue); var angle = queue++ * 2.39996; places[id] = (Math.Sin(angle) * radius, 6.5 + Math.Cos(angle) * radius, 0); }
+        }
+        return places;
     }
 
     private void BuildImage(JsonObject item)

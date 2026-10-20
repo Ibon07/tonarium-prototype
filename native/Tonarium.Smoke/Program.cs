@@ -47,7 +47,7 @@ internal static class Program
             await Until(() => second.State.Chats.OfType<JsonObject>().Any(m => m["text"]?.ToString() == "Native interoperability " + unique), "room chat");
             await first.SendAsync(new { t = "mode", mode = "3d" });
             await first.SendAsync(new { t = "avatar", s = new { x = 2.5, z = 3.5, ry = 0.5 } });
-            await Until(() => second.State.Avatars[first.State.SelfId]?["x"]?.ToString() == "2.5", "avatar position", () => second.State.Avatars.ToJsonString() + "; " + first.State.LastError + "; " + second.State.LastError);
+            await Until(() => first.State.Avatars[first.State.SelfId]?["x"]?.ToString() == "2.5" && second.State.Avatars[first.State.SelfId]?["x"]?.ToString() == "2.5", "local and remote avatar position", () => second.State.Avatars.ToJsonString() + "; " + first.State.LastError + "; " + second.State.LastError);
             Console.WriteLine("PASS room chat / 3D mode / avatar latest");
             await first.SendAsync(new { t = "itemCreate", kind = "note", x = 1, z = 1, ry = 0, text = "Native note" });
             await Until(() => second.State.Items.Any(i => i.Value?["kind"]?.ToString() == "note"), "note create");
@@ -172,6 +172,17 @@ internal static class Program
             await second.SendRoomAsync(new { t = "itemAction", id = canvas, action = new { a = "canvasClear" } });
             await Until(() => Empty(first) && Empty(second), "reverse clear reflected on sender and receiver");
             Record("reverse-clear", second);
+
+            await first.SendRoomAsync(new { t = "itemAction", id = canvas, action = new { a = "strokeStart", id = unique + "-fractional", color = "#123456", size = 3.5, x = 10.6, y = 20.5 } });
+            await first.SendRoomAsync(new { t = "itemAction", id = canvas, action = new { a = "strokeAdd", id = unique + "-fractional", pts = new[] { 30.25, 40.75, 50.5, 60.49 } } });
+            var rounded = new[] { 11, 21, 30, 41, 51, 60 };
+            await Until(() => HasExpected(first, "fractional", first.State.SelfId, rounded) && HasExpected(second, "fractional", first.State.SelfId, rounded), "fractional Unity canvas points use server rounding");
+            await first.LeaveAsync(); await first.JoinAsync(sid);
+            await Until(() => first.State.SyncStatus == "connected" && HasExpected(first, "fractional", first.State.SelfId, rounded) && SameStrokes(first, second), "fractional live state equals authoritative rejoin snapshot");
+            if (first.State.Items[canvas]?["strokes"]?[0]?["size"]?.ToString() != "3.5") throw new InvalidOperationException("Fractional brush width must survive local and server application.");
+            Record("fractional-points-and-width-server-parity", first);
+            await first.SendRoomAsync(new { t = "itemAction", id = canvas, action = new { a = "canvasClear" } });
+            await Until(() => Empty(first) && Empty(second), "fractional canvas clear reflected on both peers");
             await first.LeaveAsync(); await first.JoinAsync(sid);
             await Until(() => first.State.SyncStatus == "connected" && Empty(first), "cleared canvas remains empty in rejoin snapshot");
             Record("clear-rejoin-snapshot", first);
@@ -179,7 +190,7 @@ internal static class Program
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 foreach (var events in new[] { firstEvents, secondEvents })
-                    if (events.Count(a => a == "strokeStart") != 2 || events.Count(a => a == "strokeAdd") != 4 || events.Count(a => a == "canvasClear") != 2)
+                    if (events.Count(a => a == "strokeStart") != 3 || events.Count(a => a == "strokeAdd") != 5 || events.Count(a => a == "canvasClear") != 3)
                         throw new InvalidOperationException("Canvas MessageReceived deltas must each fire exactly once per peer.");
                 evidence.Add(new JsonObject { ["check"] = "unity-bridge-message-events-once", ["senderEvents"] = new JsonArray(firstEvents.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()), ["receiverEvents"] = new JsonArray(secondEvents.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()) });
             });

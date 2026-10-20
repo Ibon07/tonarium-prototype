@@ -22,7 +22,7 @@ using TrackPublishOptions = LiveKit.Rtc.TrackPublishOptions;
 namespace Tonarium.Desktop.Media;
 
 /// <summary>A single native media session, retained while switching between 2D and Unity.</summary>
-public sealed class NativeMedia : INativeMedia
+public sealed partial class NativeMedia : INativeMedia
 {
     private readonly TonariumClient client;
     private readonly SemaphoreSlim gate = new(1);
@@ -127,6 +127,7 @@ public sealed class NativeMedia : INativeMedia
     private async Task DisconnectCoreAsync()
     {
         closing = true;
+        await StopAllCamerasCoreAsync();
         await StopDesktopAsync();
         await StopMicrophoneAsync();
         var active = readers.Values.ToArray();
@@ -335,15 +336,16 @@ public sealed class NativeMedia : INativeMedia
             reader.Lifetime.Cancel();
             _ = reader.Task.ContinueWith(_ => reader.Lifetime.Dispose(), TaskScheduler.Default);
         }
-        if (video.TryGetValue(identity, out var feed)) feed.Clear();
-        if (video.TryGetValue(name, out feed)) feed.Clear();
+        if (!name.StartsWith("camera:") && !name.StartsWith("view:") && video.TryGetValue(identity, out var identityFeed)) identityFeed.Clear();
+        if (name.StartsWith("camera:") && video.TryGetValue(name[7..], out var cameraFeed)) cameraFeed.Clear();
+        if (video.TryGetValue(name, out var feed)) feed.Clear();
         VideoFrameJpeg?.Invoke(name.StartsWith("camera:") || name.StartsWith("view:") ? name : identity, []);
     }
 
     private void PushVideo(string identity, string name, VideoFrame frame)
     {
-        if (video.TryGetValue(identity, out var feed)) feed.Push(frame);
-        if (video.TryGetValue(name, out feed)) feed.Push(frame);
+        if (!name.StartsWith("camera:") && !name.StartsWith("view:") && video.TryGetValue(identity, out var identityFeed)) identityFeed.Push(frame);
+        if (video.TryGetValue(name, out var feed)) feed.Push(frame);
         if (name.StartsWith("camera:") && video.TryGetValue(name[7..], out feed)) feed.Push(frame);
         if (name is "screen" or "screen_share" || name.Contains("screen", StringComparison.OrdinalIgnoreCase))
             if (video.TryGetValue("screen", out feed)) feed.Push(frame);
@@ -418,6 +420,7 @@ public sealed class NativeMedia : INativeMedia
             }
         }
         spatial = gains;
+        SyncCameraTracks();
         SyncViewSubscriptions();
     }
 

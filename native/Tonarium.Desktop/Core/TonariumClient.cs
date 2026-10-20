@@ -350,6 +350,9 @@ public sealed class TonariumClient : IAsyncDisposable
                 await UiAsync(() => ApplyMessage(local), false);
             }
             var position = type == "avatar";
+            // 自分の位置はサーバーから返らないので、音量・距離判定にも即座に反映する。
+            if (position && message["s"] is JsonObject avatar)
+                await UiAsync(() => State.Avatars[State.SelfId] = avatar.DeepClone());
             var sequence = position ? ++positionSequence : ++sendSequence;
             var packet = SessionPacket.Seal(Convert.FromBase64String(Text(config, "key")), Text(config, "token"), position ? "client-position" : "client", sequence, message);
             if (position) await connection.LatestAsync(SessionPacket.Topic, packet, (ulong)sequence, ct);
@@ -487,18 +490,23 @@ public sealed class TonariumClient : IAsyncDisposable
             case "canvasClear": item["strokes"] = new JsonArray(); break;
             case "strokeStart":
                 strokes.Add(new JsonObject { ["id"] = Text(action, "id"), ["by"] = by, ["color"] = Text(action, "color"),
-                    ["size"] = Math.Clamp(Number(action, "size"), 1, 40), ["pts"] = new JsonArray(Math.Clamp(Number(action, "x"), 0, 620), Math.Clamp(Number(action, "y"), 0, 450)) });
+                    ["size"] = Math.Clamp(CanvasNumber(action["size"]), 1, 40), ["pts"] = new JsonArray(CanvasCoordinate(action["x"], 620), CanvasCoordinate(action["y"], 450)) });
                 if (strokes.Count > 3000) strokes.RemoveAt(0); break;
             case "strokeAdd":
                 var stroke = strokes.OfType<JsonObject>().LastOrDefault(s => Text(s, "id") == Text(action, "id") && Text(s, "by") == by);
                 if (stroke?["pts"] is not JsonArray pts || pts.Count > 8000) break;
                 var incoming = Array(action, "pts");
                 for (var i = 0; i + 1 < incoming.Count; i += 2)
-                { pts.Add(Math.Clamp(incoming[i]?.GetValue<double>() ?? 0, 0, 620)); pts.Add(Math.Clamp(incoming[i + 1]?.GetValue<double>() ?? 0, 0, 450)); }
+                { pts.Add(CanvasCoordinate(incoming[i], 620)); pts.Add(CanvasCoordinate(incoming[i + 1], 450)); }
                 break;
         }
         item["updatedBy"] = by;
     }
+
+    private static double CanvasNumber(JsonNode? value) => double.TryParse(value?.ToString(), System.Globalization.NumberStyles.Float,
+        System.Globalization.CultureInfo.InvariantCulture, out var number) && double.IsFinite(number) ? number : 0;
+    // JS の Math.round と同じく、非負のキャンバス座標は .5 を上へ丸める。
+    private static double CanvasCoordinate(JsonNode? value, int limit) => Math.Floor(Math.Clamp(CanvasNumber(value), 0, limit) + .5);
 
     private static void Upsert(JsonArray list, JsonObject item, int limit)
     {
