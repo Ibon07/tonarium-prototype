@@ -31,7 +31,7 @@ cloudflared 以外（ngrok など）を使う場合は、`.env` の `ALLOWED_HOS
    - `LIVEKIT_API_KEY`: 好きな文字列（例: `tonarium`）
    - `LIVEKIT_API_SECRET`: 32 文字以上のランダムな文字列（例: `openssl rand -base64 32` の結果）
    - `KOKOSYNC_URL`: データ同期先（既定は `https://45.77.130.146`）
-   - `KOKOSYNC_USERNAME` / `KOKOSYNC_PASSWORD`: 接続先で Basic 認証が必要な場合の値。サーバー用のシークレットとして設定する
+   - `KOKOSYNC_USERNAME` / `KOKOSYNC_PASSWORD`: 同梱のプロトタイプ用認証情報を上書きする場合に設定する。両方とも空なら既定の接続先に限り同梱の値を使う
 5. ドメインを設定する
    - `tonarium` サービス: アプリのドメイン（`SERVICE_FQDN_TONARIUM_3001` によりポート 3001 に転送。自動で付かなければ `https://<ドメイン>:3001` の形で指定）
    - `livekit` サービス: `https://<LIVEKIT_DOMAIN>:7880`（シグナリングの wss がここを通る）

@@ -49,7 +49,7 @@ kokosync の通常メッセージはルーム全員へ届くため、Tonarium �
 
 ## 設定と検証
 
-`.env` / デプロイ環境に `KOKOSYNC_URL` と、必要なら `KOKOSYNC_USERNAME`・`KOKOSYNC_PASSWORD` を設定する。ローカルでは `KOKOSYNC_CREDENTIALS_FILE` に `Username:` / `Password:` 行のあるファイルを指定できる。`VITE_` を付けない。ブラウザは HTTPS または localhost で開く。
+接続先とプロトタイプ用の Basic 認証情報は `server/kokosync-config.ts` に固定してある。既定の接続先に対して認証環境変数が両方とも空なら、この値を使う。`.env` / デプロイ環境の `KOKOSYNC_URL` と `KOKOSYNC_USERNAME`・`KOKOSYNC_PASSWORD` で上書きできる。別の接続先には同梱の認証情報を送らない。ローカルでは `KOKOSYNC_CREDENTIALS_FILE` に `Username:` / `Password:` 行のあるファイルを指定できる。`VITE_` を付けない。ブラウザは HTTPS または localhost で開く。
 
 ```sh
 npm run typecheck

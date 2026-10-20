@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { WebSocket, WebSocketServer } from 'ws';
 import { decode } from '@msgpack/msgpack';
+import { PROTOTYPE_KOKOSYNC } from './kokosync-config.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { KokosyncClient, type Value } from '../vendor/kokosync/index.js';
@@ -22,7 +23,7 @@ const rooms = new Map<string, SessionRoom>();
 const connecting = new Map<string, Promise<SessionRoom>>();
 const grants = new Map<string, Grant>();
 const instance = crypto.randomUUID();
-const url = () => process.env.KOKOSYNC_URL || 'https://45.77.130.146';
+const url = () => process.env.KOKOSYNC_URL || PROTOTYPE_KOKOSYNC.url;
 function headers(): Record<string, string> {
   let username = process.env.KOKOSYNC_USERNAME, password = process.env.KOKOSYNC_PASSWORD;
   const file = process.env.KOKOSYNC_CREDENTIALS_FILE;
@@ -30,6 +31,9 @@ function headers(): Record<string, string> {
     const text = fs.readFileSync(file, 'utf8');
     username = text.match(/^Username:\s*(.+)$/m)?.[1].trim();
     password = text.match(/^Password:\s*(.+)$/m)?.[1].trim();
+  }
+  if (!username && !password && new URL(url()).origin === PROTOTYPE_KOKOSYNC.url) {
+    ({ username, password } = PROTOTYPE_KOKOSYNC);
   }
   return username && password ? { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` } : {};
 }
