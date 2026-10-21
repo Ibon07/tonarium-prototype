@@ -56,7 +56,7 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 ## 主な機能
 - ホーム（セッション外の画面。セッション・フレンド・イベント・グループの一覧と作成、公開範囲、招待）→ [docs/home.md](docs/home.md)
 - ステータス、DM とグループのチャンネル、日程の相談、セッションのまとめ、おかえり → [docs/messages.md](docs/messages.md)
-- 2D の画面（距離ごとのプレイヤー・アイテムのリスト、顔、通知・チャット、ウィンドウ）→ [docs/screens.md](docs/screens.md)
+- 2D の画面（距離ごとのプレイヤー・アイテムのリスト、顔、通知・チャット、ウィンドウ、スマホ）→ [docs/screens.md](docs/screens.md)
 - 3D 空間（FPS 風の操作、ワールドの切り替え、お絵描きアバター、配信ディスプレイ）→ [docs/3d.md](docs/3d.md)
 - 距離で変わる声、ブロードキャストモード、ついていく → [docs/audio.md](docs/audio.md)
 - アイテム（付箋・ハンマー・チェス・サイコロ・キャンバス・カメラ・2048）と画像・動画・YouTube の共有 → [docs/items.md](docs/items.md)
@@ -66,6 +66,6 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 - 実装の設計 → [docs/architecture.md](docs/architecture.md)
 
 ## 参加者への注意
-- デスクトップ版 Chrome / Edge 推奨
+- デスクトップ版 Chrome / Edge 推奨（スマホは 2D だけで、最低限の対応）
 - 配信の音声: タブ共有ならタブ音声、Windows で画面全体を共有すると PC の音声も流れる（ウィンドウ単位の共有では音声なし）
 - サーバーを再起動するとセッション内のチャットは消える（アイテム・DM・チャンネルのメッセージは残る）

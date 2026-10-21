@@ -24,6 +24,7 @@ import { ConfirmOpen } from './Links.tsx';
 import { shareFiles, shareYouTube, youTubeId } from '../media.ts';
 import { MediaSync } from '../mediaSync.tsx';
 import { closeWindow, openWindow, setWinMode } from './windows.ts';
+import { touchOnly, usePhone } from '../phone.ts';
 
 function WorldBadge() {
   const world = useStore((s) => sessionOf(s.session));
@@ -95,10 +96,13 @@ function Dock() {
       <button className={`dk ${micEnabled ? '' : 'muted'}`} onClick={() => void toggleMic()} aria-label={micEnabled ? 'マイクをミュート' : 'マイクのミュートを解除'} title={micEnabled ? 'ミュート' : 'ミュート解除'}>
         <Icon name={micEnabled ? 'mic' : 'micOff'} size={22} />
       </button>
-      <button
-        className={`dk ${sharingSelf ? 'active' : ''}`} disabled={!ok || (!!sharer && !sharingSelf)} onClick={() => void toggleShare()}
-        aria-label={sharingSelf ? '画面共有を停止' : '画面共有'} title={sharingSelf ? '画面共有を停止' : !ok ? '通話に接続すると使えます' : sharer ? `${nameOf(sharer)} が共有中` : '画面共有'}
-      ><Icon name="screen" size={22} /></button>
+      {/* スマホのブラウザは画面共有できない */}
+      {!touchOnly && (
+        <button
+          className={`dk ${sharingSelf ? 'active' : ''}`} disabled={!ok || (!!sharer && !sharingSelf)} onClick={() => void toggleShare()}
+          aria-label={sharingSelf ? '画面共有を停止' : '画面共有'} title={sharingSelf ? '画面共有を停止' : !ok ? '通話に接続すると使えます' : sharer ? `${nameOf(sharer)} が共有中` : '画面共有'}
+        ><Icon name="screen" size={22} /></button>
+      )}
       <button className="dk" aria-label="サウンドボード" title="サウンドボード" data-popanchor onClick={(e) => setSb(sb ? null : e.currentTarget.getBoundingClientRect())}>
         <Icon name="music" size={22} />
       </button>
@@ -390,15 +394,43 @@ function useOpenRequestedLive() {
   }, [ready, requested]);
 }
 
+const PHONE_TABS = [
+  { id: 'screen', name: '画面', icon: 'window' },
+  { id: 'list', name: 'プレイヤー', icon: 'people' },
+  { id: 'log', name: '通知・ログ', icon: 'chat' },
+] as const;
+
+/** スマホ幅では前面のパネルを全面に 1 つずつ出し、下のタブで切り替える */
+function PhoneTabs() {
+  const tab = useStore((s) => s.phoneTab);
+  const unread = useStore((s) => s.notices.filter((n) => n.unread).length);
+  return (
+    <nav className="phonetabs" aria-label="表示の切り替え">
+      {PHONE_TABS.map((t) => (
+        <button key={t.id} className={`ib ${tab === t.id ? 'on' : ''}`} aria-pressed={tab === t.id} onClick={() => set({ phoneTab: t.id })}>
+          <Icon name={t.icon} size={20} />{t.name}
+          {t.id === 'log' && unread > 0 && <span className="badge">{unread}</span>}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 export function WorldScreen() {
   useOpenRequestedLive();
+  const phone = usePhone();
+  const phoneTab = useStore((s) => s.phoneTab);
+  // スマホでは左右のパネルはたたまず、ウィンドウはカンタン表示だけ（保存はしない）
+  useEffect(() => {
+    if (phone) set((s) => ({ folded: { ...s.folded, left: false, right: false }, winMode: 'simple' }));
+  }, [phone]);
   const dragging = useMediaInput();
   const mode = useStore((s) => s.mode);
   const locked = useStore((s) => s.locked);
   const folded = useStore((s) => s.folded);
   const root = useRef<HTMLDivElement>(null);
   return (
-    <div ref={root} className={`world ${mode} ${locked ? 'locked' : ''} ${folded.left ? 'fl' : ''} ${folded.right ? 'fr' : ''}`}>
+    <div ref={root} className={`world ${mode} ${locked ? 'locked' : ''} ${folded.left ? 'fl' : ''} ${folded.right ? 'fr' : ''} ${phone ? `phone pt-${phoneTab}` : ''}`}>
       {mode === '3d' && <View3D />}
       <WindowLayer />
       <PortraitCanvas />
@@ -409,6 +441,7 @@ export function WorldScreen() {
         <NoticeLog />
         <StatusChips />
         <Dock />
+        {phone && <PhoneTabs />}
       </div>
       <MediaSync />
       <Toast />
