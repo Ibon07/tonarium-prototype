@@ -17,6 +17,7 @@ public sealed class ThreeDOverlayWindow : Window
     private IntPtr inputHookWindow;
     private static readonly UIntPtr InputSubclassId = new(0x544E4F49);
     private string regionSignature = "";
+    public event Action? ShutdownRequested;
 
     /// <param name="regions">HUD rectangles in this window's client DIP coordinates; null covers the whole client, an empty list passes all input to Unity.</param>
     public ThreeDOverlayWindow(Window owner, Control content, Func<IReadOnlyList<Rect>?> regions)
@@ -45,10 +46,11 @@ public sealed class ThreeDOverlayWindow : Window
         Opened += (_, _) => { ApplyInputMode(); SynchronizeBounds(); RefreshRegion(); };
         Closing += (_, e) =>
         {
-            if (allowClose) return;
-            // HUDにフォーカスがある時のAlt+F4もアプリ全体の終了として扱う。
+            // Avalonia asks owned windows first. Never turn that query back into an
+            // owner.Close(): it re-enters the same ownership traversal indefinitely.
+            if (allowClose || e.CloseReason == WindowCloseReason.OwnerWindowClosing) return;
             e.Cancel = true;
-            ownerWindow.Close();
+            ShutdownRequested?.Invoke();
         };
         Closed += (_, _) => DetachOwner();
     }

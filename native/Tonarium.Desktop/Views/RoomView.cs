@@ -67,7 +67,7 @@ public sealed partial class RoomView : UserControl
     private int _openItemCount, _portraitWindowCount;
     private bool Gallery => _openItemCount + _portraitWindowCount == 0 && _ctx.State.Mode == "2d";
     private readonly Border _threeDSurface = new() { Margin = new Thickness(345, 90, 340, 100), IsVisible = false };
-    private string _playersSignature = "", _itemsSignature = "", _chatSignature = "", _noticeSignature = "", _statusSignature = "";
+    private string _itemsSignature = "", _chatSignature = "", _noticeSignature = "", _statusSignature = "";
     private bool _leftHidden, _rightHidden, _facesHidden, _chatOnly;
     private string? _conversation;
     private readonly Dictionary<string, TextBlock> _distanceLabels = new();
@@ -175,7 +175,7 @@ public sealed partial class RoomView : UserControl
 
         var centerStack = new StackPanel { Spacing = 4, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         centerStack.Children.Add(_faces);
-        _faceFold = IconButton("up", "顔の表示を上にたたむ", () => { _facesHidden = !_facesHidden; NativeSettings.SetBool("room.facesFolded", _facesHidden); _playersSignature = ""; Refresh(); }, 14);
+        _faceFold = IconButton("up", "顔の表示を上にたたむ", () => { _facesHidden = !_facesHidden; NativeSettings.SetBool("room.facesFolded", _facesHidden); Fit(); }, 14);
         _faceFold.Width = 48; _faceFold.Height = 18; _faceFold.Padding = new Thickness(0); _faceFold.Background = Brush.Parse("#EEFFFDF9"); _faceFold.CornerRadius = new CornerRadius(0, 0, 10, 10); _faceFold.HorizontalAlignment = HorizontalAlignment.Center; centerStack.Children.Add(_faceFold);
         _mode = Ui.Button("3D 空間に入る  ↗", () => Run(() => _ctx.ChangeModeAsync(_ctx.State.Mode == "3d" ? "2d" : "3d")));
         _mode.HorizontalAlignment = HorizontalAlignment.Center; _mode.Padding = new Thickness(22, 12);
@@ -259,9 +259,9 @@ public sealed partial class RoomView : UserControl
     public void Refresh()
     {
         var s = _ctx.State;
+        ComputePlaces();
         if(_layoutMode!=s.Mode){_layoutMode=s.Mode;Fit();}
         _sessionMenu.Refresh();
-        ComputePlaces();
         var users = Participants();
         _worldName.Text = J.Text(s.Sessions.FirstOrDefault(x => J.Text(x, "id") == s.SessionId), "name", "セッション"); _broadcastPill.IsVisible = s.Broadcast;
         _playerCount.Text = users.Count.ToString(); _itemCount.Text = s.Items.Count.ToString();
@@ -272,16 +272,15 @@ public sealed partial class RoomView : UserControl
         AutomationProperties.SetName(_share, s.Sharing ? "画面共有を停止" : "画面共有");
         StyleWindowModes();
         _mode.Content = s.Mode == "3d" ? "2D に戻る" : "3D 空間に入る  ↗";
-        // Distance bands affect ordering; the numeric labels update without replacing row controls.
-        var pkey = string.Join("|", users.OrderBy(Distance).Select(u => $"{J.Text(u, "id")}:{J.Text(u, "name")}:{J.Text(u, "mode")}:{J.Text(u, "follow")}:{J.Bool(u, "micOn")}:{J.Bool(u, "sharing")}:{J.Text(u, "icon")}:{J.Text(u, "avatar")}:{J.Bool(u, "speaking")}:{Band(Distance(u))}")) + _facesHidden + s.Mode;
-        if (pkey != _playersSignature) { _playersSignature = pkey; RebuildPlayers(users); RebuildFaces(users); }
+        RefreshPlayers(users);
+        RefreshFaces(users);
         foreach (var (id, label) in _distanceLabels) label.Text = FormatDistance(DistanceId(id));
         var ikey = string.Join("|", s.Items.Select(p => $"{p.Key}:{J.Text(p.Value, "kind")}:{J.Text(p.Value, "text")}:{J.Text(p.Value, "holder")}:{J.Bool(p.Value, "live")}:{Band(ItemDistance(p.Value))}"));
         if (ikey != _itemsSignature) { _itemsSignature = ikey; RebuildItems(); }
         var chats = _conversation is null ? s.Chats : J.Array(s.Conversations, _conversation);
         var blocked = string.Join("|", NativeSettings.BlockedNames.OrderBy(x => x));
         var ckey = chats.ToJsonString() + _conversation + _chatOnly + blocked;
-        if (ckey != _chatSignature) { _chatSignature = ckey; RebuildChat(chats); RebuildFaces(users); }
+        if (ckey != _chatSignature) { _chatSignature = ckey; RebuildChat(chats); }
         var nkey = s.Notifications.ToJsonString() + blocked;
         if (nkey != _noticeSignature) { _noticeSignature = nkey; RebuildNotices(); }
         var me = users.FirstOrDefault(u => J.Text(u, "id") == s.SelfId);
@@ -334,20 +333,6 @@ public sealed partial class RoomView : UserControl
         row.Spacing = 8; row.Margin = new Thickness(8, 4); return row;
     }
 
-    private void RebuildPlayers(List<JsonNode> users)
-    {
-        _players.Children.Clear(); _distanceLabels.Clear();
-        var self = users.FirstOrDefault(u => J.Text(u, "id") == _ctx.State.SelfId);
-        if (self is not null) _players.Children.Add(PlayerRow(self, true));
-        var others = users.Where(u => J.Text(u, "id") != _ctx.State.SelfId).OrderBy(Distance).ToList();
-        for (var band = 0; band < 3; band++)
-        {
-            var entries = others.Where(u => Band(Distance(u)) == band).ToList(); if (entries.Count == 0) continue;
-            _players.Children.Add(BandLabel(band));
-            foreach (var u in entries) _players.Children.Add(PlayerRow(u, false));
-        }
-        if (others.Count == 0) _players.Children.Add(Empty("まだ誰もいません"));
-    }
     private Control PlayerRow(JsonNode user, bool self)
     {
         var id = J.Text(user, "id"); var name = J.Text(user, "name");
@@ -367,7 +352,7 @@ public sealed partial class RoomView : UserControl
         if (self) { var badges = Ui.Row(Pill("あなた", "#26262E", "#FFFFFF"), Pill(_ctx.State.Mode.ToUpperInvariant(), "#EBE6DD", Ui.Muted)); badges.Spacing = 4; Grid.SetColumn(badges, 2); Grid.SetColumnSpan(badges, 2); row.Children.Add(badges); }
         else if (J.Bool(user, "sharing")) { var live = Small("ライブ", () => OpenLive(id)); live.Content = IconLabel("screen", "ライブ", 11, 10, "#FFFFFF"); live.Background = Brush.Parse("#D9483B"); live.Foreground = Brushes.White; live.Height = 22; live.CornerRadius = new CornerRadius(99); Grid.SetColumn(live, 2); row.Children.Add(live); }
         else { var dist = Ui.Text(self ? "" : FormatDistance(Distance(user)), 10, Ui.Muted); dist.VerticalAlignment = VerticalAlignment.Center; if (!self) _distanceLabels[id] = dist; Grid.SetColumn(dist, 2); row.Children.Add(dist); }
-        if (!self) { var more = IconButton("more", name + " のアクション", () => UserMenu(user), 16); more.Width = large ? 30 : 26; more.Height = large ? 30 : 26; Grid.SetColumn(more, 3); row.Children.Add(more); }
+        if (!self) { var more = IconButton("more", name + " のアクション", () => { if (CurrentParticipant(id) is { } current) UserMenu(current); }, 16); more.Width = large ? 30 : 26; more.Height = large ? 30 : 26; Grid.SetColumn(more, 3); row.Children.Add(more); }
         var card = new Border { Child = row, Padding = new Thickness(8, large ? 5 : 1, 4, large ? 5 : 1), CornerRadius = new CornerRadius(12), Background = self ? Brush.Parse("#0D26262E") : Brushes.Transparent };
         if (J.Text(user, "follow") != "") card.Margin = new Thickness(14, 0, 0, 0);
         return card;
@@ -384,81 +369,11 @@ public sealed partial class RoomView : UserControl
         if (J.Text(user, "mode") == "3d" && id != _ctx.State.SelfId) box.Children.Add(ActionButton("follow", "ついていく / やめる", () => { var me = Participants().FirstOrDefault(x => J.Text(x, "id") == _ctx.State.SelfId); SendRoom(new { t = "follow", target = J.Text(me, "follow") == id ? null : id }); }));
         ShowPopup(box, 310);
     }
-    private void RebuildFaces(List<JsonNode> users)
-    {
-        _faces.Children.Clear(); _faceFold.IsVisible = !Gallery && !_facesHidden;
-        var self = users.FirstOrDefault(u => J.Text(u, "id") == _ctx.State.SelfId);
-        var near = users.Where(u => J.Text(u, "id") != _ctx.State.SelfId && Distance(u) <= 3).OrderBy(Distance).ToList();
-        var mid = users.Where(u => J.Text(u, "id") != _ctx.State.SelfId && Distance(u) > 3 && Distance(u) <= 15).OrderBy(Distance).ToList();
-        if (_facesHidden)
-        {
-            var mini = Ui.Row(); mini.Spacing = 0;
-            foreach (var u in near.Take(4)) mini.Children.Add(Face(u, 24));
-            var expand = Small("", () => { _facesHidden = false; NativeSettings.SetBool("room.facesFolded", false); Fit(); });
-            expand.Content = Ui.Row(mini, Ui.Text($"すぐそば {near.Count}", 12), Ui.Text($"· 声が届く {mid.Count}", 12, Ui.Muted), new WebIcon("down", 14));
-            expand.Background = Brush.Parse("#F0FFFDF9"); expand.CornerRadius = new CornerRadius(99); expand.Padding = new Thickness(6, 4, 10, 4);
-            _faces.Children.Add(expand); return;
-        }
-        if (Gallery)
-        {
-            var all = new List<JsonNode>(); if (self is not null) all.Add(self); all.AddRange(near); all.AddRange(mid);
-            var availableWidth = Math.Max(120, Bounds.Width - _center.Margin.Left - _center.Margin.Right);
-            var availableHeight = Math.Max(120, Bounds.Height - 234);
-            var size = GalleryTile(all.Count, availableWidth, availableHeight);
-            var wrap = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = availableWidth, Orientation = Orientation.Horizontal };
-            foreach (var u in all) { var tile = FaceTile(u, size, false); tile.Margin = new Thickness(6); wrap.Children.Add(tile); }
-            _faces.Children.Add(wrap); return;
-        }
-        var strip = Ui.Row(); strip.Spacing = 8;
-        var available = Math.Max(150, Bounds.Width - _center.Margin.Left - _center.Margin.Right);
-        var largeCount = Math.Min(4, near.Count) + (self is null ? 0 : 1);
-        var largeWidth = Math.Clamp((available - (mid.Count > 0 ? 150 : 0) - Math.Max(0, largeCount - 1) * 8) / Math.Max(1, largeCount), 96, 144);
-        if (self is not null) strip.Children.Add(FaceTile(self, largeWidth, false));
-        foreach (var u in near.Take(4)) strip.Children.Add(FaceTile(u, largeWidth, false));
-        if (mid.Count > 0)
-        {
-            var small = new WrapPanel { Orientation = Orientation.Vertical, Height = 108, MaxWidth = 148 };
-            foreach (var u in mid.Take(3)) { var tile = FaceTile(u, 70, true); tile.Margin = new Thickness(2); small.Children.Add(tile); }
-            if (mid.Count > 3) small.Children.Add(new Border { Width = 70, Height = 52, CornerRadius = new CornerRadius(10), Background = Brush.Parse("#BB26262E"), Child = CenterText($"+{mid.Count - 3}", 14) });
-            strip.Children.Add(small);
-        }
-        _faces.Children.Add(strip);
-    }
     private static double GalleryTile(int n, double width, double height)
     {
         var best = 96d;
         for (var columns = 1; columns <= Math.Max(1, n); columns++) { var rows = Math.Ceiling(n / (double)columns); var tile = Math.Min((width - (columns - 1) * 12) / columns, ((height - (rows - 1) * 12) / rows) * 4 / 3); best = Math.Max(best, tile); }
         return Math.Clamp(Math.Floor(best - 12), 96, 420);
-    }
-    private Control FaceTile(JsonNode user, double width, bool small)
-    {
-        var id = J.Text(user, "id"); var self = id == _ctx.State.SelfId; var color = PortraitColor(id); var height = width * .75;
-        var portrait = new AvatarPortrait(_ctx, id, small) { Height = height, Width = width };
-        var content = new Grid(); content.Children.Add(portrait);
-        var button = Small("", () =>
-        {
-            if (_ctx.State.Mode == "2d" && id != _ctx.State.SelfId && _ctx.State.Items.Any(p => J.Text(p.Value, "kind") == "hammer" && J.Text(p.Value, "holder") == _ctx.State.SelfId)) PickUser(id);
-            else OpenPortrait(user);
-        }); button.Content = content; button.Padding = new Thickness(0); button.Width = width; button.Height = height; button.CornerRadius = new CornerRadius(small ? 10 : 14); button.ClipToBounds = true;
-        var body = new Grid(); body.Children.Add(button);
-        if (small)
-        {
-            var face = Face(user, 16); face.HorizontalAlignment = HorizontalAlignment.Left; face.VerticalAlignment = VerticalAlignment.Bottom; face.Margin = new Thickness(4); body.Children.Add(face);
-        }
-        else
-        {
-            var footer = new Grid { ColumnDefinitions = new ColumnDefinitions("18,Auto,*,Auto"), ColumnSpacing = 5 };
-            footer.Children.Add(Face(user, 18));
-            var status = new WebIcon(J.Bool(user, "micOn") ? "speaking" : "micOff", 12, Brush.Parse(J.Bool(user, "micOn") ? "#7FE0A8" : "#F6A79C")); Grid.SetColumn(status, 1); footer.Children.Add(status);
-            var name = Ui.Text(J.Text(user, "name"), Gallery ? 13 : 12, "#FFFFFF"); name.TextWrapping = TextWrapping.NoWrap; name.TextTrimming = TextTrimming.CharacterEllipsis; name.FontWeight = FontWeight.Bold; Grid.SetColumn(name, 2); footer.Children.Add(name);
-            var distance = Ui.Text(self ? "あなた" : FormatDistance(Distance(user)), 10, "#FFFFFF"); Grid.SetColumn(distance, 3); footer.Children.Add(distance);
-            body.Children.Add(new Border { Child = footer, Background = Brush.Parse("#B826262E"), CornerRadius = new CornerRadius(9), Padding = new Thickness(3, 2, 7, 2), Height = Gallery ? 28 : 24, Margin = new Thickness(6), VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false });
-            var profile = IconButton("more", J.Text(user, "name") + " のプロフィール", () => _ctx.OpenProfile(id), 14); profile.Background = Brush.Parse("#C7FFFFFF"); profile.Width = profile.Height = 28; profile.HorizontalAlignment = HorizontalAlignment.Right; profile.VerticalAlignment = VerticalAlignment.Top; profile.Margin = new Thickness(5); body.Children.Add(profile);
-            var last = _ctx.State.Chats.LastOrDefault(m => J.Text(m, "from") == id && J.Text(m, "text") != "" && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - J.Number(m, "at") < 30000);
-            if (last is not null) { var text = Ui.Text(J.Text(last, "text"), 11); text.TextWrapping = TextWrapping.NoWrap; text.TextTrimming = TextTrimming.CharacterEllipsis; body.Children.Add(new Border { Child = text, Background = Brush.Parse("#F2FFFFFF"), CornerRadius = new CornerRadius(9, 9, 9, 3), Padding = new Thickness(8, 4), Margin = new Thickness(6, 0, 6, 38), VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false }); }
-        }
-        if (J.Text(user, "mode") == "3d") { var badge = Pill("3D", "#26262E", "#FFFFFF"); badge.HorizontalAlignment = HorizontalAlignment.Left; badge.VerticalAlignment = VerticalAlignment.Top; badge.Margin = new Thickness(6); body.Children.Add(badge); }
-        return new Border { Child = body, Width = width, Height = height, Background = Brush.Parse(color), ClipToBounds = true, CornerRadius = new CornerRadius(small ? 10 : 14), BorderThickness = new Thickness(J.Bool(user, "speaking") ? 3 : self ? 2 : 1), BorderBrush = Brush.Parse(J.Bool(user, "speaking") ? "#2E9A64" : self ? "#8C8886" : "#1826262E") };
     }
     private void RebuildItems()
     {
@@ -735,7 +650,7 @@ public sealed partial class RoomView : UserControl
         _center.VerticalAlignment = Gallery && !_facesHidden ? VerticalAlignment.Stretch : VerticalAlignment.Top;
         // Keep the Unity stage inside the same native-panel safe area as before.
         _threeDSurface.Margin = new Thickness(left, 90, right, 100);
-        RebuildFaces(Participants());
+        RefreshFaces(Participants());
     }
     private static string UserColor(string id)
     {

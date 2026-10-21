@@ -15,13 +15,18 @@ public sealed partial class ThreeDHost : IAsyncDisposable
     private readonly TonariumClient client;
     private readonly SemaphoreSlim lifecycle = new(1);
     private readonly SemaphoreSlim writing = new(1);
+    private readonly object lifecycleGate = new();
+    private Task? startTask, stopTask, disposeTask, receiveTask;
+    private CancellationTokenSource? startCancellation;
     private CancellationTokenSource? lifetime;
     private TcpListener? listener;
     private TcpClient? connection;
     private StreamWriter? writer;
     private Process? player;
     private TaskCompletionSource? ready;
-    private bool stopping;
+    private volatile bool stopping;
+    private bool disposed;
+    private string? sessionId;
     private INativeMedia? media;
     private bool mediaAttached;
     private DispatcherTimer? presentationTimer;
@@ -53,21 +58,37 @@ public sealed partial class ThreeDHost : IAsyncDisposable
         if (mediaAttached) media.VideoFrameJpeg += ForwardVideoFrame;
     }
 
-    public async Task StartAsync(IntPtr parentWindow = default)
+    public Task StartAsync(IntPtr parentWindow = default)
     {
+        lock (lifecycleGate)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (startTask is { IsCompleted: false }) return startTask;
+            startCancellation = new CancellationTokenSource();
+            return startTask = StartCoreAsync(parentWindow, stopTask, startCancellation);
+        }
+    }
+
+    private async Task StartCoreAsync(IntPtr parentWindow, Task? precedingStop, CancellationTokenSource starting)
+    {
+        await Task.Yield();
+        if (precedingStop is not null) await precedingStop;
         await lifecycle.WaitAsync();
         try
         {
+            starting.Token.ThrowIfCancellationRequested();
             if (IsRunning) return;
             if (client.State.SessionId is null) throw new InvalidOperationException("セッションに参加してから 3D に入ってください。");
             stopping = false; LastError = null;
+            sessionId = client.State.SessionId;
             PlayerPath = FindPlayer();
             if (PlayerPath is null)
             {
-                await BuildPlayerAsync();
+                await BuildPlayerAsync(starting.Token);
                 PlayerPath = FindPlayer();
             }
             if (PlayerPath is null) throw new FileNotFoundException("Unity プレイヤーがありません。native/build-unity.ps1 を実行してください。");
+            starting.Token.ThrowIfCancellationRequested();
             lifetime = new CancellationTokenSource();
             ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(1);
@@ -88,14 +109,16 @@ public sealed partial class ThreeDHost : IAsyncDisposable
             player = Process.Start(info) ?? throw new InvalidOperationException("Unity プレイヤーを起動できませんでした。");
             player.EnableRaisingEvents = true;
             player.Exited += PlayerExited;
-            _ = ReceiveAsync(lifetime.Token);
-            await ready.Task.WaitAsync(TimeSpan.FromSeconds(40));
+            receiveTask = ReceiveAsync(lifetime.Token);
+            await ready.Task.WaitAsync(TimeSpan.FromSeconds(40), starting.Token);
             if (parentWindow != IntPtr.Zero)
             {
-                await EmbedPlayerAsync(parentWindow);
+                await EmbedPlayerAsync(parentWindow, starting.Token);
                 await SendAsync(new { t = "pointerWindow", hwnd = PlayerWindowHandle.ToInt64() });
             }
-            await client.SendRoomAsync(new { t = "mode", mode = "3d" });
+            starting.Token.ThrowIfCancellationRequested();
+            await client.SendRoomAsync(new { t = "mode", mode = "3d" }).WaitAsync(starting.Token);
+            starting.Token.ThrowIfCancellationRequested();
             if (media is not null) { media.VideoFrameJpeg += ForwardVideoFrame; mediaAttached = true; }
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -107,10 +130,19 @@ public sealed partial class ThreeDHost : IAsyncDisposable
         catch (Exception ex)
         {
             LastError = ex.Message;
-            await ClosePlayerAsync();
+            try { await ClosePlayerAsync(); }
+            finally { await ReturnTo2DAsync(); }
             throw;
         }
-        finally { lifecycle.Release(); }
+        finally
+        {
+            lifecycle.Release();
+            lock (lifecycleGate)
+            {
+                if (ReferenceEquals(startCancellation, starting)) startCancellation = null;
+                starting.Dispose();
+            }
+        }
     }
 
     private async Task ReceiveAsync(CancellationToken ct)
@@ -131,7 +163,7 @@ public sealed partial class ThreeDHost : IAsyncDisposable
                 switch (message["t"]?.ToString())
                 {
                     case "ready":
-                        await SendSnapshotAsync();
+                        await SendSnapshotAsync().WaitAsync(ct);
                         ready?.TrySetResult();
                         break;
                     case "room" when message["message"] is JsonObject room:
@@ -141,10 +173,10 @@ public sealed partial class ThreeDHost : IAsyncDisposable
                             await SendAsync(new { t = "notice", text = "通話に接続していないので配信できません" });
                             break;
                         }
-                        await client.SendRoomAsync(room);
+                        await client.SendRoomAsync(room).WaitAsync(ct);
                         break;
                     case "home" when message["message"] is JsonObject home:
-                        await client.SendAsync(home);
+                        await client.SendAsync(home).WaitAsync(ct);
                         break;
                     case "cameraFrame" when media is NativeMedia native:
                         if (message["id"]?.ToString() is { } cameraId && message["jpeg"]?.ToString() is { Length: > 0 and < 2097152 } encoded)
@@ -223,9 +255,11 @@ public sealed partial class ThreeDHost : IAsyncDisposable
 
     private async Task SendAsync(object message)
     {
+        var target = writer;
+        if (target is null) return;
         string json = message is JsonNode node ? node.ToJsonString() : JsonSerializer.Serialize(message);
         await writing.WaitAsync();
-        try { if (writer is not null) await writer.WriteLineAsync(json); }
+        try { if (ReferenceEquals(writer, target)) await target.WriteLineAsync(json); }
         finally { writing.Release(); }
     }
 
@@ -264,18 +298,50 @@ public sealed partial class ThreeDHost : IAsyncDisposable
 
     public Task ResizeAsync(int width, int height, double scale = 1) => SendAsync(new { t = "resize", width = Math.Clamp(width, 160, 8192), height = Math.Clamp(height, 160, 8192), scale });
 
-    public async Task StopAsync()
+    public Task StopAsync()
     {
+        lock (lifecycleGate)
+        {
+            if (stopTask is { IsCompleted: false }) return stopTask;
+            stopping = true;
+            startCancellation?.Cancel();
+            return stopTask = StopCoreAsync();
+        }
+    }
+
+    private async Task StopCoreAsync()
+    {
+        await Task.Yield();
         await lifecycle.WaitAsync();
         try
         {
             bool wasRunning = player is not null || lifetime is not null;
             stopping = true;
-            await ClosePlayerAsync();
-            if (client.State.SessionId is not null) await client.SendRoomAsync(new { t = "mode", mode = "2d" });
-            if (wasRunning) await Dispatcher.UIThread.InvokeAsync(() => ReturnedTo2D?.Invoke());
+            try { await ClosePlayerAsync(); }
+            finally { if (wasRunning) await ReturnTo2DAsync(); }
         }
         finally { lifecycle.Release(); }
+    }
+
+    private async Task ReturnTo2DAsync()
+    {
+        var previousSession = sessionId;
+        sessionId = null;
+        // Local state and ownership must be restored even if room synchronization
+        // has disconnected. Reconnection will advertise this local mode again.
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            client.State.Mode = "2d";
+            UsesRelativePointer = false;
+            InputStateChanged?.Invoke(false);
+            client.State.Touch();
+            ReturnedTo2D?.Invoke();
+        });
+        if (previousSession is not null && previousSession == client.State.SessionId)
+        {
+            try { await client.SendRoomAsync(new { t = "mode", mode = "2d" }).WaitAsync(TimeSpan.FromSeconds(3)); }
+            catch (Exception error) { Program.Log("3D stop: could not advertise 2D mode: " + error); }
+        }
     }
 
     private async Task ClosePlayerAsync()
@@ -283,21 +349,39 @@ public sealed partial class ThreeDHost : IAsyncDisposable
         stopping = true;
         await Dispatcher.UIThread.InvokeAsync(()=> { presentationTimer?.Stop();presentationTimer=null;presentationSignature=""; });
         if (mediaAttached && media is not null) { media.VideoFrameJpeg -= ForwardVideoFrame; mediaAttached = false; }
-        // Unityから先に終了した場合も、破棄済みの接続で2Dへの復帰を止めない。
-        if (writer is not null)
+        try
         {
-            try { await SendAsync(new { t = "shutdown" }); }
-            catch (Exception error) when (error is IOException or ObjectDisposedException) { }
+            // Unityから先に終了した場合も、破棄済みの接続で2Dへの復帰を止めない。
+            if (writer is not null)
+            {
+                try { await SendAsync(new { t = "shutdown" }).WaitAsync(TimeSpan.FromSeconds(1)); }
+                catch (Exception error) when (error is IOException or ObjectDisposedException or OperationCanceledException or TimeoutException) { }
+            }
         }
-        lifetime?.Cancel(); listener?.Stop(); connection?.Dispose(); writer = null;
-        if (player is { HasExited: false })
+        finally
         {
-            try { await player.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
-            catch (TimeoutException) { player.Kill(entireProcessTree: true); await player.WaitForExitAsync(); }
+            lifetime?.Cancel(); listener?.Stop(); connection?.Dispose(); writer = null;
+            try
+            {
+                if (receiveTask is not null) await receiveTask;
+                if (player is { HasExited: false })
+                {
+                    try { await player.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
+                    catch (TimeoutException)
+                    {
+                        try { player.Kill(entireProcessTree: true); }
+                        catch (InvalidOperationException) when (player.HasExited) { }
+                        await player.WaitForExitAsync();
+                    }
+                }
+            }
+            finally
+            {
+                if (player is not null) { player.Exited -= PlayerExited; player.Dispose(); player = null; }
+                PlayerWindowHandle = IntPtr.Zero;
+                lifetime?.Dispose(); lifetime = null; connection = null; listener = null; receiveTask = null; ready = null;
+            }
         }
-        if (player is not null) { player.Exited -= PlayerExited; player.Dispose(); player = null; }
-        PlayerWindowHandle = IntPtr.Zero;
-        lifetime?.Dispose(); lifetime = null; connection = null; listener = null;
     }
 
     private void PlayerExited(object? sender, EventArgs e)
@@ -327,7 +411,7 @@ public sealed partial class ThreeDHost : IAsyncDisposable
                 if (seen.Add(directory.FullName)) yield return directory.FullName;
     }
 
-    private static async Task BuildPlayerAsync()
+    private static async Task BuildPlayerAsync(CancellationToken ct)
     {
         string? project = Roots().SelectMany(r => new[] { Path.Combine(r, "native", "Tonarium.Unity"), Path.Combine(r, "Tonarium.Unity") })
             .FirstOrDefault(p => File.Exists(Path.Combine(p, "ProjectSettings", "ProjectVersion.txt")));
@@ -344,13 +428,24 @@ public sealed partial class ThreeDHost : IAsyncDisposable
         var info = new ProcessStartInfo(editor) { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden };
         foreach (string arg in new[] { "-batchmode", "-nographics", "-quit", "-projectPath", project, "-executeMethod", "Tonarium.UnityClient.Editor.WindowsBuild.Build", "-logFile", log }) info.ArgumentList.Add(arg);
         using var process = Process.Start(info) ?? throw new IOException("Unity のビルドを起動できませんでした。");
-        await process.WaitForExitAsync();
+        try { await process.WaitForExitAsync(ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+            catch (InvalidOperationException) when (process.HasExited) { }
+            await process.WaitForExitAsync();
+            throw;
+        }
         if (process.ExitCode != 0) throw new IOException("Unity のビルドに失敗しました。ログ: " + log);
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        client.MessageReceived -= ForwardMessage;
-        await StopAsync();
+        lock (lifecycleGate)
+        {
+            disposed = true;
+            client.MessageReceived -= ForwardMessage;
+            return new ValueTask(disposeTask ??= StopAsync());
+        }
     }
 }

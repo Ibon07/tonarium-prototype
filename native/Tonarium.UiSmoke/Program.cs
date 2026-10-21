@@ -26,9 +26,10 @@ internal static class Program
         output = Path.GetFullPath(args.ElementAtOrDefault(1) ?? Path.Combine(AppContext.BaseDirectory, "ui-results"));
         Directory.CreateDirectory(output);
         File.Delete(Path.Combine(output, "failure-state.png"));
-        AppBuilder.Configure<Tonarium.Desktop.App>().UseSkia()
-            .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
-            .SetupWithoutStarting();
+        var builder = AppBuilder.Configure<Tonarium.Desktop.App>();
+        if (args.Contains("--native-lifecycle")) builder.UsePlatformDetect();
+        else builder.UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
+        builder.SetupWithoutStarting();
         SynchronizationContext.SetSynchronizationContext(new AvaloniaSynchronizationContext());
         using var cancel = new CancellationTokenSource();
         Exception? failure = null;
@@ -36,7 +37,8 @@ internal static class Program
         {
             try
             {
-                if (args.Contains("--audio-transmit")) await AudioTransmitProbe.Run(output, Pass);
+                if (args.Contains("--3d-lifecycle")) await ThreeDLifecycleProbe.Run(output, Pass, args.Contains("--native-lifecycle"));
+                else if (args.Contains("--audio-transmit")) await AudioTransmitProbe.Run(output, Pass);
                 else if (args.Contains("--side-panels")) await SidePanelProbe.Run(output, Pass);
                 else if (args.Contains("--chat-scroll")) await ChatScrollProbe.Run(output, Pass);
                 else if (args.Contains("--audio-settings")) await AudioSettingsProbe.Run(output, Pass);
@@ -55,7 +57,9 @@ internal static class Program
         File.WriteAllText(Path.Combine(output, "result.json"), JsonSerializer.Serialize(new
         {
             passed = failure is null, checks = Checks, layouts = Layouts, error = failure?.ToString(),
-            limitations = new[] { "Headless native control input and Skia rendering; no physical IME or OS window-manager verification.", "LiveKit devices and Unity rendering are checked by separate integration checks." }
+            limitations = args.Contains("--native-lifecycle")
+                ? new[] { "Real Windows windows and Unity processes; physical keyboard scan codes, OS logoff and unrelated GPU faults are not tested." }
+                : new[] { "Headless native control input and Skia rendering; no physical IME or OS window-manager verification.", "LiveKit devices and Unity rendering are checked by separate integration checks." }
         }, new JsonSerializerOptions { WriteIndented = true }));
         return failure is null ? 0 : 1;
     }

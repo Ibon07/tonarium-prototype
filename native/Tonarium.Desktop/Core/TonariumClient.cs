@@ -1,4 +1,6 @@
 using System.Net.WebSockets;
+using System.Diagnostics;
+using System.Threading.Channels;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -11,6 +13,7 @@ public sealed class TonariumClient : IAsyncDisposable
 {
     private readonly SemaphoreSlim homeSend = new(1);
     private readonly SemaphoreSlim roomSend = new(1);
+    private readonly object roomGate = new();
     private readonly string settingsPath;
     private readonly bool persistSettings;
     private CancellationTokenSource? lifetime;
@@ -18,19 +21,29 @@ public sealed class TonariumClient : IAsyncDisposable
     private ClientWebSocket? home;
     private KokoSync.Client? room;
     private Task? homeLoop;
+    private Task? roomLoop;
+    private RoomInbox? roomInbox;
+    private RoomDispatchDiagnostics? lastDispatchDiagnostics;
+    public RoomDispatchDiagnostics? DispatchDiagnostics => roomInbox?.Diagnostics ?? lastDispatchDiagnostics;
     private JsonObject? syncConfig;
     private string? requestId;
-    private long sendSequence, positionSequence, receivedSequence;
-    private readonly Dictionary<string, long> positions = new();
+    private long sendSequence, positionSequence;
     private readonly Queue<JsonObject> pending = new();
     private int roomGeneration;
-    private bool roomReady;
+    private volatile bool roomReady;
     private static readonly HashSet<string> RoomTypes = new(StringComparer.Ordinal)
     {
         "peerOperation", "sync", "mode", "status", "follow", "dropFollowers", "place2d", "displayMove", "chat",
         "avatar", "viewing", "poke", "sound", "liveRequest", "viewLive", "itemCreate", "attention", "broadcast",
         "world", "gameStart", "gameStep", "gameFell", "itemRemove", "itemMove", "itemAction", "hit"
     };
+    private KokoSync.EventQueueDiagnostics? lastEventQueueDiagnostics;
+    public KokoSync.EventQueueDiagnostics? EventQueueDiagnostics => room?.EventQueueDiagnostics ?? lastEventQueueDiagnostics;
+    public double MaxPacketWaitMs { get; private set; }
+    public double MaxUiQueueWaitMs { get; private set; }
+    public double MaxUiApplyMs { get; private set; }
+    public double MaxPacketDecodeMs { get; private set; }
+    public double MaxBlobWaitMs { get; private set; }
     public ClientState State { get; }
     public event Action<JsonObject>? MessageReceived;
 
@@ -184,7 +197,7 @@ public sealed class TonariumClient : IAsyncDisposable
         {
             case "syncConfig":
                 if (Text(message, "requestId") == requestId && message["config"] is JsonObject config)
-                    _ = ConfigureRoomAsync((JsonObject)config.DeepClone());
+                    _ = ConfigureRoomAsync((JsonObject)config.DeepClone(), Text(message, "requestId"));
                 return;
             case "syncError":
                 if (Text(message, "requestId") == requestId)
@@ -200,14 +213,19 @@ public sealed class TonariumClient : IAsyncDisposable
         await UiAsync(() => ApplyMessage(message), false);
     }
 
-    private async Task ConfigureRoomAsync(JsonObject config)
+    private async Task ConfigureRoomAsync(JsonObject config, string configurationRequest)
     {
-        if (Text(config, "sid") != State.SessionId) return;
-        await StopRoomAsync(clearPending: false);
-        await UiAsync(() => State.SyncStatus = "connecting");
-        var generation = roomGeneration;
+        if (configurationRequest != requestId || Text(config, "sid") != State.SessionId) return;
+        var generation = await StopRoomAsync(clearPending: false);
+        if (generation != roomGeneration || configurationRequest != requestId) return;
+        await UiAsync(() => { if (generation == roomGeneration) State.SyncStatus = "connecting"; });
+        if (generation != roomGeneration || configurationRequest != requestId) return;
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime?.Token ?? CancellationToken.None);
-        roomLifetime = cancellation;
+        lock (roomGate)
+        {
+            if (generation != roomGeneration) { cancellation.Dispose(); return; }
+            roomLifetime = cancellation;
+        }
         var ct = cancellation.Token;
         try
         {
@@ -218,12 +236,24 @@ public sealed class TonariumClient : IAsyncDisposable
             };
             var connection = await KokoSync.Client.ConnectWebSocketAsync(endpoint.Uri, ct,
                 headers: new Dictionary<string, string> { ["Origin"] = State.ServerUrl });
-            if (generation != roomGeneration) { await connection.DisposeAsync(); return; }
-            room = connection; syncConfig = config;
-            sendSequence = positionSequence = receivedSequence = 0; positions.Clear();
+            var adopted = false;
+            lock (roomGate)
+            {
+                if (generation == roomGeneration)
+                {
+                    room = connection; syncConfig = config;
+                    sendSequence = positionSequence = 0;
+                    adopted = true;
+                }
+            }
+            if (!adopted) { await connection.DisposeAsync(); return; }
             await connection.JoinAsync(Text(config, "room"), Text(config, "peer"), ct: ct);
-            _ = ReadRoomAsync(connection, config, generation, ct);
-            await SendRoomAsync(new JsonObject { ["t"] = "sync" });
+            lock (roomGate)
+            {
+                if (generation != roomGeneration) return;
+                roomLoop = RunRoomAsync(connection, config, generation, ct);
+            }
+            await SendRoomAsync(new JsonObject { ["t"] = "sync" }, generation);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         catch (Exception ex)
@@ -234,94 +264,263 @@ public sealed class TonariumClient : IAsyncDisposable
         }
     }
 
-    private async Task ReadRoomAsync(KokoSync.Client connection, JsonObject config, int generation, CancellationToken ct)
+    // One lifetime owns the receiver, the ordered UI consumer and all blob transfers.
+    // Neither network admission nor blob credit waits for the UI dispatcher.
+    private async Task RunRoomAsync(KokoSync.Client connection, JsonObject config, int generation, CancellationToken parentToken)
     {
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(parentToken);
+        var ct = stop.Token;
+        var inbox = new RoomInbox();
+        roomInbox = inbox;
+        var receiver = ReadRoomAsync(connection, config, inbox, ct);
+        var consumer = ApplyRoomAsync(config, generation, inbox, ct);
+        Exception? failure = null;
         try
         {
-            await foreach (var frame in connection.Events(ct))
-            {
-                if (generation != roomGeneration) break;
-                var type = frame.GetValueOrDefault("type") as string;
-                var peer = frame.GetValueOrDefault("peer") as string;
-                if (peer != Text(config, "server")) continue;
-                if (type == "blob_open")
-                {
-                    if (KokoSync.Client.Number(frame, "size") > SessionPacket.MaxBytes)
-                    { await connection.CancelBlobAsync((string)frame["transfer"]!, ct); continue; }
-                    // Drain the encrypted payload in stream order. The SDK consumes blob chunks independently.
-                    await ReceiveBlobAsync(connection, frame, config, generation, ct);
-                }
-                else if (frame.GetValueOrDefault("value") is Dictionary<string, object?> packet &&
-                    (type == "message" && frame.GetValueOrDefault("topic") as string == SessionPacket.Topic ||
-                     type == "latest" && (frame.GetValueOrDefault("key") as string)?.StartsWith(SessionPacket.Topic + ":", StringComparison.Ordinal) == true))
-                    await ReceivePacketAsync(packet, config, type == "latest", generation);
-            }
+            var ended = await Task.WhenAny(receiver, consumer);
+            await ended;
+            if (!ct.IsCancellationRequested) failure = new IOException("Room receive stream ended.");
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex) { failure = ex; }
+        finally
         {
-            if (generation == roomGeneration) await UiAsync(() => State.LastError = Friendly(ex));
+            stop.Cancel();
+            // The running session owns disposal. Close immediately on a budget/receive failure,
+            // before waiting for UI error reporting or the retry delay.
+            try { await connection.DisposeAsync(); }
+            catch (Exception ex) { failure ??= ex; }
+            try { await Task.WhenAll(receiver, consumer); }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { failure ??= ex; }
+            await inbox.DrainAsync();
+            lastEventQueueDiagnostics = connection.EventQueueDiagnostics;
+            lastDispatchDiagnostics = inbox.Diagnostics;
         }
-        if (generation == roomGeneration && !ct.IsCancellationRequested) _ = RetryRoomAsync(generation);
+        if (generation != roomGeneration || parentToken.IsCancellationRequested) return;
+        await UiAsync(() =>
+        {
+            if (generation != roomGeneration || parentToken.IsCancellationRequested) return;
+            State.SyncStatus = "unavailable";
+            State.LastError = failure is null ? "ルーム同期が終了しました。" : Friendly(failure);
+        });
+        _ = RetryRoomAsync(generation);
     }
 
-    private async Task ReceiveBlobAsync(KokoSync.Client connection, Dictionary<string, object?> frame, JsonObject config, int generation, CancellationToken ct)
+    private async Task ReadRoomAsync(KokoSync.Client connection, JsonObject config, RoomInbox inbox, CancellationToken ct)
     {
+        var key = Convert.FromBase64String(Text(config, "key"));
+        var token = Text(config, "token");
+        var sid = Text(config, "sid");
+        var positions = new Dictionary<string, long>();
+        await foreach (var frame in connection.Events(ct))
+        {
+            if (frame.GetValueOrDefault("peer") as string != Text(config, "server"))
+            {
+                if (frame.GetValueOrDefault("type") as string == "blob_open")
+                    await connection.CancelBlobAsync((string)frame["transfer"]!, ct);
+                continue;
+            }
+            var type = frame.GetValueOrDefault("type") as string;
+            if (type == "blob_open")
+            {
+                var size = KokoSync.Client.Number(frame, "size");
+                // A missing reliable packet requires a new snapshot, never skipping to later deltas.
+                if (size > SessionPacket.MaxBytes) throw new IOException("Room blob exceeds packet limit.");
+                inbox.Add((long)size, null, () => ReceiveBlobAsync(connection, frame, key, token, ct));
+            }
+            else if (frame.GetValueOrDefault("value") is Dictionary<string, object?> packet &&
+                (type == "message" && frame.GetValueOrDefault("topic") as string == SessionPacket.Topic ||
+                 type == "latest" && (frame.GetValueOrDefault("key") as string)?.StartsWith(SessionPacket.Topic + ":", StringComparison.Ordinal) == true))
+            {
+                if (packet.GetValueOrDefault("grant") as string != token) continue;
+                var latest = type == "latest";
+                var decoded = OpenRoomPacket(packet, key, token, latest);
+                string? stream = null;
+                if (latest)
+                {
+                    var message = decoded.Message!;
+                    if (Text(message, "t") != "avatar" || Text(message, "sid") != sid) continue;
+                    var id = Text(message, "id");
+                    if (positions.GetValueOrDefault(id) >= decoded.Sequence) continue;
+                    if (!positions.ContainsKey(id) && positions.Count >= 1024) throw new IOException("Room position stream limit exceeded.");
+                    positions[id] = decoded.Sequence;
+                    stream = id;
+                }
+                inbox.Add((packet.GetValueOrDefault("body") as byte[])?.Length ?? 0, stream, () => Task.FromResult(decoded));
+            }
+        }
+    }
+
+    private RoomPacket OpenRoomPacket(Dictionary<string, object?> packet, byte[] key, string token, bool latest)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var result = SessionPacket.Open(key, token, latest ? "server-position" : "server", packet);
+        MaxPacketDecodeMs = Math.Max(MaxPacketDecodeMs, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        return new RoomPacket(result.Sequence, result.Value, latest);
+    }
+
+    private async Task<RoomPacket> ReceiveBlobAsync(KokoSync.Client connection, Dictionary<string, object?> frame, byte[] key, string token, CancellationToken ct)
+    {
+        var started = Stopwatch.GetTimestamp();
         try
         {
             using var stream = new MemoryStream();
             await connection.ReceiveBlobAsync(frame, stream, ct);
-            await ReceivePacketAsync(KokoSync.Wire.Decode(stream.ToArray(), SessionPacket.MaxBytes), config, false, generation);
+            return OpenRoomPacket(KokoSync.Wire.Decode(stream.ToArray(), SessionPacket.MaxBytes), key, token, false);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
-        catch (Exception ex)
-        {
-            if (generation == roomGeneration)
-            { await UiAsync(() => State.LastError = Friendly(ex)); _ = RetryRoomAsync(generation); }
-        }
+        // Store failure in its ordered slot. The lifecycle also observes cancelled slots on shutdown.
+        catch (Exception ex) { return new RoomPacket(0, null, false, ex); }
+        finally { MaxBlobWaitMs = Math.Max(MaxBlobWaitMs, Stopwatch.GetElapsedTime(started).TotalMilliseconds); }
     }
 
-    private async Task ReceivePacketAsync(Dictionary<string, object?> packet, JsonObject config, bool latest, int generation)
+    private async Task ApplyRoomAsync(JsonObject config, int generation, RoomInbox inbox, CancellationToken ct)
     {
-        if (generation != roomGeneration || packet.GetValueOrDefault("grant") as string != Text(config, "token")) return;
-        var result = SessionPacket.Open(Convert.FromBase64String(Text(config, "key")), Text(config, "token"), latest ? "server-position" : "server", packet);
-        var message = result.Value;
-        if (latest)
+        long receivedSequence = 0;
+        var sid = Text(config, "sid");
+        while (true)
         {
-            var id = Text(message, "id");
-            if (Text(message, "sid") != State.SessionId || positions.GetValueOrDefault(id) >= result.Sequence) return;
-            positions[id] = result.Sequence;
-            await UiAsync(() => ApplyMessage(message), false);
-            return;
-        }
-        if (result.Sequence <= receivedSequence) return;
-        receivedSequence = result.Sequence;
-        if (Text(message, "kind") == "snapshot" && message["snapshot"] is JsonObject snapshot && Text(snapshot, "sid") == State.SessionId)
-        {
-            await UiAsync(() => ApplySessionSnapshot(snapshot), false);
-            var first = !roomReady;
-            roomReady = true;
-            await UiAsync(() => { State.SyncStatus = "connected"; State.LastError = null; });
-            if (first)
+            var entries = new List<RoomEntry> { await inbox.ReadAsync(ct) };
+            var packets = new List<RoomPacket>();
+            // Blob occupies its original position; later deltas cannot overtake it.
+            for (var i = 0; i < entries.Count; i++)
             {
-                await SendRoomAsync(new JsonObject { ["t"] = "mode", ["mode"] = State.Mode });
-                await SendRoomAsync(new JsonObject { ["t"] = "status", ["micOn"] = State.MicOn, ["sharing"] = State.Sharing });
+                var packet = await entries[i].Packet.WaitAsync(ct);
+                if (packet.Error is { } error) throw error;
+                if (packet.Latest || packet.Sequence > receivedSequence)
+                {
+                    packets.Add(packet);
+                    if (!packet.Latest) receivedSequence = packet.Sequence;
+                }
+                if (entries.Count < 32 && inbox.TryRead(out var next)) entries.Add(next!);
+            }
+            var firstSnapshot = false;
+            var started = Stopwatch.GetTimestamp();
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                MaxUiQueueWaitMs = Math.Max(MaxUiQueueWaitMs, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+                var applying = Stopwatch.GetTimestamp();
+                // The check must happen in the callback, not only before it is queued.
+                if (ct.IsCancellationRequested || generation != roomGeneration || State.SessionId != sid) return;
+                foreach (var packet in packets)
+                {
+                    if (ct.IsCancellationRequested || generation != roomGeneration) return;
+                    var message = packet.Message!;
+                    if (packet.Latest) ApplyMessage(message, notify: false);
+                    else if (Text(message, "kind") == "snapshot" && message["snapshot"] is JsonObject snapshot && Text(snapshot, "sid") == sid)
+                    {
+                        ApplySessionSnapshot(snapshot, notify: false);
+                        if (ct.IsCancellationRequested || generation != roomGeneration) return;
+                        firstSnapshot |= !roomReady;
+                        roomReady = true;
+                        State.SyncStatus = "connected"; State.LastError = null;
+                    }
+                    else if (Text(message, "kind") == "message" && message["message"] is JsonObject nested)
+                        ApplyMessage(nested, notify: false);
+                }
+                if (packets.Count > 0) State.Touch();
+                MaxUiApplyMs = Math.Max(MaxUiApplyMs, Stopwatch.GetElapsedTime(applying).TotalMilliseconds);
+            }, DispatcherPriority.Background, ct);
+            MaxPacketWaitMs = Math.Max(MaxPacketWaitMs, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            foreach (var entry in entries) inbox.Release(entry);
+            ct.ThrowIfCancellationRequested();
+            if (generation != roomGeneration) return;
+            if (firstSnapshot)
+            {
+                await SendRoomAsync(new JsonObject { ["t"] = "mode", ["mode"] = State.Mode }, generation);
+                await SendRoomAsync(new JsonObject { ["t"] = "status", ["micOn"] = State.MicOn, ["sharing"] = State.Sharing }, generation);
                 JsonObject[] buffered;
                 lock (pending) { buffered = pending.ToArray(); pending.Clear(); }
-                foreach (var item in buffered) await SendRoomAsync(item);
+                foreach (var item in buffered)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (generation != roomGeneration) return;
+                    await SendRoomAsync(item, generation);
+                }
             }
         }
-        else if (Text(message, "kind") == "message" && message["message"] is JsonObject nested)
-            await UiAsync(() => ApplyMessage(nested), false);
     }
 
-    public async Task SendRoomAsync(object msg)
+    private sealed record RoomPacket(long Sequence, JsonObject? Message, bool Latest, Exception? Error = null);
+    private sealed record RoomEntry(long Bytes, string? Stream, Task<RoomPacket> Packet);
+    public sealed record RoomDispatchDiagnostics(long Received, long Coalesced, int PeakEntries, long PeakBytes, long PositionsWhileBlobPending);
+
+    private sealed class RoomInbox
     {
+        // Budget includes in-flight UI batches and blobs, measured as encrypted wire payload bytes.
+        private const int MaxEntries = 256;
+        private const long MaxBytes = 64L * 1024 * 1024;
+        private readonly object gate = new();
+        private readonly LinkedList<RoomEntry> queued = new();
+        private readonly Dictionary<string, LinkedListNode<RoomEntry>> latest = new();
+        private readonly HashSet<RoomEntry> outstanding = new();
+        private readonly Channel<bool> available = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
+        private long bytes, received, coalesced, peakBytes, positionsWhileBlobPending;
+        private int peakEntries;
+        public RoomDispatchDiagnostics Diagnostics { get { lock (gate) return new(received, coalesced, peakEntries, peakBytes, positionsWhileBlobPending); } }
+        public void Add(long size, string? stream, Func<Task<RoomPacket>> receive)
+        {
+            lock (gate)
+            {
+                received++;
+                if (stream is not null && outstanding.Any(e => !e.Packet.IsCompleted)) positionsWhileBlobPending++;
+                var previous = stream is not null && latest.TryGetValue(stream, out var node) ? node : null;
+                var replacedBytes = previous?.Value.Bytes ?? 0;
+                if (outstanding.Count - (previous is null ? 0 : 1) >= MaxEntries || bytes - replacedBytes + size > MaxBytes)
+                    throw new IOException("Room updates exceeded the processing budget; retrieving latest state.");
+                if (previous is not null)
+                {
+                    queued.Remove(previous); outstanding.Remove(previous.Value); bytes -= replacedBytes; coalesced++;
+                }
+                var entry = new RoomEntry(size, stream, receive());
+                outstanding.Add(entry); bytes += size;
+                var added = queued.AddLast(entry);
+                // Reliable data is a barrier: never coalesce an avatar across a snapshot, removal or operation.
+                if (stream is null) latest.Clear(); else latest[stream] = added;
+                peakEntries = Math.Max(peakEntries, outstanding.Count); peakBytes = Math.Max(peakBytes, bytes);
+                available.Writer.TryWrite(true);
+            }
+        }
+        public bool TryRead(out RoomEntry? entry)
+        {
+            lock (gate)
+            {
+                if (queued.First is not { } node) { entry = null; return false; }
+                entry = node.Value; queued.RemoveFirst();
+                if (entry.Stream is { } stream && latest.GetValueOrDefault(stream) == node) latest.Remove(stream);
+                return true;
+            }
+        }
+        public async Task<RoomEntry> ReadAsync(CancellationToken ct)
+        {
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (TryRead(out var entry)) return entry!;
+                await available.Reader.ReadAsync(ct);
+            }
+        }
+        public void Release(RoomEntry entry) { lock (gate) { outstanding.Remove(entry); bytes -= entry.Bytes; } }
+        public async Task DrainAsync()
+        {
+            Task<RoomPacket>[] tasks;
+            lock (gate) tasks = outstanding.Select(e => e.Packet).ToArray();
+            await Task.WhenAll(tasks);
+            lock (gate) { queued.Clear(); outstanding.Clear(); latest.Clear(); bytes = 0; }
+        }
+    }
+
+    public Task SendRoomAsync(object msg) => SendRoomAsync(msg, roomGeneration);
+
+    private async Task SendRoomAsync(object msg, int generation)
+    {
+        if (generation != roomGeneration) return;
         var message = AsObject(msg);
         if (State.SessionId is null) return;
         var type = Text(message, "t");
-        if (type == "mode") await UiAsync(() => State.Mode = Text(message, "mode", "2d"));
-        if (type == "status") await UiAsync(() => { State.MicOn = Boolean(message, "micOn"); State.Sharing = Boolean(message, "sharing"); });
+        if (type == "mode") await UiAsync(() => { if (generation == roomGeneration) State.Mode = Text(message, "mode", "2d"); });
+        if (type == "status") await UiAsync(() => { if (generation == roomGeneration) { State.MicOn = Boolean(message, "micOn"); State.Sharing = Boolean(message, "sharing"); } });
+        if (generation != roomGeneration) return;
         if (!roomReady && type != "sync")
         {
             if (type is "avatar" or "viewing" or "mode" or "status") return;
@@ -334,7 +533,6 @@ public sealed class TonariumClient : IAsyncDisposable
         }
         var connection = room;
         var config = syncConfig;
-        var generation = roomGeneration;
         if (connection is null || config is null) return;
         var ct = roomLifetime?.Token ?? CancellationToken.None;
         await roomSend.WaitAsync(ct);
@@ -347,12 +545,14 @@ public sealed class TonariumClient : IAsyncDisposable
             {
                 var local = (JsonObject)message.DeepClone();
                 local["sid"] = State.SessionId; local["by"] = State.SelfId;
-                await UiAsync(() => ApplyMessage(local), false);
+                await UiAsync(() => { if (generation == roomGeneration) ApplyMessage(local); }, false);
             }
             var position = type == "avatar";
             // 自分の位置はサーバーから返らないので、音量・距離判定にも即座に反映する。
             if (position && message["s"] is JsonObject avatar)
-                await UiAsync(() => State.Avatars[State.SelfId] = avatar.DeepClone());
+                await UiAsync(() => { if (generation == roomGeneration) State.Avatars[State.SelfId] = avatar.DeepClone(); });
+            ct.ThrowIfCancellationRequested();
+            if (generation != roomGeneration) return;
             var sequence = position ? ++positionSequence : ++sendSequence;
             var packet = SessionPacket.Seal(Convert.FromBase64String(Text(config, "key")), Text(config, "token"), position ? "client-position" : "client", sequence, message);
             if (position) await connection.LatestAsync(SessionPacket.Topic, packet, (ulong)sequence, ct);
@@ -383,17 +583,34 @@ public sealed class TonariumClient : IAsyncDisposable
         catch (Exception ex) { await UiAsync(() => State.LastError = Friendly(ex)); }
     }
 
-    private async Task StopRoomAsync(bool clearPending = true)
+    private async Task<int> StopRoomAsync(bool clearPending = true)
     {
-        roomGeneration++;
-        roomReady = false;
-        var cancellation = roomLifetime; roomLifetime = null;
+        int generation;
+        CancellationTokenSource? cancellation;
+        KokoSync.Client? old;
+        Task? loop;
+        lock (roomGate)
+        {
+            generation = Interlocked.Increment(ref roomGeneration);
+            roomReady = false;
+            cancellation = roomLifetime; roomLifetime = null;
+            old = room; room = null; syncConfig = null;
+            loop = roomLoop; roomLoop = null;
+            roomInbox = null;
+            if (clearPending) requestId = null;
+        }
         cancellation?.Cancel();
-        var old = room; room = null; syncConfig = null;
         if (clearPending) lock (pending) pending.Clear();
-        if (old is not null) { try { await old.DisposeAsync(); } catch (Exception) { } }
+        if (loop is not null) await loop;
+        else if (old is not null)
+        {
+            // Configuration may be cancelled before the receiving session starts.
+            lastEventQueueDiagnostics = old.EventQueueDiagnostics;
+            try { await old.DisposeAsync(); } catch (Exception) { }
+        }
         cancellation?.Dispose();
-        await UiAsync(() => State.SyncStatus = "off");
+        await UiAsync(() => { if (generation == roomGeneration) State.SyncStatus = "off"; });
+        return generation;
     }
 
     public async Task DisconnectAsync()
@@ -407,7 +624,9 @@ public sealed class TonariumClient : IAsyncDisposable
         await UiAsync(() => { State.Connected = false; State.ConnectionStatus = "未接続"; State.SessionId = null; ResetRoomState(); });
     }
 
-    public void ApplySessionSnapshot(JsonObject snapshot)
+    public void ApplySessionSnapshot(JsonObject snapshot) => ApplySessionSnapshot(snapshot, true);
+
+    private void ApplySessionSnapshot(JsonObject snapshot, bool notify)
     {
         State.Chats = Array(snapshot, "chats");
         State.Avatars = Object(snapshot, "avatars");
@@ -419,11 +638,13 @@ public sealed class TonariumClient : IAsyncDisposable
         State.Game = Object(snapshot, "game");
         State.ServerOffset = Number(snapshot, "now") - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         MessageReceived?.Invoke(new JsonObject { ["t"] = "sessionSnapshot", ["s"] = snapshot.DeepClone() });
-        State.Touch();
+        if (notify) State.Touch();
     }
 
     /// <summary>All incoming protocol messages are applied on the UI thread.</summary>
-    public void ApplyMessage(JsonObject message)
+    public void ApplyMessage(JsonObject message) => ApplyMessage(message, true);
+
+    private void ApplyMessage(JsonObject message, bool notify)
     {
         var type = Text(message, "t");
         if (message["sid"] is not null && Text(message, "sid") != State.SessionId) return;
@@ -478,7 +699,7 @@ public sealed class TonariumClient : IAsyncDisposable
                 break;
         }
         MessageReceived?.Invoke((JsonObject)message.DeepClone());
-        State.Touch();
+        if (notify) State.Touch();
     }
 
     private void ApplyItemDelta(string id, JsonObject action, string by)

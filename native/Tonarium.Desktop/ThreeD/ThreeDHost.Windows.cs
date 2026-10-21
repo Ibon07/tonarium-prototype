@@ -10,7 +10,7 @@ public sealed partial class ThreeDHost
     public IntPtr PlayerWindowHandle { get; private set; }
     public event Action<IntPtr>? PlayerWindowChanged;
 
-    private async Task EmbedPlayerAsync(IntPtr parentWindow)
+    private async Task EmbedPlayerAsync(IntPtr parentWindow, CancellationToken ct)
     {
         if (!OperatingSystem.IsWindows() || player is null) return;
         int pid = player.Id;
@@ -18,12 +18,13 @@ public sealed partial class ThreeDHost
         for (int attempt = 0; attempt < 100 && window == IntPtr.Zero; attempt++)
         {
             window = FindPlayerWindow(pid, parentWindow);
-            if (window == IntPtr.Zero) await Task.Delay(50);
+            if (window == IntPtr.Zero) await Task.Delay(50, ct);
         }
         if (window == IntPtr.Zero) throw new IOException("Unity の描画ウィンドウを検出できませんでした。");
         int renderWidth = 1280, renderHeight = 800;
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            ct.ThrowIfCancellationRequested();
             long style = Win32.GetWindowLongPtr(window, -16).ToInt64();
             style = (style & ~(0x80000000L | 0x00C00000L | 0x00040000L | 0x00080000L | 0x00010000L | 0x00020000L)) | 0x40000000L | 0x10000000L;
             Win32.SetWindowLongPtr(window, -16, new IntPtr(style));

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Threading.Channels;
@@ -10,16 +11,30 @@ public sealed class ProtocolException(string code, string message) : Exception($
     public string Code { get; } = code;
 }
 
+/// <summary>Admission attempts, dequeues and peak pressure. Rejected events count toward the peaks.</summary>
+public sealed record EventQueueDiagnostics(long Arrived, long Dequeued, int PeakCount, long PeakBytes, double MaxResidenceMs, string? OverflowType);
+
 /// <summary>Prototype session. Consume Events promptly; slow consumers disconnect.</summary>
 public sealed class Client : IAsyncDisposable
 {
-    private sealed record QueuedEvent(Dictionary<string, object?> Frame, int Bytes, bool Bulk);
+    private sealed record QueuedEvent(Dictionary<string, object?> Frame, int Bytes, bool Bulk, long EnqueuedAt);
     private readonly ITransport transport;
     private readonly CancellationTokenSource stop = new();
     private readonly ConcurrentDictionary<string, TaskCompletionSource<Dictionary<string, object?>>> requests = new();
     private readonly ConcurrentDictionary<string, Channel<Dictionary<string, object?>>> blobs = new();
     private readonly ConcurrentDictionary<string, bool> receivingBlobs = new();
     private readonly Channel<QueuedEvent> events = Channel.CreateBounded<QueuedEvent>(16);
+    private long eventArrivals, eventDequeued, eventPeakBytes, eventMaxResidenceTicks;
+    private int eventCount, eventPeakCount;
+    private string? eventOverflowType;
+    public EventQueueDiagnostics EventQueueDiagnostics => new(Interlocked.Read(ref eventArrivals), Interlocked.Read(ref eventDequeued),
+        Volatile.Read(ref eventPeakCount), Interlocked.Read(ref eventPeakBytes), Interlocked.Read(ref eventMaxResidenceTicks) * 1000.0 / Stopwatch.Frequency, eventOverflowType);
+    private static void Max(ref long target, long value)
+    {
+        long previous;
+        do { previous = Interlocked.Read(ref target); if (value <= previous) return; }
+        while (Interlocked.CompareExchange(ref target, value, previous) != previous);
+    }
     private long queuedEventBytes;
     private long queuedBulkEventBytes;
     private int queuedBulkEvents;
@@ -81,12 +96,15 @@ public sealed class Client : IAsyncDisposable
     {
         await foreach (var queued in events.Reader.ReadAllAsync(ct))
         {
+            Interlocked.Increment(ref eventDequeued);
+            Max(ref eventMaxResidenceTicks, Stopwatch.GetTimestamp() - queued.EnqueuedAt);
             ReleaseEvent(queued);
             yield return queued.Frame;
         }
     }
     private void ReleaseEvent(QueuedEvent queued)
     {
+        Interlocked.Decrement(ref eventCount);
         Interlocked.Add(ref queuedEventBytes, -queued.Bytes);
         if (queued.Bulk)
         {
@@ -98,16 +116,22 @@ public sealed class Client : IAsyncDisposable
     {
         var limit = byteLimit ?? fragments.Selected?.QueueBytes ?? fragmentation?.QueueBytes ?? 16 * Wire.MaxFrame;
         var bytes = Wire.Encode(frame, byteLimit ?? Math.Max(Wire.MaxFrame, fragments.LogicalBytes)).Length;
-        var queued = new QueuedEvent(frame, bytes, bulk);
+        Interlocked.Increment(ref eventArrivals);
+        var count = Interlocked.Increment(ref eventCount);
+        eventPeakCount = Math.Max(eventPeakCount, count);
+        var queued = new QueuedEvent(frame, bytes, bulk, Stopwatch.GetTimestamp());
         var totalBytes = Interlocked.Add(ref queuedEventBytes, bytes);
+        Max(ref eventPeakBytes, totalBytes);
         var bulkBytes = bulk ? Interlocked.Add(ref queuedBulkEventBytes, bytes) : 0;
         var bulkCount = bulk ? Interlocked.Increment(ref queuedBulkEvents) : 0;
         if (totalBytes > limit || bulk && (bulkBytes > limit - 16384L || bulkCount > 15))
         {
+            eventOverflowType = frame.GetValueOrDefault("type") as string;
             ReleaseEvent(queued);
             return false;
         }
         if (events.Writer.TryWrite(queued)) return true;
+        eventOverflowType = frame.GetValueOrDefault("type") as string;
         ReleaseEvent(queued);
         return false;
     }

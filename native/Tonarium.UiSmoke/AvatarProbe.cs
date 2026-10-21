@@ -20,6 +20,7 @@ internal static class AvatarProbe
 {
     internal static async Task VerifyOffline(string server, string output, Action<string> pass)
     {
+        await RoomAvatarProbe.Run(server, output, pass);
         var name = "UI offline avatar " + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         await using var client = new TonariumClient(new ClientState { ServerUrl = server, Name = "Offline profile verifier" }, persistSettings: false);
         await using var media = new NativeMedia(client);

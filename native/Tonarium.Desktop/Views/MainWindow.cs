@@ -34,6 +34,8 @@ public sealed partial class MainWindow : Window
     private ThreeDOverlayWindow? threeDOverlay;
     private string? previousSession;
     private bool signedIn, closing, refreshQueued, switching;
+    private bool allowClose;
+    private Task? shutdownTask, modeChangeTask;
     private readonly TextBox serverInput;
     private readonly TextBox nameInput;
     private readonly TextBlock loginError = Ui.Text("", 13, "#C2402F");
@@ -66,7 +68,7 @@ public sealed partial class MainWindow : Window
         client.State.Changed += QueueRefresh;
         client.MessageReceived += MessageReceived;
         media.Changed += QueueRefresh;
-        threeD.ReturnedTo2D += () => Dispatcher.UIThread.Post(() => { RestoreNativeRoot(); Activate(); QueueRefresh(); });
+        threeD.ReturnedTo2D += () => { RestoreNativeRoot(); if (!closing) { Activate(); QueueRefresh(); } };
         threeD.PlayerWindowChanged += hwnd => Dispatcher.UIThread.Post(() => unitySurface?.ResizePlayer(hwnd));
         threeD.ItemRequested += OpenItem;
         threeD.InputStateChanged += locked =>
@@ -83,7 +85,7 @@ public sealed partial class MainWindow : Window
         threeD.MediaFilesDropped += paths => RunMediaInput(() => room?.DropMediaPathsAsync(paths) ?? Task.CompletedTask);
         Closing += (_, e) =>
         {
-            if (closing) return;
+            if (allowClose) return;
             e.Cancel = true;
             _ = Shutdown();
         };
@@ -221,7 +223,14 @@ public sealed partial class MainWindow : Window
         if (type == "sound") NativeSounds.Play(J.Text(message, "id"));
     }
 
-    private async Task ChangeMode(string mode)
+    private Task ChangeMode(string mode)
+    {
+        if (closing) return Task.CompletedTask;
+        if (switching) return modeChangeTask ?? Task.CompletedTask;
+        return modeChangeTask = ChangeModeCore(mode);
+    }
+
+    private async Task ChangeModeCore(string mode)
     {
         if (switching) return;
         if (client.State.Mode == mode && (mode == "2d" || threeD.IsRunning)) return;
@@ -243,19 +252,22 @@ public sealed partial class MainWindow : Window
                     room.SetExternalScene(true);
                     Content = unitySurface;
                     threeDOverlay = new ThreeDOverlayWindow(this,root,GetOverlayRegions);
+                    threeDOverlay.ShutdownRequested += () => _ = Shutdown();
                     context.Owner = threeDOverlay;
                     threeDOverlay.ShowForOwner();
                     parent = await unitySurface.GetHandleAsync().WaitAsync(TimeSpan.FromSeconds(5));
                 }
+                if (closing) return;
                 await threeD.StartAsync(parent);
+                if (closing) return;
                 await threeD.SetOpenItemsAsync(itemWindows.Keys);
                 unitySurface?.ResizePlayer(threeD.PlayerWindowHandle);
                 unitySurface?.SetCovered(threeDOverlay is null && context.HomeIsOpen);
             }
-            else { await threeD.StopAsync(); Activate(); }
-            Refresh();
+            else { await threeD.StopAsync(); if (!closing) Activate(); }
+            if (!closing) Refresh();
         }
-        catch (Exception e) { RestoreNativeRoot(); Notify(e.Message); Program.Log(e.ToString()); }
+        catch (Exception e) { RestoreNativeRoot(); if (!closing) Notify(e.Message); Program.Log(e.ToString()); }
         finally { switching = false; }
     }
 
@@ -379,14 +391,40 @@ public sealed partial class MainWindow : Window
         _ = Task.Delay(4500).ContinueWith(_ => Dispatcher.UIThread.Post(() => { if (toastText.Text == text) toast.IsVisible = false; threeDOverlay?.RefreshRegion(); }));
     }
 
-    private async Task Shutdown()
+    private Task Shutdown()
     {
+        if (shutdownTask is not null) return shutdownTask;
         closing = true;
-        foreach (var window in itemWindows.Values.ToArray()) window.Close();
-        CloseHome();
-        await threeD.DisposeAsync(); await media.DisposeAsync(); await client.DisposeAsync();
-        RestoreNativeRoot();
-        Close();
+        return shutdownTask = ShutdownCore();
+    }
+
+    private async Task ShutdownCore()
+    {
+        // Publish the shared task and leave Avalonia's Closing traversal before
+        // detaching an owned HUD. Further close requests remain cancelled.
+        await Task.Yield();
+        try
+        {
+            foreach (var window in itemWindows.Values.ToArray())
+                await Cleanup(() => { window.Close(); return Task.CompletedTask; });
+            await Cleanup(() => { CloseHome(); return Task.CompletedTask; });
+            await Cleanup(() => threeD.DisposeAsync().AsTask());
+            if (modeChangeTask is not null) await Cleanup(() => modeChangeTask);
+        }
+        finally
+        {
+            await Cleanup(() => media.DisposeAsync().AsTask());
+            await Cleanup(() => client.DisposeAsync().AsTask());
+            await Cleanup(() => { RestoreNativeRoot(); return Task.CompletedTask; });
+            allowClose = true;
+            Close();
+        }
+
+        static async Task Cleanup(Func<Task> action)
+        {
+            try { await action(); }
+            catch (Exception error) { Program.Log(error.ToString()); }
+        }
     }
 
     private void LoadDemo()

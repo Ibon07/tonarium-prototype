@@ -20,15 +20,17 @@ public sealed class AvatarPortrait : Control
     private static readonly DispatcherTimer AnimationTimer = new() { Interval = TimeSpan.FromMilliseconds(66) };
     private readonly NativeContext context;
     private readonly string identity;
-    private readonly bool small;
+    private bool small;
     private readonly float phase;
     private AvatarSkin? skin;
     private AvatarRasterizer? raster;
     private WriteableBitmap? bitmap;
     private string skinKey = "";
-    private bool attached;
+    private bool attached, rendering;
+    private long skinRequest;
     private float lastRendered, smoothPitch;
     public bool FullBody { get; set; }
+    public bool Small { get => small; set { if (small == value) return; small = value; Advance(true); } }
     public float? LookPitch { get; set; }
     public bool? Speaking { get; set; }
     public long FrameCount { get; private set; }
@@ -67,16 +69,33 @@ public sealed class AvatarPortrait : Control
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         attached=false;bitmap?.Dispose();bitmap=null;raster=null;
+        skinRequest++;skin=null;skinKey="";IsTextureReady=false;
+        VisiblePortraits.RemoveAll(reference => !reference.TryGetTarget(out var portrait) || ReferenceEquals(portrait,this));
+        if(VisiblePortraits.Count==0)AnimationTimer.Stop();
         base.OnDetachedFromVisualTree(e);
+    }
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        // Attachment can precede layout. Render the first frame as soon as its size is known.
+        if(change.Property==BoundsProperty && change.GetOldValue<Rect>().Size!=Bounds.Size)Advance(true);
     }
     public override void Render(DrawingContext drawing)
     {
         base.Render(drawing);
-        if(bitmap is not null)drawing.DrawImage(bitmap,new Rect(bitmap.Size),new Rect(Bounds.Size));
+        // A clipping ancestor may still have zero bounds during the child's first layout.
+        // By render time the entire tree is arranged, so never present an empty first frame.
+        rendering=true;
+        try
+        {
+            if(bitmap is null)Advance(true);
+            if(bitmap is not null)drawing.DrawImage(bitmap,new Rect(bitmap.Size),new Rect(Bounds.Size));
+        }
+        finally { rendering=false; }
     }
     public void RefreshAvatar()
     {
-        skinKey="";IsTextureReady=false;UpdateSkin(true);Advance(true);
+        skinKey="";IsTextureReady=false;if(attached) { UpdateSkin(true);Advance(true); }
     }
     private bool InViewport()
     {
@@ -118,7 +137,7 @@ public sealed class AvatarPortrait : Control
             if(target.RowBytes==width*4)Marshal.Copy(raster.Pixels,0,target.Address,raster.Pixels.Length);
             else for(int row=0;row<height;row++)Marshal.Copy(raster.Pixels,row*width,IntPtr.Add(target.Address,row*target.RowBytes),width);
         }
-        FrameCount++;InvalidateVisual();
+        FrameCount++;if(!rendering)InvalidateVisual();
     }
     private async void UpdateSkin(bool refresh=false)
     {
@@ -129,10 +148,11 @@ public sealed class AvatarPortrait : Control
         string key=context.State.ServerUrl+"\n"+name+"\n"+(discover?"@stored":version);
         if(!refresh&&skinKey==key)return;
         skinKey=key;IsTextureReady=false;
+        var request=++skinRequest;
         try
         {
             var loaded=await AvatarSkins.Load(context.State.ServerUrl,name,version,refresh,discover);
-            if(skinKey!=key)return;
+            if(!attached||skinKey!=key||skinRequest!=request)return;
             skin=loaded;IsTextureReady=true;Advance(true);
         }
         catch(Exception error) { Program.Log("Avatar portrait: "+error.Message); }
