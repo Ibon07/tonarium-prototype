@@ -981,3 +981,47 @@ img.av { object-fit: cover; display: block; }
   .hevents { grid-column: 1; }
   .hhead { flex-wrap: wrap; }
 }
+
+/* スマホ幅：ホームのナビは下のバー、セッションは前面のパネルを下のタブで 1 つずつ全面に出す */
+.phonetabs, .hmorebtn { display: none; }
+@media (max-width: 720px) {
+  .home, .home.sheet { padding: 12px 12px 84px; gap: 12px; }
+  .home.sheet { inset: 64px 0 0 0; border-radius: 20px 20px 0 0; }
+  .home .hevents { display: none; }
+  .hhead h1 { font-size: 22px; }
+  .hsearch { order: 5; flex: 1 1 100%; }
+  .home .hside, .home.sheet .hside { position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 40; flex-direction: row; align-items: stretch; gap: 0; max-height: none; padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); border-radius: 0; overflow: visible; box-shadow: 0 -2px 12px rgba(60, 40, 10, .1); }
+  .hside:not(.open) > :not(.hnav):not(.hmorebtn) { display: none; }
+  .hside:not(.open) .hnav { display: flex; flex-direction: row; flex: 5; min-width: 0; margin: 0; gap: 0; }
+  .hside:not(.open) .hnav li { flex: 1; min-width: 0; }
+  .hside:not(.open) .hnav li:nth-child(n+6) { display: none; }
+  .hside:not(.open) .hnavbtn { position: relative; width: 100%; height: 52px; flex-direction: column; justify-content: center !important; gap: 2px; padding: 0; font-size: 10px; }
+  .hside:not(.open) .hnavbtn .hbadge { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; }
+  .hmorebtn { display: flex; flex: 1; min-width: 0; height: 52px; flex-direction: column; justify-content: center !important; gap: 2px; padding: 0; font-size: 10px; }
+  .home .hside.open, .home.sheet .hside.open { flex-direction: column; top: auto; max-height: 80vh; overflow-y: auto; padding: 16px 16px calc(8px + env(safe-area-inset-bottom)); border-radius: 20px 20px 0 0; gap: 6px; }
+  .hside.open .hmorebtn { flex-direction: row; justify-content: center !important; height: 40px; flex: none; font-size: 12px; }
+  .hmorebg { position: fixed; inset: 0; z-index: 39; background: rgba(30, 28, 24, .35); }
+
+  .world.phone .smenubtn { left: 10px; top: 10px; }
+  .world.phone .worldbadge { left: 62px; top: 10px; max-width: calc(100% - 72px); }
+  .world.phone .hnow { display: none; }
+  .world.phone .nearlist, .world.phone .noticelog { left: 8px; right: 8px; top: 64px; bottom: 130px; width: auto; }
+  .world.phone .nearlist .phead button[aria-label="パネルをたたむ"], .world.phone .noticelog button[aria-label="パネルをたたむ"] { display: none; }
+  .world.phone:not(.pt-list) .nearlist, .world.phone:not(.pt-log) .noticelog { display: none; }
+  .world.phone:not(.pt-screen) .facestrip, .world.phone:not(.pt-screen) .facegrid, .world.phone:not(.pt-screen) .winregion, .world.phone:not(.pt-screen) .statuschips { display: none; }
+  .world.phone .facestrip { left: 8px; right: 8px; top: 64px; bottom: auto; }
+  .world.phone .facegrid { left: 8px; right: 8px; top: 64px; bottom: 130px; }
+  .world.phone .winregion { left: 8px; right: 8px; top: 172px; bottom: 130px; }
+  .world.phone .dock { bottom: 68px; padding: 6px; gap: 6px; border-radius: 18px; }
+  .world.phone .dk { width: 44px; height: 44px; border-radius: 13px; }
+  .world.phone .dseg, .world.phone .dsep { display: none; }
+  .world.phone .statuschips { bottom: 128px; width: calc(100% - 16px); }
+  .world.phone .phonetabs { position: absolute; left: 0; right: 0; bottom: 0; display: flex; padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); background: var(--paper); box-shadow: 0 -2px 12px rgba(60, 40, 10, .1); }
+  .phonetabs button { position: relative; flex: 1; height: 52px; flex-direction: column; gap: 2px; padding: 0; font-size: 11px; color: var(--muted2); }
+  .phonetabs button.on { color: var(--accent); font-weight: 700; }
+  .phonetabs .badge { position: absolute; top: 2px; left: calc(50% + 8px); }
+  .popover.picker { flex-direction: column; max-height: calc(100vh - 140px); overflow-y: auto; }
+  .pickgrid { width: auto; }
+  .pickdetail { padding: 12px 0 0; border-left: 0; border-top: 1px solid var(--line2); }
+  .pickdetail .thumb { display: none; }
+}

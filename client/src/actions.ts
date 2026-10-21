@@ -7,6 +7,7 @@ import { send } from './net/ws.ts';
 import { connectVoice, leaveVoice } from './net/livekit.ts';
 import { startSessionSync, stopSessionSync } from './net/session.ts';
 import { placesOf, resumeAudio } from './spatial.ts';
+import { touchOnly } from './phone.ts';
 
 export function joinSession(sid: string) {
   if (get().session === sid) { set({ hubOpen: false }); return; }
@@ -20,7 +21,7 @@ export function joinSession(sid: string) {
   startSessionSync();
   void connectVoice(sid);
   // 外で 3D を選んでいたら、入った後に 3D へ
-  if (get().joinMode === '3d') setTimeout(() => switchMode('3d'), 400);
+  if (get().joinMode === '3d' && !touchOnly) setTimeout(() => switchMode('3d'), 400);
 }
 
 export function leaveSession() {
@@ -51,7 +52,7 @@ export function setMode(mode: Mode) {
 /** 2D/3D の切り替えに 1〜2 秒（× 倍率）の疑似ローディングを挟む */
 export function switchMode(mode: Mode) {
   const s = get();
-  if (s.switching || s.mode === mode || !s.session) return;
+  if (s.switching || s.mode === mode || !s.session || (mode === '3d' && touchOnly)) return;
   const dur = (1000 + Math.random() * 1000) * s.loadScale;
   if (dur < 50) { setMode(mode); return; }
   set({ switching: { to: mode, dur } });

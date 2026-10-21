@@ -13,7 +13,8 @@ export function openWindow(key: string) {
   set((s) => {
     const existing = s.windows.find((w) => w.key === key);
     const rest = s.windows.filter((w) => w.key !== key);
-    return { windows: [...rest, existing ?? { key, ...cascade(rest.length) }] };
+    // スマホでリストから開いたときに、ウィンドウが見えるタブへ移る
+    return { windows: [...rest, existing ?? { key, ...cascade(rest.length) }], phoneTab: 'screen' };
   });
 }
 

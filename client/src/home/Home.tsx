@@ -19,6 +19,7 @@ import { GroupActions, GroupPage, GroupTitle } from './GroupPage.tsx';
 import { MessageView } from './messages.tsx';
 import { StatusDialog, StatusDot, StatusText, useStatusOf } from './status.tsx';
 import { Empty, EventHost, NameFace, WEEKDAYS, dateKey, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
+import { touchOnly, usePhone } from '../phone.ts';
 
 const NAV: { page: HomePage; name: string; icon: IconName }[] = [
   { page: 'home', name: 'ホーム', icon: 'home' },
@@ -56,7 +57,7 @@ const useUpcoming = () => useStore((s) => s.events).filter((e) => e.at > Date.no
 /** セッション中は今の 2D/3D を切り替え、外では次に入るときのモードを選ぶ。VR はまだ無い */
 function ClientMode() {
   const session = useStore((s) => s.session);
-  const mode = useStore((s) => (s.session ? s.mode : s.joinMode));
+  const mode = useStore((s) => (s.session ? s.mode : touchOnly ? '2d' : s.joinMode));
   const switching = useStore((s) => !!s.switching);
   const pick = (m: '2d' | '3d') => {
     if (get().session) switchMode(m);
@@ -67,8 +68,8 @@ function ClientMode() {
       <span className="hlabel">クライアントモード</span>
       <div role="radiogroup" aria-label="クライアントモード" className="hseg">
         {(['2d', '3d'] as const).map((m) => (
-          <button key={m} role="radio" aria-checked={mode === m} aria-label={`${m.toUpperCase()} モード`} className={mode === m ? 'on' : ''} disabled={switching}
-            title={session ? undefined : '次にセッションへ入るときのモード'} onClick={() => pick(m)}>
+          <button key={m} role="radio" aria-checked={mode === m} aria-label={`${m.toUpperCase()} モード`} className={mode === m ? 'on' : ''} disabled={switching || (m === '3d' && touchOnly)}
+            title={m === '3d' && touchOnly ? 'タッチだけの端末では 2D で参加します' : session ? undefined : '次にセッションへ入るときのモード'} onClick={() => pick(m)}>
             <Icon name={m === '2d' ? 'flat' : 'cube'} size={14} />{m.toUpperCase()}
           </button>
         ))}
@@ -92,49 +93,61 @@ export function Sidebar({ inSession, onPick }: { inSession?: boolean; onPick?: (
   const st = useStatusOf(selfName);
   const [profile, setProfile] = useState(false);
   const [status, setStatus] = useState(false);
+  // スマホでは下のバーに主なページだけ並べ、残りは「その他」で全部を下から出す
+  const phone = usePhone();
+  const [more, setMore] = useState(false);
+  const picked = () => { setMore(false); onPick?.(); };
   const badge = { friends: unreadDm || onlineFriends, events: upcoming } as Partial<Record<HomePage, number>>;
   return (
-    <nav className="hside">
-      <div className="hbrand"><img src="/brand/mark.png" alt="" /><b>トナリウム</b></div>
-      <ul className="hnav">
-        {NAV.map((n) => (
-          <li key={n.page}>
-            <button className={`ib hnavbtn ${page === n.page ? 'on' : ''}`} onClick={() => { goHome(n.page); onPick?.(); }}>
-              <Icon name={n.icon} size={18} />{n.name}
-              {!!badge[n.page] && <span className={`hbadge ${n.page === 'friends' && unreadDm ? 'red' : ''}`}>{badge[n.page]}</span>}
-            </button>
-          </li>
-        ))}
-      </ul>
-      <div className="hside-sec">
-        <span className="hlabel">所属グループ</span>
-        <div className="hgroups">
-          {myGroups.length === 0 && <span className="sub">なし</span>}
-          {myGroups.map((g) => {
-            const has = unread.some((c) => c.startsWith(`ch:${g.id}:`));
-            const on = page === 'group' && homeGroup === g.id;
-            return (
-              <button key={g.id} className={`gmark ${on ? 'on' : ''}`} style={{ background: g.color }} title={g.name} aria-label={`${g.name}${has ? '（未読あり）' : ''}`} onClick={() => { openGroup(g.id); onPick?.(); }}>
-                {g.name.slice(0, 1)}{has && <i className="gunread" />}
+    <>
+      {phone && more && <div className="hmorebg" onClick={() => setMore(false)} />}
+      <nav className={`hside ${phone && more ? 'open' : ''}`}>
+        <div className="hbrand"><img src="/brand/mark.png" alt="" /><b>トナリウム</b></div>
+        <ul className="hnav">
+          {NAV.map((n) => (
+            <li key={n.page}>
+              <button className={`ib hnavbtn ${page === n.page ? 'on' : ''}`} onClick={() => { goHome(n.page); picked(); }}>
+                <Icon name={n.icon} size={18} />{n.name}
+                {!!badge[n.page] && <span className={`hbadge ${n.page === 'friends' && unreadDm ? 'red' : ''}`}>{badge[n.page]}</span>}
               </button>
-            );
-          })}
+            </li>
+          ))}
+        </ul>
+        <div className="hside-sec">
+          <span className="hlabel">所属グループ</span>
+          <div className="hgroups">
+            {myGroups.length === 0 && <span className="sub">なし</span>}
+            {myGroups.map((g) => {
+              const has = unread.some((c) => c.startsWith(`ch:${g.id}:`));
+              const on = page === 'group' && homeGroup === g.id;
+              return (
+                <button key={g.id} className={`gmark ${on ? 'on' : ''}`} style={{ background: g.color }} title={g.name} aria-label={`${g.name}${has ? '（未読あり）' : ''}`} onClick={() => { openGroup(g.id); picked(); }}>
+                  {g.name.slice(0, 1)}{has && <i className="gunread" />}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
-      <ClientMode />
-      <span className="spacer" />
-      {inSession && <button className="ib hnavbtn hleave" onClick={leaveSession}><Icon name="leave" size={18} />セッションから離脱</button>}
-      <div className="hself">
-        <button className="ib hselfst" onClick={() => setStatus(true)} title="ステータスを変える">
-          <span className="fface"><Face id={selfId} name={selfName} size={36} /><StatusDot st={st} /></span>
-          <span className="finfo"><b>{selfName}</b><StatusText st={st} /></span>
-        </button>
-        <button className="ib" aria-label="プロフィールを設定" title="アイコン・3D アバター・自己紹介を設定" onClick={() => setProfile(true)}><Icon name="settings" size={18} /></button>
-      </div>
-      {/* 追従するサイドバーの中だと前面に出ないので、body に出す */}
-      {profile && createPortal(<ProfileDialog name={selfName} onClose={() => setProfile(false)} />, document.body)}
-      {status && createPortal(<StatusDialog onClose={() => setStatus(false)} />, document.body)}
-    </nav>
+        <ClientMode />
+        <span className="spacer" />
+        {inSession && <button className="ib hnavbtn hleave" onClick={leaveSession}><Icon name="leave" size={18} />セッションから離脱</button>}
+        <div className="hself">
+          <button className="ib hselfst" onClick={() => setStatus(true)} title="ステータスを変える">
+            <span className="fface"><Face id={selfId} name={selfName} size={36} /><StatusDot st={st} /></span>
+            <span className="finfo"><b>{selfName}</b><StatusText st={st} /></span>
+          </button>
+          <button className="ib" aria-label="プロフィールを設定" title="アイコン・3D アバター・自己紹介を設定" onClick={() => setProfile(true)}><Icon name="settings" size={18} /></button>
+        </div>
+        {/* 追従するサイドバーの中だと前面に出ないので、body に出す */}
+        {profile && createPortal(<ProfileDialog name={selfName} onClose={() => setProfile(false)} />, document.body)}
+        {status && createPortal(<StatusDialog onClose={() => setStatus(false)} />, document.body)}
+        {phone && (
+          <button className={`ib hnavbtn hmorebtn ${more ? 'on' : ''}`} aria-expanded={more} onClick={() => setMore(!more)}>
+            {more ? <><Icon name="close" size={18} />閉じる</> : <><span className="fface"><Face id={selfId} name={selfName} size={22} /><StatusDot st={st} /></span>その他</>}
+          </button>
+        )}
+      </nav>
+    </>
   );
 }
 
