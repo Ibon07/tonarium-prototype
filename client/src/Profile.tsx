@@ -3,7 +3,7 @@ import { iconUrl, pickIcon } from './icon.ts';
 import { avatarTextureUrl, uploadAvatarImage, uploadAvatarManifest } from './avatar.ts';
 import { send } from './net/ws.ts';
 import { useStore } from './store.ts';
-import { setLoadScale } from './actions.ts';
+import { setLightweight, setLoadScale } from './actions.ts';
 
 const LOAD_SCALES = [0, 0.5, 1, 2, 3];
 
@@ -17,6 +17,7 @@ export function ProfileDialog({ name, onClose }: { name: string; onClose: () => 
   const [message, setMessage] = useState('');
   const [bio, setBio] = useState('');
   const loadScale = useStore((s) => s.loadScale);
+  const lightweight = useStore((s) => s.lightweight);
   useEffect(() => {
     let alive = true;
     void fetch(`/profile?name=${encodeURIComponent(n)}`).then((r) => r.json()).then((p: { bio: string }) => { if (alive) setBio(p.bio); });
@@ -75,6 +76,10 @@ export function ProfileDialog({ name, onClose }: { name: string; onClose: () => 
             ))}
           </div>
           <div className="sub">標準（×1）で 1〜2 秒。この端末にだけ保存されます</div>
+          <label className="checkrow">
+            <input type="checkbox" checked={lightweight} onChange={(e) => setLightweight(e.target.checked)} />
+            軽量設定（3D のワールドのポイントライトを読み込まない）
+          </label>
         </section>
         {message && <div className="msgline">{message}</div>}
         <div className="row end"><button onClick={onClose}>閉じる</button></div>

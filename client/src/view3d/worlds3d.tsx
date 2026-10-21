@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import * as THREE from 'three';
 import { ROOM_HALF } from '../../../shared/protocol.ts';
 import { CAFE, CAFE_TABLE_R, type WorldKind } from '../../../shared/worlds.ts';
+import { useStore } from '../store.ts';
 import { makeCanvasTexture } from './textTexture.ts';
 import { Box, Cyl, SpawnArea } from './parts3d.tsx';
 import { GameWorld } from './game3d.tsx';
@@ -149,6 +150,7 @@ function Chair({ x, z, face }: { x: number; z: number; face: number }) {
 }
 
 function PendantLight({ x, z }: { x: number; z: number }) {
+  const lightweight = useStore((s) => s.lightweight);
   return (
     <group position={[x, 0, z]}>
       <mesh position={[0, 3.35, 0]}>
@@ -163,7 +165,7 @@ function PendantLight({ x, z }: { x: number; z: number }) {
         <sphereGeometry args={[0.07, 12, 8]} />
         <meshBasicMaterial color="#ffe3a8" toneMapped={false} />
       </mesh>
-      <pointLight position={[0, 2.4, 0]} color="#ffcf8a" intensity={6} distance={6} decay={1.6} />
+      {!lightweight && <pointLight position={[0, 2.4, 0]} color="#ffcf8a" intensity={6} distance={6} decay={1.6} />}
     </group>
   );
 }

@@ -62,6 +62,11 @@ export function switchMode(mode: Mode) {
   }, dur);
 }
 
+export function setLightweight(lightweight: boolean) {
+  set({ lightweight });
+  save('tonarium.lightweight', lightweight);
+}
+
 export function setLoadScale(loadScale: number) {
   set({ loadScale });
   save('tonarium.loadScale', loadScale);
