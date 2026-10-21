@@ -8,7 +8,7 @@ import { SessionCard } from './SessionCard.tsx';
 import { CreateSessionDialog, InviteToGroupDialog } from './dialogs.tsx';
 import { Composer, Thread } from './messages.tsx';
 import { StatusDot, StatusText, useStatusOf } from './status.tsx';
-import { Chip, Empty, EventAnswer, NameFace, timeLabel, uniqueByName } from './common.tsx';
+import { Chip, Empty, EventAnswer, EventHost, NameFace, timeLabel, uniqueByName } from './common.tsx';
 
 function MemberRow({ name, where, guest, groupId }: { name: string; where?: string; guest?: boolean; groupId?: string }) {
   const st = useStatusOf(name);
@@ -61,6 +61,7 @@ function GroupEvents({ g }: { g: Group }) {
         <div key={ev.id} className={`gev ${i === 0 ? 'next' : ''}`}>
           <span className="evtime">{timeLabel(ev.at)}</span>
           <b>{ev.title}</b>
+          <EventHost ev={ev} />
           <span className="sub">{sessions.find((d) => d.id === ev.session)?.name ? `会場：${sessions.find((d) => d.id === ev.session)!.name} · ` : ''}来る {ev.attendees.length} · たぶん {ev.maybe.length}</span>
           <EventAnswer ev={ev} />
         </div>

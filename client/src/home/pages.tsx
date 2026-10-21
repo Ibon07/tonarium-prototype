@@ -10,7 +10,7 @@ import { Face } from '../world/common.tsx';
 import { Icon } from '../world/Icon.tsx';
 import { SessionCard } from './SessionCard.tsx';
 import { CreateEventDialog, CreateGroupDialog, CreateSessionDialog, InviteFriendDialog, InviteToGroupDialog } from './dialogs.tsx';
-import { Chip, Empty, EventAnswer, ModeIcon, NameFace, Tabs, dateKey, timeLabel, uniqueByName, WEEKDAYS } from './common.tsx';
+import { Chip, Empty, EventAnswer, EventHost, ModeIcon, NameFace, Tabs, dateKey, timeLabel, uniqueByName, WEEKDAYS } from './common.tsx';
 import { Composer, Thread } from './messages.tsx';
 import { StatusDot, StatusText, useStatusOf } from './status.tsx';
 
@@ -209,8 +209,9 @@ function EventRow({ ev }: { ev: EventDef }) {
         <b>{ev.title}</b>
         <span className="sub">
           {group && <><i className="gdot" style={{ background: group.color }} />{group.name} · </>}
-          {session ? `会場：${session.name}` : '会場なし'} · {ev.owner} が作成
+          {session ? `会場：${session.name}` : '会場なし'}
         </span>
+        <EventHost ev={ev} />
         <span className="evfaces">
           {ev.attendees.slice(0, 8).map((n) => <NameFace key={n} name={n} size={20} />)}
           <span className="sub">来る {ev.attendees.length} · たぶん {ev.maybe.length}{ev.attendees.some((n) => friends.includes(n)) && `（フレンド ${ev.attendees.filter((n) => friends.includes(n)).length} 人）`}</span>

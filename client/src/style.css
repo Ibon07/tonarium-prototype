@@ -473,7 +473,7 @@ img.av { object-fit: cover; display: block; }
 .profilecard { position: relative; width: min(420px, 100%); border-radius: 24px; background: var(--paper); box-shadow: 0 24px 60px rgba(20, 15, 5, .3); overflow: hidden; }
 .pcbanner { height: 96px; opacity: .35; }
 .pcclose { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; padding: 0; background: rgba(255, 255, 255, .85) !important; }
-.pcbody { display: flex; flex-direction: column; gap: 14px; padding: 0 24px 24px; margin-top: -40px; }
+.pcbody { position: relative; display: flex; flex-direction: column; gap: 14px; padding: 0 24px 24px; margin-top: -40px; }
 .pcbody > .face { font-size: 32px !important; }
 .pcname { display: flex; flex-direction: column; gap: 4px; }
 .pcname h2 { font-size: 22px; }
@@ -731,6 +731,8 @@ img.av { object-fit: cover; display: block; }
 .hevcard.today { background: var(--accentbg); }
 .hevcard b { font-size: 14px; }
 .evtime { font-size: 12px; font-weight: 700; color: var(--accent); }
+.evhost { display: flex; align-items: center; gap: 6px; }
+.evhost b { font-size: inherit; color: var(--ink); }
 .evfaces { display: flex; align-items: center; gap: 6px; }
 .evfaces .face + .face { margin-left: -8px; }
 .evfaces .face { box-shadow: 0 0 0 2px var(--paper); }
