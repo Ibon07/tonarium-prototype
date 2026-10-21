@@ -18,7 +18,7 @@ import { EventsPage, FriendTile, FriendsPage, GroupsPage, ItemsPage, SessionsPag
 import { GroupActions, GroupPage, GroupTitle } from './GroupPage.tsx';
 import { MessageView } from './messages.tsx';
 import { StatusDialog, StatusDot, StatusText, useStatusOf } from './status.tsx';
-import { Empty, NameFace, WEEKDAYS, dateKey, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
+import { Empty, EventHost, NameFace, WEEKDAYS, dateKey, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
 
 const NAV: { page: HomePage; name: string; icon: IconName }[] = [
   { page: 'home', name: 'ホーム', icon: 'home' },
@@ -210,6 +210,7 @@ function EventsWidget() {
           <button key={ev.id} className={`ib hevcard ${dateKey(ev.at) === dateKey(Date.now()) ? 'today' : ''}`} onClick={() => goHome('events')}>
             <span className="row"><span className="evtime">{timeLabel(ev.at)}</span><span className="spacer" />{g && <span className="sub">{g.name}</span>}</span>
             <b>{ev.title}</b>
+            <EventHost ev={ev} />
             <span className="evfaces">
               {ev.attendees.slice(0, 4).map((n) => <NameFace key={n} name={n} size={20} />)}
               <span className="sub">{nf ? `フレンド ${nf} 人` : `${ev.attendees.length} 人`}</span>

@@ -37,6 +37,14 @@ export function NameFace({ name, size = 22 }: { name: string; size?: number }) {
   return <Face id={id ?? name} name={name} size={size} />;
 }
 
+/** イベントの主催者。自分なら「あなた」と出す */
+export function EventHost({ ev }: { ev: EventDef }) {
+  const selfName = useStore((s) => s.selfName);
+  return (
+    <span className="evhost"><NameFace name={ev.owner} size={18} /><span className="sub">主催 <b>{ev.owner === selfName ? 'あなた' : ev.owner}</b></span></span>
+  );
+}
+
 export function Chip({ kind, children }: { kind: string; children: React.ReactNode }) {
   return <span className={`hchip ${kind}`}>{children}</span>;
 }
