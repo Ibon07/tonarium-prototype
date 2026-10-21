@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChatMessage, ChatScope } from '../../../shared/protocol.ts';
 import { VOICE_RANGE } from '../../../shared/places.ts';
 import { DICE_COLORS, diceLabel, type DiceRoll } from '../../../shared/dice.ts';
@@ -185,10 +185,21 @@ export function NoticeLog() {
   const announce = [...chat].reverse().find((m) => m.scope === 'announce');
   const unread = notices.filter((n) => n.unread).length;
   const logs = tab === 'chat' ? chat.filter((m) => m.from !== null) : chat;
+  // 一番下を見ているときだけ新しいログに追従する。開き直したら一番下から
+  const stick = useRef(true);
+  const toBottom = () => { const el = listRef.current; if (el && stick.current) el.scrollTop = el.scrollHeight; };
+  const onLogScroll = () => { const el = listRef.current; if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; };
+  useLayoutEffect(() => { stick.current = true; }, [tab, folded, view]);
+  useLayoutEffect(toBottom, [logs[logs.length - 1]?.id, tab, folded, view]);
   useEffect(() => {
+    // 画像や OGP カードは後から高さが変わる。load は泡立たないので捕捉で拾う
     const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [logs.length, tab, folded]);
+    if (!el) return;
+    const mo = new MutationObserver(toBottom);
+    mo.observe(el, { childList: true, subtree: true });
+    el.addEventListener('load', toBottom, true);
+    return () => { mo.disconnect(); el.removeEventListener('load', toBottom, true); };
+  }, [folded, view]);
   const fold = (right: boolean) => set((s) => { const f = { ...s.folded, right }; save('tonarium.folded', f); return { folded: f }; });
 
   if (folded) {
@@ -245,7 +256,7 @@ export function NoticeLog() {
         <button className={`tab ${tab === 'all' ? 'on' : 'ib'}`} onClick={() => setTab('all')}>すべて</button>
         <button className={`tab ${tab === 'chat' ? 'on' : 'ib'}`} onClick={() => setTab('chat')}>チャット</button>
       </div>
-      <div className="logs" ref={listRef}>
+      <div className="logs" ref={listRef} onScroll={onLogScroll}>
         {logs.map((m) => <LogLine key={m.id} m={m} selfId={selfId} />)}
       </div>
       <Composer />
