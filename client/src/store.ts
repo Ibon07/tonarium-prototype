@@ -88,6 +88,8 @@ interface State {
   volumes: Record<string, number>;
   /** セッション中にホームを重ねて開いている */
   hubOpen: boolean;
+  /** フレンドのページで開いているタブ（ホームの「もっと見る」から選んで開く） */
+  friendsTab: 'all' | 'now' | 'req' | 'block';
   /** スマホ幅のセッション画面で、下のタブで選んでいるもの */
   phoneTab: 'screen' | 'list' | 'log';
   sideWidget: SideWidget;
@@ -217,6 +219,7 @@ export const useStore = create<State>(() => ({
   volumes: {},
   hubOpen: false,
   phoneTab: 'screen',
+  friendsTab: 'all',
   sideWidget: load('tonarium.sideWidget', 'events'),
   joinMode: load('tonarium.joinMode', '2d'),
   dice: load('tonarium.dice', { sides: 6 as DieSides, count: 2, secret: false }),

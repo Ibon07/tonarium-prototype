@@ -2,23 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { get, save, set, showToast, unreadOf, useStore, type HomePage, type Notice, type SideWidget } from '../store.ts';
 import { ITEM_INFO, type ItemKind } from '../../../shared/items.ts';
-import { WORLDS, WORLD_KINDS } from '../../../shared/worlds.ts';
+import { WORLDS, WORLD_KINDS, type WorldKind } from '../../../shared/worlds.ts';
 import { joinSession } from '../actions.ts';
 import { spawnItem } from '../items/actions.ts';
 import { sortForHome } from '../../../shared/home.ts';
-import { dmPeer, type Group, type Message } from '../../../shared/protocol.ts';
-import { friendAccept, leaveSession, markNoticesRead, markRead, openDm, openGroup, removeNotice, switchMode } from '../actions.ts';
+import { type EventDef } from '../../../shared/protocol.ts';
+import { friendAccept, leaveSession, markNoticesRead, openDm, openGroup, removeNotice, switchMode } from '../actions.ts';
 import { ProfileDialog } from '../Profile.tsx';
 import { Face } from '../world/common.tsx';
 import { Icon, type IconName } from '../world/Icon.tsx';
 import { acceptInvite, inviteTarget } from '../world/NoticeLog.tsx';
 import { SessionCard } from './SessionCard.tsx';
 import { CreateSessionDialog } from './dialogs.tsx';
-import { EventsPage, FriendTile, FriendsPage, GroupsPage, ItemsPage, SessionsPage, WorldsPage, goHome } from './pages.tsx';
+import { EventsPage, FriendTile, FriendsPage, GroupsPage, ItemsPage, SessionsPage, WORLD_FACE, WorldsPage, friendsIn, goHome } from './pages.tsx';
 import { GroupActions, GroupPage, GroupTitle } from './GroupPage.tsx';
-import { MessageView } from './messages.tsx';
 import { StatusDialog, StatusDot, StatusText, useStatusOf } from './status.tsx';
-import { Empty, EventHost, NameFace, WEEKDAYS, dateKey, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
+import { Chip, Empty, EventAnswer, EventHost, NameFace, WEEKDAYS, dateKey, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
 import { touchOnly, usePhone } from '../phone.ts';
 
 const NAV: { page: HomePage; name: string; icon: IconName }[] = [
@@ -39,18 +38,6 @@ function useUnreadConvs() {
   useStore((s) => s.reads);
   const s = get();
   return Object.keys(inbox).filter((c) => unreadOf(s, c) > 0).sort((a, b) => (inbox[b].at(-1)?.at ?? 0) - (inbox[a].at(-1)?.at ?? 0));
-}
-const groupOfConv = (groups: Group[], conv: string) => groups.find((g) => g.id === conv.split(':')[1]);
-function openConv(conv: string) {
-  const s = get();
-  if (conv.startsWith('dm:')) openDm(dmPeer(conv, s.selfName));
-  else { const [, g, ch] = conv.split(':'); openGroup(g, ch); }
-}
-function convTitle(conv: string, groups: Group[], selfName: string) {
-  if (conv.startsWith('dm:')) return `${dmPeer(conv, selfName)} · DM`;
-  const g = groupOfConv(groups, conv);
-  const ch = g?.channels.find((c) => c.id === conv.split(':')[2]);
-  return `${g?.name ?? '？'} #${ch?.name ?? ''}`;
 }
 const useUpcoming = () => useStore((s) => s.events).filter((e) => e.at > Date.now() - 3_600_000 && e.at < Date.now() + WEEK);
 
@@ -195,10 +182,29 @@ function Bell() {
   );
 }
 
+/** イベントは終わりの時刻を持たないので、始まってから 3 時間を開催中とみなす（イベントのページで過去扱いにするのと同じ） */
+const LIVE_MS = 3 * 3_600_000;
+const isLive = (ev: EventDef) => ev.at <= Date.now() && ev.at > Date.now() - LIVE_MS;
+
+function EventCard({ ev }: { ev: EventDef }) {
+  const friends = useStore((s) => s.friends);
+  const g = useStore((s) => s.groups.find((x) => x.id === ev.group));
+  const nf = ev.attendees.filter((n) => friends.includes(n)).length;
+  return (
+    <button className={`ib hevcard ${dateKey(ev.at) === dateKey(Date.now()) ? 'today' : ''}`} onClick={() => goHome('events')}>
+      <span className="row">{isLive(ev) && <span className="hchip live">開催中</span>}<span className="evtime">{timeLabel(ev.at)}</span><span className="spacer" />{g && <span className="sub">{g.name}</span>}</span>
+      <b>{ev.title}</b>
+      <EventHost ev={ev} />
+      <span className="evfaces">
+        {ev.attendees.slice(0, 4).map((n) => <NameFace key={n} name={n} size={20} />)}
+        <span className="sub">{nf ? `フレンド ${nf} 人` : `${ev.attendees.length} 人`}</span>
+      </span>
+    </button>
+  );
+}
+
 function EventsWidget() {
   const events = useStore((s) => s.events);
-  const friends = useStore((s) => s.friends);
-  const groups = useStore((s) => s.groups);
   const upcoming = useUpcoming().slice(0, 4);
   const today = new Date();
   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -216,21 +222,7 @@ function EventsWidget() {
         ))}
       </div>
       {upcoming.length === 0 && <Empty>この 1 週間のイベントはありません</Empty>}
-      {upcoming.map((ev) => {
-        const g = groups.find((x) => x.id === ev.group);
-        const nf = ev.attendees.filter((n) => friends.includes(n)).length;
-        return (
-          <button key={ev.id} className={`ib hevcard ${dateKey(ev.at) === dateKey(Date.now()) ? 'today' : ''}`} onClick={() => goHome('events')}>
-            <span className="row"><span className="evtime">{timeLabel(ev.at)}</span><span className="spacer" />{g && <span className="sub">{g.name}</span>}</span>
-            <b>{ev.title}</b>
-            <EventHost ev={ev} />
-            <span className="evfaces">
-              {ev.attendees.slice(0, 4).map((n) => <NameFace key={n} name={n} size={20} />)}
-              <span className="sub">{nf ? `フレンド ${nf} 人` : `${ev.attendees.length} 人`}</span>
-            </span>
-          </button>
-        );
-      })}
+      {upcoming.map((ev) => <EventCard key={ev.id} ev={ev} />)}
       <button className="ib hlink" onClick={() => goHome('events')}>カレンダーを開く</button>
     </>
   );
@@ -343,110 +335,116 @@ function SideArea() {
 
 const match = (q: string, ...texts: (string | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q.toLowerCase()));
 
-function Okaeri() {
-  const lastSeen = useStore((s) => s.lastSeen);
-  const inbox = useStore((s) => s.inbox);
-  const groups = useStore((s) => s.groups);
-  const selfName = useStore((s) => s.selfName);
-  const events = useStore((s) => s.events);
-  const unread = useUnreadConvs();
-  const [hidden, setHidden] = useState(false);
-  if (!lastSeen || hidden) return null;
-  const mine = (conv: string) => conv.startsWith('ch:');
-  const since = (m: Message) => m.at > lastSeen;
-  const recaps = Object.entries(inbox).filter(([c]) => mine(c)).flatMap(([c, l]) => l.filter((m) => m.recap && since(m)).map((m) => ({ c, m })));
-  const plans = Object.entries(inbox).flatMap(([c, l]) => l.filter((m) => m.plan && !m.plan.event && m.plan.at > Date.now() && !m.plan.answers[selfName]).map((m) => ({ c, m })));
-  const newEvents = events.filter((e) => e.at > Date.now() && e.attendees.length && !e.attendees.includes(selfName) && !e.maybe.includes(selfName) && !e.declined.includes(selfName) && groups.some((g) => g.id === e.group && g.members.includes(selfName)));
-  if (!unread.length && !recaps.length && !plans.length && !newEvents.length) return null;
-  const hours = Math.max(1, Math.round((Date.now() - lastSeen) / 3_600_000));
-  const names = [...new Set(unread.map((c) => convTitle(c, groups, selfName).replace(' · DM', '')))].slice(0, 3).join('・');
+/** ホームの 1 段だけのセクション。続きはタイトルの横の「もっと見る」から各ページへ */
+function RowSection({ title, sub, onMore, empty, children }: { title: string; sub?: string; onMore: () => void; empty?: string; children: React.ReactNode[] }) {
+  // empty が無いセクションは、出すものが無ければセクションごと出さない
+  if (children.length === 0 && !empty) return null;
   return (
-    <section className="okaeri" aria-labelledby="okaeri">
-      <div className="row wrap">
-        <h2 id="okaeri">おかえりなさい</h2>
-        <span className="sub">{hours < 48 ? `${hours} 時間ぶり` : `${Math.round(hours / 24)} 日ぶり`}。いない間に：</span>
-        <span className="spacer" />
-        <button className="small" onClick={() => { for (const c of unread) markRead(c); setHidden(true); }}>既読にする</button>
-      </div>
-      <div className="okcards">
-        {unread.length > 0 && (
-          <button className="ib okcard msg" onClick={() => openConv(unread[0])}>
-            <span className="okic"><Icon name="chat" size={16} /></span>
-            <span className="finfo"><b>未読のメッセージ {unread.length} 件</b><span className="sub">{names}</span></span>
-          </button>
-        )}
-        {recaps.length > 0 && (
-          <button className="ib okcard" onClick={() => openConv(recaps.at(-1)!.c)}>
-            <span className="okic"><Icon name="headset" size={16} /></span>
-            <span className="finfo"><b>セッションのまとめ {recaps.length} 件</b><span className="sub">{recaps.at(-1)!.m.recap!.sessionName}で {recaps.at(-1)!.m.recap!.people.length} 人</span></span>
-          </button>
-        )}
-        {plans.length > 0 && (
-          <button className="ib okcard plan" onClick={() => openConv(plans[0].c)}>
-            <span className="okic"><Icon name="calendar" size={16} /></span>
-            <span className="finfo"><b>日程の相談 {plans.length} 件</b><span className="sub">{plans[0].m.text || '集まり'} · {timeLabel(plans[0].m.plan!.at)}</span></span>
-          </button>
-        )}
-        {newEvents.length > 0 && (
-          <button className="ib okcard plan" onClick={() => goHome('events')}>
-            <span className="okic"><Icon name="calendar" size={16} /></span>
-            <span className="finfo"><b>返事していないイベント {newEvents.length} 件</b><span className="sub">{newEvents[0].title} · {timeLabel(newEvents[0].at)}</span></span>
-          </button>
-        )}
-      </div>
+    <section className="hsec">
+      <h2>{title} {sub && <span className="sub">{sub}</span>}<button className="ib hlink" onClick={onMore}>もっと見る</button></h2>
+      {children.length === 0 ? <Empty>{empty}</Empty> : <div className="hrow">{children}</div>}
     </section>
   );
 }
 
-function UnreadMessages() {
-  const unread = useUnreadConvs();
-  const inbox = useStore((s) => s.inbox);
-  const groups = useStore((s) => s.groups);
+/** セッションのカードと同じ形のイベントのカード */
+function EventTile({ ev }: { ev: EventDef }) {
+  const friends = useStore((s) => s.friends);
   const selfName = useStore((s) => s.selfName);
-  const reads = useStore((s) => s.reads);
-  if (!unread.length) return null;
+  const g = useStore((s) => s.groups.find((x) => x.id === ev.group));
+  const venue = useStore((s) => s.guild.sessions.find((d) => d.id === ev.session));
+  const current = useStore((s) => s.session);
+  const live = isLive(ev);
+  const nf = ev.attendees.filter((n) => friends.includes(n)).length;
   return (
-    <section className="hsec">
-      <h2>未読のメッセージ <span className="sub">DM とグループのチャンネルから</span></h2>
-      <div className="ucards">
-        {unread.slice(0, 4).map((c) => {
-          const list = inbox[c].filter((m) => m.at > (reads[c] ?? 0) && m.from !== selfName);
-          const last = list.at(-1)!;
-          return (
-            <article key={c} className="ucard">
-              <div className="row"><b className="sub">{convTitle(c, groups, selfName)}</b><span className="spacer" />{list.length > 1 && <span className="sub">ほか {list.length - 1} 件</span>}</div>
-              <MessageView conv={c} m={last} />
-              <div className="row end"><button className="small" onClick={() => openConv(c)}>{c.startsWith('dm:') ? '返信' : '開く'}</button></div>
-            </article>
-          );
-        })}
+    <article className="scard">
+      <div className="schead" style={{ background: live ? '#FDE2DD' : 'var(--accentbg)' }}>
+        {live ? <span className="hchip live solid">開催中</span> : <span className="pill dark">{timeLabel(ev.at)}</span>}
+        {live && <span className="sub">{timeLabel(ev.at)} から</span>}
+        <span className="spacer" />
+        {venue && (current === venue.id
+          ? <span className="hhere"><i />会場にいます</span>
+          : <button className="primary scjoin" onClick={() => joinSession(venue.id)}>会場へ</button>)}
       </div>
-    </section>
+      <div className="scbody">
+        <div className="sctitle">
+          <h3 title={ev.title}>{ev.title}</h3>
+          {ev.attendees.includes(selfName) && <Chip kind="friends">参加予定</Chip>}
+        </div>
+        <span className="sub">{g && <><i className="gdot" style={{ background: g.color }} />{g.name} · </>}{venue ? `会場：${venue.name}` : '会場なし'}</span>
+        <EventHost ev={ev} />
+        <div className="scpeople">
+          <b className={nf ? 'acc' : ''}>{nf ? `フレンド ${nf} 人が来る` : `来る ${ev.attendees.length} 人`} · たぶん {ev.maybe.length}</b>
+          {ev.attendees.length > 0 && <span className="evfaces">{ev.attendees.slice(0, 6).map((n) => <NameFace key={n} name={n} size={22} />)}</span>}
+        </div>
+        <EventAnswer ev={ev} />
+      </div>
+    </article>
   );
 }
+
+/** セッションのカードと同じ形のワールドのカード */
+function WorldTile({ k }: { k: WorldKind }) {
+  const n = useStore((s) => s.guild.sessions.filter((d) => (s.worldBy[d.id] ?? d.world ?? 'room') === k).length);
+  const [create, setCreate] = useState(false);
+  return (
+    <article className="scard">
+      <div className="schead" style={{ background: WORLD_FACE[k] }}>
+        <span className="pill dark">セッション {n} 件</span>
+        <span className="spacer" />
+        <button className="dark scjoin" onClick={() => setCreate(true)}><Icon name="plus" size={14} />セッションを作る</button>
+      </div>
+      <div className="scbody">
+        <div className="sctitle"><h3>{WORLDS[k].name}</h3><Chip kind="genre">Tonarium</Chip></div>
+        <span className="sub wrap">{WORLDS[k].desc}</span>
+      </div>
+      {create && createPortal(<CreateSessionDialog world={k} onClose={() => setCreate(false)} />, document.body)}
+    </article>
+  );
+}
+
+const DAY = 86_400_000;
 
 function HomePageView({ q }: { q: string }) {
   const sessions = useStore((s) => s.guild.sessions);
   const users = useStore((s) => s.users);
   const friends = useStore((s) => s.friends);
+  const selfName = useStore((s) => s.selfName);
+  const events = useStore((s) => s.events);
   const onlineFriends = useOnlineFriends();
-  const sorted = sortForHome(sessions.filter((d) => match(q, d.name, d.topic)), friends, users);
+  const found = sortForHome(sessions.filter((d) => match(q, d.name, d.topic)), friends, users);
+  const withFriends = found.filter((d) => friendsIn(d.id, friends, users).length > 0);
+  // 見えているセッションは入れるものだけなので、フレンドがいないものをそのまま並べる
+  const others = found.filter((d) => friendsIn(d.id, friends, users).length === 0);
+  const soon = events
+    .filter((e) => match(q, e.title) && (isLive(e) || (e.at > Date.now() && e.at < Date.now() + WEEK)))
+    .sort((a, b) => Number(isLive(b)) - Number(isLive(a)) || a.at - b.at);
+  // 24 時間以内に「来る」と答えたイベントがあれば、イベントを一番上に出す
+  const mineSoon = soon.some((e) => e.attendees.includes(selfName) && e.at < Date.now() + DAY);
+  const worlds = WORLD_KINDS.filter((k) => match(q, WORLDS[k].name, WORLDS[k].desc));
   // 参加できるセッションの中にいないフレンド
   const idle = onlineFriends.filter((u) => !sessions.some((d) => d.id === u.session) && match(q, u.name));
+  const eventsRow = (
+    <RowSection title="直近のイベント" sub="開催中と 1 週間以内" onMore={() => goHome('events')}>
+      {soon.map((ev) => <EventTile key={ev.id} ev={ev} />)}
+    </RowSection>
+  );
   return (
     <>
-      {!q && <Okaeri />}
-      {!q && <UnreadMessages />}
-      <section className="hsec">
-        <h2>フレンドの今 <span className="sub">参加できるセッションを、フレンドが多い順に</span></h2>
-        {sorted.length === 0 && <Empty>参加できるセッションがありません</Empty>}
-        <div className="scards">{sorted.map((d) => <SessionCard key={d.id} s={d} />)}</div>
-      </section>
-      <section className="hsec">
-        <h2>オンラインのフレンド <span className="sub">参加できるセッションにいないフレンド</span><button className="ib hlink" onClick={() => goHome('friends')}>すべて</button></h2>
-        {idle.length === 0 && <Empty>{onlineFriends.length ? 'みんなセッションにいます' : 'オンラインのフレンドはいません'}</Empty>}
-        <div className="ftiles">{idle.map((u) => <FriendTile key={u.id} u={u} />)}</div>
-      </section>
+      {mineSoon && eventsRow}
+      <RowSection title="フレンドの今" sub="フレンドがいるセッションを、フレンドが多い順に" onMore={() => goHome('friends', 'now')}>
+        {withFriends.map((d) => <SessionCard key={d.id} s={d} />)}
+      </RowSection>
+      <RowSection title="オンラインのフレンド" sub="参加できるセッションにいないフレンド" onMore={() => goHome('friends', 'all')} empty={onlineFriends.length ? 'みんなセッションにいます' : 'オンラインのフレンドはいません'}>
+        {idle.map((u) => <FriendTile key={u.id} u={u} />)}
+      </RowSection>
+      {!mineSoon && eventsRow}
+      <RowSection title="パブリックセッション" sub="フレンドはいないけれど入れるセッション" onMore={() => goHome('sessions')} empty="ほかに入れるセッションはありません">
+        {others.map((d) => <SessionCard key={d.id} s={d} />)}
+      </RowSection>
+      <RowSection title="新着ワールド" onMore={() => goHome('worlds')} empty="見つかりません">
+        {worlds.map((k) => <WorldTile key={k} k={k} />)}
+      </RowSection>
     </>
   );
 }
