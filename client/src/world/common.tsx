@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ChatMessage, Participant } from '../../../shared/protocol.ts';
+import type { ChatMessage } from '../../../shared/protocol.ts';
 import { ITEM_INFO, type Item } from '../../../shared/items.ts';
 import { NEAR_RANGE, VOICE_RANGE } from '../../../shared/places.ts';
+import { bandOf, type Band, type ListedPlayer } from '../nearby.ts';
 import { useStore, set, colorOf, heldHammer } from '../store.ts';
 import { iconUrl } from '../icon.ts';
 import { useNearby, useNearbyItems } from '../spatial.ts';
@@ -43,47 +44,19 @@ export function Viewers({ keyName, dark = false }: { keyName: string; dark?: boo
   );
 }
 
-export type Band = 'near' | 'mid' | 'far';
-export const bandOf = (d: number): Band => (d <= NEAR_RANGE ? 'near' : d <= VOICE_RANGE ? 'mid' : 'far');
+export type { Band };
+export { bandOf };
 export const BANDS: { band: Band; label: string; range: string; dot: string }[] = [
   { band: 'near', label: 'すぐそば', range: `〜${NEAR_RANGE}m`, dot: '#2E9A64' },
   { band: 'mid', label: '声が届く', range: `〜${VOICE_RANGE}m`, dot: '#D9A02B' },
   { band: 'far', label: 'とおく', range: `${VOICE_RANGE}m〜`, dot: '#9A98A2' },
 ];
 
-/** trend は -1（近づいている）〜 1（離れていく） */
-export interface PlayerEntry { user: Participant; d: number; band: Band; child: boolean; trend: number }
-
-// 距離の変化の速さ（m/秒）をならしたもの。止まると 0 に戻っていく
-const motion = new Map<string, { d: number; t: number; v: number }>();
-function trendOf(id: string, d: number) {
-  const now = performance.now();
-  const m = motion.get(id);
-  if (!m || !Number.isFinite(d) || !Number.isFinite(m.d)) { motion.set(id, { d, t: now, v: 0 }); return 0; }
-  const dt = (now - m.t) / 1000;
-  if (dt > 0.05) {
-    const v = Math.max(-4, Math.min(4, (d - m.d) / dt));
-    m.v = m.v * 0.6 + v * 0.4;
-    m.d = d;
-    m.t = now;
-  }
-  return Math.abs(m.v) < 0.15 ? 0 : Math.max(-1, Math.min(1, m.v / 1.5));
-}
+export type PlayerEntry = ListedPlayer;
 
 /** 自分以外を近い順に。ついていっている人は相手の直後にぶら下げる */
 export function usePlayers(): PlayerEntry[] {
-  const list = useNearby();
-  const selfId = useStore((s) => s.selfId);
-  const others = list.filter((x) => x.user.id !== selfId);
-  const ids = new Set(others.map((x) => x.user.id));
-  const out: PlayerEntry[] = [];
-  const entry = (x: (typeof others)[number], band: Band, child: boolean) => ({ ...x, band, child, trend: trendOf(x.user.id, x.d) });
-  for (const x of others) {
-    if (x.user.follow && ids.has(x.user.follow)) continue;
-    out.push(entry(x, bandOf(x.d), false));
-    for (const f of others.filter((y) => y.user.follow === x.user.id)) out.push(entry(f, bandOf(x.d), true));
-  }
-  return out;
+  return useNearby();
 }
 
 /** 近づいている人はオレンジ、離れていく人は水色にぼんやり光らせる */
@@ -93,7 +66,7 @@ export const glowStyle = (trend: number) => ({
 }) as React.CSSProperties;
 
 export function useItemsNear() {
-  return useNearbyItems().map((x) => ({ ...x, band: bandOf(x.d) }));
+  return useNearbyItems();
 }
 
 /** そのアイテムを開くウィンドウ。無ければ null */

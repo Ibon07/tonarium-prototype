@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, SessionInfo, User } from '../../shared/protocol.ts';
-import { EMPTY_PRESENCE, SPAWN } from '../../shared/protocol.ts';
+import { SPAWN } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
 import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
 import type { DieSides } from '../../shared/dice.ts';
 import { newGame, type GameState } from '../../shared/game.ts';
 import type { PositionRoute } from '../../shared/session-position.ts';
+import { deriveSession } from './sessionView.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
 export type WinMode = 'simple' | 'free';
@@ -58,9 +59,11 @@ interface State {
   /** 前回いなくなった時刻（おかえりのまとめに使う）。まだ届いていなければ undefined */
   lastSeen: number | null | undefined;
 
-  // 以下は参加中セッションの分だけを recompute() で切り出したもの
+  // 以下は参加中セッションの分だけを recompute() で切り出したもの。位置の更新では participants を差し替えない
   participants: Participant[];
   avatars: Record<string, AvatarState>;
+  /** 3D に出す相手の ID。座標が変わっても配列の参照は保つ */
+  avatarIds: string[];
   items: Record<string, Item>;
 
   /** 同期しない手元だけの状態 */
@@ -194,6 +197,7 @@ export const useStore = create<State>(() => ({
   lastSeen: undefined,
   participants: [],
   avatars: {},
+  avatarIds: [],
   items: {},
   itemUi: {},
   windows: [],
@@ -259,22 +263,11 @@ export interface ItemUi { sel?: number; chessRevision?: number; promotionTo?: nu
 export const set = useStore.setState;
 export const get = useStore.getState;
 
-const EMPTY: Record<string, never> = {};
 export function recompute() {
   const s = get();
-  const sid = s.session;
-  const participants = sid ? s.users.filter((u) => u.session === sid).map((u) => ({ ...EMPTY_PRESENCE, ...s.presence[u.id], ...u })) : [];
-  // 位置は本人から直接届くので、2D の人や自分の分が残っていても表示しない
-  const avatars: Record<string, AvatarState> = {};
-  for (const u of participants) {
-    const a = u.mode === '3d' && u.id !== s.selfId ? s.avatarsBy[sid!]?.[u.id] : undefined;
-    if (a) avatars[u.id] = a;
-  }
-  set({
-    participants,
-    items: (sid && s.itemsBy[sid]) || EMPTY,
-    avatars,
-  });
+  const next = deriveSession(s, s);
+  if (next.participants === s.participants && next.avatars === s.avatars && next.items === s.items && next.avatarIds === s.avatarIds) return;
+  set(next);
 }
 
 /** セッションを出たら中の状態は捨てる（次に入るときは部屋から届き直す） */

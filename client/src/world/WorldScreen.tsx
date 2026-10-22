@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useShallow } from 'zustand/react/shallow';
 import { SOUNDS } from '../../../shared/sounds.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, WORLD_KINDS } from '../../../shared/worlds.ts';
 import { useStore, get, set, nameOf, sessionOf, isBroadcast, worldKindOf, serverNow } from '../store.ts';
@@ -87,7 +88,9 @@ function Soundboard({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
 }
 
 function Dock() {
-  const { voice, micEnabled, sharer, selfId, winMode } = useStore();
+  const { voice, micEnabled, sharer, selfId, winMode } = useStore(useShallow((s) => ({
+    voice: s.voice, micEnabled: s.micEnabled, sharer: s.sharer, selfId: s.selfId, winMode: s.winMode,
+  })));
   const [sb, setSb] = useState<DOMRect | null>(null);
   const ok = voice === 'connected';
   const sharingSelf = sharer === selfId;
@@ -124,7 +127,22 @@ function Dock() {
 
 /** ドックの上に出す、いまの状態のお知らせ */
 function StatusChips() {
-  const s = useStore();
+  const s = useStore(useShallow((st) => ({
+    participants: st.participants,
+    selfId: st.selfId,
+    items: st.items,
+    sync: st.sync,
+    syncError: st.syncError,
+    syncTransport: st.syncTransport,
+    syncRtt: st.syncRtt,
+    syncRoutes: st.syncRoutes,
+    users: st.users,
+    voice: st.voice,
+    voiceError: st.voiceError,
+    mode: st.mode,
+    camFeeds: st.camFeeds,
+    liveRequested: st.liveRequested,
+  })));
   const me = s.participants.find((p) => p.id === s.selfId);
   const hammer = Object.values(s.items).find((i) => i.kind === 'hammer' && i.holder === s.selfId);
   const followers = s.participants.filter((p) => p.follow === s.selfId);

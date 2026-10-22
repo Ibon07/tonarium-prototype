@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import type { Participant } from '../../../shared/protocol.ts';
 import { ITEM_INFO, ONLY_3D, type Item, type ItemKind } from '../../../shared/items.ts';
 import { useStore, get, set, save, nameOf, heldHammer } from '../store.ts';
 import { follow, goNear, poke } from '../actions.ts';
 import { dropHammer, hitAndMove, itemAction, removeItem, spawnItem } from '../items/actions.ts';
-import { formatDistance } from '../spatial.ts';
+import { formatDistance, useTrend } from '../spatial.ts';
 import { Icon } from './Icon.tsx';
 import {
   BANDS, Badge3D, Face, ItemMark, Popover, glowStyle, itemLabel, useItemsNear, usePlayers, windowKeyOf,
@@ -59,6 +60,7 @@ function PlayerRow({ e, onMenu, menuOpen }: { e: PlayerEntry; onMenu: (r: DOMRec
   const speaking = useStore((s) => !!s.speaking[e.user.id]);
   const friends = useStore((s) => s.friends);
   const hammer = useStore((s) => s.mode === '2d' && !!heldHammer(s));
+  const trend = useTrend(e.user.id);
   const u = e.user;
   const status = statusOf(u, friends);
   const ring = speaking ? '0 0 0 2px #fff, 0 0 0 4px var(--speak)' : undefined;
@@ -70,14 +72,14 @@ function PlayerRow({ e, onMenu, menuOpen }: { e: PlayerEntry; onMenu: (r: DOMRec
   );
   if (e.band === 'far') {
     return (
-      <button className="farchip ib" data-uid={u.id} title={formatDistance(e.d)} onClick={() => pickUser(u.id)} style={glowStyle(e.trend)}>
+      <button className="farchip ib" data-uid={u.id} title={formatDistance(e.d)} onClick={() => pickUser(u.id)} style={glowStyle(trend)}>
         <Face id={u.id} name={u.name} size={20} />{u.name}{u.mode === '3d' && <Badge3D />}
       </button>
     );
   }
   const big = e.band === 'near';
   return (
-    <div className={`prow ${big ? 'big' : ''} ${e.child ? 'child' : ''} ${menuOpen ? 'menuon' : ''} ${hammer ? 'hittable' : ''}`} data-uid={u.id} style={glowStyle(e.trend)}>
+    <div className={`prow ${big ? 'big' : ''} ${e.child ? 'child' : ''} ${menuOpen ? 'menuon' : ''} ${hammer ? 'hittable' : ''}`} data-uid={u.id} style={glowStyle(trend)}>
       {e.child && <span className="branch" aria-hidden="true" />}
       <button className="pmain" onClick={() => pickUser(u.id)} aria-label={hammer ? `${u.name} を叩く` : `${u.name} のプロフィール`}>
         <Face id={u.id} name={u.name} size={big ? 32 : 22} ring={ring} />
@@ -164,7 +166,9 @@ function MenuItem({ icon, label, onClick, disabled }: { icon: Parameters<typeof 
 }
 
 function ActionMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
-  const s = useStore();
+  const s = useStore(useShallow((st) => ({
+    participants: st.participants, selfId: st.selfId, items: st.items, camFeeds: st.camFeeds,
+  })));
   const me = s.participants.find((p) => p.id === s.selfId);
   const run = (f: () => void) => () => { f(); onClose(); };
   if (menu.kind === 'user') {
@@ -261,12 +265,6 @@ export function NearList() {
   const items = useItemsNear();
   const [menu, setMenu] = useState<Menu | null>(null);
   const [picker, setPicker] = useState<DOMRect | null>(null);
-  // 止まった人の光が消えるよう、動きが無くても定期的に描き直す
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((n) => n + 1), 250);
-    return () => clearInterval(t);
-  }, []);
   const playerRow = (e: PlayerEntry) => (
     <PlayerRow
       key={e.user.id} e={e} menuOpen={menu?.kind === 'user' && menu.id === e.user.id}

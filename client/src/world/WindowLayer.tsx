@@ -1,14 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useShallow } from 'zustand/react/shallow';
 import { ITEM_INFO, NOTE_COLORS, type Item } from '../../../shared/items.ts';
 import { useStore, get, nameOf, type Win } from '../store.ts';
+import { useDistanceLabel } from '../spatial.ts';
 import { PANELS } from '../items/panels.ts';
 import { PanelCanvas } from '../items/PanelCanvas.tsx';
 import { editNote, removeItem } from '../items/actions.ts';
 import { camHolder, camVideos } from '../net/livekit.ts';
 import { ShareVideoHost } from '../ShareVideo.tsx';
 import { follow, selectNote } from '../actions.ts';
-import { distanceTo, formatDistance, placesOf } from '../spatial.ts';
 import { Icon } from './Icon.tsx';
 import { ItemMark, Viewers, itemLabel } from './common.tsx';
 import { closeWindow, moveWindow, raiseWindow, toggleMax } from './windows.ts';
@@ -21,7 +22,15 @@ import { DiceBody } from './DiceBody.tsx';
 const BAR = 40;
 type Kind = 'video' | 'panel' | 'note' | 'media' | 'face' | 'dice';
 /** noMax: 最大化しない（顔はアバターのキャンバスの下に隠れてしまうため） */
-interface Resolved { kind: Kind; dark: boolean; title: string; sub: string; item?: Item; body: React.ReactNode; aspect?: number; width: number; noMax?: boolean }
+interface Resolved { kind: Kind; dark: boolean; title: string; sub: React.ReactNode; item?: Item; body: React.ReactNode; aspect?: number; width: number; noMax?: boolean }
+
+function UserDist({ id }: { id: string }) {
+  return <>{useDistanceLabel('user', id)}</>;
+}
+
+function ItemDist({ id }: { id: string }) {
+  return <>{useDistanceLabel('item', id)}</>;
+}
 
 function CamVideoHost({ id }: { id: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -60,17 +69,26 @@ function NoteBody({ note }: { note: Item & { kind: 'note' } }) {
 
 /** 開けなくなったもの（アイテムが片付けられた、配信が終わった等）は null */
 function useResolved(key: string, compact: boolean): Resolved | null {
-  const s = useStore();
-  const at = (id: string) => formatDistance(distanceTo(id, s));
+  const { sharer, camFeeds, participants, selfId, items, users, speaking } = useStore(useShallow((s) => ({
+    sharer: s.sharer,
+    camFeeds: s.camFeeds,
+    participants: s.participants,
+    selfId: s.selfId,
+    items: s.items,
+    users: s.users,
+    speaking: key.startsWith('face:') ? !!s.speaking[key.slice(5)] : false,
+  })));
+  const name = (id: string | null) => (id ? users.find((p) => p.id === id)?.name ?? '（退出済み）' : '');
+  const at = (id: string) => <UserDist id={id} />;
   if (key === 'share') {
-    if (!s.sharer) return null;
-    return { kind: 'video', dark: true, title: `${nameOf(s.sharer)} の画面共有`, sub: at(s.sharer), body: <ShareVideoHost className="videohost" />, width: 780, aspect: 16 / 9 };
+    if (!sharer) return null;
+    return { kind: 'video', dark: true, title: `${name(sharer)} の画面共有`, sub: at(sharer), body: <ShareVideoHost className="videohost" />, width: 780, aspect: 16 / 9 };
   }
   if (key.startsWith('view:')) {
     const uid = key.slice(5);
-    if (!s.camFeeds[key]) return null;
+    if (!camFeeds[key]) return null;
     return {
-      kind: 'video', dark: true, title: `${nameOf(uid)} の視点`, sub: 'ついていく中', width: 480, aspect: 16 / 9,
+      kind: 'video', dark: true, title: `${name(uid)} の視点`, sub: 'ついていく中', width: 480, aspect: 16 / 9,
       body: (
         <>
           <CamVideoHost id={key} />
@@ -80,23 +98,23 @@ function useResolved(key: string, compact: boolean): Resolved | null {
     };
   }
   if (key.startsWith('face:')) {
-    const u = s.participants.find((p) => p.id === key.slice(5));
+    const u = participants.find((p) => p.id === key.slice(5));
     if (!u) return null;
-    const self = u.id === s.selfId;
+    const self = u.id === selfId;
     return {
       kind: 'face', dark: false, title: self ? `${u.name}（あなた）` : u.name, sub: self ? `${u.mode.toUpperCase()} で参加中` : at(u.id),
       width: 480, aspect: 4 / 3, noMax: true,
-      body: <div className={`facewin ${s.speaking[u.id] ? 'speaking' : ''}`}><AvatarView u={u} speaking={!!s.speaking[u.id]} /></div>,
+      body: <div className={`facewin ${speaking ? 'speaking' : ''}`}><AvatarView u={u} speaking={speaking} /></div>,
     };
   }
   const id = key.slice(key.indexOf(':') + 1);
-  const item = s.items[id];
+  const item = items[id];
   if (!item) return null;
-  const sub = `${item.createdBy === s.selfId ? 'あなた' : nameOf(item.createdBy)} が出した · ${formatDistance(itemDistance(item, s))}`;
+  const sub = <>{item.createdBy === selfId ? 'あなた' : name(item.createdBy)} が出した · <ItemDist id={item.id} /></>;
   if (key.startsWith('cam:')) {
-    if (item.kind !== 'camera' || !item.live || !s.camFeeds[id]) return null;
+    if (item.kind !== 'camera' || !item.live || !camFeeds[id]) return null;
     return {
-      kind: 'video', dark: true, item, title: `${ITEM_INFO.camera.name} — ${nameOf(item.operator)} のライブ`, sub, width: 480, aspect: 16 / 9,
+      kind: 'video', dark: true, item, title: `${ITEM_INFO.camera.name} — ${name(item.operator)} のライブ`, sub, width: 480, aspect: 16 / 9,
       body: <><CamVideoHost id={id} /><span className="onlive"><i />LIVE</span></>,
     };
   }
@@ -120,13 +138,6 @@ function useResolved(key: string, compact: boolean): Resolved | null {
   const panel = PANELS[item.kind];
   if (!panel) return null;
   return { kind: 'panel', dark: false, item, title: ITEM_INFO[item.kind].name, sub, width: item.kind === 'g2048' ? 320 : 460, aspect: panel.w / panel.h, body: <PanelCanvas item={item} interactive={!compact} /> };
-}
-
-function itemDistance(item: Item, s = get()) {
-  const holder = 'holder' in item ? item.holder : null;
-  if (holder) return distanceTo(holder, s);
-  const me = placesOf(s).get(s.selfId);
-  return me ? Math.hypot(item.x - me.x, item.z - me.z) : Infinity;
 }
 
 /** compact はカンタンモードで下に並ぶ小さいウィンドウ。押すと大きい方と入れ替わる */

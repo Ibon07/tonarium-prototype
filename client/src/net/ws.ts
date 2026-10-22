@@ -1,5 +1,6 @@
 import { isRoomClientMsg, type ClientMsg, type ServerMsg, type SessionInfo, type SessionSnapshot } from '../../../shared/protocol.ts';
-import { get, set, recompute, spawnPoint } from '../store.ts';
+import { applyAvatars } from '../sessionView.ts';
+import { get, recompute, set, spawnPoint } from '../store.ts';
 
 const selfBusy = () => get().users.find((u) => u.id === get().selfId)?.status === 'busy';
 import { applyDelta } from '../items/actions.ts';
@@ -94,15 +95,11 @@ export function onMessage(msg: ServerMsg) {
       set((s) => ({ chats: { ...s.chats, [msg.sid]: [...(s.chats[msg.sid] ?? []), msg.m].slice(-500) } }));
       return;
     case 'avatar':
-      set((s) => ({ avatarsBy: { ...s.avatarsBy, [msg.sid]: { ...s.avatarsBy[msg.sid], [msg.id]: msg.s } } }));
-      break;
+      set(applyAvatars(get(), msg.sid, msg.id, msg.s));
+      return;
     case 'avatarRemove':
-      set((s) => {
-        const m = { ...s.avatarsBy[msg.sid] };
-        delete m[msg.id];
-        return { avatarsBy: { ...s.avatarsBy, [msg.sid]: m } };
-      });
-      break;
+      set(applyAvatars(get(), msg.sid, msg.id, null));
+      return;
     case 'item':
       set((s) => {
         let item = msg.item;
