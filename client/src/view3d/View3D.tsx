@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { jumpHeight, spawnSlot, type AvatarState, type Participant } from '../../../shared/protocol.ts';
+import { jumpHeight, spawnSlot, type Participant } from '../../../shared/protocol.ts';
 import { NOTE_COLORS } from '../../../shared/items.ts';
 import { useStore, get, colorOf, nameOf, heldHammer, heldCamera, worldKindOf } from '../store.ts';
 import { selectNote } from '../actions.ts';
@@ -87,7 +87,7 @@ function Entrance() {
 }
 
 /** self は一人称では見えないので隠しておき、カメラで撮るときだけ表示する（renderCamera） */
-function Avatar3D({ id, state, self = false }: { id: string; state: AvatarState; self?: boolean }) {
+function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
   const name = useStore((s) => s.participants.find((p) => p.id === id)?.name);
   const speaking = useStore((s) => !!s.speaking[id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[id] === false);
@@ -97,13 +97,16 @@ function Avatar3D({ id, state, self = false }: { id: string; state: AvatarState;
   const ref = useRef<THREE.Group>(null);
   const body = useRef<THREE.Group>(null);
   const hand = useRef<THREE.Group>(null);
+  const born = (self ? get().selfAvatar : get().avatars[id]) ?? { x: 0, z: 0, ry: 0 };
   // 受信ごとに React が座標を上書きすると、useFrame の補間が打ち消される。
-  const initialTransform = useRef({ position: [state.x, 0, state.z] as [number, number, number], ry: state.ry });
+  const initialTransform = useRef({ position: [born.x, 0, born.z] as [number, number, number], ry: born.ry });
   // 途中から見えた人の過去のジャンプは再生しない
-  const jump = useRef({ n: state.jump ?? 0, at: -Infinity });
+  const jump = useRef({ n: born.jump ?? 0, at: -Infinity });
   useFrame((_, dt) => {
     const g = ref.current;
     if (!g) return;
+    const state = self ? get().selfAvatar : get().avatars[id];
+    if (!state) return;
     const k = Math.min(1, dt * 10);
     g.position.x += (state.x - g.position.x) * k;
     g.position.z += (state.z - g.position.z) * k;
@@ -241,11 +244,10 @@ function Crosshair() {
 }
 
 export function View3D() {
-  const avatars = useStore((s) => s.avatars);
+  const avatarIds = useStore((s) => s.avatarIds);
   const items = useStore((s) => s.items);
   const locked = useStore((s) => s.locked);
   const selfId = useStore((s) => s.selfId);
-  const selfAvatar = useStore((s) => s.selfAvatar);
   const viewLive = useStore((s) => !!s.participants.find((p) => p.id === s.selfId)?.viewLive);
   const world = useStore((s) => worldKindOf(s));
   const a0 = get().selfAvatar;
@@ -256,8 +258,8 @@ export function View3D() {
         <WorldMesh kind={world} />
         <ShareDisplay />
         <Entrance />
-        {Object.entries(avatars).map(([id, s]) => <Avatar3D key={id} id={id} state={s} />)}
-        <Avatar3D id={selfId} state={selfAvatar} self />
+        {avatarIds.map((id) => <Avatar3D key={id} id={id} />)}
+        <Avatar3D id={selfId} self />
         {Object.values(items).map((it) => <Item3D key={it.id} item={it} />)}
         {Object.values(items).map((it) => <AttentionGlow key={`attn-${it.id}`} item={it} />)}
         {Object.values(items).map((it) => (it.kind === 'camera' && it.live && it.operator === selfId

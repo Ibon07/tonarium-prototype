@@ -1,9 +1,13 @@
 import { useState } from 'react';
 import { useStore, set, colorOf } from '../store.ts';
 import { follow, friendRequest, goNear, poke, report, toggleBlock } from '../actions.ts';
-import { distanceTo, formatDistance } from '../spatial.ts';
+import { useDistanceLabel } from '../spatial.ts';
 import { Icon } from './Icon.tsx';
 import { Face } from './common.tsx';
+
+function ProfileDistance({ id }: { id: string }) {
+  return <>{useDistanceLabel('user', id)}</>;
+}
 
 export function ProfileCard() {
   const id = useStore((s) => s.profileOf);
@@ -11,7 +15,6 @@ export function ProfileCard() {
   const me = useStore((s) => s.participants.find((p) => p.id === s.selfId));
   const friends = useStore((s) => s.friends);
   const blocked = useStore((s) => s.blocked);
-  useStore((s) => s.avatars);
   const [requested, setRequested] = useState<string | null>(null);
   const [reporting, setReporting] = useState(false);
   const [reason, setReason] = useState('');
@@ -41,7 +44,7 @@ export function ProfileCard() {
           <Face id={u.id} name={u.name} size={80} ring="0 0 0 4px #FFFDF9" />
           <div className="pcname">
             <h2>{u.name}</h2>
-            <span className="sub">{status} · {formatDistance(distanceTo(u.id))}</span>
+            <span className="sub">{status} · <ProfileDistance id={u.id} /></span>
           </div>
           <p className="bio">{u.bio || '自己紹介はまだありません'}</p>
           {!self && (
