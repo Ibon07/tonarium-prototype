@@ -701,6 +701,12 @@ img.av { object-fit: cover; display: block; }
 .hchip.group { background: #FBE9D7; color: #A24A16; }
 .hchip.invite { background: var(--globalbg); color: var(--global); }
 .hchip.genre { background: var(--sand); }
+.hchip.live { background: #FDE2DD; color: var(--danger); }
+/* ホームのセクションは 1 段だけ。はみ出す分は横にスクロール */
+.hrow { display: flex; gap: 14px; overflow-x: auto; padding: 4px 4px 10px; margin: -4px -4px 0; scroll-snap-type: x proximity; }
+.hrow > * { flex: 0 0 280px; scroll-snap-align: start; }
+.hchip.live.solid { background: var(--danger); color: #fff; }
+.scard .evfaces { margin-top: 2px; }
 .hchip.mode { background: var(--ink); color: #fff; height: 18px; padding: 0 6px; font-size: 10px; margin-left: 4px; }
 
 .ftiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 12px; }
@@ -795,18 +801,6 @@ img.av { object-fit: cover; display: block; }
 .strecent { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .stpreview { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 14px; background: var(--sand); }
 .stpreview .row { gap: 10px; }
-
-.okaeri { background: var(--paper); border-radius: 20px; box-shadow: var(--shadow); padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
-.okaeri h2 { font-size: 17px; }
-.okcards { display: flex; gap: 10px; flex-wrap: wrap; }
-.okcard { flex: 1 1 200px; height: auto; min-height: 56px; padding: 10px 14px; border-radius: 14px; background: var(--sand); justify-content: flex-start; gap: 10px; text-align: left; }
-.okcard.msg { background: var(--globalbg); }
-.okcard.plan { background: var(--accentbg); }
-.okic { width: 34px; height: 34px; border-radius: 10px; background: var(--ink); color: #fff; display: inline-flex; align-items: center; justify-content: center; flex: none; }
-.okcard.msg .okic { background: var(--global); }
-.okcard.plan .okic { background: var(--accent); }
-.ucards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr)); gap: 12px; }
-.ucard { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 16px; }
 
 .thread { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 8px; }
 .msg { display: flex; gap: 10px; align-items: flex-start; }

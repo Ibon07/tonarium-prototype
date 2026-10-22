@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { save, set, unreadOf, useStore, type HomePage } from '../store.ts';
-import { dmKey, type EventDef, type Group } from '../../../shared/protocol.ts';
+import { dmKey, type EventDef, type Group, type User } from '../../../shared/protocol.ts';
+import { sortForHome } from '../../../shared/home.ts';
 import { ITEM_INFO, type ItemKind } from '../../../shared/items.ts';
 import { WORLDS, WORLD_KINDS, type WorldKind } from '../../../shared/worlds.ts';
 import { askJoin, deleteEvent, deleteGroup, friendAccept, joinGroup, joinSession, leaveGroup, leaveSession, openDm, openGroup, removeNotice, toggleBlock, watchFriend } from '../actions.ts';
@@ -136,14 +137,20 @@ export function FriendsPage({ q }: { q: string }) {
   const friends = useStore((s) => s.friends);
   const dmWith = useStore((s) => s.dmWith);
   const requests = useStore((s) => s.notices).filter((n) => n.kind === 'friend').length;
-  const [tab, setTab] = useState<'all' | 'req' | 'block'>('all');
+  const tab = useStore((s) => s.friendsTab);
+  const setTab = (friendsTab: typeof tab) => set({ friendsTab });
+  const sessions = useStore((s) => s.guild.sessions);
+  const withFriends = sortForHome(sessions.filter((d) => match(q, d.name, d.topic)), friends, users).filter((d) => friendsIn(d.id, friends, users).length > 0);
   const online: FriendLike[] = uniqueByName(users.filter((u) => friends.includes(u.name))).map((u) => ({ id: u.id, name: u.name, session: u.session, mode: u.mode, sharing: u.sharing }));
   const offline: FriendLike[] = friends.filter((n) => !online.some((u) => u.name === n)).map((n) => ({ id: n, name: n }));
   const shown = (l: FriendLike[]) => l.filter((u) => match(q, u.name));
   const selected = [...online, ...offline].find((u) => u.name === dmWith) ?? online[0] ?? offline[0];
   return (
     <>
-      <Tabs value={tab} onChange={setTab} items={[{ id: 'all', label: 'すべて' }, { id: 'req', label: 'リクエスト', badge: requests }, { id: 'block', label: 'ブロック中' }]} />
+      <Tabs value={tab} onChange={setTab} items={[{ id: 'all', label: 'すべて' }, { id: 'now', label: 'フレンドの今' }, { id: 'req', label: 'リクエスト', badge: requests }, { id: 'block', label: 'ブロック中' }]} />
+      {tab === 'now' && (withFriends.length === 0
+        ? <Empty>フレンドがいるセッションはありません</Empty>
+        : <div className="scards">{withFriends.map((d) => <SessionCard key={d.id} s={d} />)}</div>)}
       {tab === 'req' && <FriendRequests />}
       {tab === 'block' && <BlockedList />}
       {tab === 'all' && friends.length === 0 && <Empty>まだフレンドがいません。セッションの中で相手のプロフィールからフレンド申請できます</Empty>}
@@ -339,7 +346,7 @@ export function GroupsPage({ q }: { q: string }) {
   );
 }
 
-const WORLD_FACE: Record<WorldKind, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2' };
+export const WORLD_FACE: Record<WorldKind, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2' };
 
 export function WorldsPage({ q }: { q: string }) {
   const sessions = useStore((s) => s.guild.sessions);
@@ -403,8 +410,11 @@ export function ItemsPage({ q }: { q: string }) {
   );
 }
 
-export function goHome(homePage: HomePage) {
-  set({ homePage });
+/** セッションにいるフレンド（同じ名前の複数タブは 1 人） */
+export const friendsIn = (sid: string, friends: string[], users: User[]) => uniqueByName(users.filter((u) => u.session === sid && friends.includes(u.name)));
+
+export function goHome(homePage: HomePage, friendsTab?: 'all' | 'now') {
+  set(friendsTab ? { homePage, friendsTab } : { homePage });
   save('tonarium.homePage', homePage);
   window.scrollTo(0, 0);
 }

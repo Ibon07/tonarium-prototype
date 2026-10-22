@@ -1,6 +1,10 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "dev", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173 }
+    { "name": "dev", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173 },
+    {
+      "name": "dev-isolated", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5181,
+      "env": { "SERVER_PORT": "3181", "CLIENT_PORT": "5181", "DATA_DIR": "data-isolated" }
+    }
   ]
 }
