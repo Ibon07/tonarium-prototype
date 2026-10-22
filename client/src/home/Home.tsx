@@ -19,6 +19,7 @@ import { GroupActions, GroupPage, GroupTitle } from './GroupPage.tsx';
 import { StatusDialog, StatusDot, StatusText, useStatusOf } from './status.tsx';
 import { Chip, Empty, EventAnswer, EventHost, NameFace, WEEKDAYS, dateKey, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
 import { touchOnly, usePhone } from '../phone.ts';
+import { FEEDBACK_URL } from '../feedback.ts';
 
 const NAV: { page: HomePage; name: string; icon: IconName }[] = [
   { page: 'home', name: 'ホーム', icon: 'home' },
@@ -117,6 +118,7 @@ export function Sidebar({ inSession, onPick }: { inSession?: boolean; onPick?: (
         </div>
         <ClientMode />
         <span className="spacer" />
+        <a className="ib hnavbtn hfeedback" href={FEEDBACK_URL} target="_blank" rel="noreferrer" title="フィードバックを送る（新しいタブで開きます）"><Icon name="heart" size={18} />フィードバック<Icon name="link" size={13} /></a>
         {inSession && <button className="ib hnavbtn hleave" onClick={leaveSession}><Icon name="leave" size={18} />セッションから離脱</button>}
         <div className="hself">
           <button className="ib hselfst" onClick={() => setStatus(true)} title="ステータスを変える">
