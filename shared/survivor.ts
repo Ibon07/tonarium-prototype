@@ -68,9 +68,14 @@ export interface SurvivorPlayer {
   choiceQueue: string[][]; hitAt: number; attackAt: Record<string, number>; moveAt: number;
 }
 export interface SurvivorEnemy {
-  id: string; kind: 'ghoul' | 'bat' | 'knight' | 'boss'; x: number; z: number;
+  id: string; kind: 'ghoul' | 'bat' | 'knight' | 'charger' | 'wisp' | 'boss'; x: number; z: number;
   hp: number; maxHp: number; speed: number; damage: number; xp: number; radius: number;
-  hitAt: number; attackAt: number;
+  hitAt: number; attackAt: number; nextSpecialAt: number; dashFrom: { x: number; z: number } | null; dashUntil: number;
+  movePhase: number; chargeTarget: { x: number; z: number } | null; chargeUntil: number;
+}
+export interface SurvivorProjectile {
+  id: string; sourceId: string; x: number; z: number; vx: number; vz: number;
+  damage: number; radius: number; expiresAt: number;
 }
 export interface SurvivorAttackEffect {
   id: string; playerId: string; gear: string; at: number;
@@ -80,8 +85,8 @@ export interface SurvivorState {
   run: number; phase: 'lobby' | 'running' | 'boss' | 'ended'; startedAt: number; endedAt: number | null;
   /** Level-up choices pause the shared run until every living player has chosen. */
   pausedAt: number | null;
-  players: Record<string, SurvivorPlayer>; enemies: SurvivorEnemy[]; effects: SurvivorAttackEffect[]; stylePicks: Record<string, SurvivorStyle>;
-  kills: number; spawnIndex: number; nextSpawnAt: number; randomSeed: number; bossDefeated: boolean;
+  players: Record<string, SurvivorPlayer>; enemies: SurvivorEnemy[]; projectiles: SurvivorProjectile[]; effects: SurvivorAttackEffect[]; stylePicks: Record<string, SurvivorStyle>;
+  kills: number; spawnIndex: number; nextSpawnAt: number; randomSeed: number; bossDefeated: boolean; bossesSpawned: number;
 }
 export interface SurvivorProfile {
   points: number; upgrades: Record<SurvivorMetaUpgrade, number>;
@@ -90,8 +95,8 @@ export interface SurvivorProfile {
 }
 
 export const newSurvivorState = (): SurvivorState => ({
-  run: 0, phase: 'lobby', startedAt: 0, endedAt: null, pausedAt: null, players: {}, enemies: [], effects: [], stylePicks: {},
-  kills: 0, spawnIndex: 0, nextSpawnAt: 0, randomSeed: 1, bossDefeated: false,
+  run: 0, phase: 'lobby', startedAt: 0, endedAt: null, pausedAt: null, players: {}, enemies: [], projectiles: [], effects: [], stylePicks: {},
+  kills: 0, spawnIndex: 0, nextSpawnAt: 0, randomSeed: 1, bossDefeated: false, bossesSpawned: 0,
 });
 export const newSurvivorProfile = (): SurvivorProfile => ({
   points: 0, upgrades: { might: 0, vitality: 0, haste: 0 }, runs: 0, bestLevel: 0, bestKills: 0,

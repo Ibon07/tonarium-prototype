@@ -37,6 +37,12 @@ function random(s: SurvivorState) {
   s.randomSeed = x >>> 0 || 1;
   return s.randomSeed / 0x1_0000_0000;
 }
+function pointSegmentDistance(point: { x: number; z: number }, from: { x: number; z: number }, to: { x: number; z: number }) {
+  const dx = to.x - from.x, dz = to.z - from.z;
+  const lengthSq = dx * dx + dz * dz;
+  const t = lengthSq > 0 ? Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.z - from.z) * dz) / lengthSq)) : 0;
+  return Math.hypot(point.x - (from.x + t * dx), point.z - (from.z + t * dz));
+}
 function pickedStyle(s: SurvivorState, id: string): SurvivorStyle { return s.stylePicks[id] ?? 'bloodrose'; }
 function playerFor(u: Participant, s: SurvivorState, d: SurvivorDeps, index: number): SurvivorPlayer {
   const profile = d.profile(u.id);
@@ -174,12 +180,15 @@ function createEnemy(s: SurvivorState, kind: SurvivorEnemy['kind'], now: number)
   const base = kind === 'ghoul' ? { hp: 18, speed: 1.15, damage: 7, xp: 2, radius: 0.32 }
     : kind === 'bat' ? { hp: 10, speed: 2.0, damage: 5, xp: 2, radius: 0.25 }
     : kind === 'knight' ? { hp: 55, speed: 0.72, damage: 14, xp: 5, radius: 0.42 }
+    : kind === 'charger' ? { hp: 34, speed: 0.95, damage: 13, xp: 4, radius: 0.36 }
+    : kind === 'wisp' ? { hp: 17, speed: 1.7, damage: 6, xp: 3, radius: 0.28 }
     : { hp: 34_000, speed: 1.05, damage: 28, xp: 0, radius: 1.25 };
   const hp = kind === 'boss' ? base.hp : Math.round(base.hp * scale);
   return {
     id: `e${s.run}-${++s.spawnIndex}`, kind, x: Math.cos(a) * r, z: Math.sin(a) * r,
     hp, maxHp: hp, speed: base.speed * (kind === 'boss' ? 1 : Math.min(1.8, scale)), damage: base.damage, xp: base.xp, radius: base.radius,
-    hitAt: 0, attackAt: now,
+    hitAt: 0, attackAt: now, nextSpecialAt: kind === 'boss' ? now + 5_000 : kind === 'charger' ? now + 4_500 : 0,
+    dashFrom: null, dashUntil: 0, movePhase: random(s) * Math.PI * 2, chargeTarget: null, chargeUntil: 0,
   };
 }
 function weaponAttack(s: SurvivorState, p: SurvivorPlayer, gear: string, level: number, now: number, d: SurvivorDeps) {
@@ -187,14 +196,14 @@ function weaponAttack(s: SurvivorState, p: SurvivorPlayer, gear: string, level: 
   const styleHaste = p.style === 'stargazer' ? 0.9 : 1;
   const passiveHaste = Math.max(0.5, (1 - (p.gear.astralbook ?? 0) * 0.07) * styleHaste);
   const configs: Record<string, { interval: number; range: number; damage: number; aoe?: number; targets?: number }> = {
-    moonblade: { interval: 650, range: 2.3, damage: 11, targets: 1 },
+    moonblade: { interval: 650, range: 2.3, damage: 16, targets: 1 },
     starbolt: { interval: 1050, range: 8.5, damage: 15, targets: 1 },
-    shade: { interval: 1200, range: 7, damage: 12, targets: 3 },
-    bloodaura: { interval: 650, range: 2.7, damage: 7, aoe: 2.7 },
-    eclipse: { interval: 420, range: 3.2, damage: 22, aoe: 3.2 },
-    starfall: { interval: 1000, range: 9.5, damage: 27, aoe: 2.8 },
-    umbralstorm: { interval: 850, range: 8.2, damage: 20, targets: 8 },
-    crimsonsun: { interval: 500, range: 3.7, damage: 13, aoe: 3.7 },
+    shade: { interval: 1200, range: 7, damage: 17, targets: 3 },
+    bloodaura: { interval: 650, range: 2.7, damage: 11, aoe: 2.7 },
+    eclipse: { interval: 420, range: 3.2, damage: 30, aoe: 3.2 },
+    starfall: { interval: 1000, range: 9.5, damage: 35, aoe: 2.8 },
+    umbralstorm: { interval: 850, range: 8.2, damage: 27, targets: 8 },
+    crimsonsun: { interval: 500, range: 3.7, damage: 19, aoe: 3.7 },
   };
   const cfg = configs[gear];
   if (!cfg || now < (p.attackAt[gear] ?? 0) + cfg.interval * passiveHaste) return;
@@ -267,7 +276,11 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
       for (const enemy of s.enemies) {
         enemy.attackAt += pausedFor;
         if (enemy.hitAt > 0) enemy.hitAt += pausedFor;
+        if (enemy.nextSpecialAt > 0) enemy.nextSpecialAt += pausedFor;
+        if (enemy.dashUntil > 0) enemy.dashUntil += pausedFor;
+        if (enemy.chargeUntil > 0) enemy.chargeUntil += pausedFor;
       }
+      for (const projectile of s.projectiles) projectile.expiresAt += pausedFor;
       s.pausedAt = null;
     } else if (hasPendingChoice(s)) {
       s.pausedAt = now;
@@ -280,6 +293,13 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
     if (elapsed >= SURVIVOR_DURATION_MS && s.phase === 'running') {
       s.phase = 'boss';
       s.enemies.push(createEnemy(s, 'boss', now));
+      s.bossesSpawned = 1;
+    }
+    if (s.phase === 'boss') {
+      while (elapsed >= SURVIVOR_DURATION_MS + s.bossesSpawned * 30_000) {
+        s.enemies.push(createEnemy(s, 'boss', now));
+        s.bossesSpawned++;
+      }
     }
     for (const p of Object.values(s.players)) {
       if (!p.alive) continue;
@@ -291,32 +311,131 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
     }
     const alive = Object.values(s.players).filter((p) => p.alive);
     if (!alive.length) { finish(sid, s, d, now); continue; }
-    if (s.phase === 'running' && now >= s.nextSpawnAt && s.enemies.length < SURVIVOR_MAX_ENEMIES) {
+    const lastDamagedAt = Object.values(s.players).reduce((latest, player) => Math.max(latest, player.hitAt), s.startedAt);
+    const noDamageSteps = Math.min(4, Math.floor(Math.max(0, now - lastDamagedAt) / 30_000));
+    if (now >= s.nextSpawnAt && s.enemies.length < SURVIVOR_MAX_ENEMIES) {
       const seconds = elapsed / 1000;
-      const count = seconds > 300 ? 2 : 1;
+      const count = Math.min(4, (seconds > 300 ? 2 : 1) + Math.floor(noDamageSteps / 2));
       for (let i = 0; i < count && s.enemies.length < SURVIVOR_MAX_ENEMIES; i++) {
         const roll = random(s);
-        const kind = seconds > 240 && roll < 0.26 ? 'knight' : seconds > 90 && roll < 0.56 ? 'bat' : 'ghoul';
+        const kind: SurvivorEnemy['kind'] = seconds >= 240
+          ? roll < 0.16 ? 'charger' : roll < 0.30 ? 'wisp' : roll < 0.48 ? 'knight' : roll < 0.72 ? 'bat' : 'ghoul'
+          : seconds >= 180 ? roll < 0.18 ? 'wisp' : roll < 0.44 ? 'bat' : 'ghoul'
+            : seconds >= 90 && roll < 0.56 ? 'bat' : 'ghoul';
         s.enemies.push(createEnemy(s, kind, now));
       }
-      s.nextSpawnAt = now + Math.max(260, 1050 - seconds * 1.2);
+      s.nextSpawnAt = now + Math.max(650, 1050 - seconds * 1.2 - noDamageSteps * 60);
     }
+    const damageTargets: SurvivorPlayer[] = [];
     for (const e of s.enemies) {
       if (e.hp <= 0) continue;
       const targets = alive.filter((p) => p.alive).sort((a, b) => survivorDistance(a, e) - survivorDistance(b, e));
       const target = targets[0];
       if (!target) continue;
+      if (e.kind === 'charger' && !e.chargeTarget && now >= e.nextSpecialAt) {
+        e.chargeTarget = { x: target.x, z: target.z };
+        e.chargeUntil = now + 700;
+        e.nextSpecialAt = now + 7_000;
+      }
+      if (e.kind === 'charger' && e.chargeTarget) {
+        if (now < e.chargeUntil) continue;
+        const from = { x: e.x, z: e.z };
+        const dx = e.chargeTarget.x - e.x, dz = e.chargeTarget.z - e.z;
+        const distance = Math.hypot(dx, dz) || 1;
+        const landing = clampSurvivorPosition(e.chargeTarget.x + dx / distance * 1.5, e.chargeTarget.z + dz / distance * 1.5);
+        e.dashFrom = from;
+        e.x = landing.x; e.z = landing.z;
+        e.dashUntil = now + 480;
+        e.chargeTarget = null;
+        e.chargeUntil = 0;
+        for (const player of alive) {
+          if (!player.alive || pointSegmentDistance(player, from, landing) > e.radius + 0.5) continue;
+          const hitCooldown = Math.max(250, 550 - (player.gear.nightcloak ?? 0) * 60);
+          if (now < player.hitAt + hitCooldown) continue;
+          const armor = Math.min(0.4, (player.gear.ironheart ?? 0) * 0.06);
+          player.hp -= e.damage * 2.2 * (1 - armor);
+          player.hitAt = now;
+          damageTargets.push(player);
+          if (player.hp <= 0) { player.hp = 0; player.alive = false; }
+        }
+        continue;
+      }
+      if (e.kind === 'boss' && now >= e.nextSpecialAt) {
+        const dx = target.x - e.x, dz = target.z - e.z;
+        const distance = Math.hypot(dx, dz) || 1;
+        const from = { x: e.x, z: e.z };
+        const landing = clampSurvivorPosition(target.x - dx / distance * 0.9, target.z - dz / distance * 0.9);
+        e.dashFrom = from;
+        e.x = landing.x; e.z = landing.z;
+        e.dashUntil = now + 520;
+        e.nextSpecialAt = now + 5_000;
+        e.attackAt = now;
+        const armor = Math.min(0.4, (target.gear.ironheart ?? 0) * 0.06);
+        target.hp -= e.damage * 2.4 * (1 - armor);
+        target.hitAt = now;
+        damageTargets.push(target);
+        if (target.hp <= 0) { target.hp = 0; target.alive = false; }
+        const volleySize = 16;
+        const angleOffset = random(s) * Math.PI * 2;
+        for (let i = 0; i < volleySize; i++) {
+          const angle = angleOffset + i * Math.PI * 2 / volleySize;
+          const speed = 5.8;
+          s.projectiles.push({
+            id: `${e.id}-bullet-${now}-${i}`, sourceId: e.id, x: e.x, z: e.z,
+            vx: Math.cos(angle) * speed, vz: Math.sin(angle) * speed,
+            damage: 23, radius: 0.2, expiresAt: now + 5_000,
+          });
+        }
+      }
       const dist = survivorDistance(target, e);
       if (dist > e.radius + 0.42) {
         const step = Math.min(e.speed * SURVIVOR_TICK_MS / 1000, dist);
-        e.x += (target.x - e.x) / dist * step;
-        e.z += (target.z - e.z) / dist * step;
+        let dirX = (target.x - e.x) / dist, dirZ = (target.z - e.z) / dist;
+        if (e.kind === 'wisp') {
+          const weave = Math.sin(now * 0.004 + e.movePhase) * 1.25;
+          const zigzagX = dirX * 0.82 - dirZ * weave;
+          const zigzagZ = dirZ * 0.82 + dirX * weave;
+          const length = Math.hypot(zigzagX, zigzagZ) || 1;
+          dirX = zigzagX / length; dirZ = zigzagZ / length;
+        }
+        e.x += dirX * step;
+        e.z += dirZ * step;
       } else if (now >= e.attackAt + 850 && now >= target.hitAt + Math.max(250, 550 - (target.gear.nightcloak ?? 0) * 60)) {
         const armor = Math.min(0.4, (target.gear.ironheart ?? 0) * 0.06);
         target.hp -= e.damage * (1 - armor);
         target.hitAt = e.attackAt = now;
+        damageTargets.push(target);
         if (target.hp <= 0) { target.hp = 0; target.alive = false; }
       }
+    }
+    const remainingProjectiles: typeof s.projectiles = [];
+    for (const projectile of s.projectiles) {
+      if (now >= projectile.expiresAt) continue;
+      const next = { x: projectile.x + projectile.vx * SURVIVOR_TICK_MS / 1000, z: projectile.z + projectile.vz * SURVIVOR_TICK_MS / 1000 };
+      const target = alive.find((player) => player.alive && pointSegmentDistance(player, projectile, next) <= projectile.radius + 0.42);
+      if (target) {
+        const hitCooldown = Math.max(250, 550 - (target.gear.nightcloak ?? 0) * 60);
+        if (now >= target.hitAt + hitCooldown) {
+          const armor = Math.min(0.4, (target.gear.ironheart ?? 0) * 0.06);
+          target.hp -= projectile.damage * (1 - armor);
+          target.hitAt = now;
+          damageTargets.push(target);
+          if (target.hp <= 0) { target.hp = 0; target.alive = false; }
+        }
+        continue;
+      }
+      if (Math.abs(next.x) > SURVIVOR_WORLD_LIMIT + 0.5 || Math.abs(next.z) > SURVIVOR_WORLD_LIMIT + 0.5) continue;
+      remainingProjectiles.push({ ...projectile, ...next });
+    }
+    s.projectiles = remainingProjectiles;
+    if (damageTargets.length) {
+      s.nextSpawnAt = Math.max(s.nextSpawnAt, now + 1_050);
+      const minions = s.enemies.filter((enemy) => enemy.kind !== 'boss');
+      const perHit = Math.min(5, Math.max(1, Math.ceil(minions.length * 0.08)));
+      const removeCount = Math.min(minions.length, perHit * damageTargets.length);
+      const nearestDamage = (enemy: SurvivorEnemy) => Math.min(...damageTargets.map((target) => survivorDistance(enemy, target)));
+      const retreating = new Set(minions.sort((a, b) => nearestDamage(a) - nearestDamage(b)).slice(0, removeCount));
+      s.enemies = s.enemies.filter((enemy) => !retreating.has(enemy));
     }
     for (const p of alive) if (p.alive) for (const [id, level] of Object.entries(p.gear)) if (level > 0 && SURVIVOR_GEAR[id]?.kind === 'weapon') weaponAttack(s, p, id, level, now, d);
     s.enemies = s.enemies.filter((e) => e.hp > 0);
