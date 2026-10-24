@@ -184,7 +184,8 @@ public sealed partial class RoomView
             if (microphoneKey != nextMicrophone) { microphoneKey = nextMicrophone; microphone.Content = new WebIcon(nextMicrophone, 12, Brush.Parse(nextMicrophone == "speaking" ? "#7FE0A8" : "#F6A79C")); }
             badge.IsVisible = J.Text(user, "mode") == "3d";
             var last = room._ctx.State.Chats.LastOrDefault(m => J.Text(m, "from") == id && J.Text(m, "text") != "" && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - J.Number(m, "at") < 30000);
-            bubbleText.Text = J.Text(last, "text");
+            var reaction = EmoteCatalog.All[J.Text(room._ctx.State.Emotes[id], "id")];
+            bubbleText.Text = reaction is null ? J.Text(last, "text") : J.Text(reaction, "caption");
         }
 
         public void Layout(double width, bool small, bool gallery)

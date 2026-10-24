@@ -34,7 +34,7 @@ namespace Tonarium.UnityClient
             return obj;
         }
 
-        static void FloorGrid(Transform root, Vector3 position, float size, int divisions, string centerColor, string color)
+        static void FloorGrid(Transform root, Vector3 position, float size, int divisions, string centerColor, string color, bool linearColors = false)
         {
             var vertices = new List<Vector3>(); var colors = new List<Color>();
             for (int i=0;i<=divisions;i++)
@@ -43,6 +43,7 @@ namespace Tonarium.UnityClient
                 vertices.Add(new Vector3(n,.005f,-size/2)); vertices.Add(new Vector3(n,.005f,size/2));
                 vertices.Add(new Vector3(-size/2,.005f,n)); vertices.Add(new Vector3(size/2,.005f,n));
                 var value=ColorValue(i*2==divisions?centerColor:color);
+                if (linearColors) value = value.linear;
                 for(int j=0;j<4;j++) colors.Add(value);
             }
             var mesh = new Mesh { name = "Tonarium floor grid" }; mesh.SetVertices(vertices); mesh.SetColors(colors);
@@ -134,7 +135,7 @@ namespace Tonarium.UnityClient
             return obj;
         }
 
-        static void Icosahedron(Transform root,string name,Vector3 position,float radius,string color)
+        static GameObject Icosahedron(Transform root,string name,Vector3 position,float radius,string color)
         {
             float t=(1+Mathf.Sqrt(5))/2;
             var points=new[]{new Vector3(-1,t,0),new Vector3(1,t,0),new Vector3(-1,-t,0),new Vector3(1,-t,0),new Vector3(0,-1,t),new Vector3(0,1,t),new Vector3(0,-1,-t),new Vector3(0,1,-t),new Vector3(t,0,-1),new Vector3(t,0,1),new Vector3(-t,0,-1),new Vector3(-t,0,1)};
@@ -142,7 +143,7 @@ namespace Tonarium.UnityClient
             var vertices=faces.Select(i=>points[i].normalized*radius).ToArray();
             var mesh=new Mesh{name="Tonarium "+name,vertices=vertices,triangles=Enumerable.Range(0,vertices.Length).ToArray()};mesh.RecalculateNormals();mesh.RecalculateBounds();
             var obj=new GameObject(name);obj.transform.SetParent(root,false);obj.transform.localPosition=ToUnity(position);
-            obj.AddComponent<MeshFilter>().sharedMesh=mesh;obj.AddComponent<MeshRenderer>().sharedMaterial=Material(color);
+            obj.AddComponent<MeshFilter>().sharedMesh=mesh;obj.AddComponent<MeshRenderer>().sharedMaterial=Material(color);return obj;
         }
 
         TextMesh FloatingLabel(Transform root,string text,Vector3 position,float height,string background)

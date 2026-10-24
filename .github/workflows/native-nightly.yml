@@ -1,0 +1,129 @@
+name: Native nightly
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-nightly
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runtime: linux-x64
+            target: StandaloneLinux64
+            method: BuildLinux
+          - runtime: win-x64
+            target: StandaloneWindows64
+            method: Build
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Check Unity credentials
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          if [[ -z "$UNITY_EMAIL" || -z "$UNITY_PASSWORD" || ( -z "$UNITY_LICENSE" && -z "$UNITY_SERIAL" ) ]]; then
+            echo '::error::Configure UNITY_EMAIL, UNITY_PASSWORD and UNITY_LICENSE (or UNITY_SERIAL). See docs/native-release.md.'
+            exit 1
+          fi
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: npm ci
+      - run: npm run typecheck && npm run build
+      - run: node native/Tonarium.Unity/Tools/sync-web-assets.cjs
+      - name: Build Unity player
+        uses: game-ci/unity-builder@4423ee75828dff56037d1d1cfdac6b68e3a6ba00 # v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: native/Tonarium.Unity
+          unityVersion: auto
+          targetPlatform: ${{ matrix.target }}
+          buildMethod: Tonarium.UnityClient.Editor.WindowsBuild.${{ matrix.method }}
+          buildName: Tonarium3D
+          buildsPath: native/build/nightly-unity
+          versioning: None
+      - name: Publish .NET client
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          dotnet publish native/Tonarium.Desktop -c Release -r "$RUNTIME" --self-contained true \
+            -p:Version="0.0.0-nightly.$GITHUB_RUN_NUMBER" -p:DebugType=None -p:DebugSymbols=false \
+            -o "native/build/nightly/$RUNTIME"
+      - name: Package native client and Unity
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+          UNITY_TARGET: ${{ matrix.target }}
+        run: python3 native/package-nightly.py "$RUNTIME" "native/build/nightly/$RUNTIME" "native/build/nightly-unity/$UNITY_TARGET" native/artifacts/nightly
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nightly-${{ matrix.runtime }}
+          path: native/artifacts/nightly/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: nightly-*
+          merge-multiple: true
+          path: dist
+      - name: Verify both platforms
+        run: |
+          test -s dist/Tonarium-nightly-linux-x64.tar.gz
+          test -s dist/Tonarium-nightly-win-x64.zip
+          cd dist
+          sha256sum --check ./*.sha256
+      - name: Update nightly prerelease
+        run: |
+          set -euo pipefail
+          current=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$current" != "$GITHUB_SHA" ]]; then
+            echo 'A newer main commit exists; keeping the existing nightly release.'
+            exit 0
+          fi
+          printf 'Native Windows/Linux builds from main commit %s.\n\nRun: https://github.com/%s/actions/runs/%s\n\nLinux dependencies: see docs/native-linux.md.\n' \
+            "$GITHUB_SHA" "$GH_REPO" "$GITHUB_RUN_ID" > notes.txt
+          if gh api "repos/$GH_REPO/git/ref/tags/nightly" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/nightly" -f sha="$GITHUB_SHA" -F force=true
+          else
+            gh api --method POST "repos/$GH_REPO/git/refs" -f ref=refs/tags/nightly -f sha="$GITHUB_SHA"
+          fi
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release upload nightly dist/* --clobber
+            gh release edit nightly --title 'Tonarium nightly' --notes-file notes.txt --prerelease --latest=false
+          else
+            gh release create nightly dist/* --verify-tag --title 'Tonarium nightly' --notes-file notes.txt --prerelease --latest=false
+          fi

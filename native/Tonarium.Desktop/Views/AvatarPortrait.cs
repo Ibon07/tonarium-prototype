@@ -130,7 +130,9 @@ public sealed class AvatarPortrait : Control
         float animationTime=time+phase;
         int expression=speaking&&MathF.Sin(time/.09f)>0?2:animationTime%4.1f<.16f?1:0;
         long started=Stopwatch.GetTimestamp();
-        raster.Draw(skin,animationTime,smoothPitch,expression,small,FullBody);
+        var emote = context.State.Emotes[identity];
+        var pose = emote is null ? (EmoteCatalog.Pose?)null : EmoteCatalog.GetPose(J.Text(emote, "id"), (float)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + context.State.ServerOffset - J.Number(emote, "at")));
+        raster.Draw(skin,animationTime,smoothPitch,expression,small,FullBody,pose);
         LastRenderMilliseconds=Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         using(var target=bitmap!.Lock())
         {

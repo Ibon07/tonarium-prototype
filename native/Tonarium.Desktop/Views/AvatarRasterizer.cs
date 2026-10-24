@@ -15,11 +15,11 @@ internal sealed class AvatarRasterizer
         Width=width;Height=height;Pixels=new int[width*height];depth=new float[width*height];
         matrices=new Matrix4x4[AvatarModel.Shared.Value.Nodes.Length];
     }
-    public void Draw(AvatarSkin skin,float time,float pitch,int expression,bool small,bool fullBody)
+    public void Draw(AvatarSkin skin,float time,float pitch,int expression,bool small,bool fullBody,Tonarium.Desktop.Core.EmoteCatalog.Pose? emote=null)
     {
         Array.Clear(Pixels);Array.Fill(depth,float.PositiveInfinity);
         var model=AvatarModel.Shared.Value;
-        model.Pose(time,skin.Parameters,pitch,matrices);
+        model.Pose(time,skin.Parameters,pitch,matrices,emote);
         var camera=Matrix4x4.CreateLookAt(new Vector3(0,1.05f,small?1f:1.25f),new Vector3(0,small?1.02f:.95f,0),Vector3.UnitY);
         var projection=Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI/6,Width/(float)Height,.01f,10);
         var viewProjection=Matrix4x4.CreateScale(.012f)*camera*projection;

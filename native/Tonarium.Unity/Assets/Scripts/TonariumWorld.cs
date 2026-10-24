@@ -81,6 +81,7 @@ namespace Tonarium.UnityClient
             if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TONARIUM_INPUT_DIAGNOSTICS"))) gameObject.AddComponent<InputDiagnostics>();
             foreach (string arg in Environment.GetCommandLineArgs())
             {
+                if (arg == "--tonarium-hud-probe") gameObject.AddComponent<HudInputProbe>();
                 if (arg == "--tonarium-smoke") gameObject.AddComponent<SmokeCheck>();
                 if (arg == "--tonarium-embedded") embedded = true;
                 if (arg == "--tonarium-avatar-parity") gameObject.AddComponent<AvatarParityProbe>();
@@ -88,6 +89,7 @@ namespace Tonarium.UnityClient
                 if (arg == "--tonarium-canvas-perf") gameObject.AddComponent<CanvasPerformanceProbe>();
                 if (arg == "--tonarium-chess-probe") gameObject.AddComponent<ChessInteractionProbe>();
                 if (arg == "--tonarium-item-behavior") gameObject.AddComponent<ItemBehaviorProbe>();
+                if (arg == "--tonarium-survivor-probe") gameObject.AddComponent<SurvivorBehaviorProbe>();
                 if (arg == "--tonarium-media-playback") gameObject.AddComponent<MediaPlaybackProbe>();
             }
         }
@@ -96,6 +98,7 @@ namespace Tonarium.UnityClient
         {
             string type = (string)m["t"];
             if (type == "notice") { notice = (string)m["text"] ?? ""; return; }
+            if (type == "nativeChatClosed") { chatOpen = false; Unlock(); return; }
             if (type == "nativeItems") { SetNativeOpenItems(m["ids"] as JArray); return; }
             if(type=="pointerWindow")
             {
@@ -124,6 +127,12 @@ namespace Tonarium.UnityClient
             if (type == "snapshot")
             {
                 selfId = (string)m["selfId"] ?? selfId; playerName = (string)m["name"] ?? playerName;
+                if (sessionId != ((string)m["sessionId"] ?? sessionId))
+                {
+                    initialPosition = false;
+                    activeEmotes.Clear();
+                    ClearSurvivorScene();
+                }
                 sessionId = (string)m["sessionId"] ?? sessionId;
                 serverUrl = ((string)m["serverUrl"] ?? serverUrl).TrimEnd('/');
                 users = m["users"] as JArray ?? new JArray(); presence = m["presence"] as JObject ?? new JObject();
@@ -138,6 +147,8 @@ namespace Tonarium.UnityClient
                 chat.Clear();
                 if (m["chats"] is JArray chats)
                     foreach (var c in chats.OfType<JObject>()) AddChat(c);
+                survivorProfile = m["survivorProfile"] as JObject ?? new JObject();
+                ApplySurvivor(m["survivor"] as JObject);
                 ApplyGame(m["game"] as JObject);
                 SyncUsers();
                 return;
@@ -151,6 +162,7 @@ namespace Tonarium.UnityClient
             if (type == "desktopDisconnected") { notice = "2D クライアントとの接続が切れました"; if(embedded)Application.Quit(); return; }
             if (type == "users") { users = m["list"] as JArray ?? users; SyncUsers(); }
             if (type == "presence") { presence = m["all"] as JObject ?? presence; SyncUsers(); }
+            if (type == "emote") ReceiveEmote(m);
             if (type == "avatar") ApplyAvatar((string)m["id"], m["s"] as JObject);
             if (type == "avatarRemove") RemoveAvatar((string)m["id"]);
             if (type == "item") ApplyItem(m["item"] as JObject);
@@ -158,6 +170,8 @@ namespace Tonarium.UnityClient
             if (type == "chat") AddChat(m["m"] as JObject);
             if (type == "world") { initialPosition = false; BuildWorld((string)m["world"] ?? "room"); }
             if (type == "worldPending") notice = "ワールドを切り替えます…";
+            if (type == "survivor") ApplySurvivor(m["state"] as JObject);
+            if (type == "survivorProfile") survivorProfile = m["profile"] as JObject ?? new JObject();
             if (type == "game") ApplyGame(m["game"] as JObject);
             if (type == "gameTile") brokenTiles[(int)m["tile"]] = (long)m["at"];
             if (type == "itemAction") ApplyDelta(m);
@@ -306,7 +320,7 @@ namespace Tonarium.UnityClient
 
         void ApplyGame(JObject value)
         {
-            if (value == null) return;
+            if (value == null || world != "game") return;
             game = value;
             if (value["tiles"] is JObject tileMap) foreach (var t in tileMap.Properties()) if (int.TryParse(t.Name, out int n)) brokenTiles[n] = (long)t.Value;
             int newRound = (int?)value["round"] ?? 0;
@@ -325,14 +339,15 @@ namespace Tonarium.UnityClient
         {
             PointerDelta = Vector2.zero;
             ValidateChessSelection();
-            if (Input.GetKeyDown(KeyCode.Escape)) { EndCanvasStroke(); EndNoteEditing(); ClearChessSelection(); menu = false; Unlock(); }
+            if (!string.IsNullOrEmpty(Input.compositionString)) lastCompositionFrame = Time.frameCount;
+            if (Input.GetKeyDown(KeyCode.Escape)) { chatOpen = false; EndCanvasStroke(); EndNoteEditing(); ClearChessSelection(); menu = false; Unlock(); }
             if (Input.GetKeyDown(KeyCode.F2)) ReturnTo2D();
-            if (Input.GetKeyDown(KeyCode.Return) && !menu && selected == null && chessPromotionTo < 0)
+            if (Input.GetKeyDown(KeyCode.Return) && !chatOpen && !menu && selected == null && chessPromotionTo < 0)
             {
                 if (embedded) { Unlock(); bridge.Send(new {t="focusChat"}); }
-                else { chatOpen = !chatOpen; if (chatOpen) Unlock(); else SendChat(); }
+                else { chatOpen = true; chatOpenedFrame = Time.frameCount; Unlock(); }
             }
-            if(selected!=null&&Input.GetMouseButtonDown(0))
+            if(selected!=null&&items.TryGetValue(selected,out var selectedItem)&&(string)selectedItem["kind"]=="note"&&Input.GetMouseButtonDown(0))
             {
                 var point=new Vector2(Input.mousePosition.x/uiScale,(Screen.height-Input.mousePosition.y)/uiScale);
                 float width=Mathf.Min(480,HudWidth-32);
@@ -341,18 +356,9 @@ namespace Tonarium.UnityClient
             bool controls = !menu && !chatOpen && selected == null && chessPromotionTo < 0;
             if (embedded && controls && Input.GetKeyDown(KeyCode.Tab)) bridge.Send(new { t = "toggleSidePanels" });
             if (embedded && controls && (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)) && Input.GetKeyDown(KeyCode.V)) bridge.Send(new { t = "pasteMedia" });
-            bool justLocked = controls && Input.GetMouseButtonDown(0) && Cursor.lockState != CursorLockMode.Locked;
-            if (justLocked)
-            {
-                Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false;
-                if(embedded && relativePointer==null && pointerWindow!=IntPtr.Zero && !WindowsRelativePointer.TryCreate(out relativePointer,pointerWindow))pointerInitializationError=WindowsRelativePointer.LastCreateError;
-                if(relativePointer!=null&&!relativePointer.SetLocked(true))
-                {
-                    pointerInitializationError=relativePointer.LastError??"Relative pointer registration did not activate";
-                }
-                if(!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TONARIUM_INPUT_DIAGNOSTICS")))Debug.Log("TONARIUM_POINTER "+(RelativePointerActive?"relative":"legacy")+" "+PointerError);
-            }
-            if (controls && Cursor.lockState == CursorLockMode.Locked)
+            bool justLocked = Time.frameCount <= pointerLockedFrame + 1;
+            UpdateSurvivor(controls);
+            if (!SurvivorActive && controls && Cursor.lockState == CursorLockMode.Locked)
             {
                 Vector2 delta;
                 if(relativePointer!=null)
@@ -535,6 +541,7 @@ namespace Tonarium.UnityClient
                 return;
             }
             if (kind == "note") BeginNoteEditing(target.Id);
+            else if (kind == "image") BeginImageViewing(target.Id);
             else OpenNativeItem(target.Id);
         }
         void ToggleCarry()
@@ -581,6 +588,19 @@ namespace Tonarium.UnityClient
             Room(new { t = "itemAction", id = held, action = new { a = "drop", x = p.x, z = -p.z, ry = -yaw * Mathf.Deg2Rad, pitch = -pitch * Mathf.Deg2Rad } }); held = null;
         }
         void Room(object value) => bridge.Send(new { t = "room", message = value });
+        int pointerLockedFrame = -10;
+        void LockPointer()
+        {
+            pointerLockedFrame = Time.frameCount;
+            Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false;
+            if(embedded && relativePointer==null && pointerWindow!=IntPtr.Zero && !WindowsRelativePointer.TryCreate(out relativePointer,pointerWindow))pointerInitializationError=WindowsRelativePointer.LastCreateError;
+            if(relativePointer!=null&&!relativePointer.SetLocked(true))
+            {
+                pointerInitializationError=relativePointer.LastError??"Relative pointer registration did not activate";
+            }
+            if(!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TONARIUM_INPUT_DIAGNOSTICS")))Debug.Log("TONARIUM_POINTER "+(RelativePointerActive?"relative":"legacy")+" "+PointerError);
+        }
+
         void Unlock() { EndCanvasStroke();FinishCarry();relativePointer?.SetLocked(false);Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
         void OnApplicationFocus(bool focused){if(!focused)Unlock();}
         void SendChat() { if (!string.IsNullOrWhiteSpace(draft)) Room(new { t = "chat", text = draft, scope = "all" }); draft = ""; }
@@ -591,7 +611,7 @@ namespace Tonarium.UnityClient
         }
         public void ReturnTo2D() { if (returnSent) return; returnSent = true; EndNoteEditing(); Unlock(); bridge.Send(new { t = "return2d" }); if (!bridge.Connected) Application.Quit(); }
         void OnApplicationQuit() { ReturnTo2D(); }
-        void OnDestroy() { mediaInput?.Dispose(); relativePointer?.Dispose(); DisposeCameraCapture(); }
+        void OnDestroy() { mediaInput?.Dispose(); relativePointer?.Dispose(); DisposeCameraCapture(); foreach (var material in survivorMaterials.Values) Destroy(material); foreach(var texture in survivorRings.Values) Destroy(texture); if(survivorDisc!=null)Destroy(survivorDisc); foreach(var mesh in survivorMeshes.Values)Destroy(mesh); }
         long Now => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + (long)serverOffset;
         static Vector3 ToUnity(Vector3 p) => new Vector3(p.x, p.y, -p.z);
         static Vector3 Position(JObject p) => ToUnity(new Vector3(Float(p, "x"), Float(p, "y"), Float(p, "z")));

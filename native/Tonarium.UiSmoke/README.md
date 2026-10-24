@@ -60,3 +60,78 @@ dotnet run --project native/Tonarium.UiSmoke -c Release -- unused native/artifac
 ```
 
 This is a happy-path integration smoke, not a failure-case unit suite. Headless input does not validate physical Windows IME composition, foreground window switching, GPU surfaces, microphone devices or Unity rendering; those require the separate runtime smoke. Its CPU sample includes the test harness and Skia software rendering, so it is evidence about this run, not a hardware-independent performance guarantee.
+
+## Survivors
+
+Run the focused cooperative survival-game check against an isolated local server with KokoSync enabled:
+
+```sh
+dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3015 native/build/survivor-check --survivors
+```
+
+`--survivors` creates a unique session with the `survivors` world and joins two native clients. It exercises the actual 2D panel's style/start buttons and keyboard movement without clicking the map, and movement suppression while typing, then verifies enemy spawning, real combat experience, the shared pause during gear selection, resuming after both participants choose, session isolation, and the rejoin snapshot. It writes lobby/running/choice screenshots and `result.json` to the output directory. The session is deleted on completion; the lounge is never joined. No microphone, screen capture or external service is required. The combat step can take up to 100 seconds.
+
+The panel and protocol are shared by Windows and Linux. This headless check does not verify physical OS input, Unity rendering or the 3D camera. See [Linux](../../docs/native-linux.md#宵闇サバイバーズ) and [Windows](../../docs/native-windows.md#宵闇サバイバーズ) for the player controls and renderer and audio synthesis differences.
+
+Add `--survivors-3d` and set `TONARIUM_UNITY_PLAYER` to the built player to extend the test to the actual Unity process, joining area, game start, server combat-position updates and return to 2D. On Linux, an X11 display is required; a virtual display can be used:
+
+```sh
+TONARIUM_UNITY_PLAYER="$PWD/native/build/unity-linux/Tonarium3D.x86_64" \
+  xvfb-run -a dotnet run --project native/Tonarium.UiSmoke -c Release -- \
+  http://localhost:3015 native/build/survivor-3d-check --survivors --survivors-3d
+```
+
+The separate `--3d-lifecycle` suite includes a local TCP bridge regression for the initial run/private-profile snapshot, profile changes, rejoin snapshots, and restoration of held lobby/ended states after changing worlds. It needs neither Unity nor a server.
+
+## Linux
+
+`--linux-platform` は画像変換、実X11上のWebKitGTK埋め込みと時計同期、専用の仮想PulseAudioデバイスを使う音声入出力を検証する。`--linux-online` は指定サーバーに専用セッションを新規作成し、2クライアント同期・Unity起動終了・LiveKitの合成音声と仮想カメラ映像を検証した後、セッションを削除する。既存のラウンジには参加しない。[手順](../../docs/native-linux.md)。
+
+`--3d-lifecycle` は同期送信失敗後もUnityブリッジが次のコマンドを処理できることを検証する。`--linux-online` は専用テスト部屋で6秒のUI停止中の24メッセージ受信、およびUnity起動中の同期切断・復旧3回も検証する。
+
+## Linux IME
+
+`--linux-ime` は実際のX11/XWaylandウィンドウでIMEの未確定文字列と「日本語」の確定を確認する。サーバーには接続しない。ArchのFcitx5/Mozc環境では、`python3 native/verification/linux/ime-check.py native/artifacts/ime-native dotnet native/Tonarium.UiSmoke/bin/Release/net10.0/Tonarium.UiSmoke.dll unused native/artifacts/ime-native --linux-ime` で専用ウィンドウへキーを送れる。xdotoolとfcitx5-remoteが必要で、テスト中はウィンドウをアクティブにする。入力エンジンはテスト終了時に戻す。
+
+`--ime-baseline` を追加すると修正前の起動設定を使う。IME関連の環境変数が未指定の環境では、ローマ字のままになり検証に失敗する。IBusのサービス選択は検証するが、IBusのみの実デスクトップは未検証。
+
+`--linux-3d-ime` は `TONARIUM_UNITY_PLAYER` で指定した実UnityプレイヤーをローカルTCPブリッジに接続する。`python3 native/verification/linux/hud-check.py OUTPUT dotnet native/Tonarium.UiSmoke/bin/Release/net10.0/Tonarium.UiSmoke.dll unused OUTPUT --linux-3d-ime` で、☰・ワールド名・ワールド切替・2D復帰、空間クリックによる視点操作、日本語変換、確定Enterでは未送信、次のEnterで1回だけ送信、再入力と空Enterを検証する。製品と同じIME起動設定を使い、専用入力窓への迂回は失敗扱いにする。クリックは対象Unity窓へX11イベントを送る。IMEには実デスクトップのFcitx5/Mozcとフォーカスが必要。外部サーバーは使わない。
+
+長文IMEの回帰確認は `TONARIUM_IME_ROMAJI=wagahaihanekodearu.namaehamadanai.` と `TONARIUM_IME_EXPECTED='吾輩は猫である。名前はまだ無い。'` を同じコマンドへ渡す。変換候補はMozcの辞書・学習状態に依存する。`TONARIUM_IME_ITEMS=1` も指定すると付箋への同じ文章の保存と画像ビューアーの拡大・終了、別窓が開かないことを確認する。事前にOUTPUT内へ `test-image.png` を置く。未確定文字はIME側で表示するため、Unityの `compositionString` が空でも正常。診断用の `hud-command.json` は `--tonarium-hud-probe` を指定したテスト起動時のみ読み取る。
+
+`--linux-form-ime` は実際のセッション作成ダイアログを開き、最初のセッション名欄へTab移動なしで日本語を入力する。`ime-check.py` から起動する。`--linux-voice` はローカル検証サーバー上にグループを作り、実際の録音・再生ウィンドウで開始、停止、WebMアップロード、会話への添付、一時停止、再開、再再生、録音キャンセル、開始失敗を確認する。仮想PulseAudioデバイスの合成音を使用し、実マイク・実スピーカーは使わない。
+
+Unityサバイバーズ単体の実ウィンドウ検証（ローカルfixture、サーバー接続なし）:
+
+```sh
+xvfb-run -a -s '-screen 0 1600x1000x24' python3 native/verification/linux/survivor-check.py native/build/survivor-check/unity native/build/unity-linux/Tonarium3D.x86_64
+```
+
+開始・参加・敵／味方／攻撃描画・装備選択・俯瞰移動・停止／再開・ワールド復帰を検査する。2Dの最小幅レイアウト確認は `dotnet run --project native/Tonarium.UiSmoke -c Release -- unused native/build/survivor-check/layout --survivor-layout`。
+
+
+### Web audio recipe and transition checks
+
+```sh
+node native/generate-survivor-audio.cjs
+dotnet run --project native/Tonarium.UiSmoke -c Release -- unused native/build/survivor-check/audio --survivor-audio
+```
+
+This serverless check verifies run-start and fresh-effect detection, weapon-specific attacks, level/equipment precedence, pause/resume, boss and ending transitions. It synthesizes all 16 recipes generated from the Web source and checks for finite, non-silent PCM without clipping. It does not open a speaker device or prove perceptual equality to WebAudio. Verify audible output through the Desktop client in both 2D and 3D; the standalone Unity fixture intentionally has no audio because Desktop owns playback.
+
+The Unity fixture validates real controls and rendering objects, but does not establish pixel equality to the Web client. For visual review, compare the same lobby, combat, choice and boss states against `client/src/world/SurvivorPanel.tsx` and the Web Three.js scene. Renderer, font, glow and CSS animation differences are documented in the native platform guides.
+
+### Capture the actual Web components
+
+From the repository root, with npm dependencies installed and a local Chromium and Playwright available:
+
+```sh
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright CHROMIUM_PATH=/usr/bin/chromium \
+  node native/verification/web/survivor-capture.mjs
+```
+
+The script renders the real `SurvivorPanel` and Three.js `WorldMesh` with fixed local state for 2D/3D lobby, combat, equipment choice and boss scenes. It writes screenshots and fixture JSON to `native/build/survivor-parity/web/`. No game server or live session is used. A temporary Vite server listens on `127.0.0.1:5187`; temporary `client/.survivor-parity.html` and `.jsx` files are removed in `finally`. The output is a visual reference, not a completed native/Web equivalence assertion.
+
+## Emotes
+
+`dotnet run --project native/Tonarium.UiSmoke -c Release -- unused native/build/emote-check --emotes` verifies supported reactions, duplicate/expired rejection, session isolation, participant membership and blocked-user filtering without connecting to a server or changing saved settings.

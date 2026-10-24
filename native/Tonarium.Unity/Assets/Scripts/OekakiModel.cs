@@ -26,6 +26,8 @@ namespace Tonarium.UnityClient
         Texture2D ownedTexture;
         JObject parameters = new JObject();
         float tilt, blink;
+        public string EmoteId;
+        public float EmoteStarted, EmoteDuration;
         public bool Speaking { get; set; }
         public float LookPitch { get; set; }
 
@@ -97,6 +99,7 @@ namespace Tonarium.UnityClient
         void Update()
         {
             Pose(Time.time);
+            ApplyEmotePose();
             if (blink > 0) blink -= Time.deltaTime;
             else if (UnityEngine.Random.value < 1 - Mathf.Pow(.996f, Time.deltaTime * 60)) blink = .15f;
             faceMaterial.mainTextureOffset = new Vector2(Speaking && Mathf.Sin(Time.time / .09f) > 0 ? -1f / 6 : blink > 0 ? 1f / 6 : 0, 0);
@@ -138,6 +141,26 @@ namespace Tonarium.UnityClient
             var q = Quaternion.AngleAxis(Mathf.Clamp(tilt * .8f, -.7f, .7f) * Mathf.Rad2Deg, Vector3.right);
             foreach (string name in new[] { "Head_Front", "Head_Back" }) if (parts.TryGetValue(name, out var face)) face.localRotation = q * face.localRotation;
         }
+
+        // shared/emotes.ts: visual offsets only; never alters the player collider or camera.
+        void ApplyEmotePose()
+        {
+            float elapsed=(Time.unscaledTime-EmoteStarted)*1000;
+            float weight=Smooth(elapsed/220)*Smooth((EmoteDuration-elapsed)/350),t=Mathf.Max(0,elapsed)/1000;
+            float y=0,rx=0,rz=0,sx=1,sy=1,left=0,right=0,bow=0,liftLeft=0,liftRight=0;
+            if(weight>0 && EmoteId=="wave"){right=(-.25f+Mathf.Sin(t*17)*.55f)*weight;liftRight=38*weight;rz=Mathf.Sin(t*6)*.06f*weight;}
+            else if(weight>0 && EmoteId=="hop"){float bounce=Mathf.Abs(Mathf.Sin(t*Mathf.PI*3));y=bounce*.38f*weight;sx=1+(.08f-bounce*.12f)*weight;sy=1+(bounce*.16f-.1f)*weight;left=-.4f*weight;right=.4f*weight;liftLeft=liftRight=28*weight;}
+            else if(weight>0 && EmoteId=="slump"){y=-.13f*weight;rx=-.2f*weight;sy=1-.16f*weight;left=.22f*weight;right=-.22f*weight;bow=.48f*weight;liftLeft=liftRight=-10*weight;}
+            else if(weight>0 && EmoteId=="fall"){float collapse=Smooth((elapsed-150)/500)*Smooth((EmoteDuration-elapsed)/500);rz=-Mathf.PI/2*collapse;y=.12f*collapse;left=-.7f*collapse;right=.8f*collapse;}
+            transform.localPosition=new Vector3(0,y,0);
+            transform.localRotation=Quaternion.Euler(-rx*Mathf.Rad2Deg,180,rz*Mathf.Rad2Deg);
+            transform.localScale=new Vector3(sx,sy,1)*.012f;
+            Offset("LeftHand",new Vector3(0,liftLeft,0));Offset("RightHand",new Vector3(0,liftRight,0));
+            if(parts.TryGetValue("LeftHand",out var lh))lh.localRotation*=Quaternion.Euler(0,0,left*Mathf.Rad2Deg);
+            if(parts.TryGetValue("RightHand",out var rh))rh.localRotation*=Quaternion.Euler(0,0,right*Mathf.Rad2Deg);
+            foreach(string name in new[]{"Head_Front","Head_Back"})if(parts.TryGetValue(name,out var face))face.localRotation=Quaternion.Euler(-bow*Mathf.Rad2Deg,0,0)*face.localRotation;
+        }
+        static float Smooth(float value){value=Mathf.Clamp01(value);return value*value*(3-2*value);}
 
         static Vector3 Vector(float[] v, int offset, bool reflect) => new Vector3(v[offset], v[offset + 1], v[offset + 2] * (reflect ? -1 : 1));
         static Quaternion Rotation(float[] v, int offset) => new Quaternion(-v[offset], -v[offset + 1], v[offset + 2], v[offset + 3]);

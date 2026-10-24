@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:">
+<title>Tonarium Electron — 接続先</title><link rel="stylesheet" href="local.css"></head>
+<body><main><h1>Tonarium Electron</h1><p>接続先の Web 版を、そのままデスクトップで利用できます。</p>
+<p id="message" role="status"></p><form id="settings"><label for="server">接続先 URL</label>
+<input id="server" type="url" required spellcheck="false" autocomplete="url"><div class="actions"><button type="submit">接続する</button><button id="retry" type="button">再読み込み</button></div></form>
+<p class="hint">設定とログイン情報は Native 版とは別に保存されます。</p></main><script src="settings.js"></script></body></html>

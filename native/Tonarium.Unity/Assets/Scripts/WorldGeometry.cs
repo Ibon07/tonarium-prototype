@@ -11,6 +11,7 @@ namespace Tonarium.UnityClient
         public void BuildWorld(string kind)
         {
             if (world == kind) return;
+            ClearSurvivorScene(); survivor = new JObject();
             world = kind; notice = "";
             if (environment != null) Destroy(environment);
             environment = new GameObject("World " + kind); tiles.Clear(); brokenTiles.Clear();
@@ -27,6 +28,14 @@ namespace Tonarium.UnityClient
             light.color = ColorValue(kind == "cafe" ? "#ffe0b8" : "#ffffff");
             light.transform.rotation = Quaternion.LookRotation(ToUnity(-(kind == "cafe" ? new Vector3(4,10,6) : kind == "game" ? new Vector3(6,30,10) : new Vector3(5,10,5))));
             light.shadows = LightShadows.None;
+            if (kind == "survivors")
+            {
+                // Three の Lambert 拡散項（1/π）を Unity の照度へ換算する。
+                RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+                RenderSettings.ambientLight = (Color.white * (1.4f / Mathf.PI)).gamma;
+                light.intensity = 1.2f / Mathf.PI;
+            }
+            if (kind == "garden") { BuildGarden(); return; }
             Box(environment.transform, "Floor", new Vector3(0,-.1f,0), new Vector3(20,.2f,20), kind == "cafe" ? "#8a5a3b" : kind == "game" ? "#3b3f6b" : "#565961");
             string wall = kind == "cafe" ? "#eadcc4" : kind == "game" ? "#2a2d52" : "#80848e";
             Box(environment.transform,"South",new Vector3(0,2,10),new Vector3(20,4,.2f),wall);
@@ -46,7 +55,8 @@ namespace Tonarium.UnityClient
             FloorArea(environment.transform,"Spawn",new Vector3(0,0,6.5f),1.6f,.06f,kind == "cafe" ? "#ffd28a" : kind == "game" ? "#9cf0ff" : "#7fb3ff",.16f,.8f);
             if (kind == "cafe") BuildCafe();
             else if (kind == "game") BuildGame();
-            else FloorGrid(environment.transform, Vector3.zero, 20,20,"#5c5f66","#4a4d54");
+            else FloorGrid(environment.transform, Vector3.zero, 20,20,"#5c5f66","#4a4d54", kind == "survivors");
+            if (kind == "survivors") BuildSurvivorEnvironment();
         }
 
         public void SetPreviewCamera(string kind)
@@ -150,7 +160,7 @@ namespace Tonarium.UnityClient
             var t=o.AddComponent<TextMesh>();t.text=text;t.font=font;t.fontSize=64;t.characterSize=size;t.anchor=TextAnchor.MiddleCenter;t.alignment=TextAlignment.Center;t.color=Color.white;
             o.GetComponent<Renderer>().material=font.material;return t;
         }
-        static string WorldName(string kind)=>kind=="cafe"?"カフェ":kind=="game"?"ゲーム":"ホール";
+        static string WorldName(string kind)=>kind=="garden"?"ガーデン":kind=="cafe"?"カフェ":kind=="game"?"ゲーム":kind=="survivors"?"宵闇サバイバーズ":"ホール";
         static string KindName(string k)=>new Dictionary<string,string>{{"note","付箋"},{"hammer","ピコピコハンマー"},{"chess","チェス"},{"chessAi","チェス AI"},{"canvas","キャンバス"},{"camera","カメラ"},{"dice","サイコロ"},{"g2048","2048"},{"image","画像"},{"video","動画"},{"youtube","YouTube"}}.TryGetValue(k??"",out var n)?n:k;
         static string Wrap(string text,int columns)=>string.Join("\n",Enumerable.Range(0,Mathf.CeilToInt(text.Length/(float)columns)).Select(i=>text.Substring(i*columns,Math.Min(columns,text.Length-i*columns))));
         static string GridText(JArray grid,int width)=>grid==null?"":string.Join("\n",Enumerable.Range(0,grid.Count/width).Select(r=>string.Join("   ",grid.Skip(r*width).Take(width).Select(v=>((int)v)==0?"・":v.ToString()))));

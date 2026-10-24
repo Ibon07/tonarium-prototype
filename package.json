@@ -12,9 +12,14 @@
     "test:chess": "tsx --test shared/chess.test.ts server/chess-ai.test.ts",
     "test:sync": "tsx --test shared/session-wire.test.ts shared/session-position.test.ts shared/session-events.test.ts server/ws-heartbeat.test.ts",
     "test:client": "tsx --test client/src/sessionView.test.ts client/src/nearby.test.ts",
+    "test:sync:integration": "tsx --test server/session.integration.test.ts",
+    "electron:dev": "npm --prefix electron start",
+    "electron:test": "npm --prefix electron test",
+    "electron:build:linux": "npm --prefix electron run build:linux",
+    "electron:build:windows": "npm --prefix electron run build:windows",
+    "electron:install:linux": "bash electron/install-linux-user.sh",
     "test:emotes": "tsx --test shared/emotes.test.ts",
-    "test:worlds": "tsx --test shared/worlds.test.ts",
-    "test:sync:integration": "tsx --test server/session.integration.test.ts"
+    "test:worlds": "tsx --test shared/worlds.test.ts"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.3",
