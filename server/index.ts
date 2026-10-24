@@ -35,6 +35,11 @@ const PORT = Number(process.env.SERVER_PORT ?? 3001);
 const DEV = process.argv.includes('--dev');
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'client/dist');
+// index.html は読み込むファイル名にハッシュを含むので、画面が変わったときだけ版が変わる
+const CLIENT_VERSION = (() => {
+  if (DEV) return null;
+  try { return createHash('sha1').update(fs.readFileSync(path.join(DIST, 'index.html'))).digest('hex').slice(0, 12); } catch { return null; }
+})();
 const DATA_DIR = process.env.DATA_DIR ?? path.join(ROOT, 'data');
 const ICON_DIR = path.join(DATA_DIR, 'icons');
 const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
@@ -531,6 +536,7 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
         events: home.events,
         sessions: allSessionInfo(),
         now: Date.now(),
+        version: CLIENT_VERSION,
       },
     });
     send(ws, {
@@ -1249,7 +1255,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(302, { Location: `http://localhost:${process.env.CLIENT_PORT || 5173}${url.pathname}${url.search}` });
       res.end();
     } else {
-      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Tonarium-Dev': '1' });
       res.end('npm run dev 中です。トンネルは http://localhost:5173 に向けるか、npm start で起動して 3001 をトンネルしてください。');
     }
     return;
@@ -1269,7 +1275,7 @@ const server = http.createServer(async (req, res) => {
     const origin = /^[\w.:[\]-]+$/.test(host) ? `${proto === 'https' ? 'https' : 'http'}://${host}` : '';
     res.setHeader('Content-Type', MIME['.html']);
     res.setHeader('Cache-Control', 'no-cache');
-    res.end(fs.readFileSync(file, 'utf-8').replaceAll('__ORIGIN__', origin));
+    res.end(fs.readFileSync(file, 'utf-8').replaceAll('__ORIGIN__', origin).replaceAll('__VERSION__', CLIENT_VERSION ?? ''));
     return;
   }
   res.setHeader('Content-Type', MIME[path.extname(file)] ?? 'application/octet-stream');

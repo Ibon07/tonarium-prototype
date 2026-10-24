@@ -26,6 +26,8 @@ interface State {
   selfName: string;
   joined: boolean;
   wsConnected: boolean;
+  /** つなぎ直した先のサーバーが、このページと違う版の画面を出している */
+  updateVersion: string | null;
 
   guild: GuildConfig;
   groups: Group[];
@@ -192,6 +194,7 @@ export const useStore = create<State>(() => ({
   selfName: '',
   joined: false,
   wsConnected: false,
+  updateVersion: null,
   guild: { name: 'Tonarium', sessions: [] },
   groups: [],
   events: [],
