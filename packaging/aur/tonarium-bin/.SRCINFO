@@ -1,7 +1,7 @@
 pkgbase = tonarium-bin
 	pkgdesc = Social spaces with a native 2D client and Unity 3D player
 	pkgver = 0.0.8
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/katteni-kaihatu/tonarium-prototype
 	arch = x86_64
 	license = LicenseRef-unknown
@@ -44,7 +44,7 @@ pkgbase = tonarium-bin
 	conflicts = tonarium
 	options = !strip
 	options = !debug
-	source = https://github.com/katteni-kaihatu/tonarium-prototype/releases/download/v0.0.8/Tonarium-0.0.8-linux-x64.tar.gz
-	sha256sums = 980d4623fdfead4245aa18d139f3ef97736145d18d6c8e56b7914287cb19f9f0
+	source = https://github.com/katteni-kaihatu/tonarium-prototype/releases/download/v0.0.8/Tonarium-0.0.8-upstream-ecff87d-linux-x64.tar.gz
+	sha256sums = 847c59c6f53c127bab2f93311e94b77040a6abc87ee9c702d31242eae41ddcd1
 
 pkgname = tonarium-bin

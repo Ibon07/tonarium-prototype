@@ -4,9 +4,9 @@
 
 ## 成果物
 
-- `native/artifacts/Tonarium-0.0.8-linux-x64.tar.gz`
-- `native/artifacts/Tonarium-0.0.8-linux-x64.tar.gz.sha256`
-- `packaging/aur/tonarium-bin/tonarium-bin-0.0.8-1-x86_64.pkg.tar.zst`
+- `native/artifacts/Tonarium-0.0.8-upstream-ecff87d-linux-x64.tar.gz`
+- `native/artifacts/Tonarium-0.0.8-upstream-ecff87d-linux-x64.tar.gz.sha256`
+- `native/artifacts/tonarium-bin-0.0.8-2-x86_64.pkg.tar.zst`（`PKGDEST` をこのディレクトリに指定）
 
 このPKGBUILDは公開前のひな形。記載のURLにリリース成果物を公開するまでは、そのままAURへ投稿しない。tar.gzを作り直した場合はPKGBUILDと.SRCINFOのSHA-256も更新する。AURはバイナリ自体をホストしない。
 
@@ -28,3 +28,7 @@ PKGBUILDはnamcapのエラー・警告なし。バイナリパッケージはエ
 確認手順と機能ごとの検証範囲は [Linux版ドキュメント](../docs/native-linux.md) を参照。
 
 YouTubeも公式iframe APIのサンプル動画で実再生を確認済み。`xvfb-run -a /usr/bin/python3 native/verification/linux/youtube-check.py` で再実行できる。ローカルのWebKitGTKヘルパーを使い、Tonariumのセッションには接続しない。
+
+## 上流反映版 0.0.8-2
+
+現在のPKGBUILDは上流 `ecff87d` を取り込んだ `Tonarium-0.0.8-upstream-ecff87d-linux-x64.tar.gz`（内部ディレクトリ `pr-upstream-linux`）を使用する。通常版0.0.8とはアーカイブ名とSHA-256が異なる。上記の通常版生成コマンドではこのアーカイブを再生成できない。GitHub ReleaseのURLは未公開のため、ローカルでビルドする場合はこのアーカイブをPKGBUILDと同じディレクトリに配置して `makepkg` を実行する。

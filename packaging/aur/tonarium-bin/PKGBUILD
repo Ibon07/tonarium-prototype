@@ -2,7 +2,7 @@
 # License metadata is a placeholder until upstream selects a license.
 pkgname=tonarium-bin
 pkgver=0.0.8
-pkgrel=1
+pkgrel=2
 pkgdesc='Social spaces with a native 2D client and Unity 3D player'
 arch=('x86_64')
 url='https://github.com/katteni-kaihatu/tonarium-prototype'
@@ -21,16 +21,18 @@ optdepends=('pipewire-pulse: PulseAudio compatibility for PipeWire'
 provides=('tonarium')
 conflicts=('tonarium')
 options=('!strip' '!debug')
-source=("$url/releases/download/v$pkgver/Tonarium-$pkgver-linux-x64.tar.gz")
-sha256sums=('980d4623fdfead4245aa18d139f3ef97736145d18d6c8e56b7914287cb19f9f0')
+_upstream=ecff87d
+_archive_root=pr-upstream-linux
+source=("$url/releases/download/v$pkgver/Tonarium-$pkgver-upstream-$_upstream-linux-x64.tar.gz")
+sha256sums=('847c59c6f53c127bab2f93311e94b77040a6abc87ee9c702d31242eae41ddcd1')
 
 package() {
     install -dm755 "$pkgdir/usr/lib/tonarium" "$pkgdir/usr/bin"
-    cp -a --no-preserve=ownership "$srcdir/Tonarium-$pkgver-linux-x64/." "$pkgdir/usr/lib/tonarium/"
+    cp -a --no-preserve=ownership "$srcdir/$_archive_root/." "$pkgdir/usr/lib/tonarium/"
     chmod 755 "$pkgdir/usr/lib/tonarium/Tonarium" "$pkgdir/usr/lib/tonarium/Unity/Tonarium3D.$CARCH"
     ln -s /usr/lib/tonarium/Tonarium "$pkgdir/usr/bin/tonarium"
-    install -Dm644 "$srcdir/Tonarium-$pkgver-linux-x64/tonarium.desktop" "$pkgdir/usr/share/applications/tonarium.desktop"
-    install -Dm644 "$srcdir/Tonarium-$pkgver-linux-x64/tonarium.png" "$pkgdir/usr/share/icons/hicolor/64x64/apps/tonarium.png"
+    install -Dm644 "$srcdir/$_archive_root/tonarium.desktop" "$pkgdir/usr/share/applications/tonarium.desktop"
+    install -Dm644 "$srcdir/$_archive_root/tonarium.png" "$pkgdir/usr/share/icons/hicolor/64x64/apps/tonarium.png"
     install -dm755 "$pkgdir/usr/share/licenses/$pkgname"
-    cp -a --no-preserve=ownership "$srcdir/Tonarium-$pkgver-linux-x64/licenses/." "$pkgdir/usr/share/licenses/$pkgname/"
+    cp -a --no-preserve=ownership "$srcdir/$_archive_root/licenses/." "$pkgdir/usr/share/licenses/$pkgname/"
 }
