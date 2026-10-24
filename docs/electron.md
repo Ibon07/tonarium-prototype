@@ -17,7 +17,7 @@ npm --prefix electron run build:linux
 npm --prefix electron run build:windows
 ```
 
-Linux x86_64 は tar.gz と AppImage、Windows x86_64 は ZIP と NSIS インストーラーを生成する。成果物と SHA-256 は `electron/artifacts/`、展開済みアプリやビルド中間ファイルは `electron/build/` に置く。Windows ZIP は Linux からも作成できるが、Windows 実機での動作確認は別途必要。コード署名・macOS 配布は含めていない。
+Linux x86_64 は tar.gz と AppImage、Windows x86_64 は ZIP と NSIS インストーラーを生成する。成果物と SHA-256 は `electron/artifacts/`、展開済みアプリやビルド中間ファイルは `electron/build/` に置く。Windows版のCIはWindows runnerで実行する。LinuxからNSISを含めてクロスビルドする場合はWineが必要。Windows実機での動作確認は別途必要。コード署名・macOS 配布は含めていない。
 
 AppImage は実行権限を付けて起動する。FUSE を利用できない環境では `--appimage-extract-and-run` を利用できる。
 

@@ -116,7 +116,7 @@ jobs:
   electron:
     name: Electron (${{ matrix.runtime }})
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     concurrency:
       group: nightly-electron-${{ matrix.runtime }}
@@ -129,8 +129,10 @@ jobs:
         include:
           - runtime: linux-x64
             platform: linux
+            os: ubuntu-24.04
           - runtime: win-x64
             platform: win
+            os: windows-2025
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -150,9 +152,9 @@ jobs:
           compression-level: 0
           retention-days: 7
       - name: Install metadata validation dependency
-        run: python3 -m pip install PyYAML==6.0.3
+        run: python -m pip install PyYAML==6.0.3
       - name: Publish this Electron nightly
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: python3 .github/scripts/publish-nightly.py electron "${{ matrix.runtime }}" electron/artifacts
+        run: python .github/scripts/publish-nightly.py electron "${{ matrix.runtime }}" electron/artifacts
