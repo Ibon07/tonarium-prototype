@@ -9,6 +9,7 @@ import {
 import { SPAWN } from '../shared/protocol.ts';
 
 const states = new Map<string, SurvivorState>();
+const ENEMY_HP_MULTIPLIER = 3;
 export const survivorOf = (sid: string) => {
   let state = states.get(sid);
   if (!state) { state = newSurvivorState(); states.set(sid, state); }
@@ -221,15 +222,16 @@ function createEnemy(s: SurvivorState, kind: SurvivorEnemy['kind'], now: number,
   const angle = random(s) * Math.PI * 2;
   const spawnRadius = SURVIVOR_WORLD_LIMIT - (kind === 'boss' ? 1.5 : 0.75);
   const position = at ?? { x: Math.cos(angle) * spawnRadius, z: Math.sin(angle) * spawnRadius };
+  const hpStage = Math.floor(Math.max(0, now - s.startedAt) / 60_000);
   const strengthStage = kind === 'boss' ? 0 : Math.floor(Math.max(0, now - s.startedAt) / 120_000);
-  const hpScale = kind === 'boss' ? 1 : 1 + strengthStage * 0.55;
+  const hpScale = 1 + hpStage * 0.55;
   const damageScale = kind === 'boss' ? 1 : 1 + strengthStage * 0.4;
   const speedScale = kind === 'boss' ? 1 : Math.min(1.8, 1 + strengthStage * 0.07);
-  const hp = Math.round(base.hp * hpScale);
+  const hp = Math.round(base.hp * ENEMY_HP_MULTIPLIER * hpScale);
   return {
     id: `e${s.run}-${++s.spawnIndex}`, kind, ...position,
     hp, maxHp: hp, speed: base.speed * speedScale, damage: Math.round(base.damage * damageScale), xp: base.xp, radius: base.radius,
-    armor: kind === 'bulwark' ? 0.52 : 0, strengthStage,
+    armor: kind === 'bulwark' ? 0.52 : 0, hpStage, strengthStage,
     hitAt: 0, attackAt: now,
     nextSpecialAt: kind === 'boss' ? now + 5_000 : kind === 'charger' ? now + 4_500 : kind === 'slinger' ? now + 2_000 : kind === 'shifter' ? now + 5_500 : 0,
     dashFrom: null, dashUntil: 0, movePhase: random(s) * Math.PI * 2, chargeTarget: null, chargeUntil: 0,
@@ -417,17 +419,22 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
         s.bossesSpawned++;
       }
     }
+    const hpStage = Math.floor(elapsed / 60_000);
     const strengthStage = Math.floor(elapsed / 120_000);
     for (const enemy of s.enemies) {
+      const previousHpStage = enemy.hpStage ?? hpStage;
+      if (previousHpStage < hpStage) {
+        const previousHpScale = 1 + previousHpStage * 0.55;
+        const nextHpScale = 1 + hpStage * 0.55;
+        enemy.hp = Math.max(1, Math.round(enemy.hp * nextHpScale / previousHpScale));
+        enemy.maxHp = Math.max(1, Math.round(enemy.maxHp * nextHpScale / previousHpScale));
+      }
+      enemy.hpStage = hpStage;
       if (enemy.kind === 'boss' || enemy.strengthStage >= strengthStage) continue;
-      const previousHpScale = 1 + enemy.strengthStage * 0.55;
-      const nextHpScale = 1 + strengthStage * 0.55;
       const previousDamageScale = 1 + enemy.strengthStage * 0.4;
       const nextDamageScale = 1 + strengthStage * 0.4;
       const previousSpeedScale = Math.min(1.8, 1 + enemy.strengthStage * 0.07);
       const nextSpeedScale = Math.min(1.8, 1 + strengthStage * 0.07);
-      enemy.hp = Math.max(1, Math.round(enemy.hp * nextHpScale / previousHpScale));
-      enemy.maxHp = Math.max(1, Math.round(enemy.maxHp * nextHpScale / previousHpScale));
       enemy.damage = Math.max(1, Math.round(enemy.damage * nextDamageScale / previousDamageScale));
       enemy.speed *= nextSpeedScale / previousSpeedScale;
       enemy.strengthStage = strengthStage;
@@ -444,13 +451,13 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
     if (!alive.length) { finish(sid, s, d, now); continue; }
     const growthPauseElapsed = s.spawnGrowthPausedAt == null ? 0 : Math.min(now, s.spawnGrowthPausedUntil) - s.spawnGrowthPausedAt;
     const spawnGrowthElapsed = Math.max(0, elapsed - s.spawnGrowthPausedMs - growthPauseElapsed);
-    const spawnGrowthStage = Math.floor(spawnGrowthElapsed / 120_000);
+    const spawnGrowthStage = Math.floor(spawnGrowthElapsed / 60_000);
     const partySize = Math.max(1, Object.keys(s.players).length);
     if (now >= s.nextSpawnAt && s.enemies.length < SURVIVOR_MAX_ENEMIES) {
       const seconds = elapsed / 1000;
       const growthSeconds = spawnGrowthElapsed / 1000;
       const partyScale = 1 + Math.min(2.5, (partySize - 1) * 0.3);
-      const count = Math.min(8, Math.ceil((1 + Math.min(3, spawnGrowthStage)) * partyScale));
+      const count = Math.min(24, Math.ceil((1 + spawnGrowthStage * 2) * partyScale));
       for (let i = 0; i < count && s.enemies.length < SURVIVOR_MAX_ENEMIES; i++) {
         const roll = random(s);
         const kind: SurvivorEnemy['kind'] = seconds >= 240

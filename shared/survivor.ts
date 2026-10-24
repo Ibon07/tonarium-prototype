@@ -83,7 +83,7 @@ export interface SurvivorPlayer {
 }
 export interface SurvivorEnemy {
   id: string; kind: 'ghoul' | 'bat' | 'knight' | 'charger' | 'wisp' | 'slinger' | 'splitter' | 'shifter' | 'pack' | 'bulwark' | 'boss'; x: number; z: number;
-  hp: number; maxHp: number; speed: number; damage: number; xp: number; radius: number; armor: number; strengthStage: number;
+  hp: number; maxHp: number; speed: number; damage: number; xp: number; radius: number; armor: number; hpStage: number; strengthStage: number;
   hitAt: number; attackAt: number; nextSpecialAt: number; dashFrom: { x: number; z: number } | null; dashUntil: number;
   movePhase: number; chargeTarget: { x: number; z: number } | null; chargeUntil: number;
 }
