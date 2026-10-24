@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       // 開発中は相対 URL のままにする（本番はサーバーが __ORIGIN__ を埋める）
-      { name: 'dev-origin', apply: 'serve', transformIndexHtml: (html: string) => html.replaceAll('__ORIGIN__', '') },
+      { name: 'dev-origin', apply: 'serve', transformIndexHtml: (html: string) => html.replaceAll('__ORIGIN__', '').replaceAll('__VERSION__', '') },
     ],
     build: { outDir: 'dist', emptyOutDir: true },
     server: {

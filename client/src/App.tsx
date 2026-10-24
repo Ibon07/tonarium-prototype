@@ -8,6 +8,7 @@ import { Home } from './home/Home.tsx';
 import { WorldScreen } from './world/WorldScreen.tsx';
 import { PeekMascot, type MascotHandle } from './world/Mascot.tsx';
 import { FEEDBACK_URL } from './feedback.ts';
+import { MaintenanceOverlay, UpdateBanner } from './world/ServerNotices.tsx';
 
 function loadId() {
   try {
@@ -112,6 +113,8 @@ export function App() {
       {session ? <WorldScreen /> : <Home />}
       <Lightbox />
       <HammerCursor />
+      <UpdateBanner />
+      <MaintenanceOverlay />
     </>
   );
 }

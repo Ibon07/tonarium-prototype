@@ -241,6 +241,8 @@ export interface Snapshot {
   sessions: Record<string, SessionInfo>;
   /** 再生位置をそろえるためのサーバー時刻 */
   now: number;
+  /** サーバーが出している画面の版。開発中は null */
+  version: string | null;
 }
 
 /** セッションの LiveKit の部屋に入ったとき、サーバーからその人だけに届く中の状態 */
