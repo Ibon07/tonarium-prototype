@@ -13,6 +13,7 @@ export const clampSurvivorPosition = (x: number, z: number) => ({
 });
 export const SURVIVOR_MOVE_SPEED = 4.2;
 export const SURVIVOR_MAX_ENEMIES = 180;
+export const SURVIVOR_MAX_SYNERGY_GEAR = 3;
 
 export type SurvivorStyle = 'bloodrose' | 'stargazer' | 'wraith';
 export type SurvivorRarity = 'common' | 'rare' | 'epic' | 'mythic';
@@ -26,7 +27,7 @@ export const SURVIVOR_STYLES: Record<SurvivorStyle, { name: string; mark: string
 
 export interface SurvivorGearDef {
   id: string; name: string; kind: SurvivorGearKind; rarity: SurvivorRarity; desc: string;
-  maxLevel: number; synergy?: string; evolvedFrom?: string[];
+  maxLevel: number; synergy?: string; synergyGear?: boolean; evolvedFrom?: string[];
 }
 
 export const SURVIVOR_GEAR: Record<string, SurvivorGearDef> = {
@@ -42,6 +43,19 @@ export const SURVIVOR_GEAR: Record<string, SurvivorGearDef> = {
   starfall: { id: 'starfall', name: '星界落とし', kind: 'weapon', rarity: 'mythic', desc: '広範囲へ星を降らせる。', maxLevel: 1 },
   umbralstorm: { id: 'umbralstorm', name: '常夜の嵐', kind: 'weapon', rarity: 'mythic', desc: '影の奔流が敵を呑み込む。', maxLevel: 1 },
   crimsonsun: { id: 'crimsonsun', name: '紅き太陽', kind: 'weapon', rarity: 'mythic', desc: '血月の輪が灼熱の太陽へ変わる。', maxLevel: 1 },
+  frostlance: { id: 'frostlance', name: '霜牙の槍', kind: 'weapon', rarity: 'rare', desc: '狙った方向へ氷槍を一直線に放ち、最大5体を貫く。氷晶核と共鳴する。', maxLevel: 5, synergy: 'frostcore' },
+  stormring: { id: 'stormring', name: '雷環', kind: 'weapon', rarity: 'rare', desc: '雷が近くの敵へ連鎖する。導電コイルと共鳴する。', maxLevel: 5, synergy: 'coppercoil' },
+  embermine: { id: 'embermine', name: '火葬の種', kind: 'weapon', rarity: 'common', desc: '敵の足元で爆ぜ、周囲を巻き込む火種。焔の種火と共鳴する。', maxLevel: 5, synergy: 'pyreseed' },
+  thornshot: { id: 'thornshot', name: '茨の連弩', kind: 'weapon', rarity: 'common', desc: '扇状に茨の矢を放ち、前方の敵をまとめて射抜く。狩人の印と共鳴する。', maxLevel: 5, synergy: 'huntsigil' },
+  voidpulse: { id: 'voidpulse', name: '虚空の脈動', kind: 'weapon', rarity: 'epic', desc: '周囲へ虚空の衝撃波を放つ。月片の護符と共鳴する。', maxLevel: 5, synergy: 'moonshard' },
+  frostcore: { id: 'frostcore', name: '氷晶核', kind: 'passive', rarity: 'rare', desc: '霜牙の槍の威力が上がる。', maxLevel: 5 },
+  coppercoil: { id: 'coppercoil', name: '導電コイル', kind: 'passive', rarity: 'common', desc: '雷環の電撃がより遠くの敵まで連鎖する。', maxLevel: 5 },
+  pyreseed: { id: 'pyreseed', name: '焔の種火', kind: 'passive', rarity: 'common', desc: '範囲攻撃の威力と範囲を強化する。', maxLevel: 5 },
+  huntsigil: { id: 'huntsigil', name: '狩人の印', kind: 'passive', rarity: 'rare', desc: 'すべての武器の攻撃範囲を広げる。', maxLevel: 5 },
+  moonshard: { id: 'moonshard', name: '月片の護符', kind: 'passive', rarity: 'epic', desc: 'ラン終了時にレベルから得るポイントが増える。', maxLevel: 5 },
+  lunarconvergence: { id: 'lunarconvergence', name: '月星終焉', kind: 'weapon', rarity: 'mythic', desc: '月蝕の刃と星屑の弾丸を融合。月光の奔流が広範囲の敵を何度も貫く。', maxLevel: 1, synergyGear: true, evolvedFrom: ['moonblade', 'starbolt'] },
+  crimsonvoid: { id: 'crimsonvoid', name: '深紅の皆既核', kind: 'weapon', rarity: 'mythic', desc: '影縫いと血月の輪を融合。巨大な深紅の波動が周囲を呑み込み、敵を連続で消し飛ばす。', maxLevel: 1, synergyGear: true, evolvedFrom: ['shade', 'bloodaura'] },
+  stormfrost: { id: 'stormfrost', name: '天穹の雷霜', kind: 'weapon', rarity: 'mythic', desc: '霜牙の槍と雷環を融合。雷霜の連鎖が画面中の敵を一斉に貫く。', maxLevel: 1, synergyGear: true, evolvedFrom: ['frostlance', 'stormring'] },
 };
 
 export const SURVIVOR_RARITY_ORDER: SurvivorRarity[] = ['common', 'rare', 'epic', 'mythic'];
@@ -68,18 +82,19 @@ export interface SurvivorPlayer {
   choiceQueue: string[][]; hitAt: number; attackAt: Record<string, number>; moveAt: number;
 }
 export interface SurvivorEnemy {
-  id: string; kind: 'ghoul' | 'bat' | 'knight' | 'charger' | 'wisp' | 'boss'; x: number; z: number;
-  hp: number; maxHp: number; speed: number; damage: number; xp: number; radius: number;
+  id: string; kind: 'ghoul' | 'bat' | 'knight' | 'charger' | 'wisp' | 'slinger' | 'splitter' | 'shifter' | 'pack' | 'bulwark' | 'boss'; x: number; z: number;
+  hp: number; maxHp: number; speed: number; damage: number; xp: number; radius: number; armor: number; strengthStage: number;
   hitAt: number; attackAt: number; nextSpecialAt: number; dashFrom: { x: number; z: number } | null; dashUntil: number;
   movePhase: number; chargeTarget: { x: number; z: number } | null; chargeUntil: number;
 }
 export interface SurvivorProjectile {
-  id: string; sourceId: string; x: number; z: number; vx: number; vz: number;
+  id: string; sourceId: string; kind: 'boss' | 'slinger'; x: number; z: number; vx: number; vz: number;
   damage: number; radius: number; expiresAt: number;
 }
 export interface SurvivorAttackEffect {
   id: string; playerId: string; gear: string; at: number;
   from: { x: number; z: number }; targets: { x: number; z: number }[]; reach: number;
+  areaCenter?: { x: number; z: number }; chain?: boolean;
 }
 export interface SurvivorState {
   run: number; phase: 'lobby' | 'running' | 'boss' | 'ended'; startedAt: number; endedAt: number | null;
@@ -87,6 +102,7 @@ export interface SurvivorState {
   pausedAt: number | null;
   players: Record<string, SurvivorPlayer>; enemies: SurvivorEnemy[]; projectiles: SurvivorProjectile[]; effects: SurvivorAttackEffect[]; stylePicks: Record<string, SurvivorStyle>;
   kills: number; spawnIndex: number; nextSpawnAt: number; randomSeed: number; bossDefeated: boolean; bossesSpawned: number;
+  spawnGrowthPausedAt: number | null; spawnGrowthPausedUntil: number; spawnGrowthPausedMs: number;
 }
 export interface SurvivorProfile {
   points: number; upgrades: Record<SurvivorMetaUpgrade, number>;
@@ -97,6 +113,7 @@ export interface SurvivorProfile {
 export const newSurvivorState = (): SurvivorState => ({
   run: 0, phase: 'lobby', startedAt: 0, endedAt: null, pausedAt: null, players: {}, enemies: [], projectiles: [], effects: [], stylePicks: {},
   kills: 0, spawnIndex: 0, nextSpawnAt: 0, randomSeed: 1, bossDefeated: false, bossesSpawned: 0,
+  spawnGrowthPausedAt: null, spawnGrowthPausedUntil: 0, spawnGrowthPausedMs: 0,
 });
 export const newSurvivorProfile = (): SurvivorProfile => ({
   points: 0, upgrades: { might: 0, vitality: 0, haste: 0 }, runs: 0, bestLevel: 0, bestKills: 0,
