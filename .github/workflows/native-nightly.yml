@@ -90,6 +90,11 @@ jobs:
           dotnet publish native/Tonarium.Desktop -c Release -r "$RUNTIME" --self-contained true \
             -p:Version="0.0.0-nightly.$GITHUB_RUN_NUMBER" -p:DebugType=None -p:DebugSymbols=false \
             -o "native/build/nightly/$RUNTIME"
+      - name: Verify Windows apphost manifest
+        if: matrix.runtime == 'win-x64'
+        run: |
+          python3 -m pip install pefile==2024.8.26
+          python3 native/verify-windows-manifest.py native/build/nightly/win-x64/Tonarium.exe
       - name: Package native client and Unity
         env:
           RUNTIME: ${{ matrix.runtime }}

@@ -4,6 +4,8 @@ Windowsクライアントは手元でUnityと.NETをビルドし、完成したZ
 
 `main`へのpushとPull Requestでは、`native/**`・`packaging/**`・Nativeが直接取り込む `client/public/brand/**` と `client/public/oekaki/sample.png`・チェック用ワークフロー自身の変更がある場合に `.github/workflows/native-checks.yml` が型チェック、Webビルド、WindowsネイティブUIの通常操作チェック、自己完結型の.NETビルドを実行する。マイク、音声サーバー、Unityライセンスは使用しない。Electronや通常のWeb画面だけの変更では実行しない。nightly公開処理のテストは、関連するワークフロー・スクリプトの変更時に `nightly-checks.yml` で独立して実行する。どちらも手動実行できる。
 
+Windows向けのmanifestは、ビルドホストがWindowsの場合に加え、出力先RIDが `win-*` の場合にも埋め込む。Linux上で作るWindows nightlyでも必要になるため、Native checksとnightly公開前に `native/verify-windows-manifest.py`（`pefile==2024.8.26` が必要）で実際のEXEの `RT_MANIFEST/1` にWindows 10/11互換性とPerMonitorV2宣言が含まれることを検証する。
+
 ## 1. 手元でビルドする
 
 Unity 6000.6.7f1とWindows Build Support、.NET 10、Node.jsが必要。先にソース変更をコミットし、そのコミットからビルドする。
