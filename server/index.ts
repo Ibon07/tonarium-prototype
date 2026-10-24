@@ -52,6 +52,8 @@ const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
 const PEOPLE_FILE = path.join(DATA_DIR, 'people.json');
 const ITEMS_FILE = path.join(DATA_DIR, 'items.json');
 const SURVIVORS_FILE = path.join(DATA_DIR, 'survivors.json');
+const AD_SAVES_FILE = path.join(DATA_DIR, 'ad-saves.json');
+const AD_LEADERBOARD_FILE = path.join(DATA_DIR, 'ad-leaderboard.json');
 /** 2 人以上がこの時間以上いたセッションだけ、グループのチャンネルにまとめを残す */
 const RECAP_MIN_MS = Number(process.env.RECAP_MIN_MINUTES ?? 10) * 60_000;
 function readJson<T>(file: string, fallback: T): T {
@@ -65,6 +67,18 @@ function later(fn: () => void, ms = 800) {
 for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR]) fs.mkdirSync(d, { recursive: true });
 const survivorProfiles = readJson<Record<string, SurvivorProfile>>(SURVIVORS_FILE, {});
 const saveSurvivorProfiles = later(() => fs.writeFile(SURVIVORS_FILE, JSON.stringify(survivorProfiles), () => {}));
+/** AD のセーブとランキングは Tonarium サーバー内で完結する（Workers は使わない） */
+interface AdLeaderboardEntry { playerId: string; name: string; antimatterLog10: number; infinities: number; playTimeSec: number }
+const adSaves = readJson<Record<string, { save: unknown; updatedAt: string }>>(AD_SAVES_FILE, {});
+const adLeaderboard = readJson<AdLeaderboardEntry[]>(AD_LEADERBOARD_FILE, []);
+/** AD の保存は 30 秒に 1 回程度のため、survivors のデバウンス書きとは別に tmp＋リネームで同期書きする（再起動後も残る） */
+function writeJsonAtomic(file: string, value: unknown): void {
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(value));
+  fs.renameSync(tmp, file);
+}
+const saveAdSaves = () => writeJsonAtomic(AD_SAVES_FILE, adSaves);
+const saveAdLeaderboard = () => writeJsonAtomic(AD_LEADERBOARD_FILE, adLeaderboard);
 function survivorCount(value: unknown, max: number) {
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.min(max, Math.max(0, Math.floor(value)))
@@ -1234,6 +1248,60 @@ const server = http.createServer(async (req, res) => {
     } catch { res.statusCode = 400; }
     res.end();
     return;
+  }
+  // AD の保存・ランキング。Tonarium にアカウント認証は無く、URL の playerId をキーとしてそのまま受け入れる。
+  // Workers 版にあった他人セーブの 403 保護はここでは成立しない（docs/3d.md 参照）。
+  const adSaveMatch = /^\/api\/save\/([^/]+)$/.exec(url.pathname);
+  if (adSaveMatch) {
+    const playerId = decodeURIComponent(adSaveMatch[1]).slice(0, 128);
+    res.setHeader('Content-Type', 'application/json');
+    if (req.method === 'GET') {
+      const rec = playerId ? adSaves[playerId] : undefined;
+      if (!rec) { res.statusCode = 404; res.end(JSON.stringify({ error: 'not found' })); return; }
+      res.end(JSON.stringify({ save: rec.save }));
+      return;
+    }
+    if (req.method === 'POST') {
+      const body = await readBody(req, 1_000_000);
+      if (!body || !playerId) { res.statusCode = 413; res.end(); return; }
+      let parsed: { save?: unknown; updatedAt?: unknown } | null = null;
+      try { parsed = JSON.parse(body.toString('utf-8')) as { save?: unknown; updatedAt?: unknown }; } catch { res.statusCode = 400; res.end(); return; }
+      if (!parsed || typeof parsed.save !== 'object' || parsed.save === null || Array.isArray(parsed.save)) { res.statusCode = 400; res.end(); return; }
+      adSaves[playerId] = { save: parsed.save, updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString() };
+      try { saveAdSaves(); } catch { res.statusCode = 500; res.end(); return; }
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    res.statusCode = 405; res.end(); return;
+  }
+  if (url.pathname === '/api/leaderboard') {
+    res.setHeader('Content-Type', 'application/json');
+    if (req.method === 'GET') {
+      res.end(JSON.stringify({ entries: adLeaderboard }));
+      return;
+    }
+    if (req.method === 'POST') {
+      const body = await readBody(req, 20_000);
+      if (!body) { res.statusCode = 413; res.end(); return; }
+      let e: Partial<AdLeaderboardEntry> | null = null;
+      try { e = JSON.parse(body.toString('utf-8')) as Partial<AdLeaderboardEntry>; } catch { res.statusCode = 400; res.end(); return; }
+      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : null);
+      const antimatterLog10 = num(e?.antimatterLog10);
+      const infinities = num(e?.infinities);
+      const playTimeSec = num(e?.playTimeSec);
+      const playerId = typeof e?.playerId === 'string' ? e.playerId.slice(0, 128) : '';
+      const name = typeof e?.name === 'string' ? e.name.slice(0, 24) : '';
+      if (!playerId || antimatterLog10 === null || infinities === null || playTimeSec === null) { res.statusCode = 400; res.end(); return; }
+      const entry: AdLeaderboardEntry = { playerId, name, antimatterLog10, infinities, playTimeSec };
+      const at = adLeaderboard.findIndex((x) => x.playerId === playerId);
+      if (at >= 0) adLeaderboard[at] = entry; else adLeaderboard.push(entry);
+      adLeaderboard.sort((a, b) => b.antimatterLog10 - a.antimatterLog10 || b.infinities - a.infinities);
+      adLeaderboard.length = Math.min(adLeaderboard.length, 50);
+      try { saveAdLeaderboard(); } catch { res.statusCode = 500; res.end(); return; }
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    res.statusCode = 405; res.end(); return;
   }
   if (url.pathname === '/healthz') {
     res.setHeader('Content-Type', 'text/plain');

@@ -36,6 +36,7 @@ import { linkTonariumProfile } from './link.ts';
 import { AdApiClient, type LeaderboardEntry } from './api.ts';
 
 export interface AdStartOptions {
+  /** 任意の上書き。未指定なら同一オリジン（Tonarium サーバー内の /api/*）を使い、Workers などの外部 API は必須ではない */
   apiBase?: string;
   authMode?: 'anonymous' | 'token' | 'header-injected';
   authToken?: string;
@@ -143,11 +144,13 @@ export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
       storage = options.storage ?? safeStorage();
       authMode = options.authMode ?? 'anonymous';
       authToken = options.authToken;
+      // 既定は同一オリジン（Tonarium サーバー内の /api/*）。空文字の AdApiClient は相対パス /api/... を叩く。
+      // VITE_AD_API_BASE は任意の上書きで、Workers などの外部 API に向けたい場合にだけ指定する。
       apiBase = (options.apiBase ?? import.meta.env?.VITE_AD_API_BASE ?? '').trim().replace(/\/+$/, '');
       const profile = options.tonariumId
         ? linkTonariumProfile(storage, options.tonariumId, options.tonariumName ?? '')
         : ensureDefaultProfile(storage);
-      if (apiBase) api = new AdApiClient(apiBase, makeAuth(profile));
+      api = new AdApiClient(apiBase, makeAuth(profile));
       loadProfileGame(profile);
       timers = [
         window.setInterval(() => {
@@ -158,10 +161,9 @@ export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
           set({ adVersion: get().adVersion + 1 });
         }, 100),
         window.setInterval(() => { saveLocalNow(); }, 1000),
+        // サーバー保存は常に有効（既定は同一オリジンの Tonarium サーバー）。localStorage はフォールバックとして残る
+        window.setInterval(() => { void slice.adSaveServer(); }, 30000),
       ];
-      if (api) {
-        timers.push(window.setInterval(() => { void slice.adSaveServer(); }, 30000));
-      }
     },
 
     adStop() {

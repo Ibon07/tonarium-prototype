@@ -1,7 +1,7 @@
 import { newChess, chessBoard, playChess, type ChessState, type Promotion } from './chess.ts';
 import type { DiceRoll, DieSides } from './dice.ts';
 
-export type ItemKind = 'note' | 'hammer' | 'chess' | 'chessAi' | 'g2048' | 'canvas' | 'camera' | 'image' | 'video' | 'youtube' | 'dice';
+export type ItemKind = 'note' | 'hammer' | 'chess' | 'chessAi' | 'g2048' | 'canvas' | 'camera' | 'image' | 'video' | 'youtube' | 'dice' | 'antimatter';
 
 /**
  * みんなで同じ位置を再生するための時計。at（サーバー時刻 ms）の時点で base 秒目。
@@ -44,7 +44,9 @@ export type Item =
   | (ItemBase & { kind: 'video'; url: string; w: number; h: number; clock: MediaClock })
   | (ItemBase & { kind: 'youtube'; videoId: string; title: string; clock: MediaClock })
   /** 結果をサーバーで検証・確定し、チャットにも残す。roll は最後に振った回 */
-  | (ItemBase & { kind: 'dice'; roll: DiceRoll | null });
+  | (ItemBase & { kind: 'dice'; roll: DiceRoll | null })
+  /** AD への入口だけ。進行・セーブは持たず、ad スライス側が担う */
+  | (ItemBase & { kind: 'antimatter' });
 
 export type ChessItem = Extract<Item, { kind: 'chess' | 'chessAi' }>;
 export const isChessItem = (item: Item): item is ChessItem => item.kind === 'chess' || item.kind === 'chessAi';
@@ -102,6 +104,7 @@ export const ITEM_INFO: Record<ItemKind, ItemInfo> = {
   video: { name: '動画', mark: '動', tint: '#EFE4F6', ink: '#6A3A8C', desc: '貼り付けた動画。みんなで同じところを再生する。', genre: 'メディア', in2d: true, in3d: true, media: true },
   dice: { name: 'サイコロ', mark: '賽', tint: '#F3E6D3', ink: '#7A4A22', desc: 'TRPG 用のサイコロ（d4〜d100、最大10個）。3D では木の器の中を転がり、結果はチャットに残る。シークレットで振ると結果は自分だけに見える。', genre: 'あそび', in2d: true, in3d: true },
   youtube: { name: 'YouTube', mark: 'YT', tint: '#FBE1DE', ink: '#B3261E', desc: 'YouTube の動画。みんなで同じところを再生する。', genre: 'メディア', in2d: true, in3d: true, media: true },
+  antimatter: { name: 'AD ポータル', mark: 'AD', tint: '#E9E2F5', ink: '#5B3A8C', desc: '反物質次元への入口。開くと自分の AD 研究所パネルが開く。進行・セーブはプレイヤーごとに残り、アイテムを片付けたりワールドを切り替えたりしても消えない。', genre: 'ゲーム', in2d: true, in3d: true },
 };
 
 const BACK = ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R'];
@@ -198,6 +201,7 @@ export function createItem(
     case 'canvas': return { ...b, kind, strokes: [] };
     case 'camera': return { ...b, kind, holder: null, pitch: 0, live: false, operator: null };
     case 'dice': return { ...b, kind, roll: null };
+    case 'antimatter': return { ...b, kind };
   }
 }
 
@@ -309,6 +313,9 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
     // 結果はサーバーが決める（server の rollDice）
     case 'dice':
       return false;
+    // 入口だけで操作を持たない
+    case 'antimatter':
+      return false;
   }
   item.updatedBy = userId;
   return true;
@@ -328,6 +335,7 @@ export function itemSummary(it: Item): string | null {
     case 'image': return '写真';
     case 'video': return '動画';
     case 'youtube': return it.title ? `YouTube「${it.title.slice(0, 20)}」` : 'YouTube';
+    case 'antimatter': return 'AD ポータル';
     default: return null;
   }
 }

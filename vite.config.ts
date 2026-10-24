@@ -36,6 +36,7 @@ export default defineConfig(({ mode }) => {
         '/profile': `http://${api}`,
         '/report': `http://${api}`,
         '/ogp': `http://${api}`,
+        '/api': `http://${api}`,
         '/media': `http://${api}`,
         '/ws': { target: `ws://${api}`, ws: true },
       },

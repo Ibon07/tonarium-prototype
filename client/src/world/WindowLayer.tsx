@@ -142,6 +142,13 @@ function useResolved(key: string, compact: boolean): Resolved | null {
     };
   }
   if (item.kind === 'dice') return { kind: 'dice', dark: false, item, title: ITEM_INFO.dice.name, sub, width: 400, body: <DiceBody item={item} interactive={!compact} /> };
+  // 入口だけのアイテム。開くのはワールド版と同じ自分の AD パネル
+  if (item.kind === 'antimatter') return {
+    kind: 'survivor', dark: true, item, title: 'AD 研究所', sub, width: 720, aspect: 1.2,
+    body: compact
+      ? <div style={{ padding: 16, color: '#e9e5f5' }}>AD 研究所 — クリックで大きく表示</div>
+      : <AntimatterWindowBody />,
+  };
   if (item.kind === 'note') return { kind: 'note', dark: false, item, title: itemLabel(item), sub, width: 320, body: <NoteBody note={item} /> };
   const panel = PANELS[item.kind];
   if (!panel) return null;
