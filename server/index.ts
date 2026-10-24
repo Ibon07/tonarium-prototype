@@ -153,7 +153,16 @@ const defaultChannels = () => [{ id: 'general', name: '雑談' }];
 for (const g of home.groups) if (!g.channels?.length) g.channels = defaultChannels();
 for (const ev of home.events) { ev.maybe ??= []; ev.declined ??= []; }
 guild.sessions.push(...home.sessions);
-const saveHome = () => fs.writeFileSync(HOME_FILE, JSON.stringify(home));
+/** 開始から 30 日以上過ぎたイベントは残さない。当日のものや開始時刻が読めないものは消さない */
+function pruneOldEvents() {
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  home.events = home.events.filter((ev) => !(Number.isFinite(ev.at) && ev.at < cutoff));
+}
+const eventsBeforePrune = home.events.length;
+pruneOldEvents();
+// home はメモリ側が正で、ファイルへの書き込みは savePeople などと同じく遅らせてまとめる
+const saveHome = later(() => fs.writeFile(HOME_FILE, JSON.stringify(home), () => {}));
+if (home.events.length !== eventsBeforePrune) saveHome();
 const sessionIds = new Set(guild.sessions.map((w) => w.id));
 const shortId = () => randomUUID().slice(0, 8);
 
@@ -1058,6 +1067,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       if (!ev && who('yes').length >= PLAN_QUORUM) {
         const group = msg.conv.split(':')[1];
         ev = { id: shortId(), title: m.text.split('\n')[0].slice(0, 60) || '集まり', at: plan.at, group, session: plan.session, owner: m.from || me.name, attendees: [], maybe: [], declined: [] };
+        pruneOldEvents();
         home.events.push(ev);
         home.events.sort((a, b) => a.at - b.at);
         plan.event = ev.id;
@@ -1115,6 +1125,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       if (!title || !Number.isFinite(at)) return true;
       const group = home.groups.find((g) => g.id === msg.group && g.members.includes(me.name))?.id ?? null;
       const session = sessionsVisibleTo(me.name).find((d) => d.id === msg.session)?.id ?? null;
+      pruneOldEvents();
       home.events.push({ id: shortId(), title, at, group, session, owner: me.name, attendees: [me.name], maybe: [], declined: [] });
       home.events.sort((a, b) => a.at - b.at);
       saveHome();
