@@ -331,6 +331,7 @@ export type RoomClientMsg =
   | { t: 'survivorStart' }
   | { t: 'survivorMove'; x: number; z: number }
   | { t: 'survivorChoose'; gear: string }
+  | { t: 'survivorReroll' }
   | { t: 'survivorUpgrade'; upgrade: SurvivorMetaUpgrade }
   | { t: 'survivorReset' }
   /** 街のマンションのエレベーターを呼ぶ・行き先を押す（floor は 0 = 1 階 … 10 = 屋上） */
@@ -347,7 +348,7 @@ const ROOM_CLIENT_TYPES: Record<RoomClientMsg['t'], true> = {
   peerOperation: true,
   sync: true, mode: true, status: true, follow: true, dropFollowers: true, place2d: true, displayMove: true, chat: true, avatar: true,
   viewing: true, poke: true, sound: true, emote: true, liveRequest: true, viewLive: true, itemCreate: true, attention: true, broadcast: true, world: true, sessionRename: true,
-  gameStart: true, gameStep: true, gameFell: true, survivorStyle: true, survivorStart: true, survivorMove: true, survivorChoose: true, survivorUpgrade: true, survivorReset: true,
+  gameStart: true, gameStep: true, gameFell: true, survivorStyle: true, survivorStart: true, survivorMove: true, survivorChoose: true, survivorReroll: true, survivorUpgrade: true, survivorReset: true,
   elevatorCall: true, itemRemove: true, itemMove: true, itemAction: true, hit: true,
 };
 export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => m.t in ROOM_CLIENT_TYPES;

@@ -2,8 +2,8 @@ import type { AvatarState, Participant } from '../shared/protocol.ts';
 import {
   SURVIVOR_CHOICE_TIMEOUT_MS, SURVIVOR_DURATION_MS, SURVIVOR_TICK_MS, SURVIVOR_WORLD_LIMIT,
   SURVIVOR_GEAR, SURVIVOR_JOIN, SURVIVOR_MAX_ENEMIES, SURVIVOR_META_UPGRADES,
-  SURVIVOR_MAX_SYNERGY_GEAR, SURVIVOR_MOVE_SPEED, SURVIVOR_STYLES, clampSurvivorPosition, newSurvivorState,
-  survivorDistance, survivorXpFor, type SurvivorAchievement, type SurvivorEnemy, type SurvivorGearDef,
+  SURVIVOR_MAX_SYNERGY_GEAR, SURVIVOR_STYLES, clampSurvivorPosition, newSurvivorState,
+  survivorDistance, survivorUpgradeCost, survivorUpgradeRefund, survivorXpFor, type SurvivorAchievement, type SurvivorEnemy, type SurvivorGearDef,
   isSurvivorSynergyRecipe, type SurvivorMetaUpgrade, type SurvivorPlayer, type SurvivorProfile, type SurvivorState, type SurvivorStyle,
 } from '../shared/survivor.ts';
 import { SPAWN } from '../shared/protocol.ts';
@@ -47,13 +47,15 @@ function pointSegmentDistance(point: { x: number; z: number }, from: { x: number
 function pickedStyle(s: SurvivorState, id: string): SurvivorStyle { return s.stylePicks[id] ?? 'bloodrose'; }
 function playerFor(u: Participant, s: SurvivorState, d: SurvivorDeps, index: number): SurvivorPlayer {
   const profile = d.profile(u.id);
-  const style = pickedStyle(s, u.id);
+  const picked = pickedStyle(s, u.id);
+  const style = profile.upgrades.characters >= (SURVIVOR_STYLES[picked].unlockAt ?? 0) ? picked : 'bloodrose';
   const def = SURVIVOR_STYLES[style];
   const a = index * 2.39996;
   const pos = clampSurvivorPosition(Math.sin(a) * 0.55, Math.cos(a) * 0.55);
-  const maxHp = def.hp + profile.upgrades.vitality * 10;
+  const maxHp = def.hp + profile.upgrades.vitality * 20;
   const player: SurvivorPlayer = {
     id: u.id, name: u.name, style, ...pos, hp: maxHp, maxHp, level: 1, xp: 0, nextXp: survivorXpFor(1),
+    rerollsRemaining: profile.upgrades.rerolls,
     alive: true, kills: 0, gear: { [def.weapon]: 1 }, choiceQueue: [], choiceDeadlineAt: null, hitAt: 0, attackAt: {}, moveAt: Date.now(),
   };
   discover(u.id, def.weapon, d);
@@ -75,6 +77,7 @@ function addPlayer(sid: string, s: SurvivorState, u: Participant, d: SurvivorDep
 
 export function chooseSurvivorStyle(sid: string, user: Participant, style: SurvivorStyle, d: SurvivorDeps) {
   if (!SURVIVOR_STYLES[style]) return;
+  if (d.profile(user.id).upgrades.characters < (SURVIVOR_STYLES[style].unlockAt ?? 0)) return;
   const s = survivorOf(sid);
   if (s.phase !== 'lobby' && !inJoinArea(positionOf(user, d.avatars(sid)))) return;
   s.stylePicks[user.id] = style;
@@ -109,7 +112,7 @@ export function moveSurvivor(sid: string, user: Participant, x: number, z: numbe
   if (!p?.alive || s.pausedAt != null || hasPendingChoice(s) || !Number.isFinite(x) || !Number.isFinite(z) || (s.phase !== 'running' && s.phase !== 'boss')) return;
   const now = Date.now();
   const dt = Math.max(0.04, Math.min(0.4, (now - (p.moveAt ?? now - 100)) / 1000));
-  const speed = SURVIVOR_MOVE_SPEED * (1 + d.profile(user.id).upgrades.haste * 0.03) * (1 + (p.gear.nightcloak ?? 0) * 0.025);
+  const speed = SURVIVOR_STYLES[p.style].speed * (1 + (p.gear.nightcloak ?? 0) * 0.025);
   const max = speed * dt + 0.35;
   const dx = x - p.x, dz = z - p.z, dist = Math.hypot(dx, dz);
   if (dist > max) { x = p.x + dx / dist * max; z = p.z + dz / dist * max; }
@@ -139,14 +142,15 @@ function evolutionRequirement(gear: SurvivorGearDef, index: number) {
   const source = gear.evolvedFrom?.[index];
   return gear.evolutionLevels?.[index] ?? (source ? SURVIVOR_GEAR[source]?.maxLevel : undefined) ?? 1;
 }
-function choicesFor(p: SurvivorPlayer, s: SurvivorState, prioritySynergies: string[] = []) {
-  const pool = poolFor(p);
+function choicesFor(p: SurvivorPlayer, s: SurvivorState, prioritySynergies: string[] = [], excluded: string[] = [], choiceCount = 3) {
+  const excludedSet = new Set(excluded);
+  const pool = poolFor(p).filter((id) => !excludedSet.has(id));
   const synergyPool = pool.filter((id) => SURVIVOR_GEAR[id]?.synergyGear);
-  const choices = prioritySynergies.filter((id) => synergyPool.includes(id)).slice(0, 3);
+  const choices = prioritySynergies.filter((id) => synergyPool.includes(id)).slice(0, choiceCount);
   const remainingSynergies = synergyPool.filter((id) => !choices.includes(id));
-  while (remainingSynergies.length && choices.length < 3) choices.push(remainingSynergies.splice(Math.floor(random(s) * remainingSynergies.length), 1)[0]);
+  while (remainingSynergies.length && choices.length < choiceCount) choices.push(remainingSynergies.splice(Math.floor(random(s) * remainingSynergies.length), 1)[0]);
   const ordinaryPool = pool.filter((id) => !SURVIVOR_GEAR[id]?.synergyGear);
-  while (ordinaryPool.length && choices.length < 3) choices.push(ordinaryPool.splice(Math.floor(random(s) * ordinaryPool.length), 1)[0]);
+  while (ordinaryPool.length && choices.length < choiceCount) choices.push(ordinaryPool.splice(Math.floor(random(s) * ordinaryPool.length), 1)[0]);
   return choices;
 }
 function giveXp(s: SurvivorState, d: SurvivorDeps, amount: number, now: number) {
@@ -157,7 +161,7 @@ function giveXp(s: SurvivorState, d: SurvivorDeps, amount: number, now: number) 
       p.xp -= p.nextXp;
       p.level++;
       p.nextXp = survivorXpFor(p.level);
-      const choices = choicesFor(p, s);
+      const choices = choicesFor(p, s, [], [], 3 + d.profile(p.id).upgrades.choiceCount);
       if (choices.length) {
         if (!p.choiceQueue.length) p.choiceDeadlineAt = now + SURVIVOR_CHOICE_TIMEOUT_MS;
         p.choiceQueue.push(choices);
@@ -224,7 +228,7 @@ function applySurvivorGear(s: SurvivorState, p: SurvivorPlayer, gear: string, d:
         && p.gear[gear] >= evolutionRequirement(recipe, sourceIndex);
     });
     if (newlyReady.length) {
-      p.choiceQueue.unshift(choicesFor(p, s, newlyReady));
+      p.choiceQueue.unshift(choicesFor(p, s, newlyReady, [], 3 + d.profile(p.id).upgrades.choiceCount));
       p.choiceDeadlineAt = now + SURVIVOR_CHOICE_TIMEOUT_MS;
     }
   }
@@ -235,6 +239,17 @@ export function chooseSurvivorGear(sid: string, user: Participant, gear: string,
   const s = survivorOf(sid), p = s.players[user.id];
   if (!p?.alive || !p.choiceQueue[0]?.includes(gear)) return;
   applySurvivorGear(s, p, gear, d, Date.now());
+  send(sid, s, d);
+}
+
+export function rerollSurvivorChoice(sid: string, user: Participant, d: SurvivorDeps) {
+  const s = survivorOf(sid), p = s.players[user.id];
+  const current = p?.choiceQueue[0];
+  if (!p?.alive || !current?.length || p.rerollsRemaining <= 0) return;
+  const choices = choicesFor(p, s, [], current, 3 + d.profile(user.id).upgrades.choiceCount);
+  if (!choices.length) return;
+  p.choiceQueue[0] = choices;
+  p.rerollsRemaining--;
   send(sid, s, d);
 }
 
@@ -422,7 +437,7 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
       if (now < p.choiceDeadlineAt) continue;
       let options = p.choiceQueue[0].filter((id) => poolFor(p).includes(id));
       if (!options.length) {
-        options = choicesFor(p, s);
+        options = choicesFor(p, s, [], [], 3 + d.profile(p.id).upgrades.choiceCount);
         if (options.length) p.choiceQueue[0] = options;
         else {
           p.choiceQueue.shift();
@@ -508,6 +523,8 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
     }
     for (const p of Object.values(s.players)) {
       if (!p.alive) continue;
+      const regeneration = d.profile(p.id).upgrades.regeneration;
+      if (regeneration > 0) p.hp = Math.min(p.maxHp, p.hp + regeneration * SURVIVOR_TICK_MS / 60_000);
       const u = users.find((x) => x.id === p.id);
       if (u?.mode === '3d') {
         const avatar = avatars.get(p.id);
@@ -739,13 +756,18 @@ export function upgradeSurvivor(sid: string, id: string, upgrade: SurvivorMetaUp
   const def = SURVIVOR_META_UPGRADES[upgrade];
   if (!def) return;
   const profile = d.profile(id);
-  if (profile.points < def.cost || profile.upgrades[upgrade] >= def.max) return;
-  profile.points -= def.cost;
+  const level = profile.upgrades[upgrade];
+  const cost = survivorUpgradeCost(upgrade, level);
+  if (profile.points < cost || level >= def.max) return;
+  profile.points -= cost;
   profile.upgrades[upgrade]++;
   const s = states.get(sid), player = s?.players[id];
   if (upgrade === 'vitality' && player?.alive && s && (s.phase === 'running' || s.phase === 'boss')) {
-    player.maxHp += 10;
-    player.hp = Math.min(player.maxHp, player.hp + 10);
+    player.maxHp += 20;
+    player.hp = Math.min(player.maxHp, player.hp + 20);
+    send(sid, s, d);
+  } else if (upgrade === 'rerolls' && player?.alive && s && (s.phase === 'running' || s.phase === 'boss')) {
+    player.rerollsRemaining++;
     send(sid, s, d);
   }
   d.saveProfiles();
@@ -756,11 +778,10 @@ export function resetSurvivorUpgrades(sid: string, id: string, d: SurvivorDeps) 
   const s = states.get(sid);
   if (s && (s.phase === 'running' || s.phase === 'boss')) return;
   const profile = d.profile(id);
-  const refund = profile.upgrades.might * SURVIVOR_META_UPGRADES.might.cost
-    + profile.upgrades.vitality * SURVIVOR_META_UPGRADES.vitality.cost
-    + profile.upgrades.haste * SURVIVOR_META_UPGRADES.haste.cost;
+  const upgrades = Object.keys(SURVIVOR_META_UPGRADES) as SurvivorMetaUpgrade[];
+  const refund = upgrades.reduce((total, upgrade) => total + survivorUpgradeRefund(upgrade, profile.upgrades[upgrade]), 0);
   if (refund <= 0) return;
-  profile.upgrades = { might: 0, vitality: 0, haste: 0 };
+  profile.upgrades = Object.fromEntries(upgrades.map((upgrade) => [upgrade, 0])) as SurvivorProfile['upgrades'];
   profile.points += refund;
   d.saveProfiles();
   d.profileUpdated(id, profile);
