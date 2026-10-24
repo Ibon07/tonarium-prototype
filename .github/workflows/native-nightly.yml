@@ -1,4 +1,4 @@
-name: Native nightly
+name: Nightly clients
 
 on:
   push:
@@ -8,12 +8,14 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: native-nightly
-  cancel-in-progress: false
-
 jobs:
-  build:
+  native:
+    name: Native (${{ matrix.runtime }})
+    concurrency:
+      group: nightly-native-${{ matrix.runtime }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -65,6 +67,22 @@ jobs:
           buildName: Tonarium3D
           buildsPath: native/build/nightly-unity
           versioning: None
+      - name: Prepare Unity output for packaging
+        env:
+          UNITY_TARGET: ${{ matrix.target }}
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          # GameCI runs as root; restore the parent too so dotnet can create nightly/.
+          sudo chown -R "$(id -u):$(id -g)" native/build
+          # GameCI supplies an extensionless customBuildPath on Linux.
+          # Keep the executable name expected by the launcher and packager.
+          if [[ "$RUNTIME" == linux-x64 ]]; then
+            player="native/build/nightly-unity/$UNITY_TARGET/Tonarium3D"
+            if [[ ! -f "$player.x86_64" && -f "$player" ]]; then
+              mv "$player" "$player.x86_64"
+            fi
+            test -x "$player.x86_64"
+          fi
       - name: Publish .NET client
         env:
           RUNTIME: ${{ matrix.runtime }}
@@ -84,46 +102,57 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
+      - name: Publish this native nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 .github/scripts/publish-nightly.py native "${{ matrix.runtime }}" native/artifacts/nightly
 
-  release:
-    needs: build
+  electron:
+    name: Electron (${{ matrix.runtime }})
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
+    concurrency:
+      group: nightly-electron-${{ matrix.runtime }}
+      cancel-in-progress: false
     permissions:
       contents: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runtime: linux-x64
+            platform: linux
+            targets: tar.gz AppImage
+          - runtime: win-x64
+            platform: win
+            targets: zip
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          pattern: nightly-*
-          merge-multiple: true
-          path: dist
-      - name: Verify both platforms
-        run: |
-          test -s dist/Tonarium-nightly-linux-x64.tar.gz
-          test -s dist/Tonarium-nightly-win-x64.zip
-          cd dist
-          sha256sum --check ./*.sha256
-      - name: Update nightly prerelease
-        run: |
-          set -euo pipefail
-          current=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')
-          if [[ "$current" != "$GITHUB_SHA" ]]; then
-            echo 'A newer main commit exists; keeping the existing nightly release.'
-            exit 0
-          fi
-          printf 'Native Windows/Linux builds from main commit %s.\n\nRun: https://github.com/%s/actions/runs/%s\n\nLinux dependencies: see docs/native-linux.md.\n' \
-            "$GITHUB_SHA" "$GH_REPO" "$GITHUB_RUN_ID" > notes.txt
-          if gh api "repos/$GH_REPO/git/ref/tags/nightly" >/dev/null 2>&1; then
-            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/nightly" -f sha="$GITHUB_SHA" -F force=true
-          else
-            gh api --method POST "repos/$GH_REPO/git/refs" -f ref=refs/tags/nightly -f sha="$GITHUB_SHA"
-          fi
-          if gh release view nightly >/dev/null 2>&1; then
-            gh release upload nightly dist/* --clobber
-            gh release edit nightly --title 'Tonarium nightly' --notes-file notes.txt --prerelease --latest=false
-          else
-            gh release create nightly dist/* --verify-tag --title 'Tonarium nightly' --notes-file notes.txt --prerelease --latest=false
-          fi
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+      - run: npm ci --prefix electron
+      - run: npm run electron:test
+      - name: Build Electron
+        working-directory: electron
+        run: >-
+          npx --no-install electron-builder --${{ matrix.platform }} ${{ matrix.targets }} --x64
+          --config.artifactName='Tonarium-Electron-nightly-${os}-${arch}.${ext}'
+      - name: Collect Electron archives and checksums
+        run: node electron/scripts/collect.cjs "${{ matrix.platform }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nightly-electron-${{ matrix.runtime }}
+          path: electron/artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Publish this Electron nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 .github/scripts/publish-nightly.py electron "${{ matrix.runtime }}" electron/artifacts
