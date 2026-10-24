@@ -8,6 +8,7 @@ import { connectVoice, leaveVoice } from './net/livekit.ts';
 import { startSessionSync, stopSessionSync } from './net/session.ts';
 import { placesOf, resumeAudio } from './spatial.ts';
 import { touchOnly } from './phone.ts';
+import { stopWalk } from './walk.ts';
 
 export function joinSession(sid: string) {
   if (get().session === sid) { set({ hubOpen: false }); return; }
@@ -78,6 +79,7 @@ export function setLoadScale(loadScale: number) {
 }
 
 export function follow(target: string | null) {
+  stopWalk();
   send({ t: 'follow', target });
   set({ liveRequested: null });
 }

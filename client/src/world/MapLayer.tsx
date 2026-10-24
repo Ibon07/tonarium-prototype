@@ -9,7 +9,7 @@ import { NEAR_RANGE, VOICE_RANGE } from '../../../shared/places.ts';
 import { WORLDS, type WorldKind } from '../../../shared/worlds.ts';
 import { useStore, get, worldKindOf } from '../store.ts';
 import { placesOf } from '../spatial.ts';
-import { place2d } from '../items/actions.ts';
+import { walkTo } from '../walk.ts';
 import { usePhone, touchOnly } from '../phone.ts';
 import { Avatar3D, Entrance } from '../view3d/View3D.tsx';
 import { Item3D } from '../view3d/items3d.tsx';
@@ -37,12 +37,10 @@ function useMapBox() {
   return { ...size, x0: inset.l, y0: inset.t, x1: Math.max(inset.l + 120, size.w - inset.r), y1: Math.max(inset.t + 120, size.h - inset.b) };
 }
 
-/** 2D の人は向きを持たないので、動いた方を向かせる */
 function moveSelfTo(x: number, z: number) {
   const s = get();
   const from = placesOf(s).get(s.selfId);
-  const ry = from ? Math.atan2(-(x - from.x), -(z - from.z)) : 0;
-  place2d(s.selfId, { x, z, ry });
+  if (from) walkTo(x, z, from);
 }
 
 /** ボタンなどにフォーカスがあるときのスペースはその操作に任せ、何も選んでいない（マップを押した後など）ときだけ拾う */
@@ -81,7 +79,12 @@ function Map2D({ kind }: { kind: WorldKind }) {
   useStore((s) => s.participants);
   const items = useStore((s) => s.items);
   const selfId = useStore((s) => s.selfId);
+  const walk = useStore((s) => s.walk);
   const places = placesOf(get());
+  // ほかの人は位置がとびとびに届くので目印をなめらかに動かす。ただし拡大・平行移動した直後は追従が遅れないよう瞬時に
+  const prevView = useRef(v);
+  const smooth = prevView.current === v || (prevView.current.k === v.k && prevView.current.tx === v.tx && prevView.current.ty === v.ty);
+  prevView.current = v;
   const me = places.get(selfId);
   const toScreen = (x: number, z: number) => ({ left: v.tx + x * v.k, top: v.ty + z * v.k });
 
@@ -121,6 +124,8 @@ function Map2D({ kind }: { kind: WorldKind }) {
           {WORLDS[kind].solids.map((s, i) => ('r' in s
             ? <circle key={i} className="msolid" cx={s.x} cy={s.z} r={s.r} />
             : <rect key={i} className="msolid" x={s.x - s.w / 2} y={s.z - s.d / 2} width={s.w} height={s.d} rx={0.08} />))}
+          {me && walk?.to && <line className="mroute" x1={me.x} y1={me.z} x2={walk.to.x} y2={walk.to.z} />}
+          {walk?.to && <g className="mgoal"><circle cx={walk.to.x} cy={walk.to.z} r={0.45} /><circle cx={walk.to.x} cy={walk.to.z} r={0.12} /></g>}
           {me && <circle className="mvoice" cx={me.x} cy={me.z} r={VOICE_RANGE} />}
           {me && <circle className="mnear" cx={me.x} cy={me.z} r={NEAR_RANGE} />}
         </g>
@@ -134,7 +139,7 @@ function Map2D({ kind }: { kind: WorldKind }) {
         const p = places.get(u.id);
         if (!p) return null;
         return (
-          <span key={u.id} className={`mperson ${u.id === selfId ? 'self' : ''} ${p.small ? 'small' : ''}`} style={toScreen(p.x, p.z)}>
+          <span key={u.id} className={`mperson ${u.id === selfId ? 'self' : smooth ? 'smooth' : ''} ${p.small ? 'small' : ''}`} style={toScreen(p.x, p.z)}>
             <Face id={u.id} name={u.name} size={p.small ? 22 : 30} />
             <span className="mname">{u.id === selfId ? 'あなた' : u.name}</span>
           </span>
@@ -156,6 +161,18 @@ function VoiceRing() {
     <group ref={ref} rotation-x={-Math.PI / 2}>
       <mesh><ringGeometry args={[VOICE_RANGE - 0.08, VOICE_RANGE, 96]} /><meshBasicMaterial color="#2F5FC4" transparent opacity={0.7} /></mesh>
       <mesh><ringGeometry args={[NEAR_RANGE - 0.05, NEAR_RANGE, 48]} /><meshBasicMaterial color="#23A55A" transparent opacity={0.8} /></mesh>
+    </group>
+  );
+}
+
+/** 3D マップでの目的地の目印 */
+function Goal3D() {
+  const to = useStore((s) => s.walk?.to);
+  if (!to) return null;
+  return (
+    <group position={[to.x, 0.04, to.z]}>
+      <mesh rotation-x={-Math.PI / 2}><ringGeometry args={[0.32, 0.45, 32]} /><meshBasicMaterial color="#E2533F" /></mesh>
+      <mesh position-y={0.6}><coneGeometry args={[0.16, 0.45, 16]} /><meshBasicMaterial color="#E2533F" /></mesh>
     </group>
   );
 }
@@ -254,6 +271,7 @@ function Map3D({ kind }: { kind: WorldKind }) {
         {avatarIds.map((id) => <Avatar3D key={id} id={id} />)}
         {Object.values(items).map((it) => <Item3D key={it.id} item={it} />)}
         <VoiceRing />
+        <Goal3D />
         <PinProjector els={pins} />
         <mesh rotation-x={-Math.PI / 2} position={[cx, 0.02, cz]} onClick={onClick}>
           <planeGeometry args={[span * 4, span * 4]} />

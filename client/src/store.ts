@@ -7,6 +7,7 @@ import type { DieSides } from '../../shared/dice.ts';
 import { newGame, type GameState } from '../../shared/game.ts';
 import type { PositionRoute } from '../../shared/session-position.ts';
 import { deriveSession } from './sessionView.ts';
+import type { Walk } from './walk.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
 export type WinMode = 'simple' | 'free';
@@ -89,6 +90,8 @@ interface State {
   lightweight: boolean;
   /** 2D の背景に出すマップ（手元に保存）。マップを入れるべきか試すための設定 */
   mapMode: 'none' | '2d' | '3d';
+  /** マップで選んだ目的地へ 2D の自分が歩いている途中 */
+  walk: Walk | null;
   /** 動画・YouTube ごとの自分だけの音量（0〜1）。無ければ既定の半分 */
   volumes: Record<string, number>;
   /** セッション中にホームを重ねて開いている */
@@ -223,6 +226,7 @@ export const useStore = create<State>(() => ({
   loadScale: load('tonarium.loadScale', 1),
   lightweight: load('tonarium.lightweight', false),
   mapMode: load('tonarium.mapMode', 'none'),
+  walk: null,
   volumes: {},
   hubOpen: false,
   phoneTab: 'screen',
