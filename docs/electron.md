@@ -72,3 +72,7 @@ Electronの「Tonarium Electron → マイク・スピーカー…」から、�
 現在のTonarium Webでは既存LiveKit接続のデバイス切替を利用し、通話中のマイク変更を反映します。接続APIを持たないページでは次回の録音・通話開始から反映します。録音メッセージも次回録音から変更します。出力設定はWeb Audioとトップページ内の音声・動画要素に適用します。YouTube等の別オリジンiframeは対象外で、OS側で出力先を選択します。
 
 音声設定の単体検証は `npm run electron:test`。`electron/verification/audio-settings.cjs` はローカル設定画面の選択・保存・ページ再読込後の復元を検証します。`audio-virtual-devices.cjs` は専用PulseAudio仮想機器2組で、選択した入力ID・取得元・出力sink IDの一致を確認します。後者は仮想入力をexact指定し、音声を保存・送信・可聴再生しません。PlaywrightのElectron起動は `--no-sandbox` が付くため、OSのsandbox確認は別途 `launch.cjs` で行います。
+
+## Nightly配布
+
+main更新時はNative版と独立したLinux／Windowsジョブでビルドし、成功したOSから `nightly` Releaseへ公開します。Nativeの失敗・実行待ちには影響されません。各成果物のソースコミットは対応する `.build.json` を確認してください。[公開構成](native-release.md#native--electron-nightly)。

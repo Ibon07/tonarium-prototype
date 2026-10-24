@@ -2,7 +2,7 @@
 
 Windowsクライアントは手元でUnityと.NETをビルドし、完成したZIPをGit LFSへコミットする。タグのpushでGitHub Actionsがコミット済みのZIPを検証してReleaseへ添付する。CIでUnityをビルドしないため、Unityのアカウント情報やライセンスをGitHubへ登録する必要はない。
 
-`main`へのpushとPull Requestでは `.github/workflows/native-checks.yml` が型チェック、Webビルド、WindowsネイティブUIの通常操作チェック、自己完結型の.NETビルドを実行する。マイク、音声サーバー、Unityライセンスは使用しない。
+`main`へのpushとPull Requestでは、`native/**`・`packaging/**`・Nativeが直接取り込む `client/public/brand/**` と `client/public/oekaki/sample.png`・チェック用ワークフロー自身の変更がある場合に `.github/workflows/native-checks.yml` が型チェック、Webビルド、WindowsネイティブUIの通常操作チェック、自己完結型の.NETビルドを実行する。マイク、音声サーバー、Unityライセンスは使用しない。Electronや通常のWeb画面だけの変更では実行しない。nightly公開処理のテストは、関連するワークフロー・スクリプトの変更時に `nightly-checks.yml` で独立して実行する。どちらも手動実行できる。
 
 ## 1. 手元でビルドする
 
@@ -51,18 +51,27 @@ git push origin v0.0.1
 
 手動再実行は対象のタグを選ぶ。同じタグを再実行した場合は添付を同じコミットの内容で更新する。変更したビルドを配布する場合は新しいバージョンを使用する。Git LFSとGitHub Releasesには各サービスの保存容量・帯域制限が適用される。
 
-## Windows / Linux nightly
+## Native / Electron nightly
 
-`.github/workflows/native-nightly.yml` は `main` へのpush（PRマージを含む）と、mainを選んだ手動実行で起動する。毎晩の時刻指定ではなく、main更新ごとの継続ビルド。Ubuntu runner上でUnityのWindows/Linux Monoプレイヤーと.NET 10の自己完結クライアントをビルドする。Unityのバージョンは `ProjectVersion.txt` を使用する。
+`.github/workflows/native-nightly.yml`（Actionsの表示名は `Nightly clients`）は `main` へのpushと、mainを選んだ手動実行で起動する。毎晩の時刻指定ではなくmain更新ごとの継続ビルド。
 
-実行するリポジトリのActions Secretsに `UNITY_EMAIL`・`UNITY_PASSWORD` と `UNITY_LICENSE`（Personal）または `UNITY_SERIAL`（Pro）を設定する。[GameCIの認証手順](https://game.ci/docs/github/activation/)を参照。未設定の場合はビルドを失敗として明示する。forkと上流ではSecretsをそれぞれ設定する必要がある。
+Native Linux、Native Windows、Electron Linux、Electron Windowsの4ジョブを並列で実行し、各ジョブが成功した成果物をそのまま `nightly` prereleaseへ公開する。他のクライアント・OSの終了は待たず、失敗によるキャンセルもしない。後続のmain更新でもElectronはNativeの完了を待たない。同じクライアント・OSの実行だけを直列化し、同名ファイルへの同時書き込みを避ける。
 
-両OSのビルドとチェックサム検証に成功した場合にのみ、`nightly` タグをそのコミットへ移動し、同名のprereleaseへ以下を配置・上書きする。安定版のLatestにはしない。実行中にmainが先へ進んだ場合、古い実行はReleaseを更新しない。
+NativeはUbuntu runner上でUnityのWindows/Linux Monoプレイヤーと.NET 10の自己完結クライアントをビルドする。Unityの版は `ProjectVersion.txt` を使用する。Actions Secretsに `UNITY_EMAIL`・`UNITY_PASSWORD` と `UNITY_LICENSE`（Personal）または `UNITY_SERIAL`（Pro）が必要。[GameCIの認証手順](https://game.ci/docs/github/activation/)を参照。認証未設定やUnityビルド失敗でもElectronのビルド・公開は継続する。
 
-- `Tonarium-nightly-win-x64.zip`
-- `Tonarium-nightly-linux-x64.tar.gz`
+Electronは別のUbuntu runnerで `electron/package-lock.json` から依存を導入し、Linux AppImage／tar.gzとWindows zipを作る。Unityや.NET、Web本体のビルドは不要。リモートWebの更新は再読み込みで反映する。
+
+公開先は全ジョブで同じ `nightly` prerelease。以下の固定名で、自分の成果物だけを置換する。
+
+- Native: `Tonarium-nightly-linux-x64.tar.gz`、`Tonarium-nightly-win-x64.zip`
+- Electron: `Tonarium-Electron-nightly-linux-x64.tar.gz`、`Tonarium-Electron-nightly-linux-x86_64.AppImage`、`Tonarium-Electron-nightly-win-x64.zip`
 - 各ファイルの `.sha256`
+- 各クライアント・OSの `Tonarium-Native-nightly-<runtime>.build.json` または `Tonarium-Electron-nightly-<runtime>.build.json`
 
-展開先は `win-x64/`・`linux-x64/`。いずれも `Unity/` とビルドコミットを記録した `release.json` を含む。Linux版は通常配布と同じシステム依存が必要で、AppImage/Flatpakではない。既存のバージョンタグ向けWindows Release workflowはそのまま維持する。
+`.build.json` は対応アーカイブの公開が全て成功してから更新し、ソースコミット、Actions実行URL、チェックサムを記録する。失敗・未完了の側は前回成功した成果物と記録を残すため、Release内の全ファイルが同じコミットとは限らない。ダウンロードする種類の `.build.json` を確認する。アップロード中はアーカイブとチェックサムの置換が完了するまで待つ。
 
-ローカルでも `python3 native/package-nightly.py linux-x64 <dotnet publish先> native/build/unity-linux <出力先>`（Windowsは `win-x64` と `native/build/unity`）で同じ梱包処理を実行できる。中間ファイルは `native/build/`、配布アーカイブは `native/artifacts/` に分ける。
+公開前にmainが先へ進んでいた場合は古いビルドの公開を省略する。mainを頻繁に更新している間は、時間のかかるNativeの更新が後回しになる場合がある。`nightly` タグは巻き戻さず、安定版のLatestにはしない。初回Release作成が競合しても、他ジョブが作成済みなら自分のアップロードを続ける。
+
+Nativeの展開先は `win-x64/`・`linux-x64/`。`Unity/` とビルドコミットを記録した `release.json` を含む。Linux Native版は通常配布と同じシステム依存が必要で、AppImage/Flatpakではない。既存のバージョンタグ向けWindows Release workflowは維持する。
+
+ローカルでも `python3 native/package-nightly.py linux-x64 <dotnet publish先> native/build/unity-linux <出力先>`（Windowsは `win-x64` と `native/build/unity`）で同じ梱包を行える。公開処理の回帰テストは `python3 .github/scripts/test_publish_nightly.py`。このテストはGitHub APIをモックし、実際のReleaseを書き換えない。

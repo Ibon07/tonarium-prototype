@@ -3,7 +3,19 @@ name: Native checks
 on:
   push:
     branches: [main]
+    paths:
+      - 'native/**'
+      - 'packaging/**'
+      - 'client/public/brand/**'
+      - 'client/public/oekaki/sample.png'
+      - '.github/workflows/native-checks.yml'
   pull_request:
+    paths:
+      - 'native/**'
+      - 'packaging/**'
+      - 'client/public/brand/**'
+      - 'client/public/oekaki/sample.png'
+      - '.github/workflows/native-checks.yml'
   workflow_dispatch:
 
 permissions:
