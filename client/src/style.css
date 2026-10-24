@@ -193,6 +193,7 @@ img.av { object-fit: cover; display: block; }
 .mfloor { fill: #F7F3EC; stroke: #CFC6B6; stroke-width: .08; }
 .msolid { fill: #D9CFBF; stroke: #BDB2A0; stroke-width: .04; }
 .mspawn { fill: rgba(47, 95, 196, .08); stroke: rgba(47, 95, 196, .5); stroke-width: .06; stroke-dasharray: .25 .2; }
+.mheat { pointer-events: none; }
 .mvoice { fill: rgba(47, 95, 196, .05); stroke: rgba(47, 95, 196, .45); stroke-width: .06; }
 .mnear { fill: rgba(35, 165, 90, .08); stroke: rgba(35, 165, 90, .6); stroke-width: .05; }
 .mtrack { fill: none; stroke: #8a9099; stroke-width: 1.6; stroke-linejoin: round; }

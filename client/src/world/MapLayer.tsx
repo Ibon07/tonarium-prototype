@@ -10,6 +10,7 @@ import { WORLDS, type WorldKind } from '../../../shared/worlds.ts';
 import { useStore, get, worldKindOf, serverNow } from '../store.ts';
 import { CAR, LOOP, STATION_PARTS, carPose, trackAt } from '../../../shared/city.ts';
 import { placesOf } from '../spatial.ts';
+import { HEAT_CELL_M, addHeat, cellCenter, decayHeat, heatCells, type HeatCell } from '../voiceHeat.ts';
 import { walkTo } from '../walk.ts';
 import { usePhone, touchOnly } from '../phone.ts';
 import { Avatar3D, Entrance } from '../view3d/View3D.tsx';
@@ -61,6 +62,43 @@ function useSpaceReset(reset: () => void) {
   }, []);
 }
 
+// 熱はマップの部品ではなくセッション側の状態として 1 つだけ持ち、2D／3D を切り替えても同じ湯気が見えるようにする
+const heatMap = new Map<string, number>();
+let heatLastAt = 0;
+let heatScope = '';
+
+function sampleHeat(): HeatCell[] {
+  const s = get();
+  const scope = `${s.session ?? ''}:${worldKindOf(s)}`;
+  if (scope !== heatScope) { heatScope = scope; heatMap.clear(); heatLastAt = 0; }
+  const now = performance.now();
+  const dt = heatLastAt ? Math.min((now - heatLastAt) / 1000, 1) : 0;
+  heatLastAt = now;
+  if (dt > 0) {
+    decayHeat(heatMap, dt);
+    const places = placesOf(s);
+    for (const [id, on] of Object.entries(s.speaking)) {
+      if (!on) continue;
+      const p = places.get(id);
+      if (p) addHeat(heatMap, p.x, p.z, dt);
+    }
+  }
+  return heatCells(heatMap);
+}
+
+/** 冷めていく様子が見えるよう、表示中だけ定期的にサンプルし直す */
+function useHeatCells(): HeatCell[] {
+  const [cells, setCells] = useState<HeatCell[]>([]);
+  const enabled = useStore((s) => s.voiceHeat);
+  useEffect(() => {
+    if (!enabled) { heatMap.clear(); setCells([]); return; }
+    setCells(sampleHeat());
+    const t = setInterval(() => setCells(sampleHeat()), 500);
+    return () => clearInterval(t);
+  }, [enabled]);
+  return cells;
+}
+
 interface View2D { k: number; tx: number; ty: number }
 
 function Map2D({ kind }: { kind: WorldKind }) {
@@ -78,6 +116,7 @@ function Map2D({ kind }: { kind: WorldKind }) {
 
   useStore((s) => s.avatars);
   useStore((s) => s.participants);
+  const heat = useHeatCells();
   const items = useStore((s) => s.items);
   const selfId = useStore((s) => s.selfId);
   const walk = useStore((s) => s.walk);
@@ -118,8 +157,19 @@ function Map2D({ kind }: { kind: WorldKind }) {
   return (
     <div className="map2d" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={() => { down.current = null; }} onWheel={onWheel} onAuxClick={(e) => e.preventDefault()}>
       <svg width={box.w} height={box.h} aria-hidden="true">
+        <defs>
+          <radialGradient id="voiceheat">
+            <stop offset="0%" stopColor="#ff9a3c" stopOpacity="0.85" />
+            <stop offset="60%" stopColor="#ff7a2f" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="#ff7a2f" stopOpacity="0" />
+          </radialGradient>
+        </defs>
         <g transform={`translate(${v.tx} ${v.ty}) scale(${v.k})`}>
           <rect className="mfloor" x={b.minX} y={b.minZ} width={b.maxX - b.minX} height={b.maxZ - b.minZ} rx={0.4} />
+          {heat.map((c) => {
+            const ctr = cellCenter(c.cx, c.cz);
+            return <circle key={`${c.cx},${c.cz}`} className="mheat" cx={ctr.x} cy={ctr.z} r={HEAT_CELL_M * 0.95} fill="url(#voiceheat)" opacity={0.25 + c.heat * 0.55} />;
+          })}
           {WORLDS[kind].extent && <rect className="mfloor" x={-ROOM_HALF} y={-ROOM_HALF} width={ROOM_HALF * 2} height={ROOM_HALF * 2} rx={0.4} />}
           <circle className="mspawn" cx={SPAWN.x} cy={SPAWN.z} r={SPAWN.r} />
           {/* 地上の物だけ（マンションの上の階の壁や駅の柵は描かない） */}
@@ -199,6 +249,24 @@ function VoiceRing() {
       <mesh><ringGeometry args={[VOICE_RANGE - 0.08, VOICE_RANGE, 96]} /><meshBasicMaterial color="#2F5FC4" transparent opacity={0.7} /></mesh>
       <mesh><ringGeometry args={[NEAR_RANGE - 0.05, NEAR_RANGE, 48]} /><meshBasicMaterial color="#23A55A" transparent opacity={0.8} /></mesh>
     </group>
+  );
+}
+
+/** 3D マップでの声の湯気。真上から見るマップでは、床の温かい光として出す */
+function HeatDiscs() {
+  const cells = useHeatCells();
+  return (
+    <>
+      {cells.map((c) => {
+        const ctr = cellCenter(c.cx, c.cz);
+        return (
+          <mesh key={`${c.cx},${c.cz}`} rotation-x={-Math.PI / 2} position={[ctr.x, 0.04, ctr.z]}>
+            <circleGeometry args={[HEAT_CELL_M * 0.95, 32]} />
+            <meshBasicMaterial color="#ff8a3c" transparent opacity={0.08 + c.heat * 0.22} depthWrite={false} />
+          </mesh>
+        );
+      })}
+    </>
   );
 }
 
@@ -310,6 +378,7 @@ function Map3D({ kind }: { kind: WorldKind }) {
         {avatarIds.map((id) => <Avatar3D key={id} id={id} />)}
         {Object.values(items).map((it) => <Item3D key={it.id} item={it} />)}
         <VoiceRing />
+        <HeatDiscs />
         <Goal3D />
         <PinProjector els={pins} />
         <mesh rotation-x={-Math.PI / 2} position={[cx, 0.02, cz]} onClick={onClick}>

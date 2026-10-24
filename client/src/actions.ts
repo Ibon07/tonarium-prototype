@@ -68,6 +68,11 @@ export function setMapMode(mapMode: 'none' | '2d' | '3d') {
   save('tonarium.mapMode', mapMode);
 }
 
+export function setVoiceHeat(voiceHeat: boolean) {
+  set({ voiceHeat });
+  save('tonarium.voiceHeat', voiceHeat);
+}
+
 export function setLightweight(lightweight: boolean) {
   set({ lightweight });
   save('tonarium.lightweight', lightweight);
