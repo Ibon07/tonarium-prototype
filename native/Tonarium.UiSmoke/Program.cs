@@ -42,7 +42,8 @@ internal static class Program
         {
             try
             {
-                if (args.Contains("--survivor-audio")) SurvivorAudioProbe.Run(Pass);
+                if (args.Contains("--emotes")) await EmoteProbe.Run(Pass);
+                else if (args.Contains("--survivor-audio")) SurvivorAudioProbe.Run(Pass);
                 else if (args.Contains("--survivor-layout")) await SurvivorLayoutProbe.Run(output, Pass);
                 else if (args.Contains("--survivors")) await SurvivorProbe.Run(server, output, Pass, args.Contains("--survivors-3d"));
                 else if (args.Contains("--linux-3d-ime")) await LinuxThreeDImeProbe.Run(output, Pass);

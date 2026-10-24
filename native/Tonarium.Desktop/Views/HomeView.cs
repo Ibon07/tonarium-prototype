@@ -60,7 +60,7 @@ public sealed class HomeView : UserControl
     static readonly (string Id, string Label, string Icon)[] Navigation =
     [ ("home", "ホーム", "home"), ("friends", "フレンド", "people"), ("sessions", "セッション", "headset"), ("events", "イベント", "calendar"), ("groups", "グループ", "flag"), ("worlds", "ワールド", "globe"), ("items", "アイテム", "box") ];
     static readonly (string Id, string Name, string Desc, string Color)[] Worlds =
-    [ ("room", "ホール", "何も置いていない広い部屋", "#DCE6F3"), ("cafe", "カフェ", "カウンターとテーブル席のある落ち着いたカフェ", "#F3E6C6"), ("game", "ゲーム", "板わたりサバイバル。ガラスの向こうの 5 層の塔で、最後まで落ちずに残った人が勝ち", "#E7DDF2") ];
+    [ ("garden", "ガーデン", "木陰のベンチと花壇を散歩できる、空の見える庭", "#DDEBD0"), ("survivors", "宵闇サバイバーズ", "夜明けまで生き残る協力サバイバル", "#E7DDF2"), ("room", "ホール", "何も置いていない広い部屋", "#DCE6F3"), ("cafe", "カフェ", "カウンターとテーブル席のある落ち着いたカフェ", "#F3E6C6"), ("game", "ゲーム", "板わたりサバイバル。ガラスの向こうの 5 層の塔で、最後まで落ちずに残った人が勝ち", "#E7DDF2") ];
     static readonly (string Id, string Name, string Mark, string Desc, string Color)[] Items =
     [ ("note", "付箋", "付", "文字を書いて置いておける付箋。2D ではウィンドウで、3D では空間の板として読み書きできる。", "#FBF1C4"), ("hammer", "ピコピコハンマー", "槌", "手に持って誰かを叩ける。叩くと相手の前に移動する。", "#FBE3D2"), ("chess", "チェス", "♟", "3D では立体のチェス盤、2D ではパネルの UI で遊べる。", "#E3E7F6"), ("chessAi", "チェスAI", "♟AI", "白はあなた、黒はAI。みんなで白の駒を動かしてAIと対戦できる。", "#DFEEE8"), ("g2048", "2048", "2048", "みんなで操作するパズル。3D では互換表示のパネルになる。", "#F4EBCF"), ("canvas", "キャンバス", "画", "みんなで絵を描ける。ペンと消しゴム付き。", "#F6E4EC"), ("camera", "カメラ", "写", "3D 空間で写真を撮ったりライブ配信したりできる。ライブは 2D からも見られる。", "#E5F0E9"), ("dice", "サイコロ", "賽", "TRPG 用のサイコロ（d4〜d100、最大10個）。3D では木の器の中を転がり、結果はチャットに残る。シークレットで振ると結果は自分だけに見える。", "#F3E6D3") ];
 

@@ -15,7 +15,7 @@ internal sealed class SurvivorAudio : IDisposable
     private static readonly Dictionary<string, float[]> cache = new();
     internal static readonly JsonObject Recipes = JsonNode.Parse(typeof(SurvivorAudio).Assembly.GetManifestResourceStream("Tonarium.SurvivorAudio.json")!)!.AsObject();
 
-    internal static IEnumerable<(string Kind, string Gear)> Transitions(JsonObject previous, JsonObject next)
+    internal static IEnumerable<(string Kind, string Gear)> Transitions(JsonObject previous, JsonObject next, string selfId = "")
     {
         string Text(JsonNode? n, string k) => n?[k]?.ToString() ?? "";
         if (previous.Count == 0 || Text(previous, "run") != Text(next, "run"))
@@ -28,7 +28,11 @@ internal sealed class SurvivorAudio : IDisposable
         if (fresh is not null) yield return ("attack", Text(fresh,"gear"));
         var before = previous["players"] as JsonObject ?? new();
         var players = next["players"] as JsonObject ?? new();
-        if (players.Any(p => before[p.Key] is JsonObject old && (p.Value?["level"]?.GetValue<int>() ?? 0) > (old["level"]?.GetValue<int>() ?? 0))) yield return ("level", "");
+        var previousSelf = before[selfId]; var nextSelf = players[selfId];
+        var ownChoiceStarted = ChoiceStarted(previous, next, selfId);
+        if (ownChoiceStarted) yield return ("choice", "");
+        if (previousSelf != null && nextSelf != null && Core.J.Number(nextSelf, "hp") < Core.J.Number(previousSelf, "hp")) yield return ("hit", "");
+        if (!ownChoiceStarted && players.Any(p => before[p.Key] is JsonObject old && (p.Value?["level"]?.GetValue<int>() ?? 0) > (old["level"]?.GetValue<int>() ?? 0))) yield return ("level", "");
         else if (players.Any(p => before[p.Key] is JsonObject old && (p.Value?["gear"] as JsonObject ?? new()).Any(g => (g.Value?.GetValue<int>() ?? 0) != (old["gear"]?[g.Key]?.GetValue<int>() ?? 0)))) yield return ("equip", "");
         if (Text(previous,"phase") != "boss" && Text(next,"phase") == "boss") yield return ("boss", "");
         if (Text(previous,"phase") != "ended" && Text(next,"phase") == "ended") yield return (next["bossDefeated"]?.GetValue<bool>() == true ? "victory" : "end", "");
@@ -36,10 +40,17 @@ internal sealed class SurvivorAudio : IDisposable
         else if (previous["pausedAt"] is not null && next["pausedAt"] is null && Text(next,"phase") is "running" or "boss") yield return ("resume", "");
     }
 
-    public void Apply(JsonObject previous, JsonObject next, double volume)
+    private static bool ChoiceStarted(JsonObject previous, JsonObject next, string selfId) =>
+        next["players"]?[selfId]?["alive"]?.GetValue<bool>() == true && (next["players"]?[selfId]?["choiceQueue"] as JsonArray)?.Count > 0 && !((previous["players"]?[selfId]?["choiceQueue"] as JsonArray)?.Count > 0);
+    public void ApplySnapshot(JsonObject previous, JsonObject next, double volume, string selfId)
+    {
+        if (ChoiceStarted(previous, next, selfId)) Play([("choice", "")], volume);
+    }
+    public void Apply(JsonObject previous, JsonObject next, double volume, string selfId = "") => Play(Transitions(previous, next, selfId), volume);
+    private void Play(IEnumerable<(string Kind, string Gear)> transitions, double volume)
     {
         if (volume <= .001) return;
-        foreach (var (kind, gear) in Transitions(previous, next))
+        foreach (var (kind, gear) in transitions)
         {
             if (kind == "attack")
             {

@@ -11,7 +11,7 @@ namespace Tonarium.UnityClient
         // client/src/view3d/survivors3d.tsx と同じ形状、座標、時間、色を使う。
         sealed class SurvivorVisualActor
         {
-            public GameObject root, body, head, levelRing, hitRing, halo, groundRing;
+            public GameObject root, body, head, levelRing, hitRing, halo, groundRing, dashTrail, chargeLine, chargeMark;
             public TextMesh label;
             public JObject value;
             public bool enemy;
@@ -23,7 +23,7 @@ namespace Tonarium.UnityClient
             public GameObject root, ring, projectile, beam, glow, impact;
             public string id;
             public GameObject[] sparks;
-            public Vector3 from, to;
+            public Vector3 from, to, areaCenter;
             public long at;
             public float reach;
         }
@@ -36,8 +36,15 @@ namespace Tonarium.UnityClient
         static readonly Dictionary<string, string> survivorAttackColors = new Dictionary<string, string>
         {
             ["moonblade"]="#ff65aa", ["eclipse"]="#ffe675", ["bloodaura"]="#ff315e", ["crimsonsun"]="#ff9d35",
-            ["starbolt"]="#5fe5ff", ["starfall"]="#ffe16e", ["shade"]="#bc8aff", ["umbralstorm"]="#a457ff"
+            ["starbolt"]="#5fe5ff", ["starfall"]="#ffe16e", ["shade"]="#bc8aff", ["umbralstorm"]="#a457ff", ["frostlance"]="#8beaff", ["stormring"]="#7cbdff", ["embermine"]="#ff7c3b", ["thornshot"]="#93e86b", ["voidpulse"]="#d783ff", ["lunarconvergence"]="#fff29a", ["crimsonvoid"]="#ff174f", ["stormfrost"]="#70f4ff"
         };
+        static bool SurvivorAreaWeapon(string gear) => new[] { "moonblade", "eclipse", "bloodaura", "crimsonsun", "starfall", "embermine", "voidpulse", "crimsonvoid" }.Contains(gear);
+        static string SurvivorEnemyColor(string kind) => kind == "boss" ? "#a41142" : kind == "charger" ? "#e87927" : kind == "wisp" ? "#33c7c5" : kind == "knight" ? "#7b547a" : kind == "bat" ? "#513b77" : kind == "slinger" ? "#d39a37" : kind == "splitter" ? "#d95748" : kind == "shifter" ? "#9749bd" : kind == "pack" ? "#719d32" : kind == "bulwark" ? "#687b93" : "#7c3154";
+        GameObject SurvivorBox(Transform parent, string name, string color, Vector3 size)
+        {
+            var obj = GameObject.CreatePrimitive(PrimitiveType.Cube); obj.name = name; obj.transform.SetParent(parent, false); obj.transform.localScale = size;
+            Destroy(obj.GetComponent<Collider>()); obj.GetComponent<Renderer>().sharedMaterial = Unlit(color, .9f); return obj;
+        }
         Transform SurvivorRoot()
         {
             if (survivorRoot == null) survivorRoot = new GameObject("Survivors");
@@ -97,10 +104,22 @@ namespace Tonarium.UnityClient
             if(enemy)
             {
                 string kind=(string)value["kind"]; bool boss=kind=="boss";
-                string color=boss?"#a41142":kind=="knight"?"#7b547a":kind=="bat"?"#513b77":"#7c3154";
-                float size=boss?.72f:kind=="knight"?.42f:.3f;
-                actor.body=SurvivorPoly(p,"Body",Vector3.zero,size,boss?"dodeca1":"ico0",color);
+                string color=SurvivorEnemyColor(kind);
+                float size=boss?.72f:kind=="knight"||kind=="bulwark"?.42f:kind=="splitter"?.4f:kind=="charger"?.38f:kind=="wisp"||kind=="shifter"?.32f:.3f;
+                actor.body=SurvivorPoly(p,"Body",Vector3.zero,size,boss||kind=="splitter"?"dodeca1":kind=="charger"?"cone6":kind=="pack"?"cone3":kind=="wisp"||kind=="shifter"?"octa1":kind=="slinger"||kind=="bulwark"?"enemyBox":"ico0",color);
                 SurvivorGlow(actor.body,color,boss?.65f:.12f);
+                if (boss || kind == "charger" || kind == "shifter") { actor.dashTrail = SurvivorBox(p, "Dash trail", boss ? "#fff0d8" : kind == "shifter" ? "#f2b7ff" : "#ffe6a0", new Vector3(1, .07f, .18f)); SurvivorEffectMaterial(actor.dashTrail, true); actor.dashTrail.SetActive(false); }
+                if (kind == "charger")
+                {
+                    actor.chargeLine = SurvivorBox(SurvivorRoot(), "Charge telegraph", "#ff9b38", new Vector3(1, .035f, .16f)); actor.chargeLine.AddComponent<SurvivorVisualResources>();
+                    actor.chargeMark = SurvivorRing(SurvivorRoot(), "Charge target", .45f, .55f, "#fff0b8", .75f, 6); actor.chargeMark.AddComponent<SurvivorVisualResources>();
+                }
+                if (kind == "charger" || kind == "wisp" || kind == "shifter" || kind == "bulwark")
+                {
+                    var ring = SurvivorRing(p, "Enemy ground ring", kind=="charger"?.43f:kind=="wisp"?.36f:kind=="shifter"?.39f:.52f, kind=="charger"?.5f:kind=="wisp"?.4f:kind=="shifter"?.44f:.58f, kind=="charger"?"#ff9b38":kind=="wisp"?"#8dfff4":kind=="shifter"?"#f2b7ff":"#c4d4e9", kind=="charger"?.78f:kind=="wisp"?.7f:kind=="shifter"?.72f:.62f, kind=="charger"||kind=="bulwark"?6:kind=="wisp"?32:24);
+                    ring.transform.localPosition = Vector3.up * (kind=="charger"?.035f:kind=="bulwark"?.045f:.04f);
+                    if (kind=="wisp") { var halo=SurvivorPoly(p,"Wisp halo",Vector3.up*.72f,1,"wispHalo","#81fff2",true); halo.transform.localRotation=Quaternion.Euler(90,0,0); SurvivorOpacity(halo,.78f); }
+                }
                 if(boss)
                 {
                     // Webのicosahedron wireframeと同じ辺を描く。
@@ -145,13 +164,15 @@ namespace Tonarium.UnityClient
         }
         void CreateSurvivorAttack(JObject effect)
         {
-            string gear=(string)effect["gear"]??""; bool area=gear=="moonblade"||gear=="eclipse"||gear=="bloodaura"||gear=="crimsonsun";
+            string gear=(string)effect["gear"]??""; bool area=SurvivorAreaWeapon(gear);
             string color=survivorAttackColors.TryGetValue(gear,out var c)?c:"#fff3a6";int index=0;
+            JObject previous = null;
             foreach(var target in (effect["targets"] as JArray??new JArray()).OfType<JObject>())
             {
                 var root=SurvivorGroup(SurvivorRoot(),"Attack "+gear,Vector3.zero);survivorEffects.Add(root); root.AddComponent<SurvivorVisualResources>();
-                var from=effect["from"] as JObject;
-                var a=new SurvivorVisualAttack {root=root,id=(string)effect["id"],at=(long?)effect["at"]??Now,reach=Float(effect,"reach"),from=new Vector3(Float(from,"x"),.42f,-Float(from,"z")),to=new Vector3(Float(target,"x"),.42f,-Float(target,"z"))};
+                var from=(bool?)effect["chain"] == true && previous != null ? previous : effect["from"] as JObject;
+                var center=effect["areaCenter"] as JObject ?? effect["from"] as JObject;
+                var a=new SurvivorVisualAttack {root=root,id=(string)effect["id"],at=(long?)effect["at"]??Now,reach=Float(effect,"reach"),areaCenter=new Vector3(Float(center,"x"),.055f,-Float(center,"z")),from=new Vector3(Float(from,"x"),.42f,-Float(from,"z")),to=new Vector3(Float(target,"x"),.42f,-Float(target,"z"))};
                 if(area&&index==0)a.ring=SurvivorRing(root.transform,"Area ring",.82f,1,color,.9f);
                 if(!area)
                 {
@@ -163,7 +184,7 @@ namespace Tonarium.UnityClient
                 a.sparks=Enumerable.Range(0,6).Select(i=>SurvivorPoly(root.transform,"Spark "+i,Vector3.zero,1,"octa0",i%2==1?color:"#fff6d9",true)).ToArray();
                 foreach(var renderer in root.GetComponentsInChildren<Renderer>())
                     SurvivorEffectMaterial(renderer.gameObject,renderer.gameObject==a.glow||a.sparks.Contains(renderer.gameObject));
-                survivorVisualAttacks.Add(a);index++;
+                survivorVisualAttacks.Add(a);index++;previous=target;
             }
         }
         void UpdateSurvivorVisuals()
@@ -173,9 +194,23 @@ namespace Tonarium.UnityClient
                 if(actor.root==null)continue;var v=actor.value;var t=actor.root.transform;
                 if(actor.enemy)
                 {
-                    if(SurvivorPaused)continue;bool boss=(string)v["kind"]=="boss";
-                    string color=boss?"#a41142":(string)v["kind"]=="knight"?"#7b547a":(string)v["kind"]=="bat"?"#513b77":"#7c3154";
-                    t.position=new Vector3(Float(v,"x"),boss?.95f+Mathf.Sin(Time.time*2)*.1f:.35f+Mathf.Sin(Time.time*5+Float(v,"x"))*.06f,-Float(v,"z"));
+                    string kind=(string)v["kind"];bool boss=kind=="boss"; string color=SurvivorEnemyColor(kind);
+                    if(actor.chargeLine!=null)
+                    {
+                        var target=v["chargeTarget"] as JObject; bool visible=target!=null && ((long?)v["chargeUntil"]??0) > (SurvivorPaused?(long)survivor["pausedAt"]:SurvivorVisualNow);
+                        actor.chargeLine.SetActive(visible);actor.chargeMark.SetActive(visible);
+                        if(visible) { var from=new Vector3(Float(v,"x"),.055f,-Float(v,"z"));var to=new Vector3(Float(target,"x"),.055f,-Float(target,"z"));var d=to-from;actor.chargeLine.transform.position=(from+to)*.5f;actor.chargeLine.transform.rotation=Quaternion.FromToRotation(Vector3.right,d);actor.chargeLine.transform.localScale=new Vector3(d.magnitude,.035f,.16f);actor.chargeMark.transform.position=to+Vector3.up*.005f;actor.chargeMark.transform.localScale=Vector3.one*(1+Mathf.Sin(Time.time*18)*.12f);float opacity=.5f+Mathf.Sin(Time.time*18)*.22f;SurvivorOpacity(actor.chargeLine,opacity);SurvivorOpacity(actor.chargeMark,opacity+.12f); }
+                    }
+                    if(SurvivorPaused)continue;
+                    float y=boss?.95f+Mathf.Sin(Time.time*2)*.1f:kind=="wisp"?.72f+Mathf.Sin(Time.time*8+Float(v,"movePhase"))*.24f:kind=="shifter"?.58f+Mathf.Sin(Time.time*9+Float(v,"movePhase"))*.17f:.35f+Mathf.Sin(Time.time*5+Float(v,"x"))*.06f;
+                    t.position=new Vector3(Float(v,"x"),y,-Float(v,"z"));
+                    if(actor.dashTrail!=null)
+                    {
+                        var from=v["dashFrom"] as JObject;float remaining=((long?)v["dashUntil"]??0)-SurvivorVisualNow;
+                        var d=from==null?Vector3.zero:new Vector3(Float(v,"x")-Float(from,"x"),0,-Float(v,"z")+Float(from,"z"));
+                        actor.dashTrail.SetActive(from!=null&&remaining>0&&d.magnitude>.05f);
+                        actor.dashTrail.transform.localPosition=-d*.5f+Vector3.up*.42f;actor.dashTrail.transform.localRotation=Quaternion.FromToRotation(Vector3.right,d.magnitude>.001f?d:Vector3.right);actor.dashTrail.transform.localScale=new Vector3(d.magnitude,.07f,.18f);SurvivorOpacity(actor.dashTrail,Mathf.Clamp01(remaining/(boss?520:kind=="shifter"?650:480))*.9f);
+                    }
                     long hit=(long?)v["hitAt"]??0;float age=SurvivorVisualNow-hit;float flash=hit>0&&age>=0&&age<220?1-age/220:0;
                     t.localScale=Vector3.one*(1+flash*.28f);SurvivorGlow(actor.body,flash>0?"#ffffff":color,(boss?.65f:.12f)+flash*2.8f);
                     if(boss){float pulse=.5f+Mathf.Sin(Time.time*3.2f)*.5f;actor.halo.transform.localScale=Vector3.one*(.72f*1.42f*(1.08f+pulse*.12f));SurvivorOpacity(actor.halo,.16f+pulse*.16f);actor.groundRing.transform.localScale=Vector3.one*(1+pulse*.12f);SurvivorOpacity(actor.groundRing,.52f+pulse*.28f);}
@@ -192,7 +227,7 @@ namespace Tonarium.UnityClient
             {
                 var a=survivorVisualAttacks[n];float age=Mathf.Max(0,SurvivorVisualNow-a.at);if(a.root==null||age>650){if(a.root!=null)Destroy(a.root);survivorVisualAttacks.RemoveAt(n);continue;}
                 float progress=Mathf.Min(1,age/650),fade=1-progress;
-                if(a.ring!=null){a.ring.transform.position=new Vector3(a.from.x,.055f,a.from.z);a.ring.transform.localScale=Vector3.one*(.15f+a.reach*progress);SurvivorOpacity(a.ring,fade*.95f);}
+                if(a.ring!=null){a.ring.transform.position=a.areaCenter;a.ring.transform.localScale=Vector3.one*(.15f+a.reach*progress);SurvivorOpacity(a.ring,fade*.95f);}
                 if(a.projectile!=null)
                 {
                     var pos=Vector3.Lerp(a.from,a.to,progress);pos.y=.52f;a.projectile.transform.position=pos;SurvivorOpacity(a.projectile,fade);

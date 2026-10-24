@@ -3,6 +3,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const THREE = require('three');
 const geometries = {
+  cone3: new THREE.ConeGeometry(1, 2.2, 3).toNonIndexed(),
+  cone6: new THREE.ConeGeometry(1, 2.2, 6).toNonIndexed(),
+  enemyBox: new THREE.BoxGeometry(1.7, 1.9, 1.2).toNonIndexed(),
+  wispHalo: new THREE.TorusGeometry(.43, .025, 6, 24).toNonIndexed(),
   head: new THREE.SphereGeometry(1, 12, 8).toNonIndexed(),
   ico0: new THREE.IcosahedronGeometry(1, 0),
   ico1: new THREE.IcosahedronGeometry(1, 1),

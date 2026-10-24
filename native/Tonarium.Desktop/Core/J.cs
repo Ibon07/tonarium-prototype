@@ -10,5 +10,5 @@ public static class J
     public static bool Bool(JsonNode? node, string key, bool fallback = false) => bool.TryParse(node?[key]?.ToString(), out var b) ? b : fallback;
     public static JsonArray Array(JsonNode? node, string key) => node?[key] as JsonArray ?? new();
     public static JsonObject Object(JsonNode? node, string key) => node?[key] as JsonObject ?? new();
-    public static string Label(string kind) => kind switch { "room" => "ホール", "cafe" => "カフェ", "game" => "板わたり", "survivors" => "宵闇サバイバーズ", "public" => "パブリック", "friends" => "フレンド+", "groupPlus" => "グループ+", "group" => "グループ", "invite" => "インバイト", "joinMe" => "参加 OK", "online" => "オンライン", "askMe" => "声かけて", "busy" => "取り込み中", _ => kind };
+    public static string Label(string kind) => kind switch { "room" => "ホール", "cafe" => "カフェ", "garden" => "ガーデン", "game" => "板わたり", "survivors" => "宵闇サバイバーズ", "public" => "パブリック", "friends" => "フレンド+", "groupPlus" => "グループ+", "group" => "グループ", "invite" => "インバイト", "joinMe" => "参加 OK", "online" => "オンライン", "askMe" => "声かけて", "busy" => "取り込み中", _ => kind };
 }

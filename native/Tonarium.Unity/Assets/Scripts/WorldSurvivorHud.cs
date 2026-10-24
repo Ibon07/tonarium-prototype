@@ -39,6 +39,7 @@ namespace Tonarium.UnityClient
             string info = (string)gear?["desc"] ?? "";
             if (partner != null) info += "\nシナジー: " + SurvivorName("gear", partner);
             if (gear?["evolvedFrom"] is JArray evolved) info += "\n進化条件: " + string.Join(" + ", evolved.Select(x => SurvivorName("gear", (string)x)));
+            if ((bool?)gear?["synergyGear"] == true) info += "\n専用シナジー枠 · 最大" + SurvivorCatalog["constants"]["maxSynergyGear"] + "個";
             return info;
         }
         void SurvivorBar(string caption, float value, float maximum, string color)
@@ -112,9 +113,47 @@ namespace Tonarium.UnityClient
             }
         }
         static readonly string[] SurvivorMapColors = { "#ff8ab2", "#8ed9ff", "#e1b0ff", "#ffd36d", "#9af0bd" };
-        string SurvivorMapAttackColor(string gear)
+        string SurvivorMapAttackColor(string gear) => survivorAttackColors.TryGetValue(gear, out var color) ? color : "#fff3a6";
+        readonly System.Collections.Generic.Dictionary<string, Texture2D> survivorMapShapes = new System.Collections.Generic.Dictionary<string, Texture2D>();
+        void SurvivorMapPolygon(Vector2 center, float radius, Color color, string key, Vector2[] points, float angle)
         {
-            switch (gear) { case "moonblade": return "#ff65aa"; case "eclipse": return "#ffe675"; case "bloodaura": return "#ff315e"; case "crimsonsun": return "#ff9d35"; case "starbolt": return "#5fe5ff"; case "starfall": return "#ffe16e"; case "shade": return "#bc8aff"; case "umbralstorm": return "#a457ff"; default: return "#fff3a6"; }
+            if (!survivorMapShapes.TryGetValue(key, out var texture))
+            {
+                const int size=128; texture=new Texture2D(size,size,TextureFormat.RGBA32,false);var pixels=new Color[size*size];
+                for(int y=0;y<size;y++)for(int x=0;x<size;x++)
+                {
+                    var p=new Vector2((x+.5f)/size*4-2,2-(y+.5f)/size*4); bool inside=false;
+                    for(int i=0,j=points.Length-1;i<points.Length;j=i++)if((points[i].y>p.y)!=(points[j].y>p.y)&&p.x<(points[j].x-points[i].x)*(p.y-points[i].y)/(points[j].y-points[i].y)+points[i].x)inside=!inside;
+                    pixels[y*size+x]=inside?Color.white:Color.clear;
+                }
+                texture.SetPixels(pixels);texture.Apply();survivorMapShapes[key]=texture;
+            }
+            var matrix=GUI.matrix;var previous=GUI.color;GUI.color=color;GUIUtility.RotateAroundPivot(angle*Mathf.Rad2Deg,center);GUI.DrawTexture(new Rect(center.x-radius*2,center.y-radius*2,radius*4,radius*4),texture);GUI.matrix=matrix;GUI.color=previous;
+        }
+        void SurvivorMapEnemy(JObject enemy, Vector2 p, float radius, Color color)
+        {
+            string kind=(string)enemy["kind"];float phase=Float(enemy,"movePhase");
+            if(kind=="charger")SurvivorMapPolygon(p,radius,color,"charger",new[]{new Vector2(1.43f,0),new Vector2(-1,-.82f),new Vector2(-.5f,0),new Vector2(-1,.82f)},enemy["chargeTarget"] is JObject target?Mathf.Atan2(Float(target,"z")-Float(enemy,"z"),Float(target,"x")-Float(enemy,"x")):0);
+            else if(kind=="pack")SurvivorMapPolygon(p,radius,color,"pack",new[]{new Vector2(1.4f,0),new Vector2(-1,-.8f),new Vector2(-1,.8f)},Mathf.PI/2);
+            else if(kind=="splitter")SurvivorMapPolygon(p,radius,color,"splitter",Enumerable.Range(0,6).Select(i=>new Vector2(Mathf.Cos(i*Mathf.PI/3-Mathf.PI/2),Mathf.Sin(i*Mathf.PI/3-Mathf.PI/2))).ToArray(),0);
+            else if(kind=="bulwark")
+            {
+                var points=new[]{new Vector2(0,-1.25f),new Vector2(1,-.55f),new Vector2(.82f,.65f),new Vector2(0,1.2f),new Vector2(-.82f,.65f),new Vector2(-1,-.55f)};
+                SurvivorMapPolygon(p,radius,color,"bulwark",points,0);for(int i=0;i<points.Length;i++)SurvivorMapLine(p+points[i]*radius,p+points[(i+1)%points.Length]*radius,ColorValue("#e5efff"),1.5f);
+            }
+            else if(kind=="wisp"||kind=="slinger"||kind=="shifter")
+            {
+                float angle=kind=="shifter"?(float)(Now*.004)+phase:Mathf.PI/4+(kind=="wisp"?Mathf.Sin((float)(Now*.008)+phase)*.25f:0);
+                SurvivorMapPolygon(p,radius,color,"square",new[]{new Vector2(-.72f,-.72f),new Vector2(.72f,-.72f),new Vector2(.72f,.72f),new Vector2(-.72f,.72f)},angle);
+                if(kind!="slinger")for(int i=0;i<32;i++)
+                {
+                    float a=i*Mathf.PI*2/32,b=(i+1)*Mathf.PI*2/32,rotation=angle+(kind=="wisp"?(float)(Now*.002):-.6f);float width=radius+4,height=radius*(kind=="wisp"?.55f:.58f);
+                    var start=new Vector2(Mathf.Cos(a)*width,Mathf.Sin(a)*height);var end=new Vector2(Mathf.Cos(b)*width,Mathf.Sin(b)*height);
+                    Vector2 Rotate(Vector2 v)=>new Vector2(v.x*Mathf.Cos(rotation)-v.y*Mathf.Sin(rotation),v.x*Mathf.Sin(rotation)+v.y*Mathf.Cos(rotation));
+                    SurvivorMapLine(p+Rotate(start),p+Rotate(end),ColorValue(kind=="wisp"?"#b0fff8":"#f2b7ff"),1.5f);
+                }
+            }
+            else SurvivorMapCircle(p,radius,color);
         }
         void SurvivorMap()
         {
@@ -152,11 +191,25 @@ namespace Tonarium.UnityClient
                 var p = SurvivorMapPoint(rect, Float(enemy, "x"), Float(enemy, "z"));
                 if (p.x < -20 || p.x > side + 20 || p.y < -20 || p.y > side + 20) continue;
                 string kind = (string)enemy["kind"];
+                if (kind == "charger" && enemy["chargeTarget"] is JObject charge && ((long?)enemy["chargeUntil"]??0)>Now)
+                {
+                    var target=SurvivorMapPoint(rect,Float(charge,"x"),Float(charge,"z")); float pulse=.55f+Mathf.Sin(Now*.018f)*.2f;
+                    SurvivorMapLine(p,target,new Color(1,.67f,.24f,pulse),8);SurvivorMapLine(p,target,new Color(1,.95f,.75f,.9f),2);SurvivorMapCircle(target,10+(1-pulse)*8,new Color(1,.41f,.21f,pulse),false,2.5f);
+                }
+                if ((kind=="boss"||kind=="charger"||kind=="shifter") && enemy["dashFrom"] is JObject dash && ((long?)enemy["dashUntil"]??0)>Now)
+                {
+                    var from=SurvivorMapPoint(rect,Float(dash,"x"),Float(dash,"z"));SurvivorMapLine(from,p,ColorValue(kind=="boss"?"#ff315d":kind=="shifter"?"#d783ff":"#ff9b38"),13);SurvivorMapLine(from,p,ColorValue("#fff0d8"),3);
+                }
                 long hitAge = Now - ((long?)enemy["hitAt"] ?? 0);
                 float hit = hitAge >= 0 && hitAge < 240 ? 1 - hitAge / 240f : 0;
-                float radius = (kind == "boss" ? 11 : kind == "knight" ? 6 : 4.5f) * (1 + hit * .35f) * side / 360;
-                SurvivorMapCircle(p, radius, ColorValue(hit > 0 ? "#fff4f7" : kind == "boss" ? "#ff315d" : kind == "knight" ? "#bd81d0" : kind == "bat" ? "#a17de0" : "#df6287"));
+                float radius = (kind == "boss" ? 11 : kind == "knight" || kind == "bulwark" || kind == "charger" ? 7 : 5f) * (1 + hit * .35f) * side / 360;
+                SurvivorMapEnemy(enemy, p, radius, ColorValue(hit > 0 ? "#fff4f7" : kind == "boss" ? "#ff315d" : kind == "knight" ? "#bd81d0" : kind == "bat" ? "#a17de0" : kind == "charger" ? "#ff9b38" : kind == "wisp" ? "#54e9e2" : kind == "slinger" ? "#ffd166" : kind == "splitter" ? "#ff8066" : kind == "shifter" ? "#d783ff" : kind == "pack" ? "#a7e85c" : kind == "bulwark" ? "#8ea0b7" : "#df6287"));
                 if (hit > 0 || kind == "boss") SurvivorMapCircle(p, radius + 4, hit > 0 ? new Color(1, 1, 1, hit) : ColorValue("#ff5275CC"), false);
+            }
+            foreach(var projectile in (survivor["projectiles"] as JArray??new JArray()).OfType<JObject>())
+            {
+                var point=SurvivorMapPoint(rect,Float(projectile,"x"),Float(projectile,"z"));var tail=SurvivorMapPoint(rect,Float(projectile,"x")-Float(projectile,"vx")*.12f,Float(projectile,"z")-Float(projectile,"vz")*.12f);bool boss=(string)projectile["kind"]=="boss";
+                SurvivorMapLine(tail,point,ColorValue(boss?"#ff315d":"#ffd166"),boss?5:3);SurvivorMapCircle(point,Mathf.Max(3,Float(projectile,"radius")*side/(SurvivorHudHalf*2)),ColorValue(boss?"#fff1da":"#fff8d2"));
             }
             index = 0;
             foreach (var entry in (survivor["players"] as JObject ?? new JObject()).Properties())
@@ -176,8 +229,9 @@ namespace Tonarium.UnityClient
                 float progress = age / 650, alpha = 1 - progress;
                 var from = SurvivorMapPoint(rect, (float)effect["from"]["x"], (float)effect["from"]["z"]);
                 string gear = (string)effect["gear"]; var color = ColorValue(SurvivorMapAttackColor(gear)); color.a = alpha;
-                if (gear == "moonblade" || gear == "eclipse" || gear == "bloodaura" || gear == "crimsonsun")
+                if (SurvivorAreaWeapon(gear))
                 {
+                    var areaCenter=effect["areaCenter"] as JObject; if(areaCenter!=null)from=SurvivorMapPoint(rect,Float(areaCenter,"x"),Float(areaCenter,"z"));
                     float radius = Mathf.Max(4, (float)effect["reach"] * side / (SurvivorHudHalf * 2) * (.18f + progress * .82f));
                     SurvivorMapCircle(from, radius, new Color(color.r, color.g, color.b, alpha * .14f));
                     SurvivorMapCircle(from, radius, color, false, 5 * alpha + 1);
@@ -191,6 +245,7 @@ namespace Tonarium.UnityClient
                     SurvivorMapCircle(Vector2.Lerp(from, to, progress), 5, color);
                     SurvivorMapCircle(to, 7 + alpha * 7, new Color(1, 1, 1, alpha), false, 2.5f);
                     for (int i = 0; i < 6; i++) { float a = i * Mathf.PI / 3 + progress * 1.5f; var d = new Vector2(Mathf.Cos(a), Mathf.Sin(a)); float r = (5 + progress * 12) * (i % 2 == 1 ? .72f : 1); SurvivorMapLine(to + d * r, to + d * (r + 4), i % 2 == 1 ? color : new Color(1, 1, 1, alpha), 2); }
+                    if ((bool?)effect["chain"] == true) from = to;
                 }
             }
             GUI.EndGroup();
@@ -228,8 +283,8 @@ namespace Tonarium.UnityClient
             GUILayout.EndHorizontal(); GUILayout.Space(10);
             if (SurvivorPaused) { GUILayout.Label("✦  時が止まった  ✦\n装備を選ぶまで、敵も時間も一時停止中", new GUIStyle(SurvivorText(12, "#fff1cf")) { alignment = TextAnchor.MiddleCenter }, GUILayout.MinHeight(48)); }
             SurvivorMap(); GUILayout.Space(10);
-            var boss = (survivor["enemies"] as JArray)?.OfType<JObject>().FirstOrDefault(e => (string)e["kind"] == "boss");
-            if (phase == "boss" && boss != null) SurvivorBar("夜の王", Float(boss, "hp"), Float(boss, "maxHp"), "#fa315e");
+            var bosses = (survivor["enemies"] as JArray ?? new JArray()).OfType<JObject>().Where(e => (string)e["kind"] == "boss").ToArray();
+            if (phase == "boss" && bosses.Length > 0) SurvivorBar("夜の王 ×" + bosses.Length, bosses.Sum(e => Float(e, "hp")), bosses.Sum(e => Float(e, "maxHp")), "#fa315e");
             GUILayout.Label("✦ 仲間と自分    ◆ 夜の眷属\n攻撃は自動 · 光る軌跡が攻撃" + (SurvivorActive ? "\nWASDで移動 · 俯瞰視点" : ""), SurvivorText(10, "#d5c4d0"));
             if (me != null) { SurvivorBar("Lv. " + me["level"], Float(me, "hp"), Float(me, "maxHp"), "#e45169"); SurvivorBar("EXP", Mathf.Floor(Float(me, "xp")), Float(me, "nextXp"), "#e9c75b"); GUILayout.Label("討伐 " + me["kills"], SurvivorText(10)); }
             GUILayout.Space(10);
@@ -246,6 +301,11 @@ namespace Tonarium.UnityClient
                     if (SurvivorButton("choose:" + gear, title, SurvivorCard(color), GUILayout.Width((survivorContentWidth - 24) / 3), GUILayout.MinHeight(140))) Room(new { t = "survivorChoose", gear });
                 }
                 GUILayout.EndHorizontal(); GUILayout.Space(10);
+            }
+            foreach (var owner in (survivor["players"] as JObject ?? new JObject()).Properties().Where(p => p.Name != selfId && (bool?)p.Value["alive"] == true && (p.Value["choiceQueue"] as JArray)?.Count > 0))
+            {
+                GUILayout.Label((string)owner.Value["name"] + "の装備選択 · 観戦", SurvivorText(13));
+                foreach (string id in owner.Value["choiceQueue"][0]) GUILayout.Label(SurvivorName("gear", id) + " · Lv." + (SurvivorNumber(owner.Value["gear"]?[id]) + 1) + "\n" + SurvivorGearInfo(id), SurvivorText(10));
             }
             if (!SurvivorActive || me == null)
             {
@@ -268,7 +328,12 @@ namespace Tonarium.UnityClient
                 if (!canJoin) GUILayout.Label("参加エリアの輪の中に入ると参加できます", SurvivorText(10, "#d8bdcc"));
                 if (phase == "ended" && me != null) GUILayout.Label("今回の獲得ポイント: +" + me["level"] + " pt", SurvivorText(12, "#ffe2a1"));
             }
-            if (me?["gear"] is JObject gearMap) { GUILayout.Space(10); GUILayout.Label("装備", SurvivorText(12)); foreach (var gear in gearMap.Properties().Where(g => (int)g.Value > 0)) GUILayout.Label(SurvivorName("gear", gear.Name) + " Lv." + gear.Value, SurvivorText(10)); }
+            if (me?["gear"] is JObject gearMap)
+            {
+                GUILayout.Space(10); GUILayout.Label("装備", SurvivorText(12)); foreach (var gear in gearMap.Properties().Where(g => (int)g.Value > 0 && (bool?)SurvivorCatalog["gear"]?[g.Name]?["synergyGear"] != true)) GUILayout.Label(SurvivorName("gear", gear.Name) + " Lv." + gear.Value, SurvivorText(10));
+                var synergy=gearMap.Properties().Where(g => (int)g.Value > 0 && (bool?)SurvivorCatalog["gear"]?[g.Name]?["synergyGear"] == true).ToArray();
+                GUILayout.Label("専用シナジー枠 " + synergy.Length + "/" + SurvivorCatalog["constants"]["maxSynergyGear"],SurvivorText(12));foreach(var gear in synergy)GUILayout.Label(SurvivorName("gear",gear.Name),SurvivorText(10));
+            }
             GUILayout.Space(10); GUILayout.Label("永続強化    " + (survivorProfile["points"] ?? 0) + " pt", SurvivorText(13));
             if (SurvivorButton("library", "装備図鑑・実績を開く")) survivorLibrary = true;
             int invested = 0;

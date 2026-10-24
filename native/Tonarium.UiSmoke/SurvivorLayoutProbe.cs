@@ -64,14 +64,14 @@ internal static class SurvivorLayoutProbe
             state.Survivor = JsonNode.Parse("""
             {"run":1,"phase":"boss","startedAt":0,"players":{},"enemies":[
               {"kind":"boss","x":0,"z":-6,"hp":500,"maxHp":1000},
-              {"kind":"knight","x":-4,"z":-3},{"kind":"bat","x":4,"z":-3},{"kind":"wisp","x":0,"z":3}],"effects":[]}
+              {"kind":"knight","x":-4,"z":-3},{"kind":"bat","x":4,"z":-3},{"kind":"ghoul","x":0,"z":3}],"effects":[]}
             """)!.AsObject();
             var me = JsonNode.Parse("""{"id":"self","x":0,"z":0,"alive":true,"level":4,"hp":50,"maxHp":100,"xp":5,"nextXp":20,"gear":{"starbolt":2},"choiceQueue":[["moonblade","shade","starbolt"]]}""")!.AsObject();
             me["id"] = state.SelfId; state.Survivor["players"]![state.SelfId] = me;
             state.Survivor["pausedAt"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             room.Refresh(); await Settle();
             var text = string.Join("\n", panel.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text));
-            if (!text.Contains("新たな力を選ぶ") || !text.Contains("シナジー:") || !text.Contains("夜の王 · 500 / 1,000")) throw new Exception("Web choice/boss details missing");
+            if (!text.Contains("新たな力を選ぶ") || !text.Contains("シナジー:") || !text.Contains("夜の王 ×1 · 500 / 1,000")) throw new Exception("Web choice/boss details missing");
             if (panel.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.UniformGrid>().Single().Columns != 3) throw new Exception("Choice cards are not three columns");
             pass("Web-equivalent boss health, paused level-up cards, rarity and synergy details are present");
             var mapControl = panel.GetVisualDescendants().OfType<SurvivorMap>().Single();
@@ -82,14 +82,32 @@ internal static class SurvivorLayoutProbe
                 File.WriteAllBytes(Path.Combine(output, filename), bytes.ToArray()); return bytes.ToArray();
             }
             var empty = RenderMap("map-no-effects.png");
-            foreach (var gear in new[] { "moonblade", "eclipse", "bloodaura", "crimsonsun", "starbolt", "starfall", "shade", "umbralstorm" })
+            foreach (var gear in new[] { "moonblade", "eclipse", "bloodaura", "crimsonsun", "starbolt", "starfall", "shade", "umbralstorm", "frostlance", "stormring", "embermine", "thornshot", "voidpulse", "lunarconvergence", "crimsonvoid", "stormfrost" })
             {
                 state.Survivor["effects"] = new JsonArray(new JsonObject { ["gear"] = gear, ["at"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - 250, ["reach"] = 3, ["from"] = new JsonObject { ["x"] = 0, ["z"] = 0 }, ["targets"] = new JsonArray(new JsonObject { ["x"] = 4, ["z"] = -3 }) });
                 if (RenderMap("map-" + gear + ".png").SequenceEqual(empty)) throw new Exception("Weapon effect invisible: " + gear);
                 state.Survivor["effects"]![0]!["at"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - 1000;
                 if (!RenderMap("map-expired-" + gear + ".png").SequenceEqual(empty)) throw new Exception("Expired weapon effect remains: " + gear);
             }
-            pass("All eight Web weapon effects render visibly and expire after the shared 650ms lifetime");
+            pass("All sixteen Web weapon effects render visibly and expire after the shared 650ms lifetime");
+
+            state.Survivor["effects"] = new JsonArray();
+            var staticNow = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            foreach(var kind in new[]{"charger","wisp","slinger","splitter","shifter","pack","bulwark"})
+            {
+                state.Survivor["enemies"] = new JsonArray(new JsonObject { ["kind"]=kind,["x"]=0,["z"]=0,["movePhase"]=.5,["dashFrom"]=new JsonObject{["x"]=-3,["z"]=-3},["dashUntil"]=staticNow+60000,["chargeTarget"]=new JsonObject{["x"]=3,["z"]=2},["chargeUntil"]=staticNow+60000 });
+                var withEnemy=RenderMap("enemy-"+kind+".png");
+                state.Survivor["enemies"] = new JsonArray();
+                if(withEnemy.SequenceEqual(RenderMap("empty-enemy.png")))throw new Exception("New enemy invisible: "+kind);
+            }
+            var noBullet=RenderMap("no-bullet.png");
+            state.Survivor["projectiles"]=new JsonArray(new JsonObject { ["kind"]="boss",["x"]=3,["z"]=3,["vx"]=3,["vz"]=3,["radius"]=.2 });
+            if(noBullet.SequenceEqual(RenderMap("boss-bullet.png")))throw new Exception("Enemy projectile invisible");
+            state.Survivor["projectiles"]=new JsonArray();
+            state.Survivor["effects"]=new JsonArray(new JsonObject { ["gear"]="stormring",["at"]=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()-250,["reach"]=3,["from"]=new JsonObject{["x"]=0,["z"]=0},["targets"]=new JsonArray(new JsonObject{["x"]=4,["z"]=-3},new JsonObject{["x"]=-4,["z"]=3}) });
+            var unchained=RenderMap("non-chain.png");state.Survivor["effects"]![0]!["chain"]=true;
+            if(unchained.SequenceEqual(RenderMap("chain.png")))throw new Exception("Chain origin ignored");
+            pass("Seven new enemies, dash/charge telegraphs, hostile projectiles and chained attacks render");
 
             IEnumerable<Button> Buttons() => panel.GetVisualDescendants().OfType<Button>();
         }

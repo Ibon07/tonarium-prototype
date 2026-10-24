@@ -194,7 +194,7 @@ public sealed partial class RoomView : UserControl
         var windowModes = Ui.Column(_simpleMode, _freeMode); windowModes.Spacing = 2;
         var modeSegment = new Border { Child = windowModes, Padding = new Thickness(3), Background = Brush.Parse("#3A3B44"), CornerRadius = new CornerRadius(14) };
         var leave = DockButton("leave", "切断", () => Run(() => _ctx.Client.LeaveAsync())); leave.Background = Brush.Parse("#C2402F");
-        var dock = Ui.Row(_mic, _share, DockButton("music", "サウンドボード", Soundboard), Separator(true), modeSegment, Separator(true), leave); dock.Spacing = 8;
+        var dock = Ui.Row(_mic, _share, DockButton("music", "サウンドボード", Soundboard), Small("リアクション", EmoteMenu), Separator(true), modeSegment, Separator(true), leave); dock.Spacing = 8;
         var bottom = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(80, 0, 80, 22) };
         var dockPanel = Panel(dock); dockPanel.CornerRadius = new CornerRadius(24); dockPanel.Background = Brush.Parse("#26262E"); dockPanel.BorderThickness = new Thickness(0); dockPanel.Padding = new Thickness(10);
         bottom.Children.Add(_status); bottom.Children.Add(dockPanel); _root.Children.Add(bottom);
@@ -264,6 +264,8 @@ public sealed partial class RoomView : UserControl
         var s = _ctx.State;
         _survivor.IsVisible = s.World == "survivors" && s.Mode == "2d";
         _center.IsVisible = !_survivor.IsVisible;
+        foreach (var pair in s.Emotes.ToArray())
+            if (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + s.ServerOffset - J.Number(pair.Value, "at") >= J.Number(EmoteCatalog.All[J.Text(pair.Value, "id")], "duration")) s.Emotes.Remove(pair.Key);
         _survivor.Refresh();
         ComputePlaces();
         if(_layoutMode!=s.Mode){_layoutMode=s.Mode;Fit();}
@@ -290,8 +292,8 @@ public sealed partial class RoomView : UserControl
         var nkey = s.Notifications.ToJsonString() + blocked;
         if (nkey != _noticeSignature) { _noticeSignature = nkey; RebuildNotices(); }
         var me = users.FirstOrDefault(u => J.Text(u, "id") == s.SelfId);
-        if (s.WorldPending is not null && !_worldCountdown.IsEnabled) _worldCountdown.Start();
-        else if (s.WorldPending is null && _worldCountdown.IsEnabled) _worldCountdown.Stop();
+        if ((s.WorldPending is not null || s.Emotes.Count > 0) && !_worldCountdown.IsEnabled) _worldCountdown.Start();
+        else if (s.WorldPending is null && s.Emotes.Count == 0 && _worldCountdown.IsEnabled) _worldCountdown.Stop();
         var st = $"{s.ConnectionStatus}|{s.SyncStatus}|{J.Text(me, "follow")}|{J.Object(me, "pos").ToJsonString()}|{s.Mode}|{(s.WorldPending is null ? "" : DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString())}";
         if (st != _statusSignature) { _statusSignature = st; RebuildStatus(me); }
     }
@@ -565,6 +567,17 @@ public sealed partial class RoomView : UserControl
         foreach (var notice in _ctx.State.Notifications.OfType<JsonObject>()) notice["unread"] = false;
         _ctx.State.Touch();
     }
+    private void EmoteMenu()
+    {
+        var box = Ui.Column(Ui.Title("リアクション"));
+        foreach (var pair in EmoteCatalog.All)
+        {
+            var id = pair.Key;
+            box.Children.Add(Ui.Button(J.Text(pair.Value, "name"), () => SendRoom(new { t = "emote", id })));
+        }
+        ShowPopup(box, 320);
+    }
+
     private void Soundboard()
     {
         var grid = new WrapPanel { MaxWidth = 300 };
@@ -579,7 +592,7 @@ public sealed partial class RoomView : UserControl
         broadcast.IsCheckedChanged += (_, _) => SendRoom(new { t = "broadcast", on = broadcast.IsChecked == true }); box.Children.Add(broadcast);
         box.Children.Add(Ui.Text("距離に関係なく全員に声が届きます", 12, Ui.Muted));
         box.Children.Add(Ui.Text("ワールド（全員に反映）", 13));
-        foreach (var (kind, name) in new[] { ("room", "ホール"), ("cafe", "カフェ"), ("game", "ゲーム"), ("survivors", "宵闇サバイバーズ") }) box.Children.Add(Ui.Button(name + (kind == _ctx.State.World ? "  ✓" : ""), () => ConfirmWorld(kind, name)));
+        foreach (var (kind, name) in new[] { ("room", "ホール"), ("cafe", "カフェ"), ("garden", "ガーデン"), ("game", "ゲーム"), ("survivors", "宵闇サバイバーズ") }) box.Children.Add(Ui.Button(name + (kind == _ctx.State.World ? "  ✓" : ""), () => ConfirmWorld(kind, name)));
         box.Children.Add(Ui.Button("プロフィールを編集", () => _ctx.OpenProfile(_ctx.State.SelfId)));
         box.Children.Add(Ui.Button("マイク・スピーカーの設定", () => Run(() => _ctx.ShowAudioSettingsAsync())));
         var fxVolume = new Slider { Minimum = 0, Maximum = 100, Value = _ctx.State.FxVolume * 100 };

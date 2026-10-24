@@ -6,6 +6,7 @@ import { recentlyHit } from '../items/effects.ts';
 import { Icon } from './Icon.tsx';
 import { Badge3D, Face, useLastSaid, usePlayers, type PlayerEntry } from './common.tsx';
 import { AvatarView } from './Portraits.tsx';
+import { PortraitEmote } from './Emotes.tsx';
 import { pickProfile, pickUser } from './NearList.tsx';
 import { openWindow, toggleFromList, useIsOpen } from './windows.ts';
 
@@ -58,6 +59,7 @@ const BigFace = memo(function BigFace({ u, d, self = false, width }: { u: Partic
       data-uid={u.id} style={width ? { width, flexBasis: width } : undefined}
     >
       <AvatarView u={u} speaking={speaking} />
+      <PortraitEmote id={u.id} />
       {poked && <PokeFx at={poked} />}
       <button className="faceclick" onClick={() => clickFace(u.id)} aria-label={canHit ? `${u.name} を叩く` : `${u.name} を大きく表示`} />
       <button className="faceprofile" onClick={() => pickProfile(u.id)} aria-label={`${u.name} のプロフィール`} title="プロフィール"><Icon name="more" size={14} /></button>
@@ -90,6 +92,7 @@ const MidFace = memo(function MidFace({ p }: { p: PlayerEntry }) {
       title={`${p.user.name} · ${formatDistance(p.d)}`} aria-label={`${p.user.name} を大きく表示`}
     >
       <AvatarView u={p.user} speaking={false} small />
+      <PortraitEmote id={p.user.id} small />
       <span className="mf"><Face id={p.user.id} name={p.user.name} size={16} ring="0 0 0 1.5px #fff" /></span>
       {p.user.mode === '3d' && <span className="mf3d">3D</span>}
       {poked && <PokeFx at={poked} small />}

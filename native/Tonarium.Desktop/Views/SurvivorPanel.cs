@@ -114,10 +114,11 @@ public sealed class SurvivorPanel : UserControl
         hp.IsVisible = xp.IsVisible = vitals.IsVisible = me != null;
         hp.Value = me is null ? 0 : Math.Clamp(J.Number(me, "hp") / Math.Max(1, J.Number(me, "maxHp")), 0, 1);
         xp.Value = me is null ? 0 : Math.Clamp(J.Number(me, "xp") / Math.Max(1, J.Number(me, "nextXp")), 0, 1);
-        var boss = J.Array(State, "enemies").FirstOrDefault(e => J.Text(e, "kind") == "boss");
-        bossHp.IsVisible = bossHealth.IsVisible = phase == "boss" && boss != null;
-        bossHealth.Text = $"夜の王 · {Math.Ceiling(J.Number(boss, "hp")):N0} / {J.Number(boss, "maxHp"):N0}";
-        bossHp.Value = Math.Clamp(J.Number(boss, "hp") / Math.Max(1, J.Number(boss, "maxHp")), 0, 1);
+        var bosses = J.Array(State, "enemies").Where(e => J.Text(e, "kind") == "boss").ToArray();
+        var bossTotal = bosses.Sum(e => J.Number(e, "hp")); var bossMax = bosses.Sum(e => J.Number(e, "maxHp"));
+        bossHp.IsVisible = bossHealth.IsVisible = phase == "boss" && bosses.Length > 0;
+        bossHealth.Text = $"夜の王 ×{bosses.Length} · {Math.Ceiling(bossTotal):N0} / {bossMax:N0}";
+        bossHp.Value = Math.Clamp(bossTotal / Math.Max(1, bossMax), 0, 1);
         vitals.Text = me is null ? "参加エリアに入って開始してください" : $"Lv.{J.Number(me, "level")}　HP {Math.Ceiling(J.Number(me, "hp"))}/{J.Number(me, "maxHp")}　EXP {Math.Floor(J.Number(me, "xp"))}/{J.Number(me, "nextXp")}" + (J.Bool(me, "alive") ? "" : "　倒れました・観戦中") + $"　討伐 {J.Number(me, "kills")}";
         if (keys.Count == 0 || changedRun)
         { x = J.Number(me, "x"); z = J.Number(me, "z"); }
@@ -129,7 +130,7 @@ public sealed class SurvivorPanel : UserControl
         bool canJoin = user is not null && Math.Sqrt(Math.Pow(position.X - JoinX, 2) + Math.Pow(position.Z - JoinZ, 2)) <= JoinRadius;
         var inJoin = ctx.State.Users.Where(u => J.Text(u, "session") == ctx.State.SessionId).Where(u => { var p = PositionOf(ctx.State, u!); return Math.Sqrt((p.X - JoinX) * (p.X - JoinX) + (p.Z - JoinZ) * (p.Z - JoinZ)) <= JoinRadius; }).ToArray();
         var joinNames = string.Join("、", inJoin.Select(u => J.Text(u, "name")));
-        var next = $"{phase}|{J.Bool(me, "alive")}|{me is null}|{canJoin}|{choice.ToJsonString()}|{me?["gear"]}|{State["stylePicks"]}|{joinNames}|{ctx.State.SurvivorProfile}|{confirmReset}";
+        var next = $"{phase}|{J.Bool(me, "alive")}|{me is null}|{canJoin}|{choice.ToJsonString()}|{me?["gear"]}|{string.Join(";", J.Object(State, "players").Select(p => $"{p.Key}:{p.Value?["choiceQueue"]}:{p.Value?["gear"]}"))}|{State["stylePicks"]}|{joinNames}|{ctx.State.SurvivorProfile}|{confirmReset}";
         if (next == signature) return;
         signature = next;
         actions.Children.Clear(); primaryActions.Children.Clear();
@@ -159,6 +160,14 @@ public sealed class SurvivorPanel : UserControl
                 card.BorderBrush = Brush.Parse(J.Text(def, "rarity") switch { "rare" => "#70c5ff", "epic" => "#c989ff", "mythic" => "#ffc863", _ => "#efcc8e" });
             }
         }
+        foreach (var (ownerId, owner) in J.Object(State, "players").Where(p => p.Key != ctx.State.SelfId && J.Bool(p.Value, "alive") && (p.Value?["choiceQueue"] as JsonArray)?.Count > 0))
+        {
+            primaryActions.Children.Add(Text($"{J.Text(owner, "name")}の装備選択 · 観戦", 14));
+            foreach (var option in (owner?["choiceQueue"]?[0] as JsonArray ?? new()))
+            {
+                var id = J.Value(option); primaryActions.Children.Add(Text($"{Name("gear", id)} · Lv.{J.Number(owner?["gear"], id) + 1}\n{J.Text(Catalog["gear"]?[id], "desc")}{Relations(id)}", 11));
+            }
+        }
         if (!active || me is null)
         {
             primaryActions.Children.Add(Text(active ? "途中参加" : phase == "ended" ? "次の夜へ" : "スタイルを選ぶ", 14));
@@ -176,7 +185,12 @@ public sealed class SurvivorPanel : UserControl
             if (!canJoin) primaryActions.Children.Add(Text("参加エリアの輪の中に入ると参加できます", 10));
             if (phase == "ended" && me != null) primaryActions.Children.Add(Text($"今回の獲得ポイント: +{J.Number(me, "level")} pt"));
         }
-        if (me?["gear"] is JsonObject gearMap) actions.Children.Add(Text(string.Join(" / ", gearMap.Select(g => $"{Name("gear", g.Key)} Lv.{g.Value}")), 12));
+        if (me?["gear"] is JsonObject gearMap)
+        {
+            actions.Children.Add(Text("装備: " + string.Join(" / ", gearMap.Where(g => !J.Bool(Catalog["gear"]?[g.Key], "synergyGear") && J.Number(gearMap, g.Key) > 0).Select(g => $"{Name("gear", g.Key)} Lv.{g.Value}")), 12));
+            var synergy = gearMap.Where(g => J.Bool(Catalog["gear"]?[g.Key], "synergyGear") && J.Number(gearMap, g.Key) > 0).ToArray();
+            actions.Children.Add(Text($"専用シナジー枠 {synergy.Length}/{J.Number(Constants, "maxSynergyGear")}: " + string.Join(" / ", synergy.Select(g => Name("gear", g.Key))), 12));
+        }
         var profile = ctx.State.SurvivorProfile;
         actions.Children.Add(Text($"永続強化　{J.Number(profile, "points")} pt", 15));
         foreach (var (id, def) in Catalog["upgrades"]!.AsObject())
@@ -212,6 +226,6 @@ public sealed class SurvivorPanel : UserControl
         var gear = Catalog["gear"]?[id];
         var partner = J.Text(gear, "synergy");
         if (partner.Length == 0) partner = Catalog["gear"]!.AsObject().FirstOrDefault(g => J.Text(g.Value, "synergy") == id).Key;
-        return (string.IsNullOrEmpty(partner) ? "" : "\nシナジー: " + Name("gear", partner)) + (gear?["evolvedFrom"] is JsonArray evolved ? "\n進化条件: " + string.Join(" + ", evolved.Select(v => Name("gear", J.Value(v)))) : "");
+        return (string.IsNullOrEmpty(partner) ? "" : "\nシナジー: " + Name("gear", partner)) + (gear?["evolvedFrom"] is JsonArray evolved ? "\n進化条件: " + string.Join(" + ", evolved.Select(v => Name("gear", J.Value(v)))) : "") + (J.Bool(gear, "synergyGear") ? $"\n専用シナジー枠 · 最大{J.Number(Constants, "maxSynergyGear")}個" : "");
     }
 }

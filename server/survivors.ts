@@ -2,7 +2,7 @@ import type { AvatarState, Participant } from '../shared/protocol.ts';
 import {
   SURVIVOR_DURATION_MS, SURVIVOR_TICK_MS, SURVIVOR_WORLD_LIMIT,
   SURVIVOR_GEAR, SURVIVOR_JOIN, SURVIVOR_MAX_ENEMIES, SURVIVOR_META_UPGRADES,
-  SURVIVOR_MOVE_SPEED, SURVIVOR_STYLES, clampSurvivorPosition, newSurvivorState,
+  SURVIVOR_MAX_SYNERGY_GEAR, SURVIVOR_MOVE_SPEED, SURVIVOR_STYLES, clampSurvivorPosition, newSurvivorState,
   survivorDistance, survivorXpFor, type SurvivorAchievement, type SurvivorEnemy,
   type SurvivorMetaUpgrade, type SurvivorPlayer, type SurvivorProfile, type SurvivorState, type SurvivorStyle,
 } from '../shared/survivor.ts';
@@ -36,6 +36,12 @@ function random(s: SurvivorState) {
   x ^= x << 13; x ^= x >>> 17; x ^= x << 5;
   s.randomSeed = x >>> 0 || 1;
   return s.randomSeed / 0x1_0000_0000;
+}
+function pointSegmentDistance(point: { x: number; z: number }, from: { x: number; z: number }, to: { x: number; z: number }) {
+  const dx = to.x - from.x, dz = to.z - from.z;
+  const lengthSq = dx * dx + dz * dz;
+  const t = lengthSq > 0 ? Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.z - from.z) * dz) / lengthSq)) : 0;
+  return Math.hypot(point.x - (from.x + t * dx), point.z - (from.z + t * dz));
 }
 function pickedStyle(s: SurvivorState, id: string): SurvivorStyle { return s.stylePicks[id] ?? 'bloodrose'; }
 function playerFor(u: Participant, s: SurvivorState, d: SurvivorDeps, index: number): SurvivorPlayer {
@@ -111,16 +117,29 @@ export function moveSurvivor(sid: string, user: Participant, x: number, z: numbe
 }
 
 function poolFor(p: SurvivorPlayer) {
+  const synergyCount = Object.entries(p.gear).filter(([id, level]) => level > 0 && SURVIVOR_GEAR[id]?.synergyGear).length;
   return Object.values(SURVIVOR_GEAR).filter((g) => {
-    if (g.rarity === 'mythic' && !g.evolvedFrom) return false;
     const level = p.gear[g.id] ?? 0;
     if (level >= g.maxLevel) return false;
+    if (g.synergyGear) {
+      return synergyCount < SURVIVOR_MAX_SYNERGY_GEAR
+        && (g.evolvedFrom ?? []).length === 2
+        && g.evolvedFrom!.every((source) => (p.gear[source] ?? 0) >= (SURVIVOR_GEAR[source]?.maxLevel ?? 1));
+    }
+    if (g.rarity === 'mythic') return false;
     if (g.evolvedFrom) {
       const [weapon, passive] = g.evolvedFrom;
       return (p.gear[weapon] ?? 0) >= 5 && (p.gear[passive] ?? 0) >= 1;
     }
     return true;
   }).map((g) => g.id);
+}
+function choicesFor(p: SurvivorPlayer, s: SurvivorState) {
+  const pool = poolFor(p);
+  const choices = pool.filter((id) => SURVIVOR_GEAR[id]?.synergyGear).slice(0, 3);
+  const ordinaryPool = pool.filter((id) => !SURVIVOR_GEAR[id]?.synergyGear);
+  while (ordinaryPool.length && choices.length < 3) choices.push(ordinaryPool.splice(Math.floor(random(s) * ordinaryPool.length), 1)[0]);
+  return choices;
 }
 function giveXp(s: SurvivorState, d: SurvivorDeps, amount: number) {
   for (const p of Object.values(s.players)) {
@@ -130,9 +149,7 @@ function giveXp(s: SurvivorState, d: SurvivorDeps, amount: number) {
       p.xp -= p.nextXp;
       p.level++;
       p.nextXp = survivorXpFor(p.level);
-      const pool = poolFor(p);
-      const choices: string[] = [];
-      while (pool.length && choices.length < 3) choices.push(pool.splice(Math.floor(random(s) * pool.length), 1)[0]);
+      const choices = choicesFor(p, s);
       if (choices.length) p.choiceQueue.push(choices);
     }
   }
@@ -151,9 +168,24 @@ export function chooseSurvivorGear(sid: string, user: Participant, gear: string,
   if (!p?.alive || !choices?.includes(gear)) return;
   const def = SURVIVOR_GEAR[gear];
   if (!def) return;
+  if (def.synergyGear) {
+    const synergyCount = Object.entries(p.gear).filter(([id, level]) => level > 0 && SURVIVOR_GEAR[id]?.synergyGear).length;
+    const stillEligible = (id: string) => {
+      const candidate = SURVIVOR_GEAR[id];
+      return !!candidate && (!candidate.synergyGear || (
+        synergyCount < SURVIVOR_MAX_SYNERGY_GEAR
+        && !!candidate.evolvedFrom?.every((source) => (p.gear[source] ?? 0) >= (SURVIVOR_GEAR[source]?.maxLevel ?? 1))
+      ));
+    };
+    if (!stillEligible(gear)) {
+      p.choiceQueue[0] = choices.filter(stillEligible);
+      if (!p.choiceQueue[0].length) p.choiceQueue.shift();
+      send(sid, s, d);
+      return;
+    }
+  }
   if (def.evolvedFrom) {
-    const [weapon] = def.evolvedFrom;
-    p.gear[weapon] = 0;
+    for (const source of def.evolvedFrom) p.gear[source] = 0;
   }
   const oldLevel = p.gear[gear] ?? 0;
   p.gear[gear] = Math.min(def.maxLevel, oldLevel + 1);
@@ -162,47 +194,118 @@ export function chooseSurvivorGear(sid: string, user: Participant, gear: string,
     p.hp = Math.min(p.maxHp, p.hp + 8);
   }
   p.choiceQueue.shift();
+  if (!def.synergyGear && def.kind === 'weapon' && p.gear[gear] >= def.maxLevel) {
+    const newlyReady = poolFor(p).filter((id) => SURVIVOR_GEAR[id]?.synergyGear);
+    if (newlyReady.length) p.choiceQueue.unshift(choicesFor(p, s));
+  }
   discover(user.id, gear, d);
   d.saveProfiles();
   send(sid, s, d);
 }
 
-function createEnemy(s: SurvivorState, kind: SurvivorEnemy['kind'], now: number): SurvivorEnemy {
-  const a = random(s) * Math.PI * 2;
-  const r = SURVIVOR_WORLD_LIMIT - (kind === 'boss' ? 1.5 : 0.75);
-  const scale = 1 + Math.max(0, now - s.startedAt) / SURVIVOR_DURATION_MS * 1.8;
-  const base = kind === 'ghoul' ? { hp: 18, speed: 1.15, damage: 7, xp: 2, radius: 0.32 }
-    : kind === 'bat' ? { hp: 10, speed: 2.0, damage: 5, xp: 2, radius: 0.25 }
-    : kind === 'knight' ? { hp: 55, speed: 0.72, damage: 14, xp: 5, radius: 0.42 }
-    : { hp: 34_000, speed: 1.05, damage: 28, xp: 0, radius: 1.25 };
-  const hp = kind === 'boss' ? base.hp : Math.round(base.hp * scale);
+function createEnemy(s: SurvivorState, kind: SurvivorEnemy['kind'], now: number, at?: { x: number; z: number }): SurvivorEnemy {
+  const stats: Record<SurvivorEnemy['kind'], { hp: number; speed: number; damage: number; xp: number; radius: number }> = {
+    ghoul: { hp: 18, speed: 1.15, damage: 7, xp: 2, radius: 0.32 },
+    bat: { hp: 10, speed: 2, damage: 5, xp: 2, radius: 0.25 },
+    knight: { hp: 55, speed: 0.72, damage: 14, xp: 5, radius: 0.42 },
+    charger: { hp: 34, speed: 0.95, damage: 13, xp: 4, radius: 0.36 },
+    wisp: { hp: 17, speed: 1.7, damage: 6, xp: 3, radius: 0.28 },
+    slinger: { hp: 28, speed: 0.78, damage: 9, xp: 4, radius: 0.34 },
+    splitter: { hp: 68, speed: 0.78, damage: 12, xp: 6, radius: 0.48 },
+    shifter: { hp: 32, speed: 1.2, damage: 11, xp: 4, radius: 0.32 },
+    pack: { hp: 23, speed: 1.35, damage: 8, xp: 3, radius: 0.3 },
+    bulwark: { hp: 105, speed: 0.5, damage: 18, xp: 8, radius: 0.52 },
+    boss: { hp: 34_000, speed: 1.05, damage: 28, xp: 0, radius: 1.25 },
+  };
+  const base = stats[kind];
+  const angle = random(s) * Math.PI * 2;
+  const spawnRadius = SURVIVOR_WORLD_LIMIT - (kind === 'boss' ? 1.5 : 0.75);
+  const position = at ?? { x: Math.cos(angle) * spawnRadius, z: Math.sin(angle) * spawnRadius };
+  const strengthStage = kind === 'boss' ? 0 : Math.floor(Math.max(0, now - s.startedAt) / 120_000);
+  const hpScale = kind === 'boss' ? 1 : 1 + strengthStage * 0.55;
+  const damageScale = kind === 'boss' ? 1 : 1 + strengthStage * 0.4;
+  const speedScale = kind === 'boss' ? 1 : Math.min(1.8, 1 + strengthStage * 0.07);
+  const hp = Math.round(base.hp * hpScale);
   return {
-    id: `e${s.run}-${++s.spawnIndex}`, kind, x: Math.cos(a) * r, z: Math.sin(a) * r,
-    hp, maxHp: hp, speed: base.speed * (kind === 'boss' ? 1 : Math.min(1.8, scale)), damage: base.damage, xp: base.xp, radius: base.radius,
+    id: `e${s.run}-${++s.spawnIndex}`, kind, ...position,
+    hp, maxHp: hp, speed: base.speed * speedScale, damage: Math.round(base.damage * damageScale), xp: base.xp, radius: base.radius,
+    armor: kind === 'bulwark' ? 0.52 : 0, strengthStage,
     hitAt: 0, attackAt: now,
+    nextSpecialAt: kind === 'boss' ? now + 5_000 : kind === 'charger' ? now + 4_500 : kind === 'slinger' ? now + 2_000 : kind === 'shifter' ? now + 5_500 : 0,
+    dashFrom: null, dashUntil: 0, movePhase: random(s) * Math.PI * 2, chargeTarget: null, chargeUntil: 0,
   };
 }
 function weaponAttack(s: SurvivorState, p: SurvivorPlayer, gear: string, level: number, now: number, d: SurvivorDeps) {
   const profile = d.profile(p.id);
   const styleHaste = p.style === 'stargazer' ? 0.9 : 1;
-  const passiveHaste = Math.max(0.5, (1 - (p.gear.astralbook ?? 0) * 0.07) * styleHaste);
-  const configs: Record<string, { interval: number; range: number; damage: number; aoe?: number; targets?: number }> = {
-    moonblade: { interval: 650, range: 2.3, damage: 11, targets: 1 },
+  const passiveHaste = Math.max(0.4, (1 - (p.gear.astralbook ?? 0) * 0.07) * styleHaste);
+  const configs: Record<string, { interval: number; range: number; damage: number; aoe?: number; targets?: number; pierce?: boolean; chain?: boolean; chainRange?: number; fan?: boolean; fanAngle?: number; centered?: boolean }> = {
+    moonblade: { interval: 650, range: 2.3, damage: 16, targets: 1 },
     starbolt: { interval: 1050, range: 8.5, damage: 15, targets: 1 },
-    shade: { interval: 1200, range: 7, damage: 12, targets: 3 },
-    bloodaura: { interval: 650, range: 2.7, damage: 7, aoe: 2.7 },
-    eclipse: { interval: 420, range: 3.2, damage: 22, aoe: 3.2 },
-    starfall: { interval: 1000, range: 9.5, damage: 27, aoe: 2.8 },
-    umbralstorm: { interval: 850, range: 8.2, damage: 20, targets: 8 },
-    crimsonsun: { interval: 500, range: 3.7, damage: 13, aoe: 3.7 },
+    shade: { interval: 1200, range: 7, damage: 17, targets: 3 },
+    bloodaura: { interval: 650, range: 2.7, damage: 11, aoe: 2.7 },
+    eclipse: { interval: 420, range: 3.2, damage: 30, aoe: 3.2 },
+    starfall: { interval: 1000, range: 9.5, damage: 35, aoe: 2.8 },
+    umbralstorm: { interval: 850, range: 8.2, damage: 27, targets: 8 },
+    crimsonsun: { interval: 500, range: 3.7, damage: 19, aoe: 3.7 },
+    frostlance: { interval: 1_050, range: 8.2, damage: 22, targets: 5, pierce: true },
+    stormring: { interval: 1_300, range: 7.5, damage: 14, targets: 5, chain: true, chainRange: 4.2 },
+    embermine: { interval: 1_450, range: 7, damage: 26, aoe: 2.8 },
+    thornshot: { interval: 900, range: 9.5, damage: 13, targets: 4, fan: true, fanAngle: 0.42 },
+    voidpulse: { interval: 780, range: 3.5, damage: 21, aoe: 3.5, centered: true },
+    lunarconvergence: { interval: 480, range: 12, damage: 185, targets: 10 },
+    crimsonvoid: { interval: 620, range: 5.5, damage: 105, aoe: 5.5 },
+    stormfrost: { interval: 680, range: 13, damage: 145, targets: 12 },
   };
   const cfg = configs[gear];
   if (!cfg || now < (p.attackAt[gear] ?? 0) + cfg.interval * passiveHaste) return;
   p.attackAt[gear] = now;
-  const targets = s.enemies.filter((e) => e.hp > 0 && survivorDistance(e, p) <= cfg.range).sort((a, b) => survivorDistance(a, p) - survivorDistance(b, p));
+  const range = cfg.range * (1 + (p.gear.huntsigil ?? 0) * 0.05);
+  const areaRadius = cfg.aoe ? cfg.aoe * (1 + (p.gear.pyreseed ?? 0) * 0.05) : 0;
+  const targets = s.enemies.filter((e) => e.hp > 0 && survivorDistance(e, p) <= range).sort((a, b) => survivorDistance(a, p) - survivorDistance(b, p));
   if (!targets.length) return;
-  const raw = cfg.damage * (1 + (level - 1) * 0.18 + profile.upgrades.might * 0.05);
-  const chosen = cfg.aoe ? targets.filter((e) => survivorDistance(e, targets[0]) <= cfg.aoe!) : targets.slice(0, cfg.targets ?? 1);
+  const raw = cfg.damage * (1 + (level - 1) * 0.18 + profile.upgrades.might * 0.05)
+    * (gear === 'frostlance' ? 1 + (p.gear.frostcore ?? 0) * 0.08 : 1)
+    * (cfg.aoe ? 1 + (p.gear.pyreseed ?? 0) * 0.06 : 1);
+  let chosen: SurvivorEnemy[];
+  if (cfg.centered) {
+    chosen = s.enemies.filter((e) => e.hp > 0 && survivorDistance(e, p) <= areaRadius);
+  } else if (cfg.aoe) {
+    chosen = s.enemies.filter((e) => e.hp > 0 && survivorDistance(e, targets[0]) <= areaRadius);
+  } else if (cfg.pierce) {
+    const aim = targets[0];
+    const dx = aim.x - p.x, dz = aim.z - p.z;
+    const length = Math.hypot(dx, dz) || 1;
+    const end = { x: p.x + dx / length * range, z: p.z + dz / length * range };
+    chosen = s.enemies
+      .filter((e) => {
+        if (e.hp <= 0) return false;
+        const projection = ((e.x - p.x) * dx + (e.z - p.z) * dz) / length;
+        return projection >= 0 && projection <= range && pointSegmentDistance(e, p, end) <= e.radius + 0.24;
+      })
+      .sort((a, b) => survivorDistance(a, p) - survivorDistance(b, p))
+      .slice(0, cfg.targets ?? 5);
+  } else if (cfg.chain) {
+    chosen = [targets[0]];
+    const chainRange = (cfg.chainRange ?? 4) + (gear === 'stormring' ? (p.gear.coppercoil ?? 0) * 0.45 : 0);
+    while (chosen.length < (cfg.targets ?? 1)) {
+      const previous = chosen[chosen.length - 1];
+      const next = s.enemies
+        .filter((e) => e.hp > 0 && !chosen.includes(e) && survivorDistance(e, previous) <= chainRange)
+        .sort((a, b) => survivorDistance(a, previous) - survivorDistance(b, previous))[0];
+      if (!next) break;
+      chosen.push(next);
+    }
+  } else if (cfg.fan) {
+    const aimAngle = Math.atan2(targets[0].z - p.z, targets[0].x - p.x);
+    chosen = targets.filter((e) => {
+      const angle = Math.atan2(e.z - p.z, e.x - p.x);
+      const delta = Math.atan2(Math.sin(angle - aimAngle), Math.cos(angle - aimAngle));
+      return Math.abs(delta) <= (cfg.fanAngle ?? 0.42);
+    }).slice(0, cfg.targets ?? 4);
+  } else {
+    chosen = targets.slice(0, cfg.targets ?? 1);
+  }
   if (chosen.length) {
     s.effects.push({
       id: `${s.run}-${p.id}-${gear}-${now}`,
@@ -211,18 +314,31 @@ function weaponAttack(s: SurvivorState, p: SurvivorPlayer, gear: string, level: 
       at: now,
       from: { x: p.x, z: p.z },
       targets: chosen.map((e) => ({ x: e.x, z: e.z })),
-      reach: Math.max(...chosen.map((e) => survivorDistance(p, e))),
+      reach: cfg.aoe ? areaRadius : Math.max(...chosen.map((e) => survivorDistance(p, e))),
+      ...(cfg.aoe ? { areaCenter: cfg.centered ? { x: p.x, z: p.z } : { x: targets[0].x, z: targets[0].z } } : {}),
+      ...(cfg.chain ? { chain: true } : {}),
     });
   }
   for (const e of chosen) {
     if (e.hp <= 0) continue;
-    e.hp -= raw;
+    e.hp -= raw * (1 - e.armor);
     e.hitAt = now;
     if (e.hp <= 0) {
       p.kills++;
       s.kills++;
       if (e.kind === 'boss') s.bossDefeated = true;
       else giveXp(s, d, e.xp);
+      if (e.kind === 'splitter') {
+        for (const offset of [-1, 1]) {
+          if (s.enemies.length >= SURVIVOR_MAX_ENEMIES) break;
+          const fragment = createEnemy(s, 'bat', now, clampSurvivorPosition(e.x + offset * 0.48, e.z + offset * 0.34));
+          fragment.hp = fragment.maxHp = Math.max(1, Math.ceil(fragment.hp * 0.55));
+          fragment.damage = Math.max(1, Math.ceil(fragment.damage * 0.7));
+          fragment.xp = 1;
+          fragment.radius = 0.18;
+          s.enemies.push(fragment);
+        }
+      }
     }
   }
 }
@@ -236,7 +352,7 @@ function finish(sid: string, s: SurvivorState, d: SurvivorDeps, now: number) {
   s.pausedAt = null;
   for (const p of Object.values(s.players)) {
     const profile = d.profile(p.id);
-    profile.points += p.level;
+    profile.points += Math.floor(p.level * (1 + (p.gear.moonshard ?? 0) * 0.05));
     profile.runs++;
     profile.bestLevel = Math.max(profile.bestLevel, p.level);
     profile.bestKills = Math.max(profile.bestKills, p.kills);
@@ -267,12 +383,25 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
       for (const enemy of s.enemies) {
         enemy.attackAt += pausedFor;
         if (enemy.hitAt > 0) enemy.hitAt += pausedFor;
+        if (enemy.nextSpecialAt > 0) enemy.nextSpecialAt += pausedFor;
+        if (enemy.dashUntil > 0) enemy.dashUntil += pausedFor;
+        if (enemy.chargeUntil > 0) enemy.chargeUntil += pausedFor;
       }
+      if (s.spawnGrowthPausedAt != null) {
+        s.spawnGrowthPausedAt += pausedFor;
+        s.spawnGrowthPausedUntil += pausedFor;
+      }
+      for (const projectile of s.projectiles) projectile.expiresAt += pausedFor;
       s.pausedAt = null;
     } else if (hasPendingChoice(s)) {
       s.pausedAt = now;
       send(sid, s, d);
       continue;
+    }
+    if (s.spawnGrowthPausedAt != null && now >= s.spawnGrowthPausedUntil) {
+      s.spawnGrowthPausedMs += Math.max(0, s.spawnGrowthPausedUntil - s.spawnGrowthPausedAt);
+      s.spawnGrowthPausedAt = null;
+      s.spawnGrowthPausedUntil = 0;
     }
     s.effects = s.effects.filter((effect) => now - effect.at <= 900);
     const users = d.users(sid), avatars = d.avatars(sid);
@@ -280,6 +409,28 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
     if (elapsed >= SURVIVOR_DURATION_MS && s.phase === 'running') {
       s.phase = 'boss';
       s.enemies.push(createEnemy(s, 'boss', now));
+      s.bossesSpawned = 1;
+    }
+    if (s.phase === 'boss') {
+      while (elapsed >= SURVIVOR_DURATION_MS + s.bossesSpawned * 30_000) {
+        s.enemies.push(createEnemy(s, 'boss', now));
+        s.bossesSpawned++;
+      }
+    }
+    const strengthStage = Math.floor(elapsed / 120_000);
+    for (const enemy of s.enemies) {
+      if (enemy.kind === 'boss' || enemy.strengthStage >= strengthStage) continue;
+      const previousHpScale = 1 + enemy.strengthStage * 0.55;
+      const nextHpScale = 1 + strengthStage * 0.55;
+      const previousDamageScale = 1 + enemy.strengthStage * 0.4;
+      const nextDamageScale = 1 + strengthStage * 0.4;
+      const previousSpeedScale = Math.min(1.8, 1 + enemy.strengthStage * 0.07);
+      const nextSpeedScale = Math.min(1.8, 1 + strengthStage * 0.07);
+      enemy.hp = Math.max(1, Math.round(enemy.hp * nextHpScale / previousHpScale));
+      enemy.maxHp = Math.max(1, Math.round(enemy.maxHp * nextHpScale / previousHpScale));
+      enemy.damage = Math.max(1, Math.round(enemy.damage * nextDamageScale / previousDamageScale));
+      enemy.speed *= nextSpeedScale / previousSpeedScale;
+      enemy.strengthStage = strengthStage;
     }
     for (const p of Object.values(s.players)) {
       if (!p.alive) continue;
@@ -291,32 +442,176 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
     }
     const alive = Object.values(s.players).filter((p) => p.alive);
     if (!alive.length) { finish(sid, s, d, now); continue; }
-    if (s.phase === 'running' && now >= s.nextSpawnAt && s.enemies.length < SURVIVOR_MAX_ENEMIES) {
+    const growthPauseElapsed = s.spawnGrowthPausedAt == null ? 0 : Math.min(now, s.spawnGrowthPausedUntil) - s.spawnGrowthPausedAt;
+    const spawnGrowthElapsed = Math.max(0, elapsed - s.spawnGrowthPausedMs - growthPauseElapsed);
+    const spawnGrowthStage = Math.floor(spawnGrowthElapsed / 120_000);
+    const partySize = Math.max(1, Object.keys(s.players).length);
+    if (now >= s.nextSpawnAt && s.enemies.length < SURVIVOR_MAX_ENEMIES) {
       const seconds = elapsed / 1000;
-      const count = seconds > 300 ? 2 : 1;
+      const growthSeconds = spawnGrowthElapsed / 1000;
+      const partyScale = 1 + Math.min(2.5, (partySize - 1) * 0.3);
+      const count = Math.min(8, Math.ceil((1 + Math.min(3, spawnGrowthStage)) * partyScale));
       for (let i = 0; i < count && s.enemies.length < SURVIVOR_MAX_ENEMIES; i++) {
         const roll = random(s);
-        const kind = seconds > 240 && roll < 0.26 ? 'knight' : seconds > 90 && roll < 0.56 ? 'bat' : 'ghoul';
+        const kind: SurvivorEnemy['kind'] = seconds >= 240
+          ? roll < 0.12 ? 'charger' : roll < 0.22 ? 'wisp' : roll < 0.32 ? 'slinger'
+            : roll < 0.41 ? 'splitter' : roll < 0.49 ? 'shifter' : roll < 0.57 ? 'pack'
+              : roll < 0.65 ? 'bulwark' : roll < 0.78 ? 'knight' : roll < 0.9 ? 'bat' : 'ghoul'
+          : seconds >= 180 ? roll < 0.14 ? 'wisp' : roll < 0.27 ? 'slinger' : roll < 0.37 ? 'splitter' : roll < 0.52 ? 'bat' : 'ghoul'
+            : seconds >= 120 ? roll < 0.12 ? 'slinger' : roll < 0.42 ? 'bat' : 'ghoul'
+              : seconds >= 90 && roll < 0.56 ? 'bat' : 'ghoul';
         s.enemies.push(createEnemy(s, kind, now));
       }
-      s.nextSpawnAt = now + Math.max(260, 1050 - seconds * 1.2);
+      s.nextSpawnAt = now + Math.max(650, 1050 - growthSeconds * 1.2);
     }
+    let playerWasHit = false;
     for (const e of s.enemies) {
       if (e.hp <= 0) continue;
       const targets = alive.filter((p) => p.alive).sort((a, b) => survivorDistance(a, e) - survivorDistance(b, e));
       const target = targets[0];
       if (!target) continue;
-      const dist = survivorDistance(target, e);
-      if (dist > e.radius + 0.42) {
-        const step = Math.min(e.speed * SURVIVOR_TICK_MS / 1000, dist);
-        e.x += (target.x - e.x) / dist * step;
-        e.z += (target.z - e.z) / dist * step;
-      } else if (now >= e.attackAt + 850 && now >= target.hitAt + Math.max(250, 550 - (target.gear.nightcloak ?? 0) * 60)) {
+      if (e.kind === 'charger' && !e.chargeTarget && now >= e.nextSpecialAt) {
+        e.chargeTarget = { x: target.x, z: target.z };
+        e.chargeUntil = now + 700;
+        e.nextSpecialAt = now + 7_000;
+      }
+      if (e.kind === 'charger' && e.chargeTarget) {
+        if (now < e.chargeUntil) continue;
+        const from = { x: e.x, z: e.z };
+        const dx = e.chargeTarget.x - e.x, dz = e.chargeTarget.z - e.z;
+        const distance = Math.hypot(dx, dz) || 1;
+        const landing = clampSurvivorPosition(e.chargeTarget.x + dx / distance * 1.5, e.chargeTarget.z + dz / distance * 1.5);
+        e.dashFrom = from;
+        e.x = landing.x; e.z = landing.z;
+        e.dashUntil = now + 480;
+        e.chargeTarget = null;
+        e.chargeUntil = 0;
+        for (const player of alive) {
+          if (!player.alive || pointSegmentDistance(player, from, landing) > e.radius + 0.5) continue;
+          const hitCooldown = Math.max(250, 550 - (player.gear.nightcloak ?? 0) * 60);
+          if (now < player.hitAt + hitCooldown) continue;
+          const armor = Math.min(0.4, (player.gear.ironheart ?? 0) * 0.06);
+          player.hp -= e.damage * 2.2 * (1 - armor);
+          player.hitAt = now;
+          playerWasHit = true;
+          if (player.hp <= 0) { player.hp = 0; player.alive = false; }
+        }
+        continue;
+      }
+      if (e.kind === 'boss' && now >= e.nextSpecialAt) {
+        const dx = target.x - e.x, dz = target.z - e.z;
+        const distance = Math.hypot(dx, dz) || 1;
+        const from = { x: e.x, z: e.z };
+        const landing = clampSurvivorPosition(target.x - dx / distance * 0.9, target.z - dz / distance * 0.9);
+        e.dashFrom = from;
+        e.x = landing.x; e.z = landing.z;
+        e.dashUntil = now + 520;
+        e.nextSpecialAt = now + 5_000;
+        e.attackAt = now;
+        const armor = Math.min(0.4, (target.gear.ironheart ?? 0) * 0.06);
+        target.hp -= e.damage * 2.4 * (1 - armor);
+        target.hitAt = now;
+        playerWasHit = true;
+        if (target.hp <= 0) { target.hp = 0; target.alive = false; }
+        const volleySize = 16;
+        const angleOffset = random(s) * Math.PI * 2;
+        for (let i = 0; i < volleySize; i++) {
+          const angle = angleOffset + i * Math.PI * 2 / volleySize;
+          const speed = 5.8;
+          s.projectiles.push({
+            id: `${e.id}-bullet-${now}-${i}`, sourceId: e.id, kind: 'boss', x: e.x, z: e.z,
+            vx: Math.cos(angle) * speed, vz: Math.sin(angle) * speed,
+            damage: 23, radius: 0.2, expiresAt: now + 5_000,
+          });
+        }
+      }
+      if (e.kind === 'shifter' && now >= e.nextSpecialAt) {
+        const from = { x: e.x, z: e.z };
+        let dx = e.x - target.x, dz = e.z - target.z;
+        const distance = Math.hypot(dx, dz);
+        if (distance < 0.001) { dx = Math.cos(e.movePhase); dz = Math.sin(e.movePhase); }
+        const length = Math.hypot(dx, dz) || 1;
+        const landing = clampSurvivorPosition(target.x + dx / length * 1.7, target.z + dz / length * 1.7);
+        e.dashFrom = from;
+        e.x = landing.x; e.z = landing.z;
+        e.dashUntil = now + 650;
+        e.nextSpecialAt = now + 5_500;
+      }
+      let dist = survivorDistance(target, e);
+      if (e.kind === 'slinger' && now >= e.nextSpecialAt && dist <= 10) {
+        const baseAngle = Math.atan2(target.z - e.z, target.x - e.x);
+        for (const spread of [-0.12, 0, 0.12]) {
+          const angle = baseAngle + spread;
+          const speed = 4.5;
+          s.projectiles.push({
+            id: `${e.id}-shot-${now}-${spread}`, sourceId: e.id, kind: 'slinger', x: e.x, z: e.z,
+            vx: Math.cos(angle) * speed, vz: Math.sin(angle) * speed,
+            damage: Math.round(e.damage * 1.15), radius: 0.15, expiresAt: now + 4_000,
+          });
+        }
+        e.nextSpecialAt = now + 2_600;
+        e.attackAt = now;
+      }
+      dist = survivorDistance(target, e);
+      const slingerRetreat = e.kind === 'slinger' && dist < 4.5;
+      const slingerAdvance = e.kind === 'slinger' && dist > 7;
+      if (slingerRetreat || slingerAdvance || (e.kind !== 'slinger' && dist > e.radius + 0.42)) {
+        const destinationGap = e.kind === 'slinger' ? (slingerRetreat ? 4.5 - dist : dist - 7) : dist;
+        let dirX = dist > 0 ? (target.x - e.x) / dist : Math.cos(e.movePhase);
+        let dirZ = dist > 0 ? (target.z - e.z) / dist : Math.sin(e.movePhase);
+        if (slingerRetreat) { dirX *= -1; dirZ *= -1; }
+        if (e.kind === 'wisp') {
+          const weave = Math.sin(now * 0.004 + e.movePhase) * 1.25;
+          const zigzagX = dirX * 0.82 - dirZ * weave;
+          const zigzagZ = dirZ * 0.82 + dirX * weave;
+          const length = Math.hypot(zigzagX, zigzagZ) || 1;
+          dirX = zigzagX / length; dirZ = zigzagZ / length;
+        }
+        if (e.kind === 'shifter') {
+          const curve = Math.sin(now * 0.006 + e.movePhase) * 0.7;
+          const curvedX = dirX * 0.82 - dirZ * curve;
+          const curvedZ = dirZ * 0.82 + dirX * curve;
+          const length = Math.hypot(curvedX, curvedZ) || 1;
+          dirX = curvedX / length; dirZ = curvedZ / length;
+        }
+        let packSpeed = 1;
+        if (e.kind === 'pack') {
+          const allies = s.enemies.filter((other) => other.id !== e.id && other.kind === 'pack' && survivorDistance(other, e) < 4).length;
+          packSpeed += Math.min(0.6, allies * 0.12);
+        }
+        const step = Math.min(e.speed * packSpeed * SURVIVOR_TICK_MS / 1000, destinationGap);
+        Object.assign(e, clampSurvivorPosition(e.x + dirX * step, e.z + dirZ * step));
+      } else if (e.kind !== 'slinger' && now >= e.attackAt + 850 && now >= target.hitAt + Math.max(250, 550 - (target.gear.nightcloak ?? 0) * 60)) {
         const armor = Math.min(0.4, (target.gear.ironheart ?? 0) * 0.06);
         target.hp -= e.damage * (1 - armor);
         target.hitAt = e.attackAt = now;
+        playerWasHit = true;
         if (target.hp <= 0) { target.hp = 0; target.alive = false; }
       }
+    }
+    const remainingProjectiles: typeof s.projectiles = [];
+    for (const projectile of s.projectiles) {
+      if (now >= projectile.expiresAt) continue;
+      const next = { x: projectile.x + projectile.vx * SURVIVOR_TICK_MS / 1000, z: projectile.z + projectile.vz * SURVIVOR_TICK_MS / 1000 };
+      const target = alive.find((player) => player.alive && pointSegmentDistance(player, projectile, next) <= projectile.radius + 0.42);
+      if (target) {
+        const hitCooldown = Math.max(250, 550 - (target.gear.nightcloak ?? 0) * 60);
+        if (now >= target.hitAt + hitCooldown) {
+          const armor = Math.min(0.4, (target.gear.ironheart ?? 0) * 0.06);
+          target.hp -= projectile.damage * (1 - armor);
+          target.hitAt = now;
+          playerWasHit = true;
+          if (target.hp <= 0) { target.hp = 0; target.alive = false; }
+        }
+        continue;
+      }
+      if (Math.abs(next.x) > SURVIVOR_WORLD_LIMIT + 0.5 || Math.abs(next.z) > SURVIVOR_WORLD_LIMIT + 0.5) continue;
+      remainingProjectiles.push({ ...projectile, ...next });
+    }
+    s.projectiles = remainingProjectiles;
+    if (playerWasHit) {
+      if (s.spawnGrowthPausedAt == null || now >= s.spawnGrowthPausedUntil) s.spawnGrowthPausedAt = now;
+      s.spawnGrowthPausedUntil = now + 30_000;
     }
     for (const p of alive) if (p.alive) for (const [id, level] of Object.entries(p.gear)) if (level > 0 && SURVIVOR_GEAR[id]?.kind === 'weapon') weaponAttack(s, p, id, level, now, d);
     s.enemies = s.enemies.filter((e) => e.hp > 0);

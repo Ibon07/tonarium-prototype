@@ -37,6 +37,10 @@ cloudflared 以外（ngrok など）を使う場合は、`.env` の `ALLOWED_HOS
    - `livekit` サービス: `https://<LIVEKIT_DOMAIN>:7880`（シグナリングの wss がここを通る）
 6. デプロイ。`/healthz` がヘルスチェックに使われる。通話に入れないときは、ドックの上に出る理由と `livekit` サービスのログを見る
 
+デプロイ中と更新の案内:
+- 開いている人は、ホーム用 WebSocket が 5 秒以上切れていて、インターネットにはつながっているのに `/healthz` が通らない間、全面に「メンテナンス中です」が出る。つながり直すと自動で消える（`client/src/world/ServerNotices.tsx`）
+- サーバーは `client/dist/index.html` のハッシュを画面の版として、配る `index.html` の `<meta name="tonarium-version">` と `snapshot` の `version` に入れる。つなぎ直した先の版がページの版と違うと、上部に「新しいバージョンがあります」と「更新する」（再読み込み。セッション中なら一度抜ける）・「あとで」（その版のあいだ隠す）が出る。画面のファイルが変わらないサーバーだけの変更では出ない。`npm run dev` では出ない
+
 メモ:
 - HTTP・ホーム用 WebSocket（`/ws`）・同期シグナリング（`/sync/offer`）・同期用 WebSocket（`/sync/ws`）・LiveKit トークン（`/token`）は同じポート。HTTPS は Coolify（Traefik）が付ける。`/sync/ws` も WebSocket Upgrade を許可する
 - アイコン・3D アバター・自己紹介・フレンド・通報は `tonarium-data` ボリューム（`/app/data`）に保存されるので再デプロイしても残る。作ったセッション・グループ・イベント、アイテム、DM とチャンネルのメッセージ、ステータスも同じボリュームに残る。セッション内のチャットはメモリ内だけなので、再デプロイ・再起動で消える。インスタンスは 1 つで動かすこと（複数にすると部屋が分かれる）

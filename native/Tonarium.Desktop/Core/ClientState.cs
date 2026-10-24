@@ -22,6 +22,7 @@ public sealed class ClientState
     public JsonObject Snapshot { get; set; } = new();
     public JsonObject Items { get; set; } = new();
     public JsonObject Avatars { get; set; } = new();
+    public JsonObject Emotes { get; set; } = new();
     public JsonObject Presence { get; set; } = new();
     public JsonObject Conversations { get; set; } = new();
     public JsonObject Reads { get; set; } = new();

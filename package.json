@@ -17,7 +17,9 @@
     "electron:test": "npm --prefix electron test",
     "electron:build:linux": "npm --prefix electron run build:linux",
     "electron:build:windows": "npm --prefix electron run build:windows",
-    "electron:install:linux": "bash electron/install-linux-user.sh"
+    "electron:install:linux": "bash electron/install-linux-user.sh",
+    "test:emotes": "tsx --test shared/emotes.test.ts",
+    "test:worlds": "tsx --test shared/worlds.test.ts"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.3",

@@ -21,6 +21,7 @@ import { VOICE_RANGE, clampAvatar, computePlaces, placeDistance } from '../share
 import { clampCity } from '../shared/city.ts';
 import { callElevator, elevatorOf, resetElevator } from './city.ts';
 import { SOUNDS } from '../shared/sounds.ts';
+import { EMOTES, isEmoteId } from '../shared/emotes.ts';
 import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts';
 import type { PeerOperation } from '../shared/session-events.ts';
 import { getOgp } from './ogp.ts';
@@ -35,6 +36,11 @@ const PORT = Number(process.env.SERVER_PORT ?? 3001);
 const DEV = process.argv.includes('--dev');
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'client/dist');
+// index.html は読み込むファイル名にハッシュを含むので、画面が変わったときだけ版が変わる
+const CLIENT_VERSION = (() => {
+  if (DEV) return null;
+  try { return createHash('sha1').update(fs.readFileSync(path.join(DIST, 'index.html'))).digest('hex').slice(0, 12); } catch { return null; }
+})();
 const DATA_DIR = process.env.DATA_DIR ?? path.join(ROOT, 'data');
 const ICON_DIR = path.join(DATA_DIR, 'icons');
 const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
@@ -146,6 +152,7 @@ const avatars = new Map<string, Map<string, AvatarState>>();
 const items = new Map<string, Map<string, Item>>();
 const broadcastMode = new Map<string, boolean>();
 const lastAttention = new Map<string, number>();
+const emoteUntil = new WeakMap<Participant, number>();
 const worldOf = new Map<string, WorldKind>();
 // アイテムはだれもいなくなっても残し、再起動しても戻す（盤面の続きをするため）
 const savedItems = readJson<Record<string, Item[]>>(ITEMS_FILE, {});
@@ -474,6 +481,7 @@ const survivorDeps: SurvivorDeps = {
 setInterval(() => tickSurvivors(Date.now(), survivorDeps), SURVIVOR_TICK_MS);
 
 function leaveSession(u: Participant) {
+  emoteUntil.delete(u);
   revokeUserSync(u.id);
   const sid = u.session;
   if (!sid) return;
@@ -531,6 +539,7 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
         events: home.events,
         sessions: allSessionInfo(),
         now: Date.now(),
+        version: CLIENT_VERSION,
       },
     });
     send(ws, {
@@ -747,6 +756,14 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
       me.viewLive = on;
       sendPresence(sid);
       event(sid, on ? `${me.name} が視点のライブを始めました（ついてきている人向け）` : `${me.name} が視点のライブを止めました`);
+      return;
+    }
+    case 'emote': {
+      if (!isEmoteId(msg.id)) return;
+      const at = Date.now();
+      if (at < (emoteUntil.get(me) ?? 0)) return;
+      emoteUntil.set(me, at + EMOTES[msg.id].duration);
+      roomSend(sid, { t: 'emote', sid, from: me.id, id: msg.id, at });
       return;
     }
     case 'sound': {
@@ -1249,7 +1266,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(302, { Location: `http://localhost:${process.env.CLIENT_PORT || 5173}${url.pathname}${url.search}` });
       res.end();
     } else {
-      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Tonarium-Dev': '1' });
       res.end('npm run dev 中です。トンネルは http://localhost:5173 に向けるか、npm start で起動して 3001 をトンネルしてください。');
     }
     return;
@@ -1269,7 +1286,7 @@ const server = http.createServer(async (req, res) => {
     const origin = /^[\w.:[\]-]+$/.test(host) ? `${proto === 'https' ? 'https' : 'http'}://${host}` : '';
     res.setHeader('Content-Type', MIME['.html']);
     res.setHeader('Cache-Control', 'no-cache');
-    res.end(fs.readFileSync(file, 'utf-8').replaceAll('__ORIGIN__', origin));
+    res.end(fs.readFileSync(file, 'utf-8').replaceAll('__ORIGIN__', origin).replaceAll('__VERSION__', CLIENT_VERSION ?? ''));
     return;
   }
   res.setHeader('Content-Type', MIME[path.extname(file)] ?? 'application/octet-stream');

@@ -13,6 +13,7 @@ import { POSITION_TOPIC, SessionPositions } from '../shared/session-position.ts'
 import { SessionEvents, EVENT_TOPIC, EVENT_BULK_TOPIC, RECOVERY_TOPIC } from '../shared/session-events.ts';
 import { applyItemAction, isDeltaAction, type Item } from '../shared/items.ts';
 import type { RoomClientMsg } from '../shared/protocol.ts';
+import { EMOTES } from '../shared/emotes.ts';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until<T>(read: () => T | undefined, timeout = 45_000): Promise<T> {
@@ -166,6 +167,24 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   assert.ok(b2.snapshot.items[0].strokes.some((s: any) => s.id === 'new-line'));
   const other = await peer('other', 'other-test');
   assert.ok(other.snapshot.items.every((v: any) => v.id !== 'large-canvas'));
+  await a.send({ t: 'emote', id: 'wave' });
+  const reaction = await until(() => b2.received.find((v) => v.message?.t === 'emote'));
+  assert.equal(reaction.message.from, a.id);
+  assert.equal(reaction.message.id, 'wave');
+  assert.ok(Number.isFinite(reaction.message.at));
+  await until(() => a.received.find((v) => v.message?.t === 'emote'));
+  await a.send({ t: 'emote', id: 'hop' });
+  await a.send({ t: 'emote', id: '__proto__' } as unknown as RoomClientMsg);
+  // A chat after both commands is a barrier: all earlier commands were handled.
+  await a.send({ t: 'chat', text: 'emote barrier', scope: 'all' });
+  await until(() => b2.received.find((v) => v.message?.m?.text === 'emote barrier'));
+  assert.equal(b2.received.filter((v) => v.message?.t === 'emote').length, 1, 'reject overlapping or unsupported emotes');
+  assert.equal(other.received.some((v) => v.message?.t === 'emote'), false, 'emotes stay in their session');
+  await delay(Math.max(0, reaction.message.at + EMOTES.wave.duration - Date.now()) + 50);
+  await a.send({ t: 'emote', id: '__proto__' } as unknown as RoomClientMsg);
+  await a.send({ t: 'emote', id: 'hop' });
+  await until(() => b2.received.find((v) => v.message?.t === 'emote' && v.message.id === 'hop'));
+  assert.equal(b2.received.filter((v) => v.message?.t === 'emote').length, 2, 'next reaction works after cooldown; invalid IDs never broadcast');
   const replay = await seal(b2.key, b2.cfg.token, 'client', 100, { t: 'chat', text: 'once only', scope: 'all' });
   await sendPacket(b2.client, b2.cfg.server, replay);
   await sendPacket(b2.client, b2.cfg.server, replay);

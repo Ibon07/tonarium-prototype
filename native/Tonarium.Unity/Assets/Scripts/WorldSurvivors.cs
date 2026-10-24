@@ -10,6 +10,7 @@ namespace Tonarium.UnityClient
     {
         JObject survivor = new JObject(), survivorProfile = new JObject(), survivorCatalog;
         readonly Dictionary<string, GameObject> survivorEnemies = new Dictionary<string, GameObject>();
+        readonly Dictionary<string, GameObject> survivorProjectiles = new Dictionary<string, GameObject>();
         readonly Dictionary<string, GameObject> survivorPeople = new Dictionary<string, GameObject>();
         readonly Dictionary<string, Material> survivorMaterials = new Dictionary<string, Material>();
         readonly List<GameObject> survivorEffects = new List<GameObject>();
@@ -32,7 +33,7 @@ namespace Tonarium.UnityClient
         void ClearSurvivorScene()
         {
             if (survivorRoot != null) { survivorRoot.SetActive(false); Destroy(survivorRoot); }
-            survivorRoot = null; survivorVisualActors.Clear(); survivorVisualAttacks.Clear(); survivorEnemies.Clear(); survivorPeople.Clear(); survivorEffects.Clear(); survivorEffectIds.Clear();
+            survivorRoot = null; survivorVisualActors.Clear(); survivorVisualAttacks.Clear(); survivorEnemies.Clear(); survivorProjectiles.Clear(); survivorPeople.Clear(); survivorEffects.Clear(); survivorEffectIds.Clear();
             survivorLobbyMarker = null; survivorHudControls.Clear(); survivorScroll = Vector2.zero;
             survivorDetails = survivorLibrary = survivorResetConfirm = false;
             survivorRun = -1; survivorSession = "";
@@ -56,6 +57,7 @@ namespace Tonarium.UnityClient
                 controller.enabled = true; yaw = 0; pitch = 0; vertical = 0;
                 initialPosition = true;
             }
+            SyncSurvivorProjectiles();
             SyncSurvivorMarkers(survivor["enemies"] as JArray ?? new JArray(), true);
             var people = new JArray();
             if (survivor["players"] is JObject players)
@@ -86,12 +88,28 @@ namespace Tonarium.UnityClient
                     collection[id] = marker = CreateSurvivorActor(value, enemy, index);
                 UpdateSurvivorActor(marker, value, enemy, index++);
             }
-            foreach (var id in collection.Keys.Where(id => !live.Contains(id)).ToArray()) { survivorVisualActors.Remove(collection[id]); Destroy(collection[id]); collection.Remove(id); }
+            foreach (var id in collection.Keys.Where(id => !live.Contains(id)).ToArray()) { if(survivorVisualActors.TryGetValue(collection[id],out var actor)){if(actor.chargeLine!=null)Destroy(actor.chargeLine);if(actor.chargeMark!=null)Destroy(actor.chargeMark);} survivorVisualActors.Remove(collection[id]); Destroy(collection[id]); collection.Remove(id); }
+        }
+        void SyncSurvivorProjectiles()
+        {
+            var values=(survivor["projectiles"] as JArray??new JArray()).OfType<JObject>().ToArray();var live=new HashSet<string>();
+            foreach(var value in values)
+            {
+                string id=(string)value["id"];if(string.IsNullOrEmpty(id))continue;live.Add(id);
+                if(!survivorProjectiles.TryGetValue(id,out var obj))
+                {
+                    obj=SurvivorGroup(SurvivorRoot(),"Enemy projectile "+id,new Vector3(Float(value,"x"),.32f,-Float(value,"z")));obj.AddComponent<SurvivorVisualResources>();survivorProjectiles[id]=obj;
+                    bool boss=(string)value["kind"]=="boss";SurvivorPoly(obj.transform,"Core",Vector3.zero,.17f,"octa1",boss?"#fff0d8":"#fff8d2",true);
+                    var trail=SurvivorBox(obj.transform,"Trail",boss?"#ff315d":"#ffd166",new Vector3(.55f,.055f,.055f));trail.transform.localPosition=new Vector3(-Float(value,"vx")/5.8f*.25f,0,Float(value,"vz")/5.8f*.25f);trail.transform.localRotation=Quaternion.Euler(0,Mathf.Atan2(Float(value,"vz"),Float(value,"vx"))*Mathf.Rad2Deg,0);SurvivorEffectMaterial(trail,true);SurvivorOpacity(trail,.85f);
+                }
+            }
+            foreach(var id in survivorProjectiles.Keys.Where(id=>!live.Contains(id)).ToArray()){Destroy(survivorProjectiles[id]);survivorProjectiles.Remove(id);}
         }
         void UpdateSurvivor(bool controls)
         {
             if (world != "survivors") return;
             UpdateSurvivorVisuals();
+            if(!SurvivorPaused)foreach(var projectile in (survivor["projectiles"] as JArray??new JArray()).OfType<JObject>())if(survivorProjectiles.TryGetValue((string)projectile["id"],out var obj)) obj.transform.position=Vector3.Lerp(obj.transform.position,new Vector3(Float(projectile,"x"),.32f,-Float(projectile,"z")),Mathf.Min(1,Time.deltaTime*18));
             if (!SurvivorActive)
             {
                 eye.transform.localPosition = new Vector3(0, 1.6f, 0);

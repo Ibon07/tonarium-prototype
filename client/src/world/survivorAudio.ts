@@ -1,6 +1,6 @@
 import { fxVolume } from '../volume.ts';
 
-type SurvivorSound = 'start' | 'attack' | 'level' | 'equip' | 'boss' | 'pause' | 'resume' | 'end' | 'victory';
+type SurvivorSound = 'start' | 'attack' | 'level' | 'choice' | 'hit' | 'equip' | 'boss' | 'pause' | 'resume' | 'end' | 'victory';
 
 let audio: AudioContext | null = null;
 let lastAttackAt = 0;
@@ -93,6 +93,14 @@ export function playSurvivorSound(kind: SurvivorSound, gear = '') {
     case 'level':
       chord(c, at, [523, 659, 784, 1047], 0.52, 0.085 * v);
       tone(c, at + 0.08, 260, 520, 0.38, 'triangle', 0.055 * v);
+      break;
+    case 'choice':
+      chord(c, at, [660, 880, 1175], 0.34, 0.095 * v);
+      tone(c, at + 0.04, 440, 880, 0.3, 'triangle', 0.06 * v);
+      break;
+    case 'hit':
+      tone(c, at, 190, 62, 0.22, 'sawtooth', 0.1 * v);
+      hiss(c, at, 0.12, 0.055 * v, 650);
       break;
     case 'equip':
       tone(c, at, 440, 880, 0.14, 'triangle', 0.075 * v);

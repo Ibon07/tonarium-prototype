@@ -13,6 +13,7 @@ import {
 } from './common.tsx';
 import { openWindow, toggleFromList, useIsOpen } from './windows.ts';
 import { PeerVolume } from './VolumeMenus.tsx';
+import { EmoteBadge } from './Emotes.tsx';
 
 type Menu = { kind: 'user'; id: string; rect: DOMRect } | { kind: 'item'; id: string; rect: DOMRect };
 
@@ -79,6 +80,7 @@ function PlayerRow({ e, onMenu, menuOpen, onVolume }: { e: PlayerEntry; onMenu: 
     return (
       <button className="farchip ib" data-uid={u.id} title={formatDistance(e.d)} onClick={() => pickUser(u.id)} onContextMenu={context} style={glowStyle(trend)}>
         <Face id={u.id} name={u.name} size={20} />{u.name}{u.mode === '3d' && <Badge3D />}
+        <EmoteBadge id={u.id} />
       </button>
     );
   }
@@ -93,6 +95,7 @@ function PlayerRow({ e, onMenu, menuOpen, onVolume }: { e: PlayerEntry; onMenu: 
           {big && status && <span className="pstat">{status}</span>}
         </span>
         <Equip id={u.id} />
+        <EmoteBadge id={u.id} />
         {muted && <span className="pmuted" title="自分だけミュート中"><Icon name="volumeOff" size={14} /></span>}
       </button>
       <LiveButton u={u} small={!big} />
@@ -302,6 +305,7 @@ export function NearList() {
         <div className="selfrow" data-uid={selfId}>
           <Face id={selfId} name={selfName} size={32} ring={selfSpeaking ? SPEAK_RING : undefined} />
           <span className="pname">{selfName}</span>
+          <EmoteBadge id={selfId} />
           {me && <LiveButton u={me} />}
           <span className="pill dark">あなた</span>
           <span className="pill">{mode.toUpperCase()}</span>

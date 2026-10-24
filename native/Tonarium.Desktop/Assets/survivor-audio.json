@@ -238,6 +238,57 @@
       "volume": 0.055
     }
   ],
+  "choice": [
+    {
+      "at": 0.012,
+      "start": 660,
+      "end": 663.3,
+      "duration": 0.34,
+      "wave": "sine",
+      "volume": 0.095
+    },
+    {
+      "at": 0.087,
+      "start": 880,
+      "end": 884.3999999999999,
+      "duration": 0.34,
+      "wave": "sine",
+      "volume": 0.095
+    },
+    {
+      "at": 0.162,
+      "start": 1175,
+      "end": 1180.8749999999998,
+      "duration": 0.34,
+      "wave": "sine",
+      "volume": 0.095
+    },
+    {
+      "at": 0.052000000000000005,
+      "start": 440,
+      "end": 880,
+      "duration": 0.3,
+      "wave": "triangle",
+      "volume": 0.06
+    }
+  ],
+  "hit": [
+    {
+      "at": 0.012,
+      "start": 190,
+      "end": 62,
+      "duration": 0.22,
+      "wave": "sawtooth",
+      "volume": 0.1
+    },
+    {
+      "at": 0.012,
+      "duration": 0.12,
+      "volume": 0.055,
+      "cutoff": 650,
+      "wave": "noise"
+    }
+  ],
   "equip": [
     {
       "at": 0.012,

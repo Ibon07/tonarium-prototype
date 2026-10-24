@@ -131,3 +131,7 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright CHROMIUM_PATH=/usr/bin/chromium \
 ```
 
 The script renders the real `SurvivorPanel` and Three.js `WorldMesh` with fixed local state for 2D/3D lobby, combat, equipment choice and boss scenes. It writes screenshots and fixture JSON to `native/build/survivor-parity/web/`. No game server or live session is used. A temporary Vite server listens on `127.0.0.1:5187`; temporary `client/.survivor-parity.html` and `.jsx` files are removed in `finally`. The output is a visual reference, not a completed native/Web equivalence assertion.
+
+## Emotes
+
+`dotnet run --project native/Tonarium.UiSmoke -c Release -- unused native/build/emote-check --emotes` verifies supported reactions, duplicate/expired rejection, session isolation, participant membership and blocked-user filtering without connecting to a server or changing saved settings.

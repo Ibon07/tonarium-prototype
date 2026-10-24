@@ -31,6 +31,7 @@ namespace Tonarium.UnityClient
                 GUI.skin.textArea.normal.textColor=ColorValue("#1c1917");
                 GUI.skin.textArea.normal.background=HudTexture("#fde68a");
             }
+            DrawEmotes();
             bool locked=Cursor.lockState==CursorLockMode.Locked;
             if(!embedded)
             {
@@ -133,8 +134,12 @@ namespace Tonarium.UnityClient
             GUILayout.BeginArea(new Rect(rect.x+20,rect.y+20,width-40,height-40));
             GUILayout.Label("セッションの設定",new GUIStyle(titleStyle){normal={textColor=ColorValue("#26262e")}});
             GUILayout.Space(12);GUILayout.BeginHorizontal();
-            foreach(string kind in new[]{"room","cafe","game","survivors"})if(GUILayout.Button(WorldName(kind),buttonStyle)){Room(new{t="world",world=kind});if(!bridge.Connected)BuildWorld(kind);menu=false;}
-            GUILayout.EndHorizontal();GUILayout.Space(18);
+            foreach(string kind in new[]{"room","cafe","garden","game","survivors"})if(GUILayout.Button(WorldName(kind),buttonStyle)){Room(new{t="world",world=kind});if(!bridge.Connected)BuildWorld(kind);menu=false;}
+            GUILayout.EndHorizontal();GUILayout.Space(8);
+            GUILayout.BeginHorizontal();
+            foreach(var reaction in ((JObject)WorldCatalog["emotes"]).Properties())
+                if(GUILayout.Button((string)reaction.Value["name"],buttonStyle)){Room(new{t="emote",id=reaction.Name});menu=false;}
+            GUILayout.EndHorizontal();GUILayout.Space(8);
             foreach(string kind in new[]{"note","canvas","chess","chessAi","dice","hammer","camera","g2048"})
                 if(GUILayout.Button(KindName(kind),buttonStyle)){var p=controller.transform.position+controller.transform.forward*2;Room(new{t="itemCreate",kind,x=p.x,z=-p.z,ry=-yaw*Mathf.Deg2Rad});menu=false;}
             if(GUILayout.Button("閉じる",buttonStyle))menu=false;

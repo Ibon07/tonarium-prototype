@@ -130,6 +130,7 @@ namespace Tonarium.UnityClient
                 if (sessionId != ((string)m["sessionId"] ?? sessionId))
                 {
                     initialPosition = false;
+                    activeEmotes.Clear();
                     ClearSurvivorScene();
                 }
                 sessionId = (string)m["sessionId"] ?? sessionId;
@@ -161,6 +162,7 @@ namespace Tonarium.UnityClient
             if (type == "desktopDisconnected") { notice = "2D クライアントとの接続が切れました"; if(embedded)Application.Quit(); return; }
             if (type == "users") { users = m["list"] as JArray ?? users; SyncUsers(); }
             if (type == "presence") { presence = m["all"] as JObject ?? presence; SyncUsers(); }
+            if (type == "emote") ReceiveEmote(m);
             if (type == "avatar") ApplyAvatar((string)m["id"], m["s"] as JObject);
             if (type == "avatarRemove") RemoveAvatar((string)m["id"]);
             if (type == "item") ApplyItem(m["item"] as JObject);

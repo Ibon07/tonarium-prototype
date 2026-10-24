@@ -3,7 +3,7 @@ import { CITY_HALF, CITY_SOLIDS } from './city.ts';
 import { SURVIVOR_TITLE } from './survivor.ts';
 
 /** ワールド＝ 3D 空間の種類。セッションはどれか 1 つを読み込み、途中で切り替えられる */
-export type WorldKind = 'room' | 'cafe' | 'game' | 'survivors' | 'city';
+export type WorldKind = 'room' | 'cafe' | 'game' | 'survivors' | 'city' | 'garden';
 
 /** 床の上の通り抜けられない物。r があれば円、なければ w×d の箱（x, z が中心）。
  * y0〜y1 があればその高さの間だけ効く（マンションの階ごとの壁など）。無ければどの高さでも効く */
@@ -41,6 +41,42 @@ export const CAFE = {
 };
 export const CAFE_TABLE_R = 0.5;
 
+/** 見た目と当たり判定で同じ配置・寸法を使う。南のスポーンと中央の道はあけておく */
+export const GARDEN = {
+  trees: [
+    { x: -7.4, z: -6.8, r: 0.26, h: 2.3, canopy: 1.15, color: '#57854c' },
+    { x: -3.8, z: -7.2, r: 0.24, h: 2.4, canopy: 1.05, color: '#779c58' },
+    { x: 4, z: -7.2, r: 0.24, h: 2.3, canopy: 1.1, color: '#658e4e' },
+    { x: 7.4, z: -6.6, r: 0.26, h: 2.4, canopy: 1.15, color: '#57854c' },
+    { x: -7.5, z: 3.8, r: 0.25, h: 2.3, canopy: 1.1, color: '#779c58' },
+    { x: 7.5, z: 3.8, r: 0.25, h: 2.4, canopy: 1.15, color: '#658e4e' },
+    { x: -5.3, z: 7.4, r: 0.24, h: 2.3, canopy: 1.05, color: '#57854c' },
+    { x: 5.3, z: 7.4, r: 0.24, h: 2.4, canopy: 1.05, color: '#779c58' },
+  ],
+  benches: [
+    { x: -4.5, z: -3, w: 2.4, d: 0.85, facing: 1 },
+    { x: 4.5, z: -3, w: 2.4, d: 0.85, facing: 1 },
+    { x: -4.5, z: 3, w: 2.4, d: 0.85, facing: -1 },
+    { x: 4.5, z: 3, w: 2.4, d: 0.85, facing: -1 },
+  ],
+  beds: [
+    { x: -7.7, z: -1, w: 1.4, d: 3.6, color: '#e6a4a0' },
+    { x: 7.7, z: -1, w: 1.4, d: 3.6, color: '#b49acb' },
+    { x: 0, z: -8.3, w: 3, d: 1.1, color: '#efc66c' },
+  ],
+  lamps: [
+    { x: -2.5, z: -4.8, r: 0.18, h: 2.7 },
+    { x: 2.5, z: -4.8, r: 0.18, h: 2.7 },
+    { x: -2.5, z: 4.6, r: 0.18, h: 2.7 },
+    { x: 2.5, z: 4.6, r: 0.18, h: 2.7 },
+  ],
+  paths: [
+    { x: 0, z: 1, w: 2.4, d: 15 },
+    { x: -4.5, z: 0, w: 6.6, d: 2 },
+    { x: 4.5, z: 0, w: 6.6, d: 2 },
+  ],
+};
+
 export const WORLDS: Record<WorldKind, WorldInfo> = {
   room: { name: 'ホール', desc: '何も置いていない広い部屋', solids: [] },
   cafe: {
@@ -51,6 +87,16 @@ export const WORLDS: Record<WorldKind, WorldInfo> = {
       ...CAFE.tables.flatMap((t) => [{ ...t, r: CAFE_TABLE_R }, ...chairsAround(t.x, t.z, 2, 0.85, Math.PI / 2)]),
       CAFE.sofa, CAFE.sofaTable,
       ...CAFE.plants.map((p) => ({ ...p, r: 0.4 })),
+    ],
+  },
+  garden: {
+    name: 'ガーデン',
+    desc: '木陰のベンチと花壇を散歩できる、空の見える庭',
+    solids: [
+      ...GARDEN.trees.map(({ x, z, r }) => ({ x, z, r })),
+      ...GARDEN.benches.map(({ x, z, w, d }) => ({ x, z, w, d })),
+      ...GARDEN.beds.map(({ x, z, w, d }) => ({ x, z, w, d })),
+      ...GARDEN.lamps.map(({ x, z, r }) => ({ x, z, r })),
     ],
   },
   game: {

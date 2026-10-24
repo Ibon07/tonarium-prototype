@@ -35,6 +35,7 @@ namespace Tonarium.UnityClient
                 RenderSettings.ambientLight = (Color.white * (1.4f / Mathf.PI)).gamma;
                 light.intensity = 1.2f / Mathf.PI;
             }
+            if (kind == "garden") { BuildGarden(); return; }
             Box(environment.transform, "Floor", new Vector3(0,-.1f,0), new Vector3(20,.2f,20), kind == "cafe" ? "#8a5a3b" : kind == "game" ? "#3b3f6b" : "#565961");
             string wall = kind == "cafe" ? "#eadcc4" : kind == "game" ? "#2a2d52" : "#80848e";
             Box(environment.transform,"South",new Vector3(0,2,10),new Vector3(20,4,.2f),wall);
@@ -159,7 +160,7 @@ namespace Tonarium.UnityClient
             var t=o.AddComponent<TextMesh>();t.text=text;t.font=font;t.fontSize=64;t.characterSize=size;t.anchor=TextAnchor.MiddleCenter;t.alignment=TextAlignment.Center;t.color=Color.white;
             o.GetComponent<Renderer>().material=font.material;return t;
         }
-        static string WorldName(string kind)=>kind=="cafe"?"カフェ":kind=="game"?"ゲーム":kind=="survivors"?"宵闇サバイバーズ":"ホール";
+        static string WorldName(string kind)=>kind=="garden"?"ガーデン":kind=="cafe"?"カフェ":kind=="game"?"ゲーム":kind=="survivors"?"宵闇サバイバーズ":"ホール";
         static string KindName(string k)=>new Dictionary<string,string>{{"note","付箋"},{"hammer","ピコピコハンマー"},{"chess","チェス"},{"chessAi","チェス AI"},{"canvas","キャンバス"},{"camera","カメラ"},{"dice","サイコロ"},{"g2048","2048"},{"image","画像"},{"video","動画"},{"youtube","YouTube"}}.TryGetValue(k??"",out var n)?n:k;
         static string Wrap(string text,int columns)=>string.Join("\n",Enumerable.Range(0,Mathf.CeilToInt(text.Length/(float)columns)).Select(i=>text.Substring(i*columns,Math.Min(columns,text.Length-i*columns))));
         static string GridText(JArray grid,int width)=>grid==null?"":string.Join("\n",Enumerable.Range(0,grid.Count/width).Select(r=>string.Join("   ",grid.Skip(r*width).Take(width).Select(v=>((int)v)==0?"・":v.ToString()))));

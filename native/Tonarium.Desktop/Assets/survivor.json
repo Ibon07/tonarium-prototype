@@ -1,5 +1,6 @@
 {
   "constants": {
+    "maxSynergyGear": 3,
     "join": {
       "x": 0,
       "z": 6.5,
@@ -137,6 +138,130 @@
       "rarity": "mythic",
       "desc": "血月の輪が灼熱の太陽へ変わる。",
       "maxLevel": 1
+    },
+    "frostlance": {
+      "id": "frostlance",
+      "name": "霜牙の槍",
+      "kind": "weapon",
+      "rarity": "rare",
+      "desc": "狙った方向へ氷槍を一直線に放ち、最大5体を貫く。氷晶核と共鳴する。",
+      "maxLevel": 5,
+      "synergy": "frostcore"
+    },
+    "stormring": {
+      "id": "stormring",
+      "name": "雷環",
+      "kind": "weapon",
+      "rarity": "rare",
+      "desc": "雷が近くの敵へ連鎖する。導電コイルと共鳴する。",
+      "maxLevel": 5,
+      "synergy": "coppercoil"
+    },
+    "embermine": {
+      "id": "embermine",
+      "name": "火葬の種",
+      "kind": "weapon",
+      "rarity": "common",
+      "desc": "敵の足元で爆ぜ、周囲を巻き込む火種。焔の種火と共鳴する。",
+      "maxLevel": 5,
+      "synergy": "pyreseed"
+    },
+    "thornshot": {
+      "id": "thornshot",
+      "name": "茨の連弩",
+      "kind": "weapon",
+      "rarity": "common",
+      "desc": "扇状に茨の矢を放ち、前方の敵をまとめて射抜く。狩人の印と共鳴する。",
+      "maxLevel": 5,
+      "synergy": "huntsigil"
+    },
+    "voidpulse": {
+      "id": "voidpulse",
+      "name": "虚空の脈動",
+      "kind": "weapon",
+      "rarity": "epic",
+      "desc": "周囲へ虚空の衝撃波を放つ。月片の護符と共鳴する。",
+      "maxLevel": 5,
+      "synergy": "moonshard"
+    },
+    "frostcore": {
+      "id": "frostcore",
+      "name": "氷晶核",
+      "kind": "passive",
+      "rarity": "rare",
+      "desc": "霜牙の槍の威力が上がる。",
+      "maxLevel": 5
+    },
+    "coppercoil": {
+      "id": "coppercoil",
+      "name": "導電コイル",
+      "kind": "passive",
+      "rarity": "common",
+      "desc": "雷環の電撃がより遠くの敵まで連鎖する。",
+      "maxLevel": 5
+    },
+    "pyreseed": {
+      "id": "pyreseed",
+      "name": "焔の種火",
+      "kind": "passive",
+      "rarity": "common",
+      "desc": "範囲攻撃の威力と範囲を強化する。",
+      "maxLevel": 5
+    },
+    "huntsigil": {
+      "id": "huntsigil",
+      "name": "狩人の印",
+      "kind": "passive",
+      "rarity": "rare",
+      "desc": "すべての武器の攻撃範囲を広げる。",
+      "maxLevel": 5
+    },
+    "moonshard": {
+      "id": "moonshard",
+      "name": "月片の護符",
+      "kind": "passive",
+      "rarity": "epic",
+      "desc": "ラン終了時にレベルから得るポイントが増える。",
+      "maxLevel": 5
+    },
+    "lunarconvergence": {
+      "id": "lunarconvergence",
+      "name": "月星終焉",
+      "kind": "weapon",
+      "rarity": "mythic",
+      "desc": "月蝕の刃と星屑の弾丸を融合。月光の奔流が広範囲の敵を何度も貫く。",
+      "maxLevel": 1,
+      "synergyGear": true,
+      "evolvedFrom": [
+        "moonblade",
+        "starbolt"
+      ]
+    },
+    "crimsonvoid": {
+      "id": "crimsonvoid",
+      "name": "深紅の皆既核",
+      "kind": "weapon",
+      "rarity": "mythic",
+      "desc": "影縫いと血月の輪を融合。巨大な深紅の波動が周囲を呑み込み、敵を連続で消し飛ばす。",
+      "maxLevel": 1,
+      "synergyGear": true,
+      "evolvedFrom": [
+        "shade",
+        "bloodaura"
+      ]
+    },
+    "stormfrost": {
+      "id": "stormfrost",
+      "name": "天穹の雷霜",
+      "kind": "weapon",
+      "rarity": "mythic",
+      "desc": "霜牙の槍と雷環を融合。雷霜の連鎖が画面中の敵を一斉に貫く。",
+      "maxLevel": 1,
+      "synergyGear": true,
+      "evolvedFrom": [
+        "frostlance",
+        "stormring"
+      ]
     }
   },
   "upgrades": {

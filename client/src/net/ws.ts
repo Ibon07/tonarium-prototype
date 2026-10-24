@@ -9,8 +9,11 @@ import { onHit } from '../items/effects.ts';
 import { pushNotice } from '../actions.ts';
 import { volumeFrom } from '../spatial.ts';
 import { playPoke, playSynth } from '../world/sounds.ts';
+import { receiveEmote } from '../emotes.ts';
 import { playSurvivorSound } from '../world/survivorAudio.ts';
 import { startSessionSync, stopSessionSync, roomSend, configureSessionSync, syncError, resetSessionSync } from './session.ts';
+
+const PAGE_VERSION = document.querySelector('meta[name="tonarium-version"]')?.getAttribute('content') || null;
 
 /** 注目を集めたアイテムが光っている時間 */
 export const ATTENTION_MS = 10_000;
@@ -69,7 +72,13 @@ function playSurvivorTransitions(sid: string, next: SurvivorState) {
 
   const previousPlayers = previous.players;
   const players = Object.values(next.players);
-  if (players.some((player) => player.level > (previousPlayers[player.id]?.level ?? player.level))) playSurvivorSound('level');
+  const selfId = get().selfId;
+  const previousSelf = previousPlayers[selfId];
+  const nextSelf = next.players[selfId];
+  const ownChoiceStarted = !!nextSelf?.alive && nextSelf.choiceQueue.length > 0 && !(previousSelf?.choiceQueue.length ?? 0);
+  if (ownChoiceStarted) playSurvivorSound('choice');
+  if (previousSelf && nextSelf && nextSelf.hp < previousSelf.hp) playSurvivorSound('hit');
+  if (!ownChoiceStarted && players.some((player) => player.level > (previousPlayers[player.id]?.level ?? player.level))) playSurvivorSound('level');
   else if (players.some((player) => {
     const before = previousPlayers[player.id];
     return !!before && Object.entries(player.gear).some(([gear, level]) => level !== (before.gear[gear] ?? 0));
@@ -85,6 +94,9 @@ function playSurvivorTransitions(sid: string, next: SurvivorState) {
 export function applySessionSnapshot(snap: SessionSnapshot) {
   const sid = snap.sid;
   if (sid !== get().session) return;
+  const previousSelf = get().survivors[sid]?.players[get().selfId];
+  const nextSelf = snap.survivor?.players[get().selfId];
+  if (nextSelf?.alive && nextSelf.choiceQueue.length > 0 && !(previousSelf?.choiceQueue.length ?? 0)) playSurvivorSound('choice');
   set((s) => ({
     chats: { ...s.chats, [sid]: snap.chats },
     avatarsBy: { ...s.avatarsBy, [sid]: snap.avatars },
@@ -106,7 +118,8 @@ export function onMessage(msg: ServerMsg) {
     case 'syncError': syncError(msg.requestId, msg.error); return;
     case 'syncReset': resetSessionSync(msg.sid); return;
     case 'snapshot': {
-      const { guild, users, friends, groups, events, sessions, now } = msg.s;
+      const { guild, users, friends, groups, events, sessions, now, version } = msg.s;
+      if (version && PAGE_VERSION && version !== PAGE_VERSION) set({ updateVersion: version });
       set((s) => ({ groups, events, serverOffset: now - Date.now(), guild, users, friends, sessionInfo: sessions, worldBy: { ...s.worldBy, ...worldsOf(sessions) } }));
       break;
     }
@@ -166,6 +179,9 @@ export function onMessage(msg: ServerMsg) {
       if (msg.to === get().selfId) { pushNotice('poke', msg.from); if (!selfBusy()) playPoke(); }
       return;
     }
+    case 'emote':
+      receiveEmote(msg);
+      return;
     case 'sound':
       if (msg.sid !== get().session) return;
       if (!get().blocked.includes(get().users.find((u) => u.id === msg.from)?.name ?? '')) playSynth(msg.id, volumeFrom(msg.from));

@@ -35,7 +35,7 @@ public sealed class TonariumClient : IAsyncDisposable
     private static readonly HashSet<string> RoomTypes = new(StringComparer.Ordinal)
     {
         "peerOperation", "sync", "mode", "status", "follow", "dropFollowers", "place2d", "displayMove", "chat",
-        "avatar", "viewing", "poke", "sound", "liveRequest", "viewLive", "itemCreate", "attention", "broadcast",
+        "avatar", "viewing", "poke", "sound", "emote", "liveRequest", "viewLive", "itemCreate", "attention", "broadcast",
         "survivorStyle", "survivorStart", "survivorMove", "survivorChoose", "survivorUpgrade", "survivorReset",
         "world", "gameStart", "gameStep", "gameFell", "itemRemove", "itemMove", "itemAction", "hit"
     };
@@ -180,7 +180,7 @@ public sealed class TonariumClient : IAsyncDisposable
 
     private void ResetRoomState()
     {
-        State.Items = new(); State.Avatars = new(); State.Presence = new(); State.Chats = new(); State.Game = new(); State.Survivor = new();
+        State.Emotes = new(); State.Items = new(); State.Avatars = new(); State.Presence = new(); State.Chats = new(); State.Game = new(); State.Survivor = new();
         State.Broadcast = false; State.MicOn = false; State.Sharing = false; State.WorldPending = null;
         State.World = State.SessionInfo[State.SessionId ?? ""] is JsonObject info ? Text(info, "world", "room") : "room";
     }
@@ -645,6 +645,7 @@ public sealed class TonariumClient : IAsyncDisposable
         State.Broadcast = Boolean(snapshot, "broadcast");
         State.World = Text(snapshot, "world", "room");
         State.Game = Object(snapshot, "game");
+        survivorAudio.ApplySnapshot(State.Survivor, Object(snapshot, "survivor"), State.FxVolume, State.SelfId);
         State.Survivor = Object(snapshot, "survivor");
         State.ServerOffset = Number(snapshot, "now") - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         MessageReceived?.Invoke(new JsonObject { ["t"] = "sessionSnapshot", ["s"] = snapshot.DeepClone() });
@@ -686,6 +687,15 @@ public sealed class TonariumClient : IAsyncDisposable
                 var key = Text(message, "conv"); State.Reads[key] = Math.Max(State.Reads[key]?.GetValue<long>() ?? 0, Number(message, "at")); break;
             case "presence": State.Presence = Object(message, "all"); break;
             case "avatar": State.Avatars[Text(message, "id")] = message["s"]?.DeepClone(); break;
+            case "emote":
+                var emoteId = Text(message, "id"); var from = Text(message, "from");
+                var at = Number(message, "at");
+                if (EmoteCatalog.All[emoteId] is JsonObject definition && State.Users.Any(u => J.Text(u, "id") == from && J.Text(u, "session") == State.SessionId && !NativeSettings.BlockedNames.Contains(J.Text(u, "name")))
+                    && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + State.ServerOffset - at < J.Number(definition, "duration")
+                    && at > J.Number(State.Emotes[from], "at", double.NegativeInfinity))
+                    State.Emotes[from] = message.DeepClone();
+                else return;
+                break;
             case "avatarRemove": State.Avatars.Remove(Text(message, "id")); break;
             case "item":
                 var item = Object(message, "item"); State.Items[Text(item, "id")] = item; break;
@@ -697,7 +707,7 @@ public sealed class TonariumClient : IAsyncDisposable
             case "world": State.World = Text(message, "world", "room"); State.WorldPending = null; break;
             case "survivor":
                 var nextSurvivor = Object(message, "state");
-                survivorAudio.Apply(State.Survivor, nextSurvivor, State.FxVolume);
+                survivorAudio.Apply(State.Survivor, nextSurvivor, State.FxVolume, State.SelfId);
                 State.Survivor = nextSurvivor; break;
             case "survivorProfile": State.SurvivorProfile = Object(message, "profile"); break;
             case "game": State.Game = Object(message, "game"); break;
