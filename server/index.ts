@@ -87,8 +87,10 @@ async function readBody(req: http.IncomingMessage, limit: number) {
 const SESSIONS_FILE = process.env.SESSIONS_FILE ?? path.join(ROOT, 'sessions.json');
 const guild = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')) as GuildConfig;
 // 画面から作ったセッション・グループ・イベント。sessions.json のセッションの後ろに並べる
-const home: { sessions: SessionDef[]; groups: Group[]; events: EventDef[] } = { sessions: [], groups: [], events: [] };
+// renamed は sessions.json のセッションを画面から改名したときの名前（sessions.json は書き換えない）
+const home: { sessions: SessionDef[]; groups: Group[]; events: EventDef[]; renamed: Record<string, string> } = { sessions: [], groups: [], events: [], renamed: {} };
 try { Object.assign(home, JSON.parse(fs.readFileSync(HOME_FILE, 'utf-8'))); } catch { /* まだ無い */ }
+for (const d of guild.sessions) d.name = home.renamed[d.id] ?? d.name;
 const defaultChannels = () => [{ id: 'general', name: '雑談' }];
 for (const g of home.groups) if (!g.channels?.length) g.channels = defaultChannels();
 for (const ev of home.events) { ev.maybe ??= []; ev.declined ??= []; }
@@ -622,6 +624,18 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
       broadcastMode.set(sid, on);
       roomSend(sid, { t: 'broadcast', sid, on });
       event(sid, on ? `${me.name} がブロードキャストモードをオンにしました（距離に関係なく声が届きます）` : `${me.name} がブロードキャストモードをオフにしました`);
+      return;
+    }
+    case 'sessionRename': {
+      const name = trimTo(msg.name, 40);
+      const def = guild.sessions.find((d) => d.id === sid);
+      if (!def || !name || def.name === name) return;
+      const before = def.name;
+      def.name = name;
+      if (!home.sessions.includes(def)) home.renamed[def.id] = name;
+      saveHome();
+      broadcastSessions();
+      event(sid, `${me.name} がセッション名を「${before}」から「${name}」に変えました`);
       return;
     }
     case 'gameStart': {

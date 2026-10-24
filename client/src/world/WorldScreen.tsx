@@ -28,6 +28,24 @@ import { MediaSync } from '../mediaSync.tsx';
 import { closeWindow, openWindow, setWinMode } from './windows.ts';
 import { touchOnly, usePhone } from '../phone.ts';
 
+/** 名前はだれでも変えられ、全員に反映されてログに出る */
+function SessionRename({ current, onDone }: { current: string; onDone: () => void }) {
+  const [name, setName] = useState(current);
+  const v = name.trim();
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!v || v === current) return;
+    send({ t: 'sessionRename', name: v });
+    onDone();
+  };
+  return (
+    <form className="renamerow" onSubmit={submit}>
+      <input aria-label="セッション名" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+      <button className="renamebtn" type="submit" disabled={!v || v === current}>変更</button>
+    </form>
+  );
+}
+
 function WorldBadge() {
   const world = useStore((s) => sessionOf(s.session));
   const selfName = useStore((s) => s.selfName);
@@ -51,6 +69,8 @@ function WorldBadge() {
       {menu && (
         <Popover anchor={menu} side="down" onClose={() => setMenu(null)} className="settings">
           <span className="menutitle">セッションの設定</span>
+          <SessionRename current={world?.name ?? ''} onDone={() => setMenu(null)} />
+          <span className="menusep" />
           <label className="switchrow">
             <span><b>ブロードキャストモード</b><span className="sub wrap">距離に関係なく全員の声が聞こえ、声の範囲のチャットも全員に届く（全員に反映）</span></span>
             <input type="checkbox" role="switch" checked={broadcast} onChange={(e) => send({ t: 'broadcast', on: e.target.checked })} />

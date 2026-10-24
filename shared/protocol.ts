@@ -316,6 +316,8 @@ export type RoomClientMsg =
   | { t: 'broadcast'; on: boolean }
   /** clearItems ならアイテムをすべて片付けてから切り替える */
   | { t: 'world'; world: WorldKind; clearItems?: boolean }
+  /** いまのセッションの名前を変える（だれでも） */
+  | { t: 'sessionRename'; name: string }
   | { t: 'gameStart' }
   /** 自分が乗った板（サーバーが消える時刻を決める） */
   | { t: 'gameStep'; tile: number }
@@ -333,7 +335,7 @@ export type ClientMsg = HomeClientMsg | RoomClientMsg;
 const ROOM_CLIENT_TYPES: Record<RoomClientMsg['t'], true> = {
   peerOperation: true,
   sync: true, mode: true, status: true, follow: true, dropFollowers: true, place2d: true, displayMove: true, chat: true, avatar: true,
-  viewing: true, poke: true, sound: true, liveRequest: true, viewLive: true, itemCreate: true, attention: true, broadcast: true, world: true,
+  viewing: true, poke: true, sound: true, liveRequest: true, viewLive: true, itemCreate: true, attention: true, broadcast: true, world: true, sessionRename: true,
   gameStart: true, gameStep: true, gameFell: true, elevatorCall: true, itemRemove: true, itemMove: true, itemAction: true, hit: true,
 };
 export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => m.t in ROOM_CLIENT_TYPES;
