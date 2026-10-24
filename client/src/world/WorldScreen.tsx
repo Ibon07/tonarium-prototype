@@ -27,6 +27,7 @@ import { shareFiles, shareYouTube, youTubeId } from '../media.ts';
 import { MediaSync } from '../mediaSync.tsx';
 import { closeWindow, openWindow, setWinMode } from './windows.ts';
 import { touchOnly, usePhone } from '../phone.ts';
+import { MasterVolume } from './VolumeMenus.tsx';
 
 /** 名前はだれでも変えられ、全員に反映されてログに出る */
 function SessionRename({ current, onDone }: { current: string; onDone: () => void }) {
@@ -113,6 +114,7 @@ function Dock() {
     voice: s.voice, micEnabled: s.micEnabled, sharer: s.sharer, selfId: s.selfId, winMode: s.winMode,
   })));
   const [sb, setSb] = useState<DOMRect | null>(null);
+  const [vol, setVol] = useState<DOMRect | null>(null);
   const ok = voice === 'connected';
   const sharingSelf = sharer === selfId;
   return (
@@ -130,6 +132,9 @@ function Dock() {
       <button className="dk" aria-label="サウンドボード" title="サウンドボード" data-popanchor onClick={(e) => setSb(sb ? null : e.currentTarget.getBoundingClientRect())}>
         <Icon name="music" size={22} />
       </button>
+      <button className="dk" aria-label="音量" title="音量" data-popanchor onClick={(e) => setVol(vol ? null : e.currentTarget.getBoundingClientRect())}>
+        <Icon name="volume" size={22} />
+      </button>
       <span className="dsep" />
       <div className="dseg" role="radiogroup" aria-label="ウィンドウの表示">
         <button role="radio" aria-checked={winMode === 'simple'} className={winMode === 'simple' ? 'on' : ''} onClick={() => setWinMode('simple')} title="開いたものを 1 つ大きく表示し、ほかは下に並べる">
@@ -142,6 +147,7 @@ function Dock() {
       <span className="dsep" />
       <button className="dk leave" onClick={leaveSession} aria-label="切断" title="切断（セッション選択に戻る）"><Icon name="leave" size={22} /></button>
       {sb && <Soundboard anchor={sb} onClose={() => setSb(null)} />}
+      {vol && <MasterVolume anchor={vol} onClose={() => setVol(null)} />}
     </div>
   );
 }

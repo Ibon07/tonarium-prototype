@@ -408,6 +408,14 @@ img.av { object-fit: cover; display: block; }
 .dseg button:hover { color: #fff; }
 .dseg button.on { background: #fff; color: var(--ink); font-weight: 700; }
 .popover.soundboard { width: 260px; padding: 8px; }
+.popover.volume { width: 260px; padding: 8px; gap: 4px; }
+.volrow { display: flex; flex-direction: column; gap: 4px; padding: 6px 12px; }
+.vollabel { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink2); }
+.vollabel b { font-variant-numeric: tabular-nums; }
+.volrow input[type=range] { width: 100%; accent-color: var(--accent); }
+.volbtns { display: flex; flex-direction: column; }
+.volbtns .menuitem.on { color: var(--danger); }
+.pmuted { display: inline-flex; color: var(--danger); flex: none; }
 .sgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .sbtn { height: 44px; border-radius: 10px; font-size: 12px; background: var(--sand) !important; }
 .sbtn:hover { background: #E9E3D8 !important; }

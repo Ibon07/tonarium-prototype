@@ -95,6 +95,12 @@ interface State {
   walk: Walk | null;
   /** 動画・YouTube ごとの自分だけの音量（0〜1）。無ければ既定の半分 */
   volumes: Record<string, number>;
+  /** 全体の音量（0〜1、手元に保存）。voice は人の声、fx はサウンドボードや効果音、media は動画・YouTube・画面共有の音 */
+  audioVol: { voice: number; fx: number; media: number };
+  /** 人ごとの声の音量（0〜2、名前ごとに手元に保存）。無ければ等倍 */
+  peerVolume: Record<string, number>;
+  /** 自分だけミュートしている人の名前（手元に保存） */
+  peerMuted: string[];
   /** セッション中にホームを重ねて開いている */
   hubOpen: boolean;
   /** フレンドのページで開いているタブ（ホームの「もっと見る」から選んで開く） */
@@ -232,6 +238,9 @@ export const useStore = create<State>(() => ({
   mapMode: load('tonarium.mapMode', 'none'),
   walk: null,
   volumes: {},
+  audioVol: load('tonarium.audioVol', { voice: 1, fx: 1, media: 1 }),
+  peerVolume: load('tonarium.peerVolume', {}),
+  peerMuted: load('tonarium.peerMuted', []),
   hubOpen: false,
   phoneTab: 'screen',
   friendsTab: 'all',

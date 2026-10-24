@@ -1,4 +1,5 @@
 import { get, set } from '../store.ts';
+import { fxVolume } from '../volume.ts';
 
 let audio: AudioContext | null = null;
 
@@ -12,7 +13,7 @@ export function playPico() {
     osc.frequency.setValueAtTime(1400, t);
     osc.frequency.exponentialRampToValueAtTime(2600, t + 0.05);
     osc.frequency.exponentialRampToValueAtTime(900, t + 0.12);
-    gain.gain.setValueAtTime(0.12, t);
+    gain.gain.setValueAtTime(Math.max(0.0001, 0.12 * fxVolume()), t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
     osc.connect(gain).connect(audio.destination);
     osc.start(t);
@@ -30,7 +31,7 @@ export function playShutter() {
     for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len) ** 2;
     const src = audio.createBufferSource();
     const gain = audio.createGain();
-    gain.gain.value = 0.25;
+    gain.gain.value = 0.25 * fxVolume();
     src.buffer = buf;
     src.connect(gain).connect(audio.destination);
     src.start(t);
