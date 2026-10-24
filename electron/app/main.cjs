@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, session, shell, dialog, desktopCapturer, ipcMa
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { createUpdateController } = require('./updater.cjs');
 const { DEFAULT_SERVER, normalizeServer, sameOrigin, externalUrl, option } = require('./policy.cjs');
 
 app.setName('Tonarium Electron');
@@ -23,6 +24,9 @@ let mainWindow;
 let settingsWindow;
 let audioWindow;
 let pickerWindow;
+let updatesWindow;
+let updateController;
+const announcedUpdates = new Set();
 let activeServer = DEFAULT_SERVER;
 let connectionError = '';
 let captureState;
@@ -65,6 +69,20 @@ function showSettings() {
   if (settingsWindow && !settingsWindow.isDestroyed()) { settingsWindow.focus(); return; }
   settingsWindow = localWindow('settings.html', { width: 660, height: 430, parent: mainWindow, title: 'Tonarium Electron — 接続先' });
   settingsWindow.on('closed', () => { settingsWindow = undefined; });
+}
+
+function showUpdates() {
+  if (updatesWindow && !updatesWindow.isDestroyed()) { updatesWindow.focus(); return; }
+  updatesWindow = localWindow('updates.html', { width: 700, height: 650, parent: mainWindow, title: 'Tonarium Electron — 更新' });
+  updatesWindow.on('closed', () => { updatesWindow = undefined; });
+}
+function updateChanged(state) {
+  if (updatesWindow && !updatesWindow.isDestroyed()) updatesWindow.webContents.send('shell:update-state', state);
+  // Notify once per stage without interrupting calls or forcing a restart.
+  if (['available', 'downloaded'].includes(state.status)) {
+    const key = `${state.status}:${state.downloadedVersion || state.updateVersion || ''}`;
+    if (!announcedUpdates.has(key)) { announcedUpdates.add(key); showUpdates(); }
+  }
 }
 
 function audioConfig() {
@@ -210,6 +228,7 @@ function createMainWindow() {
     { label: 'Tonarium Electron', submenu: [
       { label: '接続先を変更…', click: showSettings },
       { label: 'マイク・スピーカー…', click: showAudioSettings },
+      { label: 'アプリの更新…', click: showUpdates },
       { label: 'ブラウザーで開く', click: () => openExternal(activeServer) },
       { type: 'separator' }, { role: 'quit', label: '終了' },
     ] },
@@ -218,6 +237,30 @@ function createMainWindow() {
   ]));
   connect(activeServer);
 }
+
+function requireUpdateSender(event) {
+  if (!localSender(event, updatesWindow, 'updates.html') || !updateController) throw new Error('許可されていない操作です。');
+}
+ipcMain.handle('shell:update-state', event => { requireUpdateSender(event); return updateController.state(); });
+ipcMain.handle('shell:update-configure', async (event, value) => {
+  requireUpdateSender(event);
+  const state = updateController.configure(value);
+  return state.checkOnStartup ? updateController.check() : state;
+});
+ipcMain.handle('shell:update-check', event => { requireUpdateSender(event); return updateController.check(); });
+ipcMain.handle('shell:update-release', event => {
+  requireUpdateSender(event);
+  return shell.openExternal('https://github.com/katteni-kaihatu/tonarium-prototype/releases/tag/nightly');
+});
+ipcMain.handle('shell:update-install', async event => {
+  requireUpdateSender(event);
+  const result = await dialog.showMessageBox(updatesWindow, {
+    type: 'question', title: '再起動して更新', message: 'Tonarium Electronを終了して更新しますか？',
+    detail: '通話は切断されます。入力中の内容を送信・保存してから実行してください。',
+    buttons: ['キャンセル', '更新する'], defaultId: 0, cancelId: 0,
+  });
+  if (result.response === 1) return updateController.install();
+});
 
 ipcMain.on('shell:audio-config', event => {
   event.returnValue = mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents
@@ -271,7 +314,12 @@ else {
   app.whenReady().then(() => {
     try { activeServer = normalizeServer(initialServer || JSON.parse(fs.readFileSync(configPath(), 'utf8')).server); }
     catch { activeServer = initialServer || DEFAULT_SERVER; }
+    updateController = createUpdateController({
+      app, autoUpdater: () => require('electron-updater').autoUpdater,
+      onChange: updateChanged, onNeedsConfiguration: showUpdates,
+    });
     createMainWindow();
+    Promise.resolve(updateController.start()).catch(error => console.error('更新:', error.message));
   }).catch(error => { console.error(error); app.quit(); });
   app.on('window-all-closed', () => app.quit());
 }

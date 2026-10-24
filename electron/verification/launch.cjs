@@ -5,7 +5,7 @@ const {spawn}=require('node:child_process');
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root=path.resolve(__dirname,'../..');
 const output=path.resolve(process.argv[2] || path.join(root,'electron/build/verification/normal-launch'));
-const binary=process.env.ELECTRON_BINARY || path.join(root,'electron/build/linux-unpacked/tonarium-electron');
+const binary=process.env.ELECTRON_BINARY || path.join(root,'electron/build/package-linux/linux-unpacked/tonarium-electron');
 let child,browser;
 const server=http.createServer((_,res)=>{res.writeHead(200,{'Content-Type':'text/html;charset=utf-8'});res.end('<!doctype html><html><title>Tonarium Electron 起動確認</title><body><h1>Tonarium Electron</h1><p>通常起動・分離されたユーザー設定</p><input id="ime" autofocus><canvas id="canvas"></canvas></body></html>')});
 (async()=>{

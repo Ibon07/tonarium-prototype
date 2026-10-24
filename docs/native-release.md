@@ -59,12 +59,13 @@ Native Linux、Native Windows、Electron Linux、Electron Windowsの4ジョブ�
 
 NativeはUbuntu runner上でUnityのWindows/Linux Monoプレイヤーと.NET 10の自己完結クライアントをビルドする。Unityの版は `ProjectVersion.txt` を使用する。Actions Secretsに `UNITY_EMAIL`・`UNITY_PASSWORD` と `UNITY_LICENSE`（Personal）または `UNITY_SERIAL`（Pro）が必要。[GameCIの認証手順](https://game.ci/docs/github/activation/)を参照。認証未設定やUnityビルド失敗でもElectronのビルド・公開は継続する。
 
-Electronは別のUbuntu runnerで `electron/package-lock.json` から依存を導入し、Linux AppImage／tar.gzとWindows zipを作る。Unityや.NET、Web本体のビルドは不要。リモートWebの更新は再読み込みで反映する。
+Electronは別のUbuntu runnerで `electron/package-lock.json` から依存を導入し、Linux AppImage／tar.gzとWindows ZIP／NSISインストーラーを作る。Unityや.NET、Web本体のビルドは不要。リモートWebの更新は再読み込みで反映する。
 
-公開先は全ジョブで同じ `nightly` prerelease。以下の固定名で、自分の成果物だけを置換する。
+公開先は全ジョブで同じ `nightly` prerelease。Nativeは固定名、Electronはバージョンを含む名前で公開する。自分のクライアント・OSの成果物だけを更新する。
 
 - Native: `Tonarium-nightly-linux-x64.tar.gz`、`Tonarium-nightly-win-x64.zip`
-- Electron: `Tonarium-Electron-nightly-linux-x64.tar.gz`、`Tonarium-Electron-nightly-linux-x86_64.AppImage`、`Tonarium-Electron-nightly-win-x64.zip`
+- Electron: `Tonarium-Electron-<version>-linux-x64.tar.gz`、`Tonarium-Electron-<version>-linux-x86_64.AppImage`、`Tonarium-Electron-<version>-win-x64.zip`、`Tonarium-Electron-<version>-win-x64-setup.exe` と差分更新用blockmap
+- Electron更新情報: `nightly-linux.yml`（Linux）、`nightly.yml`（Windows）
 - 各ファイルの `.sha256`
 - 各クライアント・OSの `Tonarium-Native-nightly-<runtime>.build.json` または `Tonarium-Electron-nightly-<runtime>.build.json`
 
@@ -75,3 +76,5 @@ Electronは別のUbuntu runnerで `electron/package-lock.json` から依存を�
 Nativeの展開先は `win-x64/`・`linux-x64/`。`Unity/` とビルドコミットを記録した `release.json` を含む。Linux Native版は通常配布と同じシステム依存が必要で、AppImage/Flatpakではない。既存のバージョンタグ向けWindows Release workflowは維持する。
 
 ローカルでも `python3 native/package-nightly.py linux-x64 <dotnet publish先> native/build/unity-linux <出力先>`（Windowsは `win-x64` と `native/build/unity`）で同じ梱包を行える。公開処理の回帰テストは `python3 .github/scripts/test_publish_nightly.py`。このテストはGitHub APIをモックし、実際のReleaseを書き換えない。
+
+Electronは `node electron/scripts/build.cjs --linux --nightly`（Windowsは `--win`）でビルドする。次のパッチ番号とActions実行番号・試行番号から `0.0.9-nightly.<run>.<attempt>` のような比較可能な版を生成する。`GITHUB_RUN_NUMBER` と `GITHUB_RUN_ATTEMPT` を使用する。本体のSHA-256と更新情報内のSHA-512を公開前に検証し、本体を先にアップロードしてから更新情報を切り替える。旧版を取得中のアプリが壊れないよう、過去のバージョン付き成果物は自動削除しない。

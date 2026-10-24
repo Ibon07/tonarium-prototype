@@ -1,4 +1,5 @@
 """Offline release safety checks; never access GitHub or upload real assets."""
+import base64
 import hashlib
 import importlib.util
 import json
@@ -19,9 +20,9 @@ ENV = {'GITHUB_SHA': SHA, 'GH_REPO': 'example/tonarium', 'GITHUB_REF': 'refs/hea
 NAMES = {
     ('native', 'linux-x64'): ['Tonarium-nightly-linux-x64.tar.gz'],
     ('native', 'win-x64'): ['Tonarium-nightly-win-x64.zip'],
-    ('electron', 'linux-x64'): ['Tonarium-Electron-nightly-linux-x64.tar.gz',
-                                'Tonarium-Electron-nightly-linux-x86_64.AppImage'],
-    ('electron', 'win-x64'): ['Tonarium-Electron-nightly-win-x64.zip'],
+    ('electron', 'linux-x64'): ['Tonarium-Electron-0.0.9-nightly.12.1-linux-x64.tar.gz',
+                                'Tonarium-Electron-0.0.9-nightly.12.1-linux-x86_64.AppImage'],
+    ('electron', 'win-x64'): ['Tonarium-Electron-0.0.9-nightly.12.1-win-x64.zip', 'Tonarium-Electron-0.0.9-nightly.12.1-win-x64-setup.exe', 'Tonarium-Electron-0.0.9-nightly.12.1-win-x64-setup.exe.blockmap'],
 }
 
 
@@ -87,6 +88,18 @@ class PublishTests(unittest.TestCase):
             digest = hashlib.sha256(content).hexdigest()
             (self.directory / (name + '.sha256')).write_text(f'{digest}  {name}\n')
             hashes[name] = digest
+        if component == 'electron':
+            installer = next(name for name in hashes if name.endswith(('.AppImage', '.exe')))
+            metadata = {
+                'version': '0.0.9-nightly.12.1', 'path': installer,
+                'files': [{'url': installer, 'sha512': base64.b64encode(hashlib.sha512((self.directory / installer).read_bytes()).digest()).decode()}],
+            }
+            channel = 'nightly-linux.yml' if runtime == 'linux-x64' else 'nightly.yml'
+            content = json.dumps(metadata).encode()
+            (self.directory / channel).write_bytes(content)
+            digest = hashlib.sha256(content).hexdigest()
+            (self.directory / (channel + '.sha256')).write_text(f'{digest}  {channel}\n')
+            hashes[channel] = digest
         return hashes
 
     def publish(self, fake, component='native', runtime='linux-x64'):
@@ -100,7 +113,7 @@ class PublishTests(unittest.TestCase):
                 hashes = self.files(component, runtime)
                 fake = FakeGitHub()
                 self.publish(fake, component, runtime)
-                self.assertEqual(len(fake.uploads()), 2)
+                self.assertEqual(len(fake.uploads()), 3 if component == 'electron' else 2)
                 self.assertFalse(any(args[:2] == ('release', 'create') for args in fake.calls))
                 name, record = fake.records[0]
                 self.assertEqual(name, f'Tonarium-{component.capitalize()}-nightly-{runtime}.build.json')
@@ -122,6 +135,31 @@ class PublishTests(unittest.TestCase):
         self.publish(fake)
         self.assertEqual(len(fake.records), 1)
         self.assertEqual(sum(args[:2] == ('release', 'create') for args in fake.calls), 1)
+
+    def test_electron_feed_uploaded_only_after_installers(self):
+        self.files('electron', 'win-x64')
+        fake = FakeGitHub()
+        self.publish(fake, 'electron', 'win-x64')
+        self.assertTrue(any(arg.endswith('-setup.exe') for arg in fake.uploads()[0]))
+        self.assertFalse(any(arg.endswith('.yml') for arg in fake.uploads()[0]))
+        self.assertTrue(any(arg.endswith('nightly.yml') for arg in fake.uploads()[1]))
+
+    def test_electron_invalid_sha512_rejected_before_upload(self):
+        self.files('electron', 'linux-x64')
+        name = NAMES['electron', 'linux-x64'][1]
+        (self.directory / name).write_bytes(b'changed artifact')
+        fake = FakeGitHub()
+        with self.assertRaisesRegex(RuntimeError, 'SHA-512'):
+            self.publish(fake, 'electron', 'linux-x64')
+        self.assertFalse(fake.uploads())
+
+    def test_failed_installer_upload_leaves_feed_unchanged(self):
+        self.files('electron', 'linux-x64')
+        fake = FakeGitHub(upload_fails=True)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.publish(fake, 'electron', 'linux-x64')
+        self.assertEqual(len(fake.uploads()), 1)
+        self.assertFalse(any(arg.endswith('.yml') for arg in fake.uploads()[0]))
 
     def test_creation_race_accepts_other_successful_creator(self):
         self.files()

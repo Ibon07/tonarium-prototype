@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Publish one independently built client/platform without replacing other assets."""
 import argparse
+import base64
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -22,6 +24,39 @@ def gh(*args, check=True):
     return subprocess.run(['gh', *args], check=check, capture_output=True, text=True)
 
 
+def electron_assets(directory, runtime):
+    import yaml
+    channel = 'nightly-linux.yml' if runtime == 'linux-x64' else 'nightly.yml'
+    info = yaml.safe_load((directory / channel).read_text())
+    version = info.get('version', '')
+    if not re.fullmatch(r'\d+\.\d+\.\d+-nightly\.\d+\.\d+', version):
+        raise RuntimeError('Invalid Electron nightly version')
+    platform = 'linux' if runtime == 'linux-x64' else 'win'
+    prefix = f'Tonarium-Electron-{version}-{platform}-'
+    names = sorted(file.name for file in directory.iterdir() if file.name.startswith(prefix)
+                   and file.name.endswith(('.AppImage', '.tar.gz', '.zip', '.exe', '.blockmap')))
+    expected = ['.AppImage', '.tar.gz'] if platform == 'linux' else ['-setup.exe', '.zip']
+    if not all(any(name.endswith(extension) for name in names) for extension in expected):
+        raise RuntimeError('Missing Electron nightly archives')
+    entries = info.get('files', [])
+    if not entries:
+        raise RuntimeError('Missing updater files')
+    for entry in entries:
+        name = entry.get('url')
+        if name not in names:
+            raise RuntimeError('Updater metadata references an unexpected artifact')
+        with (directory / name).open('rb') as stream:
+            digest = base64.b64encode(hashlib.file_digest(stream, 'sha512').digest()).decode()
+        if entry.get('sha512') != digest:
+            raise RuntimeError('Updater SHA-512 mismatch')
+    installer_suffix = '.AppImage' if platform == 'linux' else '-setup.exe'
+    if not any(entry['url'].endswith(installer_suffix) for entry in entries):
+        raise RuntimeError('Missing updater installer reference')
+    if info.get('path') and info['path'] not in [entry['url'] for entry in entries]:
+        raise RuntimeError('Invalid updater legacy path')
+    return names + [channel], channel
+
+
 def publish(component, runtime, directory):
     directory = Path(directory).resolve()
     sha = os.environ['GITHUB_SHA']
@@ -35,12 +70,11 @@ def publish(component, runtime, directory):
     if not current():
         print('A newer main exists; skipping this obsolete build.')
         return
+    channel = None
     if component == 'native':
         names = [f'Tonarium-nightly-{runtime}' + ('.tar.gz' if runtime == 'linux-x64' else '.zip')]
-    elif runtime == 'linux-x64':
-        names = ['Tonarium-Electron-nightly-linux-x64.tar.gz', 'Tonarium-Electron-nightly-linux-x86_64.AppImage']
     else:
-        names = ['Tonarium-Electron-nightly-win-x64.zip']
+        names, channel = electron_assets(directory, runtime)
     assets = []
     hashes = {}
     for name in names:
@@ -82,7 +116,11 @@ def publish(component, runtime, directory):
             raise RuntimeError(f'Cannot advance nightly tag: {moved.stderr}')
         gh('release', 'edit', 'nightly', '--title', 'Tonarium nightly',
            '--notes-file', str(notes), '--prerelease', '--latest=false')
-        gh('release', 'upload', 'nightly', *assets, '--clobber')
+        # バージョン付き本体を先に揃え、更新の入口である YAML を最後に切り替える。
+        channel_assets = [asset for asset in assets if channel and Path(asset).name in (channel, channel + '.sha256')]
+        gh('release', 'upload', 'nightly', *[asset for asset in assets if asset not in channel_assets], '--clobber')
+        if channel_assets:
+            gh('release', 'upload', 'nightly', *channel_assets, '--clobber')
         metadata = Path(temporary) / f'Tonarium-{component.capitalize()}-nightly-{runtime}.build.json'
         metadata.write_text(json.dumps({
             'channel': 'nightly', 'component': component, 'runtime': runtime,

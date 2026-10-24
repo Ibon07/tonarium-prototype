@@ -1,0 +1,6 @@
+.toggle { display: flex; align-items: center; gap: 10px; }
+.toggle input { width: auto; padding: 0; }
+.nested { margin-left: 24px; }
+button:disabled { opacity: .5; cursor: default; }
+#error { color: light-dark(#a32136, #ffb3b3); overflow-wrap: anywhere; }
+[hidden] { display: none !important; }
