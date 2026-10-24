@@ -5,9 +5,9 @@ import { useStore } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { ROOM_HALF, SPAWN, type AvatarState, type Participant } from '../../../shared/protocol.ts';
 import {
-  SURVIVOR_ACHIEVEMENTS, SURVIVOR_CHOICE_TIMEOUT_MS, SURVIVOR_DURATION_MS, SURVIVOR_GEAR, SURVIVOR_MAX_SYNERGY_GEAR,
+  SURVIVOR_ACHIEVEMENTS, SURVIVOR_BASE_SYNERGY_GEAR, SURVIVOR_CHOICE_TIMEOUT_MS, SURVIVOR_DURATION_MS, SURVIVOR_GEAR, SURVIVOR_MAX_SYNERGY_GEAR,
   SURVIVOR_JOIN, SURVIVOR_META_UPGRADES, SURVIVOR_STYLES,
-  SURVIVOR_TITLE, clampSurvivorPosition, isSurvivorSynergyRecipe, survivorDistance, survivorUpgradeCost, survivorUpgradeRefund,
+  SURVIVOR_TITLE, clampSurvivorPosition, isSurvivorSynergyRecipe, survivorDistance, survivorRunReward, survivorUpgradeCost,
   type SurvivorMetaUpgrade, type SurvivorPlayer, type SurvivorState,
 } from '../../../shared/survivor.ts';
 import { openWindow } from './windows.ts';
@@ -32,6 +32,29 @@ const isActive = (phase: SurvivorState['phase']) => phase === 'running' || phase
 function formatTime(ms: number) {
   const seconds = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function synergyProgressForChoice(player: SurvivorPlayer, gearId: string) {
+  const currentLevel = player.gear[gearId] ?? 0;
+  if (currentLevel <= 0) return [];
+  const synergyCount = Object.entries(player.gear).filter(([id, level]) => level > 0 && SURVIVOR_GEAR[id]?.synergyGear).length;
+  if (synergyCount >= player.synergyGearSlots) return [];
+  return SYNERGY_RECIPES.flatMap((recipe) => {
+    if ((player.gear[recipe.id] ?? 0) > 0) return [];
+    const sourceIndex = recipe.evolvedFrom?.indexOf(gearId) ?? -1;
+    if (sourceIndex < 0) return [];
+    const source = SURVIVOR_GEAR[gearId];
+    const requiredLevel = recipe.evolutionLevels?.[sourceIndex] ?? source?.maxLevel ?? 1;
+    if (currentLevel >= requiredLevel) return [];
+    const progress = (recipe.evolvedFrom ?? []).reduce((total, sourceId, index) => {
+      const requirement = recipe.evolutionLevels?.[index] ?? SURVIVOR_GEAR[sourceId]?.maxLevel ?? 1;
+      const level = sourceId === gearId ? currentLevel + 1 : player.gear[sourceId] ?? 0;
+      return total + Math.min(level, requirement);
+    }, 0);
+    const maximum = (recipe.evolvedFrom ?? []).reduce((total, sourceId, index) =>
+      total + (recipe.evolutionLevels?.[index] ?? SURVIVOR_GEAR[sourceId]?.maxLevel ?? 1), 0);
+    return [{ id: recipe.id, name: recipe.name, progress, maximum }];
+  });
 }
 
 function evolutionConditionText(gear: { evolvedFrom?: string[]; evolutionLevels?: number[] }) {
@@ -276,9 +299,12 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
   const pendingChoiceKey = queuedPlayers.map((player) => `${player.id}:${player.choiceQueue.map((choices) => choices.join('.')).join('/')}`).join(',');
   const needsOwnChoice = !!me?.alive && choices.length > 0;
   const choiceNow = clock + serverOffset;
-  const runFinishedReward = phase === 'ended' && me ? me.level : 0;
-  const investedPoints = (Object.keys(SURVIVOR_META_UPGRADES) as SurvivorMetaUpgrade[])
-    .reduce((total, upgrade) => total + survivorUpgradeRefund(upgrade, profile.upgrades[upgrade]), 0);
+  const runFinishedReward = phase === 'ended' && me ? survivorRunReward(me.level, me.gear.moonshard ?? 0) : 0;
+  const investedPoints = Object.values(profile.upgradeSpent).reduce((total, points) => total + points, 0);
+  const resultPlayers = Object.values(state?.players ?? {}).sort((a, b) => b.level - a.level || b.kills - a.kills);
+  const resultDuration = phase === 'ended' && state ? Math.max(0, (state.endedAt ?? clock + serverOffset) - state.startedAt) : 0;
+  const resultHighestLevel = resultPlayers.reduce((highest, player) => Math.max(highest, player.level), 0);
+  const resultReward = me ? runFinishedReward : resultPlayers.reduce((total, player) => total + survivorRunReward(player.level, player.gear.moonshard ?? 0), 0);
   const bosses = state?.enemies.filter((enemy) => enemy.kind === 'boss') ?? [];
   const bossHp = bosses.reduce((total, enemy) => total + enemy.hp, 0);
   const bossMaxHp = bosses.reduce((total, enemy) => total + enemy.maxHp, 0);
@@ -297,7 +323,7 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
     const maximum = sources.reduce((total, source) => total + source.maximum, 0);
     const completed = sources.reduce((total, source) => total + source.level, 0);
     const remaining = maximum - completed;
-    const slotFull = !acquired && acquiredSynergyGear.length >= SURVIVOR_MAX_SYNERGY_GEAR;
+    const slotFull = !acquired && acquiredSynergyGear.length >= (me?.synergyGearSlots ?? SURVIVOR_BASE_SYNERGY_GEAR);
     const choiceIndex = me?.choiceQueue.findIndex((queue) => queue.includes(recipe.id)) ?? -1;
     return {
       recipe, sources, maximum, completed, remaining, acquired, slotFull, choiceIndex,
@@ -372,7 +398,7 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
         <div className="survivor-choice-title">
           <span>{needsOwnChoice ? '✦ あなたの番 ✦' : '✦ CO-OP LEVEL UP ✦'}</span>
           <h3 id="survivor-choice-title">{needsOwnChoice ? '装備を選んでください' : '仲間が装備を選択中'}</h3>
-          <small>選択中: {queuedPlayers.map((player) => player.id === selfId ? 'あなた' : player.name).join('、')} · ゲームは一時停止中{needsOwnChoice ? ` · 10秒で未選択なら自動選択 · シナジー専用枠 ${acquiredSynergyGear.length}/${SURVIVOR_MAX_SYNERGY_GEAR}` : ''}</small>
+          <small>選択中: {queuedPlayers.map((player) => player.id === selfId ? 'あなた' : player.name).join('、')} · ゲームは一時停止中{needsOwnChoice ? ` · 10秒で未選択なら自動選択 · シナジー専用枠 ${acquiredSynergyGear.length}/${me?.synergyGearSlots ?? SURVIVOR_BASE_SYNERGY_GEAR}` : ''}</small>
         </div>
         <div className="survivor-choice-players">{queuedPlayers.map((owner) => {
           const isMine = owner.id === selfId;
@@ -381,7 +407,7 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
           const deadline = owner.choiceDeadlineAt ?? choiceNow + SURVIVOR_CHOICE_TIMEOUT_MS;
           const choiceTimeLeft = Math.max(0, Math.min(SURVIVOR_CHOICE_TIMEOUT_MS, deadline - choiceNow));
           return <section key={owner.id} className={`survivor-choice-player ${isMine ? 'is-self' : ''}`} aria-label={`${isMine ? 'あなた' : owner.name}の装備選択`}>
-            <div className="survivor-choice-player-head"><b>{isMine ? 'あなた' : owner.name}</b><span>{isMine ? '選択してください' : '選択中 · 観戦'} · シナジー枠 {ownerSynergyCount}/{SURVIVOR_MAX_SYNERGY_GEAR}</span></div>
+            <div className="survivor-choice-player-head"><b>{isMine ? 'あなた' : owner.name}</b><span>{isMine ? '選択してください' : '選択中 · 観戦'} · シナジー枠 {ownerSynergyCount}/{owner.synergyGearSlots}</span></div>
             <div className="survivor-choice-timer" role="progressbar" aria-label={`${isMine ? 'あなた' : owner.name}の自動選択まで`} aria-valuemin={0} aria-valuemax={SURVIVOR_CHOICE_TIMEOUT_MS} aria-valuenow={choiceTimeLeft}>
               <div><span>未選択時の自動選択まで</span><b>{Math.ceil(choiceTimeLeft / 1000)}秒</b></div>
               <i style={{ width: `${Math.min(100, choiceTimeLeft / SURVIVOR_CHOICE_TIMEOUT_MS * 100)}%` }} />
@@ -390,15 +416,20 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
               const gear = SURVIVOR_GEAR[id];
               const partner = gear.synergy ?? Object.values(SURVIVOR_GEAR).find((candidate) => candidate.synergy === gear.id)?.id;
               const level = (owner.gear[id] ?? 0) + 1;
+              const synergyProgress = gear.synergyGear ? [] : synergyProgressForChoice(owner, id);
               const details = <>
                 <b>{gear.name}</b><small>{RARITY_NAME[gear.rarity]} · Lv.{level}</small><span>{gear.desc}</span>
+                {synergyProgress.map((path) => <span key={path.id} className="survivor-choice-synergy-progress" role="progressbar" aria-label={`${path.name}への選択後のシナジー進捗`} aria-valuemin={0} aria-valuemax={path.maximum} aria-valuenow={path.progress}>
+                  <span className="survivor-choice-synergy-progress-head"><span>✦ 選択後の進捗 · {path.name}</span><b>{path.progress}/{path.maximum}</b></span>
+                  <i style={{ width: `${path.progress / path.maximum * 100}%` }} />
+                </span>)}
                 {partner && <small>対応シナジー: {SURVIVOR_GEAR[partner]?.name}</small>}
                 {gear.evolvedFrom && <small>進化条件: {evolutionConditionText(gear)}</small>}
-                {gear.synergyGear && <small className="survivor-synergy-choice-slot">✦ 専用枠 {Math.min(SURVIVOR_MAX_SYNERGY_GEAR, ownerSynergyCount + 1)}/{SURVIVOR_MAX_SYNERGY_GEAR}</small>}
+                {gear.synergyGear && <small className="survivor-synergy-choice-slot">✦ 専用枠 {Math.min(owner.synergyGearSlots, ownerSynergyCount + 1)}/{owner.synergyGearSlots}</small>}
               </>;
               return isMine
-                ? <button key={id} type="button" autoFocus={index === 0} title={gearTooltipText(id, level)} className={`survivor-choice rarity-${gear.rarity} ${gear.synergyGear ? 'survivor-synergy-choice' : ''}`} onClick={() => { unlockSurvivorAudio(); send({ t: 'survivorChoose', gear: id }); }}>{details}</button>
-                : <article key={id} title={gearTooltipText(id, level)} className={`survivor-choice survivor-choice-readonly rarity-${gear.rarity} ${gear.synergyGear ? 'survivor-synergy-choice' : ''}`}>{details}</article>;
+                ? <button key={id} type="button" autoFocus={index === 0} title={gearTooltipText(id, level)} className={`survivor-choice rarity-${gear.rarity} ${gear.synergyGear ? 'survivor-synergy-choice' : ''} ${synergyProgress.length ? 'survivor-synergy-step' : ''}`} onClick={() => { unlockSurvivorAudio(); send({ t: 'survivorChoose', gear: id }); }}>{details}</button>
+                : <article key={id} title={gearTooltipText(id, level)} className={`survivor-choice survivor-choice-readonly rarity-${gear.rarity} ${gear.synergyGear ? 'survivor-synergy-choice' : ''} ${synergyProgress.length ? 'survivor-synergy-step' : ''}`}>{details}</article>;
             })}</div>
             {isMine && <button className="survivor-reroll" disabled={owner.rerollsRemaining <= 0} onClick={() => send({ t: 'survivorReroll' })}>
               {owner.rerollsRemaining > 0 ? `候補を引き直す · 残り ${owner.rerollsRemaining} 回` : '引き直しを使い切りました'}
@@ -432,23 +463,49 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
       {damageFlash}
       {choiceDialog}
 
+      {phase === 'ended' && state && <section className="survivor-result" aria-labelledby="survivor-result-title">
+        <header className="survivor-result-head">
+          <span>{state.bossDefeated ? '✦ 夜明けを迎えた ✦' : '☾ 夜に呑まれた ☾'}</span>
+          <h3 id="survivor-result-title">戦績</h3>
+          <small>{formatTime(resultDuration)} 生存 · {state.bossDefeated ? '夜の王を討伐' : '夜の王に敗北'}</small>
+        </header>
+        <div className="survivor-result-stats">
+          <div><span>討伐数</span><b>{state.kills.toLocaleString()}</b></div>
+          <div><span>最高レベル</span><b>Lv.{resultHighestLevel}</b></div>
+          <div><span>参加者</span><b>{resultPlayers.length}人</b></div>
+          <div><span>{me ? '獲得ポイント' : 'チーム報酬'}</span><b>+{resultReward} pt</b></div>
+        </div>
+        <ol className="survivor-result-players" aria-label="参加者別の戦績">
+          {resultPlayers.map((player, index) => <li key={player.id} className={player.id === selfId ? 'is-self' : ''}>
+            <span className="survivor-result-rank">{index + 1}</span>
+            <span className="survivor-result-player"><b>{SURVIVOR_STYLES[player.style].mark} {player.id === selfId ? 'あなた' : player.name}</b><small>{player.alive ? '生存' : '戦闘不能'} · {SURVIVOR_STYLES[player.style].name}</small></span>
+            <span><b>Lv.{player.level}</b><small>討伐 {player.kills}</small></span>
+            <span><b>+{survivorRunReward(player.level, player.gear.moonshard ?? 0)} pt</b><small>今回の報酬</small></span>
+          </li>)}
+        </ol>
+      </section>}
+
       {(!active || !me) && <section className="survivor-lobby">
         <h3>{active ? '途中参加' : phase === 'ended' ? '次の夜へ' : 'スタイルを選ぶ'}</h3>
-        <div className="survivor-styles">{STYLES.filter(([, style]) => !style.unlockAt || profile.upgrades.characters >= style.unlockAt).map(([id, style]) => <button key={id} disabled={active && !canJoin} className={`survivor-style ${stylePick === id ? 'selected' : ''}`} onClick={() => send({ t: 'survivorStyle', style: id })}>
-          <b><span>{style.mark}</span>{style.name}</b><small>{style.desc}</small><small>初期装備: {SURVIVOR_GEAR[style.weapon].name} · HP {style.hp} · 移動 {style.speed.toFixed(1)}</small>
-        </button>)}</div>
+        <div className="survivor-styles">{STYLES.map(([id, style]) => {
+          const unlocked = !style.unlockAt || profile.upgrades.characters >= style.unlockAt;
+          return <button key={id} disabled={!unlocked || (active && !canJoin)} className={`survivor-style ${stylePick === id ? 'selected' : ''} ${!unlocked ? 'locked' : ''}`} onClick={() => send({ t: 'survivorStyle', style: id })}>
+            <b><span>{unlocked ? style.mark : '🔒'}</span>{style.name}</b>
+            {!unlocked && <small className="survivor-style-lock">永続強化「異界の仲間」Lv.{style.unlockAt}で解放</small>}
+            <small>{style.desc}</small><small>初期装備: {SURVIVOR_GEAR[style.weapon].name} · HP {style.hp} · 移動 {style.speed.toFixed(1)}</small>
+          </button>;
+        })}</div>
         <div className="survivor-join-status">参加エリアに {inJoin.length} 人 · {inJoin.map((u) => u.name).join('、') || '参加者なし'}</div>
-        <button className="primary big survivor-start" disabled={!canJoin || (!!me && me.alive)} onClick={() => { unlockSurvivorAudio(); send({ t: 'survivorStart' }); }}>
+        <button className="primary big survivor-start" disabled={!canJoin || (active && !!me?.alive)} onClick={() => { unlockSurvivorAudio(); send({ t: 'survivorStart' }); }}>
           {active ? 'レベル1から途中参加' : phase === 'ended' ? 'もう一度プレイ' : '参加者でゲーム開始'}
         </button>
         {!canJoin && <small className="survivor-hint">参加エリアの輪の中に入ると参加できます</small>}
-        {phase === 'ended' && me && <p className="survivor-reward">今回の獲得ポイント: <b>+{runFinishedReward} pt</b></p>}
       </section>}
 
       {me && <>
         <div className="survivor-loadout"><b>装備</b><div className="survivor-loadout-items">{Object.entries(me.gear).filter(([id, level]) => level > 0 && !SURVIVOR_GEAR[id]?.synergyGear && !SYNERGY_SOURCE_IDS.has(id)).map(([id, level]) => <span key={id} title={gearTooltipText(id, level)}>{SURVIVOR_GEAR[id]?.name ?? id} Lv.{level}</span>)}</div></div>
-        {synergyProgress.length > 0 && <div className="survivor-synergy-loadout" aria-label={`シナジー装備 ${acquiredSynergyGear.length}/${SURVIVOR_MAX_SYNERGY_GEAR}`}>
-          <b><span>シナジー装備への道</span><strong>専用枠 {acquiredSynergyGear.length}/{SURVIVOR_MAX_SYNERGY_GEAR}</strong></b>
+        {synergyProgress.length > 0 && <div className="survivor-synergy-loadout" aria-label={`シナジー装備 ${acquiredSynergyGear.length}/${me.synergyGearSlots}`}>
+          <b><span>シナジー装備への道</span><strong>専用枠 {acquiredSynergyGear.length}/{me.synergyGearSlots}</strong></b>
           <small className="survivor-synergy-note">「シナジー」に表示された武器をLv.5、対応する補助装備をLv.1にすると進化装備が候補に登場</small>
           <div className="survivor-synergy-paths">
             {synergyGroups.map((group) => <section key={group.label} className="survivor-synergy-category">
@@ -465,7 +522,7 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
                     <i style={{ width: `${maximum ? completed / maximum * 100 : 0}%` }} />
                   </div>
                   <div className="survivor-synergy-result">
-                    <small>{acquired ? '獲得済み' : slotFull ? '専用枠が満杯 · 最大3個' : remaining === 0 ? choiceIndex === 0 ? '現在の選択肢に登場中' : choiceIndex > 0 ? '選択待ちに登場中' : '解放済み · 次のレベルアップで候補に登場' : `あと${remaining}回の強化で候補解放`}</small>
+                     <small>{acquired ? '獲得済み' : slotFull ? `専用枠が満杯 · 最大${me?.synergyGearSlots ?? SURVIVOR_BASE_SYNERGY_GEAR}個` : remaining === 0 ? choiceIndex === 0 ? '現在の選択肢に登場中' : choiceIndex > 0 ? '選択待ちに登場中' : '解放済み · 次のレベルアップで候補に登場' : `あと${remaining}回の強化で候補解放`}</small>
                     <b>→ {revealed ? recipe.name : '？？？（シナジー装備）'}</b>
                   </div>
                 </article>
@@ -473,7 +530,7 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
             </section>)}
           </div>
           <b className="survivor-synergy-slots-title">獲得済み</b>
-          <div className="survivor-synergy-slots">{Array.from({ length: SURVIVOR_MAX_SYNERGY_GEAR }, (_, index) => {
+          <div className="survivor-synergy-slots">{Array.from({ length: me.synergyGearSlots }, (_, index) => {
             const item = acquiredSynergyGear[index];
             return item
               ? <span key={index} className="filled" title={gearTooltipText(item[0], item[1])}>✦ {SURVIVOR_GEAR[item[0]]?.name}</span>
@@ -493,8 +550,11 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
           const nextCharacter = upgradeKey === 'characters'
             ? Object.values(SURVIVOR_STYLES).find((style) => style.unlockAt === level + 1)?.name
             : undefined;
+          const synergySlotStatus = upgradeKey === 'synergySlots'
+            ? ` · 現在 ${SURVIVOR_BASE_SYNERGY_GEAR + level}/${SURVIVOR_MAX_SYNERGY_GEAR}枠`
+            : '';
           return <button key={key} className="survivor-upgrade" disabled={profile.points < cost || level >= upgrade.max} onClick={() => send({ t: 'survivorUpgrade', upgrade: upgradeKey })}>
-            <span><b>{upgrade.name} Lv.{level}/{upgrade.max}</b><small>{upgrade.desc}{nextCharacter ? ` · 次: ${nextCharacter}` : ''}</small></span><strong>{level >= upgrade.max ? 'MAX' : `${cost} pt`}</strong>
+            <span><b>{upgrade.name} Lv.{level}/{upgrade.max}</b><small>{upgrade.desc}{nextCharacter ? ` · 次: ${nextCharacter}` : ''}{synergySlotStatus}</small></span><strong>{level >= upgrade.max ? 'MAX' : `${cost} pt`}</strong>
           </button>;
         })}</div>
         {investedPoints > 0 && (active

@@ -523,6 +523,23 @@ img.av { object-fit: cover; display: block; }
 .survivor-vital b { text-align: right; font-size: 10px; }
 .survivor-panel h3 { font-size: 13px; color: #fff0f7; }
 .survivor-lobby, .survivor-choices, .survivor-meta { display: flex; flex-direction: column; gap: 8px; }
+.survivor-result { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid rgba(255, 220, 142, .55); border-radius: 16px; background: radial-gradient(ellipse at 50% 0, rgba(167, 112, 61, .2), transparent 70%), linear-gradient(145deg, rgba(60, 43, 55, .96), rgba(31, 24, 36, .98)); box-shadow: inset 0 0 20px rgba(255, 222, 158, .04), 0 8px 28px rgba(0, 0, 0, .18); }
+.survivor-result-head { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+.survivor-result-head > span { color: #ffe6a0; font-size: 10px; font-weight: 900; letter-spacing: .12em; }
+.survivor-result-head h3 { margin: 0; font-size: 22px; color: #fff2d0; }
+.survivor-result-head small { color: #e4cfd9; font-size: 11px; }
+.survivor-result-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.survivor-result-stats > div { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 3px; padding: 8px 4px; border: 1px solid rgba(255, 224, 163, .17); border-radius: 9px; background: rgba(17, 12, 20, .38); }
+.survivor-result-stats span { color: #d8c4ce; font-size: 9px; }
+.survivor-result-stats b { color: #fff0be; font-size: 13px; text-align: center; }
+.survivor-result-players { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.survivor-result-players li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid rgba(255, 224, 163, .12); border-radius: 9px; background: rgba(17, 12, 20, .3); }
+.survivor-result-players li.is-self { border-color: rgba(255, 221, 136, .55); background: rgba(111, 76, 42, .22); }
+.survivor-result-rank { color: #ffe4a2; font-size: 12px; font-weight: 900; text-align: center; }
+.survivor-result-player, .survivor-result-players li > span:not(.survivor-result-rank) { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.survivor-result-player b { overflow: hidden; color: #fff0e6; text-overflow: ellipsis; white-space: nowrap; }
+.survivor-result-players li > span > b { color: #ffe7b0; font-size: 10px; white-space: nowrap; }
+.survivor-result-players small { overflow: hidden; color: #cdbbc8; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .survivor-choice-overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; overflow-y: auto; padding: 16px; background: rgba(10, 7, 13, .72); backdrop-filter: blur(5px); }
 .survivor-choices { position: relative; width: min(760px, 100%); max-height: calc(100dvh - 32px); padding: 22px; overflow-y: auto; border: 1px solid rgba(255, 220, 142, .78); border-radius: 20px; background: radial-gradient(ellipse at 50% 0, rgba(173, 119, 65, .3), transparent 65%), linear-gradient(145deg, rgba(59, 43, 52, .99), rgba(30, 23, 34, .99)); box-shadow: 0 0 34px rgba(248, 186, 94, .22), 0 20px 70px rgba(0, 0, 0, .5), inset 0 0 22px rgba(255, 222, 158, .06); animation: survivor-choice-arrive .42s cubic-bezier(.18,.78,.28,1.18) both; }
 .survivor-choices::before { position: absolute; top: 0; left: -40%; width: 35%; height: 1px; content: ''; background: linear-gradient(90deg, transparent, #fff0bf, transparent); animation: survivor-choice-shimmer 3.4s ease-in-out infinite; }
@@ -551,25 +568,33 @@ img.av { object-fit: cover; display: block; }
 .survivor-choice-list { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 .survivor-style, .survivor-choice { height: auto; min-height: 92px; padding: 8px; align-items: flex-start; justify-content: flex-start; flex-direction: column; gap: 5px; text-align: left; border-color: #594355; background: #302333; color: #f7eaf2; }
 .survivor-style.selected { border-color: #f17eae; box-shadow: inset 0 0 0 1px #f17eae; background: #483043; }
+.survivor-style.locked { border-style: dashed; background: #27212c; }
 .survivor-style b { display: flex; align-items: center; gap: 5px; font-size: 11px; }
 .survivor-style b span { color: #ffb5d1; font-size: 16px; }
 .survivor-style small, .survivor-choice small { color: #dec9d6; font-size: 9px; line-height: 1.4; }
+.survivor-style .survivor-style-lock { color: #ffe0a2; font-weight: 800; }
 .survivor-style small:last-child { margin-top: auto; }
 .survivor-join-status, .survivor-library-stats { color: #d3bfcd; font-size: 10px; }
 .survivor-start { width: 100%; border-color: #bd4b7d; background: #aa3e70; }
 .survivor-hint { text-align: center; color: #d8bdcc; }
 .survivor-reward { margin: 0; text-align: center; color: #ffe2a1; }
-.survivor-choice { position: relative; min-height: 148px; padding: 14px; overflow: hidden; border-color: rgba(239, 204, 142, .48); background: linear-gradient(145deg, rgba(79, 56, 61, .98), rgba(45, 36, 50, .98)); transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background .18s ease; }
+.survivor-choice { position: relative; min-height: 148px; padding: 14px; overflow: hidden; border-color: rgba(239, 204, 142, .48); background: linear-gradient(145deg, rgba(79, 56, 61, .98), rgba(45, 36, 50, .98)); transition: border-color .18s ease, box-shadow .18s ease, background .18s ease; }
 .survivor-choice-readonly { display: flex; cursor: help; }
-.survivor-choice::after { position: absolute; inset: 0; content: ''; pointer-events: none; background: linear-gradient(115deg, transparent 25%, rgba(255, 255, 255, .08) 48%, transparent 70%); transform: translateX(-120%); transition: transform .45s ease; }
-.survivor-choice:hover { z-index: 1; transform: translateY(-3px); border-color: #ffe2a0; box-shadow: 0 7px 18px rgba(0, 0, 0, .24), 0 0 14px rgba(255, 216, 130, .2); background: linear-gradient(145deg, #765253, #49364a); }
+.survivor-choice:hover { border-color: #ffe2a0; box-shadow: 0 7px 18px rgba(0, 0, 0, .24), 0 0 14px rgba(255, 216, 130, .2); background: linear-gradient(145deg, #765253, #49364a); }
 .survivor-choice:focus-visible { outline: 3px solid #fff0bf; outline-offset: 3px; }
-.survivor-choice:hover::after { transform: translateX(120%); }
 .survivor-choice.rarity-rare { border-color: rgba(112, 197, 255, .62); }
 .survivor-choice.rarity-epic { border-color: rgba(201, 137, 255, .7); box-shadow: inset 0 0 18px rgba(164, 87, 255, .08); }
 .survivor-choice.rarity-mythic { border-color: rgba(255, 200, 99, .82); box-shadow: inset 0 0 22px rgba(255, 160, 47, .12), 0 0 14px rgba(255, 182, 72, .12); }
 .survivor-choice.survivor-synergy-choice { border-color: #ffe878; background: radial-gradient(ellipse at 80% 0, rgba(255, 76, 125, .3), transparent 58%), linear-gradient(145deg, rgba(75, 47, 86, .99), rgba(40, 27, 54, .99)); box-shadow: inset 0 0 26px rgba(255, 221, 105, .14), 0 0 20px rgba(255, 183, 74, .2); }
 .survivor-choice.survivor-synergy-choice:hover { border-color: #fff5aa; box-shadow: inset 0 0 30px rgba(255, 221, 105, .2), 0 0 28px rgba(255, 183, 74, .38); }
+.survivor-choice.survivor-synergy-step { border-color: #a8f2cf; background: radial-gradient(ellipse at 90% 0, rgba(93, 238, 183, .2), transparent 62%), linear-gradient(145deg, rgba(43, 74, 68, .99), rgba(35, 43, 53, .99)); box-shadow: inset 0 0 22px rgba(119, 255, 199, .11), 0 0 15px rgba(92, 240, 187, .17); }
+.survivor-choice.survivor-synergy-step:hover { border-color: #dcffe9; box-shadow: inset 0 0 28px rgba(119, 255, 199, .18), 0 0 25px rgba(92, 240, 187, .33); }
+.survivor-choice-synergy-progress { display: flex; flex: none; flex-direction: column; gap: 4px; padding: 6px 8px; border: 1px solid rgba(151, 255, 205, .3); border-radius: 8px; background: rgba(12, 28, 25, .42); }
+.survivor-choice > .survivor-choice-synergy-progress { align-self: stretch; color: #baffdc; font-size: 10px; line-height: normal; }
+.survivor-choice-synergy-progress-head { display: flex; justify-content: space-between; gap: 8px; color: #baffdc; font-size: 10px; font-weight: 800; }
+.survivor-choice-synergy-progress-head > span { color: #baffdc; }
+.survivor-choice-synergy-progress-head > b { flex: none; color: #e1ffed; font-variant-numeric: tabular-nums; }
+.survivor-choice-synergy-progress > i { display: block; height: 6px; max-width: 100%; border-radius: 999px; background: linear-gradient(90deg, #56d6a2, #dbffd1); box-shadow: 0 0 9px rgba(119, 255, 199, .36); }
 .survivor-synergy-choice-slot { color: #fff0a5 !important; font-weight: 800; letter-spacing: .04em; }
 .survivor-choice b { color: #fff5dd; font-size: 17px; }
 .survivor-choice small { color: #f1d9bd; font-size: 12px; line-height: 1.45; }
@@ -646,6 +671,9 @@ img.av { object-fit: cover; display: block; }
 @media (max-width: 760px) {
   .survivor-panel.overlay { top: auto; left: 10px; right: 10px; bottom: 10px; width: auto; height: min(55vh, 480px); }
   .survivor-panel.overlay .survivor-map { width: min(100%, 190px); }
+  .survivor-result-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .survivor-result-players li { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 6px; }
+  .survivor-result-players li > span:last-child { grid-column: 2 / -1; flex-direction: row; justify-content: space-between; }
   .survivor-styles, .survivor-choice-list { grid-template-columns: 1fr; }
   .survivor-style { min-height: 0; }
   .survivor-choice { min-height: 96px; }
