@@ -1,3 +1,4 @@
+import { createAudioContext } from '../audioDevices.ts';
 import { get, set } from '../store.ts';
 import { fxVolume } from '../volume.ts';
 
@@ -5,7 +6,7 @@ let audio: AudioContext | null = null;
 
 export function playPico() {
   try {
-    audio ??= new AudioContext();
+    audio ??= createAudioContext();
     const t = audio.currentTime;
     const osc = audio.createOscillator();
     const gain = audio.createGain();
@@ -23,7 +24,7 @@ export function playPico() {
 
 export function playShutter() {
   try {
-    audio ??= new AudioContext();
+    audio ??= createAudioContext();
     const t = audio.currentTime;
     const len = Math.floor(audio.sampleRate * 0.08);
     const buf = audio.createBuffer(1, len, audio.sampleRate);

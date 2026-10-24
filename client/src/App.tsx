@@ -1,3 +1,4 @@
+import { AudioSettings } from './AudioSettings.tsx';
 import { useEffect, useRef, useState } from 'react';
 import { useStore, set } from './store.ts';
 import { connectWs } from './net/ws.ts';
@@ -107,13 +108,14 @@ function JoinScreen() {
 export function App() {
   const joined = useStore((s) => s.joined);
   const session = useStore((s) => s.session);
-  if (!joined) return <JoinScreen />;
+  if (!joined) return <><JoinScreen /><AudioSettings /></>;
   return (
     <>
       {session ? <WorldScreen /> : <Home />}
       <Lightbox />
       <HammerCursor />
       <UpdateBanner />
+      <AudioSettings />
       <MaintenanceOverlay />
     </>
   );

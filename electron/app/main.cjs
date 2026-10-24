@@ -66,6 +66,15 @@ function showSettings() {
   settingsWindow.on('closed', () => { settingsWindow = undefined; });
 }
 
+async function showAudioSettings() {
+  if (!trustedContents(mainWindow?.webContents)) return;
+  try {
+    // Only a fixed DOM event. The remote page receives no Node or privileged IPC API.
+    const handled = await mainWindow.webContents.executeJavaScript("!window.dispatchEvent(new Event('tonarium:audio-settings', { cancelable: true }))");
+    if (!handled) await dialog.showMessageBox(mainWindow, { type: 'info', title: 'マイク・スピーカー', message: '接続先Webの更新が必要です', detail: 'この接続先にはまだ音声デバイス設定が配信されていません。更新後にページを再読み込みしてください。' });
+  } catch { /* Navigation or window close cancels the request. */ }
+}
+
 async function connect(server) {
   const normalized = normalizeServer(server);
   saveServer(normalized);
@@ -96,10 +105,11 @@ function selectSource(sources, audioIncluded) {
 
 function configureSession(remoteSession) {
   const passive = new Set(['fullscreen', 'pointerLock', 'keyboardLock', 'clipboard-sanitized-write']);
-  const prompted = new Set(['media', 'notifications', 'clipboard-read']);
+  const prompted = new Set(['media', 'notifications', 'clipboard-read', 'speaker-selection']);
   function eligible(contents, origin) { return trustedContents(contents) && sameOrigin(origin, activeServer); }
   remoteSession.setPermissionCheckHandler((contents, permission, origin, details) => {
     if (!eligible(contents, origin)) return false;
+    if (permission === 'speaker-selection') return permissionGrants.has('media:audio') || permissionGrants.has(permission);
     if (permission === 'media') return ['audio', 'video'].includes(details?.mediaType) && permissionGrants.has(`media:${details.mediaType}`);
     return passive.has(permission) || permission === 'display-capture' || permissionGrants.has(permission);
   });
@@ -117,7 +127,7 @@ function configureSession(remoteSession) {
     const epochAtRequest = permissionEpoch;
     const key = `${epochAtRequest}:${serverAtRequest}:${missingGrants.sort().join(',')}`;
     if (!pendingPermissions.has(key)) {
-      const label = permission === 'media' ? missingGrants.map(grant => grant === 'media:audio' ? 'マイク' : 'カメラ').join('・') : permission === 'notifications' ? '通知' : 'クリップボードの読み取り';
+      const label = permission === 'media' ? missingGrants.map(grant => grant === 'media:audio' ? 'マイク' : 'カメラ').join('・') : permission === 'notifications' ? '通知' : permission === 'speaker-selection' ? 'スピーカーの選択' : 'クリップボードの読み取り';
       pendingPermissions.set(key, dialog.showMessageBox(mainWindow, { type: 'question', title: 'Tonarium Electron — アクセス許可', message: `${new URL(activeServer).origin} に ${label} の利用を許可しますか？`, buttons: ['許可しない', '許可する'], defaultId: 0, cancelId: 0 }).then(result => result.response === 1));
     }
     try {
@@ -168,6 +178,7 @@ function createMainWindow() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Tonarium Electron', submenu: [
       { label: '接続先を変更…', click: showSettings },
+      { label: 'マイク・スピーカー…', click: showAudioSettings },
       { label: 'ブラウザーで開く', click: () => openExternal(activeServer) },
       { type: 'separator' }, { role: 'quit', label: '終了' },
     ] },

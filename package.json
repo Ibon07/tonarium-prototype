@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:chess": "tsx --test shared/chess.test.ts server/chess-ai.test.ts",
     "test:sync": "tsx --test shared/session-wire.test.ts shared/session-position.test.ts shared/session-events.test.ts server/ws-heartbeat.test.ts",
+    "test:audio-devices": "node --import tsx client/test/audioDevices.test.mjs",
     "test:client": "tsx --test client/src/sessionView.test.ts client/src/nearby.test.ts",
     "test:sync:integration": "tsx --test server/session.integration.test.ts",
     "electron:dev": "npm --prefix electron start",

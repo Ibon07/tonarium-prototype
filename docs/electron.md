@@ -62,3 +62,15 @@ xvfb-run -a node electron/verification/launch.cjs
 `web-smoke.cjs` は既存のWeb版React／Three.jsコンポーネントを変更せずElectronで描画し、2D／3D画像を保存する。Viteのローカル検証ページを一時生成し、終了時に削除する。結果は `electron/build/verification/` に置く。OSの実IME変換、Waylandでの実画面選択、Windows実行はこの自動検証の対象外。
 
 Electronの隔離と権限処理は[公式セキュリティガイド](https://www.electronjs.org/docs/latest/tutorial/security)、画面共有は[desktopCapturer](https://www.electronjs.org/docs/latest/api/desktop-capturer)に基づく。
+
+### マイク・スピーカーの選択
+
+Electronの「Tonarium Electron → マイク・スピーカー…」、またはWebのホーム／セッション内の音量メニューから共通の設定を開けます。入力・出力のプルダウンで選んだ機器は接続先ごとに保存されます。機器名が表示されない場合は「マイクを許可して機器名を表示」を押してください。この操作で取得したマイクはすぐ停止し、録音・送信しません。
+
+通話中のマイク変更はLiveKitに即時反映されます。録音メッセージは次の録音から新しいマイクを使います。出力設定は人の声、効果音、動画・録音メッセージに適用します。YouTube埋め込みは別オリジンのため対象外です。機器を取り外すと、権限取得済みで消失を確認できた時点でシステムの既定へ戻ります。
+
+この設定はWebの実装を共有するため、接続先サーバーにも本変更の配信が必要です。旧WebのままElectronメニューを開いた場合は更新が必要な旨を表示します。リモートWebへのNode API公開やメディアAPIの差し替えは行いません。
+
+音声デバイス設定の検証: `npm run test:audio-devices` は偽の機器で切替・権限拒否・保存・機器消失・出力失敗時の復元・並行変更を確認します。`PLAYWRIGHT_MODULE=/path/to/playwright xvfb-run -a node electron/verification/audio-settings.cjs` はローカルWebと偽マイクを使い、Electronメニューからの設定表示・機器選択・再読み込み後の保存を確認します。実マイクの録音・サーバー送信はしません。PlaywrightによるElectron起動は `--no-sandbox` が追加されるため、この検証だけでOSサンドボックス自体を検証したことにはなりません。
+
+`electron/verification/audio-virtual-devices.cjs` は検証専用のPulseAudio仮想入力・出力を2組作り、選択した入力IDと実際の取得元、AudioContext／HTMLAudioElementの出力IDを確認して終了時に削除します。許可をテスト用に事前設定し、仮想入力IDを明示して取得します。音声保存・送信・可聴再生は行いません。実通話の音質確認は別途必要です。

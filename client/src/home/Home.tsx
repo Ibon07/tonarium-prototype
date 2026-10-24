@@ -1,3 +1,4 @@
+import { openAudioSettings } from '../audioDevices.ts';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { get, save, set, showToast, unreadOf, useStore, type HomePage, type Notice, type SideWidget } from '../store.ts';
@@ -118,6 +119,7 @@ export function Sidebar({ inSession, onPick }: { inSession?: boolean; onPick?: (
         </div>
         <ClientMode />
         <span className="spacer" />
+        <button className="ib hnavbtn" onClick={openAudioSettings}><Icon name="headset" size={18} />マイク・スピーカー</button>
         <a className="ib hnavbtn hfeedback" href={FEEDBACK_URL} target="_blank" rel="noreferrer" title="フィードバックを送る（新しいタブで開きます）"><Icon name="heart" size={18} />フィードバック<Icon name="link" size={13} /></a>
         {inSession && <button className="ib hnavbtn hleave" onClick={leaveSession}><Icon name="leave" size={18} />セッションから離脱</button>}
         <div className="hself">
