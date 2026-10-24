@@ -53,6 +53,10 @@ jobs:
       - name: Verify self-contained Windows publish
         shell: pwsh
         run: ./native/publish-desktop.ps1 -SkipUnity
+      - name: Verify Windows apphost manifest
+        run: |
+          python -m pip install pefile==2024.8.26
+          python native/verify-windows-manifest.py native/artifacts/Tonarium-win-x64/Tonarium.exe
       - name: Upload UI evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -83,6 +87,12 @@ jobs:
           timeout 30s xvfb-run -a native/artifacts/ci-linux-publish/Tonarium --demo --data-dir /tmp/tonarium-ci --screenshot native/artifacts/ci-linux-demo
           test -s native/artifacts/ci-linux-demo/home.png
           test -s native/artifacts/ci-linux-demo/room.png
+      - name: Verify Windows cross-publish manifest on Linux
+        run: |
+          dotnet publish native/Tonarium.UiSmoke -c Release -r win-x64 --self-contained true -o native/artifacts/ci-windows-cross
+          python3 -m pip install pefile==2024.8.26
+          python3 native/verify-windows-manifest.py native/artifacts/ci-windows-cross/Tonarium.UiSmoke.exe
+          python3 native/verify-windows-manifest.py native/artifacts/ci-windows-cross/Tonarium.exe
       - run: python3 -m py_compile native/Tonarium.Desktop/Linux/*.py
       - name: Upload Linux UI evidence
         if: always()
