@@ -13,9 +13,9 @@
     "postinstall": "node node_modules/electron/install.js",
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
-    "pack": "electron-builder --dir",
-    "build:linux": "electron-builder --linux tar.gz AppImage --x64 && node scripts/collect.cjs linux",
-    "build:windows": "electron-builder --win zip --x64 && node scripts/collect.cjs win"
+    "pack": "node scripts/build.cjs --dir",
+    "build:linux": "node scripts/build.cjs --linux",
+    "build:windows": "node scripts/build.cjs --win"
   },
   "devDependencies": {
     "electron": "45.0.0",
@@ -25,18 +25,60 @@
     "appId": "work.rheni.tonarium.electron",
     "productName": "Tonarium Electron",
     "artifactName": "Tonarium-Electron-${version}-${os}-${arch}.${ext}",
-    "directories": { "output": "build", "buildResources": "resources" },
-    "files": ["app/**/*", "package.json"],
-    "extraResources": [{ "from": "resources/icon.png", "to": "icon.png" }],
+    "directories": {
+      "output": "build",
+      "buildResources": "resources"
+    },
+    "files": [
+      "app/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/icon.png",
+        "to": "icon.png"
+      }
+    ],
     "asar": true,
     "linux": {
       "syncDesktopName": true,
       "executableName": "tonarium-electron",
       "icon": "resources/icon.png",
       "category": "Network",
-      "target": ["tar.gz", "AppImage"],
-      "desktop": { "entry": { "Name": "Tonarium Electron", "StartupWMClass": "tonarium-electron" } }
+      "target": [
+        "tar.gz",
+        "AppImage"
+      ],
+      "desktop": {
+        "entry": {
+          "Name": "Tonarium Electron",
+          "StartupWMClass": "tonarium-electron"
+        }
+      }
     },
-    "win": { "icon": "resources/icon.ico", "target": ["zip"], "signExecutable": false }
+    "win": {
+      "icon": "resources/icon.ico",
+      "target": [
+        "zip",
+        "nsis"
+      ],
+      "signExecutable": false
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://github.com/katteni-kaihatu/tonarium-prototype/releases/download/nightly/",
+      "channel": "nightly"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Tonarium-Electron-${version}-win-${arch}-setup.${ext}"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11",
+    "js-yaml": "5.5.0",
+    "semver": "7.8.5"
   }
 }

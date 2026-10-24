@@ -15,6 +15,7 @@ native/build/
 native/**/*.log
 electron/build/
 electron/artifacts/
+electron/app/update-build.json
 
 # PNPM
 pnpm-lock.yaml

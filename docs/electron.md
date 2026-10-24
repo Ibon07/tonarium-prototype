@@ -2,7 +2,7 @@
 
 Electron 版は接続先サーバーの Web クライアントを、そのまま専用ウィンドウで開く。2D は React、3D は React Three Fiber / Three.js で、サバイバーズを含む描画・操作・音・通信は Web 版と同じコードを実行する。Avalonia / Unity のネイティブ版とは別のアプリで、並行して利用できる。
 
-初期接続先は `https://tonarium.rheni.work/`。サーバーに配信された Web 更新は、Electron 版でも再読み込み時に反映される。Web アセットやサーバーは配布物に同梱しないため、接続にはネットワークが必要。Electron 本体の更新はアプリの再ビルド・再インストールで行う。自動更新配信は未実装。
+初期接続先は `https://tonarium.rheni.work/`。サーバーに配信された Web 更新は、Electron 版でも再読み込み時に反映される。Web アセットやサーバーは配布物に同梱しないため、接続にはネットワークが必要。Electron 本体は GitHub Releases の `nightly` から更新できる。初回起動時に更新設定を選び、以後はメニューの「アプリの更新…」から変更する。
 
 メニューの「接続先を変更…」から接続先を設定する。設定はユーザーデータ内の `connection.json` に保存する。起動時の `--server URL` でも指定できる。HTTPS 接続を使用し、開発用の `localhost` / `127.0.0.1` / `[::1]` だけ HTTP を許可する。`--data-dir PATH` でテスト用に保存先を分離できる。
 
@@ -17,7 +17,7 @@ npm --prefix electron run build:linux
 npm --prefix electron run build:windows
 ```
 
-Linux x86_64 は tar.gz と AppImage、Windows x86_64 は ZIP を生成する。成果物と SHA-256 は `electron/artifacts/`、展開済みアプリやビルド中間ファイルは `electron/build/` に置く。Windows ZIP は Linux からも作成できるが、Windows 実機での動作確認は別途必要。コード署名・Windows インストーラー・macOS 配布は含めていない。
+Linux x86_64 は tar.gz と AppImage、Windows x86_64 は ZIP と NSIS インストーラーを生成する。成果物と SHA-256 は `electron/artifacts/`、展開済みアプリやビルド中間ファイルは `electron/build/` に置く。Windows ZIP は Linux からも作成できるが、Windows 実機での動作確認は別途必要。コード署名・macOS 配布は含めていない。
 
 AppImage は実行権限を付けて起動する。FUSE を利用できない環境では `--appimage-extract-and-run` を利用できる。
 
@@ -25,6 +25,27 @@ AppImage は実行権限を付けて起動する。FUSE を利用できない環
 chmod +x electron/artifacts/Tonarium-Electron-0.0.8-linux-x86_64.AppImage
 electron/artifacts/Tonarium-Electron-0.0.8-linux-x86_64.AppImage
 ```
+
+## 更新設定
+
+初回はどちらの設定もオフで表示する。保存するまで更新確認の通信は行わない。
+
+- 「起動時に更新を確認する」: 有効なら起動時と設定保存時に更新情報を取得し、新しい版を表示する。オフでも「今すぐ確認」で手動確認できる。
+- その下の「更新を自動でダウンロードし、アプリ終了時に適用する」: 起動時確認が有効な場合に選べる。ダウンロード済みの更新は通常終了時に適用する。「再起動して更新」から即時適用もできる。通話中の強制再起動はしない。
+
+Linux AppImage と Windows NSIS でインストールしたアプリが自動適用に対応する。AppImage はユーザーが書き換えられる場所に保存する。tar.gz／展開済みLinux版とWindows ZIP版は更新の確認・通知に対応し、適用は「Releasesを開く」から手動で行う。Windows ZIP利用者が自動更新を利用するにはNSIS版をインストールする。
+
+更新先は接続中のWebサーバーに関係なく `katteni-kaihatu/tonarium-prototype` の `nightly` Releaseに固定する。これは開発版の配信で、安定版のみのチャンネルではない。取得失敗は更新画面に表示し、アプリの利用は継続できる。設定はユーザーデータ内の `updates.json` に保存する。
+
+### AURなど、パッケージ管理向けビルド
+
+```bash
+npm --prefix electron run build:linux -- --disable-updates
+# 展開済みアプリだけが必要な場合
+node electron/scripts/build.cjs --linux --dir --disable-updates
+```
+
+このオプションはアプリ内の初回更新案内・確認通信・自動適用を無効にする。実行時の設定で再び有効にはできない。AURのPKGBUILDなどではこのフラグを渡し、`electron/build/package-linux/linux-unpacked/` を配置する。更新はパッケージマネージャーで行う。生成する `app/update-build.json` はビルドごとに上書きし、ソース管理しない。
 
 ## Linux へのインストール
 
@@ -55,6 +76,7 @@ npm run electron:test
 xvfb-run -a node electron/verification/smoke.cjs
 xvfb-run -a node electron/verification/web-smoke.cjs
 xvfb-run -a node electron/verification/launch.cjs
+xvfb-run -a node electron/verification/updates.cjs
 ```
 
 `smoke.cjs` はローカルHTTPページと合成メディアデバイスで、接続先・保存・権限・外部リンク・接続失敗時の復帰・画面共有選択のキャンセルを確認する。実画面・実マイクは取得しない。`ELECTRON_BINARY` に展開済みの実行ファイルを指定すると配布版を検証できる。PlaywrightのElectronドライバーは起動時にサンドボックスを無効にするため、別の `launch.cjs` では通常の配布版をその指定なしで起動して確認する。仮想画面のGPU描画にはテスト時のみSwiftShaderを指定する。
@@ -76,3 +98,5 @@ Electronの「Tonarium Electron → マイク・スピーカー…」から、�
 ## Nightly配布
 
 main更新時はNative版と独立したLinux／Windowsジョブでビルドし、成功したOSから `nightly` Releaseへ公開します。Nativeの失敗・実行待ちには影響されません。各成果物のソースコミットは対応する `.build.json` を確認してください。[公開構成](native-release.md#native--electron-nightly)。
+
+`updates.cjs` はローカルページと実際の更新設定画面・コントローラーを用い、更新取得・適用だけを偽物に置き換えて初回選択、設定復元、確認のみ、自動適用、再起動操作を検証する。実際のReleaseへのアクセスやアプリの置換は行わない。

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-source_dir="${1:-$root/electron/build/linux-unpacked}"
+source_dir="${1:-$root/electron/build/package-linux/linux-unpacked}"
 [[ -x "$source_dir/tonarium-electron" && -f "$source_dir/resources/app.asar" ]] || { echo 'Build with npm --prefix electron run build:linux first.' >&2; exit 1; }
 base="$HOME/.local/opt/tonarium-electron"
 version="$(python3 - "$root/electron/package.json" <<'PY'

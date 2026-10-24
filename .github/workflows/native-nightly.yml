@@ -124,10 +124,8 @@ jobs:
         include:
           - runtime: linux-x64
             platform: linux
-            targets: tar.gz AppImage
           - runtime: win-x64
             platform: win
-            targets: zip
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -137,13 +135,8 @@ jobs:
           cache-dependency-path: electron/package-lock.json
       - run: npm ci --prefix electron
       - run: npm run electron:test
-      - name: Build Electron
-        working-directory: electron
-        run: >-
-          npx --no-install electron-builder --${{ matrix.platform }} ${{ matrix.targets }} --x64
-          --config.artifactName='Tonarium-Electron-nightly-${os}-${arch}.${ext}'
-      - name: Collect Electron archives and checksums
-        run: node electron/scripts/collect.cjs "${{ matrix.platform }}"
+      - name: Build Electron with nightly update metadata
+        run: node electron/scripts/build.cjs --${{ matrix.platform }} --nightly
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nightly-electron-${{ matrix.runtime }}
@@ -151,6 +144,8 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
+      - name: Install metadata validation dependency
+        run: python3 -m pip install PyYAML==6.0.3
       - name: Publish this Electron nightly
         env:
           GH_TOKEN: ${{ github.token }}
