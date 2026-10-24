@@ -66,6 +66,7 @@ export function applySessionSnapshot(snap: SessionSnapshot) {
     broadcast: { ...s.broadcast, [sid]: snap.broadcast },
     worldBy: { ...s.worldBy, [sid]: snap.world },
     games: { ...s.games, [sid]: snap.game },
+    elevators: { ...s.elevators, [sid]: snap.elevator },
     serverOffset: snap.now - Date.now(),
   }));
   recompute();
@@ -153,6 +154,9 @@ export function onMessage(msg: ServerMsg) {
       return;
     case 'game':
       set((s) => ({ games: { ...s.games, [msg.sid]: msg.game } }));
+      return;
+    case 'elevator':
+      set((s) => ({ elevators: { ...s.elevators, [msg.sid]: msg.elevator } }));
       return;
     case 'gameTile':
       set((s) => {

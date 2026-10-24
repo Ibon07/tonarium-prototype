@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { VOICE_RANGE, computePlaces, type Place } from '../../shared/places.ts';
+import { VOICE_RANGE, computePlaces, placeDistance, type Place } from '../../shared/places.ts';
 import { formatDistance, nearbyUsers, projectProximity, stepTrend, type ListedItem, type ListedPlayer, type TrendState } from './nearby.ts';
 import { useStore, get, isBroadcast } from './store.ts';
 
@@ -23,7 +23,7 @@ export function distanceTo(id: string, s = get()) {
   const places = placesOf(s);
   const me = places.get(s.selfId);
   const p = places.get(id);
-  return id === s.selfId ? 0 : me && p ? Math.hypot(p.x - me.x, p.z - me.z) : Infinity;
+  return id === s.selfId ? 0 : me && p ? placeDistance(p, me) : Infinity;
 }
 
 /** 2D の距離表示だけ。声の音量と 3D の補間は get() をそのまま読む。購読者がいる間だけ測る */
@@ -213,7 +213,7 @@ function update() {
     if (me && p && !blocked.has(id)) {
       const dx = p.x - me.x;
       const dz = p.z - me.z;
-      const d = Math.hypot(dx, dz);
+      const d = placeDistance(p, me);
       g = bc ? 1 : falloff(d);
       if (directional && d > 0.3) pan = ((dx * Math.cos(me.ry) - dz * Math.sin(me.ry)) / d) * 0.8;
     }

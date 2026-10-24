@@ -17,7 +17,9 @@ import { GROUP_COLORS, canSeeSession } from '../shared/home.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, isWorldKind, pushOut, type WorldKind } from '../shared/worlds.ts';
 import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, itemSummary, type Item } from '../shared/items.ts';
 import { sanitizeParams } from '../shared/avatar.ts';
-import { VOICE_RANGE, clampAvatar, computePlaces } from '../shared/places.ts';
+import { VOICE_RANGE, clampAvatar, computePlaces, placeDistance } from '../shared/places.ts';
+import { clampCity } from '../shared/city.ts';
+import { callElevator, elevatorOf, resetElevator } from './city.ts';
 import { SOUNDS } from '../shared/sounds.ts';
 import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts';
 import type { PeerOperation } from '../shared/session-events.ts';
@@ -297,7 +299,7 @@ function nearIds(sid: string, me: User) {
   const places = computePlaces([...users.values()].filter((u) => u.session === sid), (id) => avatars.get(sid)!.get(id));
   const p = places.get(me.id);
   if (!p) return [me.id];
-  return [...places].filter(([, q]) => Math.hypot(q.x - p.x, q.z - p.z) <= VOICE_RANGE).map(([id]) => id);
+  return [...places].filter(([, q]) => placeDistance(q, p) <= VOICE_RANGE).map(([id]) => id);
 }
 
 function dropFollowersOf(u: User) {
@@ -364,6 +366,7 @@ function sendSessionSnapshot(sid: string, id: string) {
     broadcast: broadcastMode.get(sid) ?? false,
     world: worldOf.get(sid) ?? 'room',
     game: gameOf(sid),
+    elevator: elevatorOf(sid),
     now: Date.now(),
   });
 }
@@ -376,10 +379,11 @@ const roomHandlers: RoomHandlers = {
   },
 };
 const modeLabel = (m: Mode) => (m === '3d' ? '3D' : '2D');
-const clamp = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
+const clampRoom = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
 const solidsOf = (sid: string) => WORLDS[worldOf.get(sid) ?? 'room'].solids;
-/** 部屋の中に収め、家具にめり込んでいたら外へ出す */
+/** 部屋（街なら街）の中に収め、家具にめり込んでいたら外へ出す。アイテムと 2D の人は地上にいる */
 function placeIn(sid: string, x: number, z: number, r: number) {
+  const clamp = worldOf.get(sid) === 'city' ? clampCity : clampRoom;
   const p = pushOut(clamp(x), clamp(z), r, solidsOf(sid));
   return { x: clamp(p.x), z: clamp(p.z) };
 }
@@ -415,7 +419,9 @@ function switchWorld(sid: string, world: WorldKind, clear: boolean, byName: stri
     // 配信ディスプレイは、戻った先で次に位置が届いたときに立て直す
     u.display = null;
   }
+  resetElevator(sid);
   roomSend(sid, { t: 'world', sid, world });
+  roomSend(sid, { t: 'elevator', sid, elevator: elevatorOf(sid) });
   broadcastSessionInfo();
   sendPresence(sid);
   event(sid, `${byName} がワールドを「${WORLDS[world].name}」に切り替えました${clear ? '（アイテムはすべて片付けました）' : ''}`);
@@ -629,6 +635,11 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     }
     case 'gameFell': {
       eliminate(sid, me.id, gameDeps);
+      return;
+    }
+    case 'elevatorCall': {
+      if (worldOf.get(sid) !== 'city' || me.mode !== '3d') return;
+      callElevator(sid, Number(msg.floor), (elevator) => roomSend(sid, { t: 'elevator', sid, elevator }));
       return;
     }
     case 'world': {

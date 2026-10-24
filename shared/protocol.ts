@@ -2,6 +2,7 @@ import type { Item, ItemAction, ItemKind, MediaInit } from './items.ts';
 import type { WorldKind } from './worlds.ts';
 import type { DiceRoll } from './dice.ts';
 import type { GameState } from './game.ts';
+import type { ElevatorState } from './city.ts';
 import type { SyncConfig } from './session-wire.ts';
 import type { PeerOperation } from './session-events.ts';
 
@@ -212,6 +213,11 @@ export interface AvatarState {
   jump?: number;
   /** 床（高さ 0）以外にいるときの足元の高さ。ゲームの塔の上など。あればジャンプの放物線より優先する */
   y?: number;
+  /**
+   * 街の電車に乗っているときの、号車と車内での位置（along は進む向き、side はホーム側が正）。
+   * 走る電車の上で x, z をなめらかにつなぐと遅れて車外に見えるので、見る側は車内の位置をつないで今の電車の位置に足す
+   */
+  ride?: { car: number; along: number; side: number; ry: number };
 }
 
 /** 初速 4.2m/s・重力 12m/s² で 0.7m ほど跳ぶ */
@@ -247,6 +253,7 @@ export interface SessionSnapshot {
   broadcast: boolean;
   world: WorldKind;
   game: GameState;
+  elevator: ElevatorState;
   now: number;
 }
 
@@ -313,6 +320,8 @@ export type RoomClientMsg =
   /** 自分が乗った板（サーバーが消える時刻を決める） */
   | { t: 'gameStep'; tile: number }
   | { t: 'gameFell' }
+  /** 街のマンションのエレベーターを呼ぶ・行き先を押す（floor は 0 = 1 階 … 10 = 屋上） */
+  | { t: 'elevatorCall'; floor: number }
   | { t: 'itemRemove'; id: string }
   | { t: 'itemMove'; id: string; x: number; z: number; ry: number }
   | { t: 'itemAction'; id: string; action: ItemAction }
@@ -325,7 +334,7 @@ const ROOM_CLIENT_TYPES: Record<RoomClientMsg['t'], true> = {
   peerOperation: true,
   sync: true, mode: true, status: true, follow: true, dropFollowers: true, place2d: true, displayMove: true, chat: true, avatar: true,
   viewing: true, poke: true, sound: true, liveRequest: true, viewLive: true, itemCreate: true, attention: true, broadcast: true, world: true,
-  gameStart: true, gameStep: true, gameFell: true, itemRemove: true, itemMove: true, itemAction: true, hit: true,
+  gameStart: true, gameStep: true, gameFell: true, elevatorCall: true, itemRemove: true, itemMove: true, itemAction: true, hit: true,
 };
 export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => m.t in ROOM_CLIENT_TYPES;
 
@@ -372,7 +381,8 @@ export type RoomServerMsg =
   | { t: 'worldPending'; sid: string; world: WorldKind; at: number; by: string; clearItems: boolean }
   | { t: 'world'; sid: string; world: WorldKind }
   | { t: 'game'; sid: string; game: GameState }
-  | { t: 'gameTile'; sid: string; tile: number; at: number };
+  | { t: 'gameTile'; sid: string; tile: number; at: number }
+  | { t: 'elevator'; sid: string; elevator: ElevatorState };
 
 export type ServerMsg = HomeServerMsg | RoomServerMsg;
 

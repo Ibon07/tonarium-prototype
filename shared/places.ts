@@ -1,7 +1,12 @@
 import { ROOM_HALF, spawnSlot, type AvatarState, type Participant } from './protocol.ts';
 import { WORLDS, type WorldKind } from './worlds.ts';
+import { CAR } from './city.ts';
 
-export interface Place { x: number; z: number; ry: number; small: boolean }
+/** y は足元の高さ（地上は 0）。マンションの別の階の人とは声が届く距離が離れる */
+export interface Place { x: number; z: number; ry: number; small: boolean; y?: number }
+
+/** 2 人の距離。高さの差も入れる */
+export const placeDistance = (a: { x: number; z: number; y?: number }, b: { x: number; z: number; y?: number }) => Math.hypot(a.x - b.x, a.z - b.z, (a.y ?? 0) - (b.y ?? 0));
 
 /** 距離帯：すぐそば・声が届く（＝声の範囲チャットの宛先）の境目 */
 export const NEAR_RANGE = 3;
@@ -57,6 +62,13 @@ export function approach(from: { x: number; z: number } | undefined, target: { x
 
 const clampRoom = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
 /** 3D の人の位置を、そのワールドでいられる範囲に収める（他の人から直接届くので、受け取った側でもそろえる） */
+const cleanRide = (r: NonNullable<AvatarState['ride']>) => ({
+  car: Number(r.car) === 1 ? 1 : 0,
+  along: Math.max(-CAR.len / 2, Math.min(CAR.len / 2, Number(r.along) || 0)),
+  side: Math.max(-CAR.w, Math.min(CAR.w, Number(r.side) || 0)),
+  ry: Number(r.ry) || 0,
+});
+
 export function clampAvatar(world: WorldKind, s: AvatarState): AvatarState {
   const ext = WORLDS[world].extent;
   const within = (v: unknown, lo: number, hi: number) => Math.max(lo + 0.2, Math.min(hi - 0.2, Number(v) || 0));
@@ -68,5 +80,6 @@ export function clampAvatar(world: WorldKind, s: AvatarState): AvatarState {
     ...(Number.isFinite(y) ? { y: Math.max(-30, Math.min(40, y)) } : {}),
     pitch: Math.max(-1.5, Math.min(1.5, Number(s.pitch) || 0)),
     jump: Math.max(0, Math.floor(Number(s.jump) || 0)),
+    ...(world === 'city' && s.ride ? { ride: cleanRide(s.ride) } : {}),
   };
 }

@@ -6,6 +6,7 @@ import { useStore } from '../store.ts';
 import { makeCanvasTexture } from './textTexture.ts';
 import { Box, Cyl, SpawnArea } from './parts3d.tsx';
 import { GameWorld } from './game3d.tsx';
+import { CityWorld } from './city3d.tsx';
 
 const H = ROOM_HALF;
 const WALL_H = 4;
@@ -15,6 +16,7 @@ const PALETTES: Record<WorldKind, Palette> = {
   room: { floor: '#565961', wall: '#80848e', spawn: '#7fb3ff' },
   cafe: { floor: '#8a5a3b', wall: '#eadcc4', spawn: '#ffd28a' },
   game: { floor: '#3b3f6b', wall: '#2a2d52', spawn: '#9cf0ff' },
+  city: { floor: '#9db08a', wall: '#ece5d8', spawn: '#7fb3ff' },
 };
 
 /** 床と壁。どのワールドも同じ形で、色だけ変える */
@@ -249,9 +251,10 @@ function Cafe() {
   );
 }
 
-export function WorldMesh({ kind }: { kind: WorldKind }) {
+export function WorldMesh({ kind, map = false }: { kind: WorldKind; map?: boolean }) {
   if (kind === 'game') return <GameWorld pal={PALETTES.game} />;
+  if (kind === 'city') return <CityWorld map={map} />;
   return kind === 'cafe' ? <Cafe /> : <Hall />;
 }
 
-export const WORLD_BG: Record<WorldKind, string> = { room: '#2b2d31', cafe: '#1f1a17', game: '#7fb6e6' };
+export const WORLD_BG: Record<WorldKind, string> = { room: '#2b2d31', cafe: '#1f1a17', game: '#7fb6e6', city: '#bcd6ec' };
