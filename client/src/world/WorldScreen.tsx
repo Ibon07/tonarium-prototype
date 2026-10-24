@@ -21,6 +21,7 @@ import { ProfileCard } from './ProfileCard.tsx';
 import { HoppingMascots } from './Mascot.tsx';
 import { SessionMenu } from '../home/SessionMenu.tsx';
 import { PortraitCanvas } from './Portraits.tsx';
+import { MapLayer } from './MapLayer.tsx';
 import { ConfirmOpen } from './Links.tsx';
 import { shareFiles, shareYouTube, youTubeId } from '../media.ts';
 import { MediaSync } from '../mediaSync.tsx';
@@ -450,6 +451,7 @@ export function WorldScreen() {
   return (
     <div ref={root} className={`world ${mode} ${locked ? 'locked' : ''} ${folded.left ? 'fl' : ''} ${folded.right ? 'fr' : ''} ${phone ? `phone pt-${phoneTab}` : ''}`}>
       {mode === '3d' && <View3D />}
+      {mode === '2d' && <MapLayer />}
       <WindowLayer />
       <PortraitCanvas />
       <div className="front">

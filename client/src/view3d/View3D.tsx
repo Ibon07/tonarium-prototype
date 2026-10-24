@@ -79,7 +79,7 @@ function Standee({ user }: { user: Participant }) {
   );
 }
 
-function Entrance() {
+export function Entrance() {
   const participants = useStore((s) => s.participants);
   useStore((s) => s.hits);
   const in2d = participants.filter((p) => p.mode === '2d');
@@ -87,7 +87,7 @@ function Entrance() {
 }
 
 /** self は一人称では見えないので隠しておき、カメラで撮るときだけ表示する（renderCamera） */
-function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
+export function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
   const name = useStore((s) => s.participants.find((p) => p.id === id)?.name);
   const speaking = useStore((s) => !!s.speaking[id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[id] === false);

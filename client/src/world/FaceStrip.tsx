@@ -131,7 +131,8 @@ function FaceGrid({ list }: { list: { user: Participant; d: number; self?: boole
 export function FaceStrip() {
   const players = usePlayers();
   const folded = useStore((s) => s.folded.faces);
-  const noWindows = useStore((s) => s.windows.length === 0 && s.mode === '2d');
+  // マップを背景にしているときは、マップが隠れないよう大きい顔は出さない
+  const noWindows = useStore((s) => s.windows.length === 0 && s.mode === '2d' && s.mapMode === 'none');
   const me = useStore((s) => s.participants.find((p) => p.id === s.selfId));
   const near = players.filter((p) => p.band === 'near');
   const mid = players.filter((p) => p.band === 'mid');
