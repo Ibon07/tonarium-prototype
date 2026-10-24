@@ -14,7 +14,8 @@ export const clampSurvivorPosition = (x: number, z: number) => ({
 });
 export const SURVIVOR_MOVE_SPEED = 4.2;
 export const SURVIVOR_MAX_ENEMIES = 100;
-export const SURVIVOR_MAX_SYNERGY_GEAR = 3;
+export const SURVIVOR_BASE_SYNERGY_GEAR = 1;
+export const SURVIVOR_MAX_SYNERGY_GEAR = 5;
 
 export type SurvivorStyle = 'bloodrose' | 'stargazer' | 'wraith' | 'cinderwitch' | 'stormweaver' | 'frostwarden';
 export type SurvivorRarity = 'common' | 'rare' | 'epic' | 'mythic';
@@ -22,11 +23,11 @@ export type SurvivorGearKind = 'weapon' | 'passive';
 
 export const SURVIVOR_STYLES: Record<SurvivorStyle, { name: string; mark: string; desc: string; weapon: string; hp: number; speed: number; unlockAt?: number }> = {
   bloodrose: { name: '紅蓮の剣士', mark: '⚔', desc: '周囲を薙ぐ刃。体力が高く、近距離戦が得意。', weapon: 'moonblade', hp: 120, speed: 4.2 },
-  stargazer: { name: '星詠み', mark: '✦', desc: '最も近い敵へ星弾を放つ。攻撃の回転が速い。', weapon: 'starbolt', hp: 90, speed: 4.2 },
-  wraith: { name: '宵渡り', mark: '☾', desc: '影の波で敵を貫く。移動が速く、敵をかわしやすい。', weapon: 'shade', hp: 100, speed: 4.8 },
-  cinderwitch: { name: '灰燼の魔女', mark: '♨', desc: '爆ぜる火種で敵の群れを焼く。身軽だが体力は控えめ。', weapon: 'embermine', hp: 88, speed: 4.35, unlockAt: 1 },
-  stormweaver: { name: '雷鳴の紡ぎ手', mark: 'ϟ', desc: '雷を連鎖させて敵を薙ぐ。攻守の釣り合いに優れる。', weapon: 'stormring', hp: 102, speed: 4.2, unlockAt: 2 },
-  frostwarden: { name: '霜壁の守人', mark: '❄', desc: '氷槍で敵を一直線に貫く。頑丈だが足は遅い。', weapon: 'frostlance', hp: 138, speed: 3.85, unlockAt: 3 },
+  stargazer: { name: '星詠み', mark: '✦', desc: '最も近い敵へ星弾を放つ。攻撃の回転が速い。', weapon: 'starbolt', hp: 90, speed: 4.2, unlockAt: 1 },
+  wraith: { name: '宵渡り', mark: '☾', desc: '影の波で敵を貫く。移動が速く、敵をかわしやすい。', weapon: 'shade', hp: 100, speed: 4.8, unlockAt: 2 },
+  cinderwitch: { name: '灰燼の魔女', mark: '♨', desc: '爆ぜる火種で敵の群れを焼く。身軽だが体力は控えめ。', weapon: 'embermine', hp: 88, speed: 4.35, unlockAt: 3 },
+  stormweaver: { name: '雷鳴の紡ぎ手', mark: 'ϟ', desc: '雷を連鎖させて敵を薙ぐ。攻守の釣り合いに優れる。', weapon: 'stormring', hp: 102, speed: 4.2, unlockAt: 4 },
+  frostwarden: { name: '霜壁の守人', mark: '❄', desc: '氷槍で敵を一直線に貫く。頑丈だが足は遅い。', weapon: 'frostlance', hp: 138, speed: 3.85, unlockAt: 5 },
 };
 
 export interface SurvivorGearDef {
@@ -81,22 +82,26 @@ export function isSurvivorSynergyRecipe(gear: SurvivorGearDef) {
 
 export const SURVIVOR_RARITY_ORDER: SurvivorRarity[] = ['common', 'rare', 'epic', 'mythic'];
 export const SURVIVOR_META_UPGRADES = {
-  might: { name: '夜狩りの鍛錬', desc: '攻撃力 +5%（最大 +25%）', cost: 2, max: 5 },
-  rerolls: { name: '運命の引き直し', desc: '1ランにつき装備候補を1回引き直す（最大5回）', cost: 4, max: 5 },
-  vitality: { name: '血の祝福', desc: '最大体力 +20（最大 +100）', cost: 2, max: 5 },
-  regeneration: { name: '不死鳥の血', desc: '体力自然回復 +1/分（最大 +5/分）', cost: 4, max: 5 },
+  might: { name: '夜狩りの鍛錬', desc: '攻撃力 +5%（最大 +25%）', cost: 10, max: 5 },
+  rerolls: { name: '運命の引き直し', desc: '1ランにつき装備候補を1回引き直す（最大5回）', cost: 20, max: 5 },
+  vitality: { name: '血の祝福', desc: '最大体力 +20（最大 +100）', cost: 10, max: 5 },
+  regeneration: { name: '不死鳥の血', desc: '体力自然回復 +1/分（最大 +5/分）', cost: 20, max: 5 },
   choiceCount: { name: '運命の選択肢', desc: 'レベルアップ時の装備候補 +1（最大 +1）', cost: 100, max: 1 },
-  characters: { name: '異界の仲間', desc: '初期キャラクターを1人解放（最大 +3）', cost: 20, max: 3 },
+  synergySlots: { name: '共鳴の器', desc: 'シナジー装備枠 +1（初期1・最大5）', cost: 100, max: 4 },
+  characters: { name: '異界の仲間', desc: '新しい初期キャラクターを1人解放（最大 +5）', cost: 50, max: 5 },
 } as const;
 export type SurvivorMetaUpgrade = keyof typeof SURVIVOR_META_UPGRADES;
-export const SURVIVOR_PROFILE_VERSION = 2;
+export const SURVIVOR_PROFILE_VERSION = 4;
 export function survivorUpgradeCost(upgrade: SurvivorMetaUpgrade, level: number) {
   return SURVIVOR_META_UPGRADES[upgrade].cost * 2 ** Math.max(0, level);
 }
-export function survivorUpgradeRefund(upgrade: SurvivorMetaUpgrade, level: number) {
+export function survivorUpgradeRefund(upgrade: SurvivorMetaUpgrade, level: number, baseCost: number = SURVIVOR_META_UPGRADES[upgrade].cost) {
   let total = 0;
-  for (let i = 0; i < Math.min(level, SURVIVOR_META_UPGRADES[upgrade].max); i++) total += survivorUpgradeCost(upgrade, i);
+  for (let i = 0; i < Math.min(level, SURVIVOR_META_UPGRADES[upgrade].max); i++) total += baseCost * 2 ** i;
   return total;
+}
+export function survivorRunReward(level: number, moonshardLevel: number) {
+  return Math.floor(level * (1 + moonshardLevel * 0.05));
 }
 
 export const SURVIVOR_ACHIEVEMENTS = {
@@ -111,7 +116,7 @@ export type SurvivorAchievement = keyof typeof SURVIVOR_ACHIEVEMENTS;
 export interface SurvivorPlayer {
   id: string; name: string; style: SurvivorStyle; x: number; z: number;
   hp: number; maxHp: number; level: number; xp: number; nextXp: number;
-  rerollsRemaining: number;
+  rerollsRemaining: number; synergyGearSlots: number;
   alive: boolean; kills: number; gear: Record<string, number>;
   choiceQueue: string[][]; choiceDeadlineAt: number | null; hitAt: number; attackAt: Record<string, number>; moveAt: number;
 }
@@ -141,6 +146,7 @@ export interface SurvivorState {
 export interface SurvivorProfile {
   upgradeVersion: number;
   points: number; upgrades: Record<SurvivorMetaUpgrade, number>;
+  upgradeSpent: Record<SurvivorMetaUpgrade, number>;
   runs: number; bestLevel: number; bestKills: number;
   achievements: SurvivorAchievement[]; discovered: string[];
 }
@@ -152,7 +158,8 @@ export const newSurvivorState = (): SurvivorState => ({
 });
 export const newSurvivorProfile = (): SurvivorProfile => ({
   upgradeVersion: SURVIVOR_PROFILE_VERSION, points: 0,
-  upgrades: { might: 0, rerolls: 0, vitality: 0, regeneration: 0, choiceCount: 0, characters: 0 },
+  upgrades: { might: 0, rerolls: 0, vitality: 0, regeneration: 0, choiceCount: 0, synergySlots: 0, characters: 0 },
+  upgradeSpent: { might: 0, rerolls: 0, vitality: 0, regeneration: 0, choiceCount: 0, synergySlots: 0, characters: 0 },
   runs: 0, bestLevel: 0, bestKills: 0,
   achievements: [], discovered: [],
 });

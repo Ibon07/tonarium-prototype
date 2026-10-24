@@ -29,7 +29,7 @@ import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
 import { eliminate, gameOf, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
 import { chooseSurvivorGear, chooseSurvivorStyle, clearSurvivor, moveSurvivor, removeSurvivor, resetSurvivorUpgrades, rerollSurvivorChoice, startSurvivor, tickSurvivors, upgradeSurvivor, survivorOf, type SurvivorDeps } from './survivors.ts';
-import { newSurvivorProfile, SURVIVOR_META_UPGRADES, SURVIVOR_PROFILE_VERSION, SURVIVOR_TICK_MS, type SurvivorMetaUpgrade, type SurvivorProfile, type SurvivorStyle } from '../shared/survivor.ts';
+import { newSurvivorProfile, SURVIVOR_META_UPGRADES, SURVIVOR_PROFILE_VERSION, SURVIVOR_TICK_MS, survivorUpgradeRefund, type SurvivorMetaUpgrade, type SurvivorProfile, type SurvivorStyle } from '../shared/survivor.ts';
 import { createSyncGrant, handleSyncOffer, upgradeSync, revokeSync, revokeUserSync, leaveRoom, livekitRoom, roomSend, roomSendSnapshot, shutdownRooms, type RoomHandlers } from './rooms.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
@@ -74,16 +74,38 @@ function survivorProfile(id: string): SurvivorProfile {
   const p = survivorProfiles[id] ??= newSurvivorProfile();
   p.points = survivorCount(p.points, Number.MAX_SAFE_INTEGER);
   const upgrades = p.upgrades as Record<string, unknown> | null | undefined;
-  if (p.upgradeVersion !== SURVIVOR_PROFILE_VERSION) {
+  const version = survivorCount(p.upgradeVersion, SURVIVOR_PROFILE_VERSION);
+  if (version < 2) {
     const legacyRefund = ['might', 'vitality', 'haste']
       .reduce((total, key) => total + survivorCount(upgrades?.[key], 10) * 2, 0);
     p.points = survivorCount(p.points + legacyRefund, Number.MAX_SAFE_INTEGER);
-    p.upgradeVersion = SURVIVOR_PROFILE_VERSION;
     p.upgrades = newSurvivorProfile().upgrades;
+    p.upgradeSpent = newSurvivorProfile().upgradeSpent;
+    p.upgradeVersion = SURVIVOR_PROFILE_VERSION;
     saveSurvivorProfiles();
   } else {
     p.upgrades = Object.fromEntries(Object.entries(SURVIVOR_META_UPGRADES)
       .map(([key, upgrade]) => [key, survivorCount(upgrades?.[key], upgrade.max)])) as SurvivorProfile['upgrades'];
+    const normalized = p.upgrades;
+    if (version === 2) {
+      const oldCosts: Record<SurvivorMetaUpgrade, number> = { might: 2, rerolls: 4, vitality: 2, regeneration: 4, choiceCount: 100, synergySlots: 100, characters: 20 };
+      p.upgradeSpent = Object.fromEntries(Object.keys(SURVIVOR_META_UPGRADES).map((key) => {
+        const upgrade = key as SurvivorMetaUpgrade;
+        return [upgrade, survivorUpgradeRefund(upgrade, normalized[upgrade], oldCosts[upgrade])];
+      })) as SurvivorProfile['upgradeSpent'];
+    } else {
+      const spent = p.upgradeSpent as Record<string, unknown> | null | undefined;
+      p.upgradeSpent = Object.fromEntries(Object.keys(SURVIVOR_META_UPGRADES).map((key) => {
+        const upgrade = key as SurvivorMetaUpgrade;
+        return [upgrade, spent?.[upgrade] == null
+          ? survivorUpgradeRefund(upgrade, normalized[upgrade])
+          : survivorCount(spent[upgrade], Number.MAX_SAFE_INTEGER)];
+      })) as SurvivorProfile['upgradeSpent'];
+    }
+    if (version < SURVIVOR_PROFILE_VERSION) {
+      p.upgradeVersion = SURVIVOR_PROFILE_VERSION;
+      saveSurvivorProfiles();
+    }
   }
   p.achievements ??= [];
   p.discovered ??= [];
