@@ -28,6 +28,7 @@ import { MediaSync } from '../mediaSync.tsx';
 import { closeWindow, openWindow, setWinMode } from './windows.ts';
 import { touchOnly, usePhone } from '../phone.ts';
 import { MasterVolume } from './VolumeMenus.tsx';
+import { SurvivorPanel } from './SurvivorPanel.tsx';
 
 /** 名前はだれでも変えられ、全員に反映されてログに出る */
 function SessionRename({ current, onDone }: { current: string; onDone: () => void }) {
@@ -53,6 +54,8 @@ function WorldBadge() {
   const wsConnected = useStore((s) => s.wsConnected);
   const broadcast = useStore((s) => isBroadcast(s));
   const kind = useStore((s) => worldKindOf(s));
+  const mode = useStore((s) => s.mode);
+  const survivorWindowOpen = useStore((s) => s.windows.some((w) => w.key === 'survivors'));
   const pending = useStore((s) => !!s.worldPending && s.worldPending.sid === s.session);
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const [profile, setProfile] = useState(false);
@@ -60,6 +63,7 @@ function WorldBadge() {
     <div className="worldbadge">
       <img className="wmark" src="/brand/mark.png" alt="" />
       <span className="wname">{world?.name}</span>
+      {kind === 'survivors' && mode === '2d' && <button className="chipbtn survivor-window-button" onClick={() => openWindow('survivors')}>{survivorWindowOpen ? 'ゲーム画面' : 'ゲームを開く'}</button>}
       {broadcast && <span className="bcpill" title="ブロードキャストモード：距離に関係なく声が届きます"><Icon name="megaphone" size={12} />ブロードキャスト</span>}
       {!wsConnected && <span className="reconn">再接続中…</span>}
       <span className="vline" />
@@ -471,9 +475,17 @@ export function WorldScreen() {
   }, [phone]);
   const dragging = useMediaInput();
   const mode = useStore((s) => s.mode);
+  const worldKind = useStore((s) => worldKindOf(s));
   const locked = useStore((s) => s.locked);
   const folded = useStore((s) => s.folded);
   const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (worldKind === 'survivors' && mode === '2d') openWindow('survivors');
+    else if (worldKind !== 'survivors') {
+      closeWindow('survivors', true);
+      closeWindow('survivor-library', true);
+    }
+  }, [worldKind, mode]);
   useEffect(() => {
     if (mode !== '3d') return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -496,6 +508,7 @@ export function WorldScreen() {
       <WindowLayer />
       <PortraitCanvas />
       <div className="front">
+        {worldKind === 'survivors' && mode === '3d' && <SurvivorPanel overlay />}
         <WorldBadge />
         <NearList />
         <FaceStrip />

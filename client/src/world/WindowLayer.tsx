@@ -18,11 +18,12 @@ import { MediaControls, VideoHost, mediaVolume, videoEls } from '../mediaSync.ts
 import { YouTubePlayer, youTubeDuration } from '../youtube.tsx';
 import { send } from '../net/ws.ts';
 import { DiceBody } from './DiceBody.tsx';
+import { SurvivorLibrary, SurvivorPanel } from './SurvivorPanel.tsx';
 
 const BAR = 40;
-type Kind = 'video' | 'panel' | 'note' | 'media' | 'face' | 'dice';
+type Kind = 'video' | 'panel' | 'note' | 'media' | 'face' | 'dice' | 'survivor';
 /** noMax: 最大化しない（顔はアバターのキャンバスの下に隠れてしまうため） */
-interface Resolved { kind: Kind; dark: boolean; title: string; sub: React.ReactNode; item?: Item; body: React.ReactNode; aspect?: number; width: number; noMax?: boolean }
+interface Resolved { kind: Kind; dark: boolean; title: string; sub: React.ReactNode; item?: Item; body: React.ReactNode; aspect?: number; width: number; noMax?: boolean; noClose?: boolean }
 
 function UserDist({ id }: { id: string }) {
   return <>{useDistanceLabel('user', id)}</>;
@@ -69,17 +70,20 @@ function NoteBody({ note }: { note: Item & { kind: 'note' } }) {
 
 /** 開けなくなったもの（アイテムが片付けられた、配信が終わった等）は null */
 function useResolved(key: string, compact: boolean): Resolved | null {
-  const { sharer, camFeeds, participants, selfId, items, users, speaking } = useStore(useShallow((s) => ({
+  const { sharer, camFeeds, participants, selfId, items, users, survivor, speaking } = useStore(useShallow((s) => ({
     sharer: s.sharer,
     camFeeds: s.camFeeds,
     participants: s.participants,
     selfId: s.selfId,
     items: s.items,
     users: s.users,
+    survivor: s.survivors[s.session ?? ''],
     speaking: key.startsWith('face:') ? !!s.speaking[key.slice(5)] : false,
   })));
   const name = (id: string | null) => (id ? users.find((p) => p.id === id)?.name ?? '（退出済み）' : '');
   const at = (id: string) => <UserDist id={id} />;
+  if (key === 'survivors') return { kind: 'survivor', dark: true, title: '宵闇サバイバーズ', sub: survivor?.phase === 'running' || survivor?.phase === 'boss' ? '協力サバイバル' : '10分間のサバイバル', width: 680, aspect: 1.28, noClose: true, body: <SurvivorPanel /> };
+  if (key === 'survivor-library') return { kind: 'survivor', dark: true, title: '装備図鑑・実績', sub: '発見した装備と記録', width: 620, aspect: 1.05, body: <SurvivorLibrary /> };
   if (key === 'share') {
     if (!sharer) return null;
     return { kind: 'video', dark: true, title: `${name(sharer)} の画面共有`, sub: at(sharer), body: <ShareVideoHost className="videohost" />, width: 780, aspect: 16 / 9 };
@@ -196,7 +200,7 @@ function WindowFrame({ win, region, simple, z, compact = false }: {
         <span className="wtitle"><b>{r.title}</b><span>{r.sub}</span></span>
         <span className="spacer" />
         {compact
-          ? <button className="ib wbtn" onClick={(e) => { e.stopPropagation(); closeWindow(win.key); }} aria-label="消す"><Icon name="close" size={12} /></button>
+          ? !r.noClose && <button className="ib wbtn" onClick={(e) => { e.stopPropagation(); closeWindow(win.key); }} aria-label="消す"><Icon name="close" size={12} /></button>
           : <WinButtons win={win} r={r} max={max} />}
       </div>
       <div className="winbody">{r.body}</div>
@@ -224,7 +228,7 @@ function WinButtons({ win, r, max }: { win: Win; r: Resolved; max: boolean }) {
           <button className="ib wbtn" aria-label="しまう" title="アイテムをしまう" onClick={() => removeItem(r.item!.id)}><Icon name="trash" size={14} /></button>
         )}
         {!r.noMax && <button className="ib wbtn" onClick={() => toggleMax(win.key)} aria-label={max ? '元のサイズに戻す' : '拡大（画面全体に表示）'}><Icon name="maximize" size={14} /></button>}
-        <button className="ib wbtn" onClick={() => closeWindow(win.key)} aria-label="消す"><Icon name="close" size={14} /></button>
+        {!r.noClose && <button className="ib wbtn" onClick={() => closeWindow(win.key)} aria-label="消す"><Icon name="close" size={14} /></button>}
     </>
   );
 }
@@ -234,6 +238,7 @@ export function WindowLayer() {
   const windows = useStore((s) => s.windows);
   const winMode = useStore((s) => s.winMode);
   const mode = useStore((s) => s.mode);
+  const visibleWindows = mode === '3d' ? windows.filter((w) => w.key !== 'survivors') : windows;
   const ref = useRef<HTMLDivElement>(null);
   const [region, setRegion] = useState({ w: 800, h: 500 });
   useLayoutEffect(() => {
@@ -244,7 +249,7 @@ export function WindowLayer() {
     return () => ro.disconnect();
   }, [winMode]);
 
-  const front = windows[windows.length - 1];
+  const front = visibleWindows[visibleWindows.length - 1];
   const frontItem = front?.key.startsWith('item:') ? get().items[front.key.slice(5)] : undefined;
   useEffect(() => {
     const panel = frontItem ? PANELS[frontItem.kind] : undefined;
@@ -269,9 +274,9 @@ export function WindowLayer() {
             <div ref={ref} className="winstage">
               {front && <WindowFrame key={front.key} win={front} region={region} simple z={1} />}
             </div>
-            {windows.length > 1 && (
+            {visibleWindows.length > 1 && (
               <div className="winstrip">
-                {windows.slice(0, -1).map((w) => <WindowFrame key={w.key} win={w} region={region} simple z={1} compact />)}
+                {visibleWindows.slice(0, -1).map((w) => <WindowFrame key={w.key} win={w} region={region} simple z={1} compact />)}
               </div>
             )}
           </>
@@ -279,7 +284,7 @@ export function WindowLayer() {
       </div>
       {!simple && (
         <div className="winfree">
-          {windows.map((w, i) => <WindowFrame key={w.key} win={w} region={region} simple={false} z={i + 1} />)}
+          {visibleWindows.map((w, i) => <WindowFrame key={w.key} win={w} region={region} simple={false} z={i + 1} />)}
         </div>
       )}
     </>

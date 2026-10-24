@@ -7,6 +7,7 @@ import type { DieSides } from '../../shared/dice.ts';
 import { newGame, type GameState } from '../../shared/game.ts';
 import { NEW_ELEVATOR, type ElevatorState } from '../../shared/city.ts';
 import type { PositionRoute } from '../../shared/session-position.ts';
+import { newSurvivorProfile, type SurvivorProfile, type SurvivorState } from '../../shared/survivor.ts';
 import { deriveSession } from './sessionView.ts';
 import type { Walk } from './walk.ts';
 
@@ -120,6 +121,10 @@ interface State {
   worldBy: Record<string, WorldKind>;
   /** セッションごとの板わたりのゲーム */
   games: Record<string, GameState>;
+  /** セッションごとの協力サバイバルラン */
+  survivors: Record<string, SurvivorState>;
+  /** 仮IDに紐づくサーバー保存の個人進行 */
+  survivorProfile: SurvivorProfile;
   /** 街のマンションのエレベーター（セッションごと） */
   elevators: Record<string, ElevatorState>;
   /** 注目を集めているアイテム ID → 光らせる期限（performance.now） */
@@ -228,6 +233,8 @@ export const useStore = create<State>(() => ({
   broadcast: {},
   worldBy: {},
   games: {},
+  survivors: {},
+  survivorProfile: newSurvivorProfile(),
   elevators: {},
   attention: {},
   toast: null,
@@ -295,7 +302,7 @@ export function dropSession(sid: string | null) {
   if (!sid) return;
   set((s) => {
     const omit = <T,>(m: Record<string, T>) => { const { [sid]: _, ...rest } = m; return rest; };
-    return { chats: omit(s.chats), avatarsBy: omit(s.avatarsBy), itemsBy: omit(s.itemsBy), games: omit(s.games), elevators: omit(s.elevators), broadcast: omit(s.broadcast), presence: {} };
+    return { chats: omit(s.chats), avatarsBy: omit(s.avatarsBy), itemsBy: omit(s.itemsBy), games: omit(s.games), survivors: omit(s.survivors), elevators: omit(s.elevators), broadcast: omit(s.broadcast), presence: {} };
   });
 }
 

@@ -27,6 +27,8 @@ import { getOgp } from './ogp.ts';
 import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
 import { eliminate, gameOf, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
+import { chooseSurvivorGear, chooseSurvivorStyle, clearSurvivor, moveSurvivor, removeSurvivor, resetSurvivorUpgrades, startSurvivor, tickSurvivors, upgradeSurvivor, survivorOf, type SurvivorDeps } from './survivors.ts';
+import { newSurvivorProfile, SURVIVOR_META_UPGRADES, SURVIVOR_TICK_MS, type SurvivorMetaUpgrade, type SurvivorProfile, type SurvivorStyle } from '../shared/survivor.ts';
 import { createSyncGrant, handleSyncOffer, upgradeSync, revokeSync, revokeUserSync, leaveRoom, livekitRoom, roomSend, roomSendSnapshot, shutdownRooms, type RoomHandlers } from './rooms.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
@@ -43,6 +45,7 @@ const REPORTS_FILE = path.join(DATA_DIR, 'reports.log');
 const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
 const PEOPLE_FILE = path.join(DATA_DIR, 'people.json');
 const ITEMS_FILE = path.join(DATA_DIR, 'items.json');
+const SURVIVORS_FILE = path.join(DATA_DIR, 'survivors.json');
 /** 2 人以上がこの時間以上いたセッションだけ、グループのチャンネルにまとめを残す */
 const RECAP_MIN_MS = Number(process.env.RECAP_MIN_MINUTES ?? 10) * 60_000;
 function readJson<T>(file: string, fallback: T): T {
@@ -54,6 +57,27 @@ function later(fn: () => void, ms = 800) {
   return () => { if (!t) t = setTimeout(() => { t = null; fn(); }, ms); };
 }
 for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR]) fs.mkdirSync(d, { recursive: true });
+const survivorProfiles = readJson<Record<string, SurvivorProfile>>(SURVIVORS_FILE, {});
+const saveSurvivorProfiles = later(() => fs.writeFile(SURVIVORS_FILE, JSON.stringify(survivorProfiles), () => {}));
+function survivorCount(value: unknown, max: number) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(max, Math.max(0, Math.floor(value)))
+    : 0;
+}
+function survivorProfile(id: string): SurvivorProfile {
+  const p = survivorProfiles[id] ??= newSurvivorProfile();
+  const upgrades = p.upgrades as Partial<Record<SurvivorMetaUpgrade, unknown>> | null | undefined;
+  p.upgrades = {
+    might: survivorCount(upgrades?.might, SURVIVOR_META_UPGRADES.might.max),
+    vitality: survivorCount(upgrades?.vitality, SURVIVOR_META_UPGRADES.vitality.max),
+    haste: survivorCount(upgrades?.haste, SURVIVOR_META_UPGRADES.haste.max),
+  };
+  p.achievements ??= [];
+  p.discovered ??= [];
+  p.points = survivorCount(p.points, Number.MAX_SAFE_INTEGER);
+  p.runs ??= 0; p.bestLevel ??= 0; p.bestKills ??= 0;
+  return p;
+}
 
 const normalizeName = (name: string) => name.trim().slice(0, 24) || 'ゲスト';
 const nameHash = (name: string) => createHash('sha1').update(normalizeName(name)).digest('hex');
@@ -368,6 +392,7 @@ function sendSessionSnapshot(sid: string, id: string) {
     broadcast: broadcastMode.get(sid) ?? false,
     world: worldOf.get(sid) ?? 'room',
     game: gameOf(sid),
+    survivor: survivorOf(sid),
     elevator: elevatorOf(sid),
     now: Date.now(),
   });
@@ -385,9 +410,13 @@ const clampRoom = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF -
 const solidsOf = (sid: string) => WORLDS[worldOf.get(sid) ?? 'room'].solids;
 /** 部屋（街なら街）の中に収め、家具にめり込んでいたら外へ出す。アイテムと 2D の人は地上にいる */
 function placeIn(sid: string, x: number, z: number, r: number) {
-  const clamp = worldOf.get(sid) === 'city' ? clampCity : clampRoom;
-  const p = pushOut(clamp(x), clamp(z), r, solidsOf(sid));
-  return { x: clamp(p.x), z: clamp(p.z) };
+  const world = worldOf.get(sid) ?? 'room';
+  const extent = WORLDS[world].extent;
+  const clamp = (v: number, axis: 'x' | 'z') => world === 'city' ? clampCity(v) : extent
+    ? Math.max(axis === 'x' ? extent.minX : extent.minZ, Math.min(axis === 'x' ? extent.maxX : extent.maxZ, v))
+    : clampRoom(v);
+  const p = pushOut(clamp(x, 'x'), clamp(z, 'z'), r, solidsOf(sid));
+  return { x: clamp(p.x, 'x'), z: clamp(p.z, 'z') };
 }
 const clamp2d = (sid: string, p: AvatarState): AvatarState => ({ ...placeIn(sid, p.x, p.z, PERSON_R), ry: p.ry });
 
@@ -434,12 +463,22 @@ const gameDeps: GameDeps = {
   sendTile: (sid, tile, at) => roomSend(sid, { t: 'gameTile', sid, tile, at }),
   event: (sid, text) => event(sid, text),
 };
+const survivorDeps: SurvivorDeps = {
+  sendState: (sid, state) => roomSend(sid, { t: 'survivor', sid, state }),
+  profile: survivorProfile,
+  saveProfiles: saveSurvivorProfiles,
+  users: (sid) => inSession(sid),
+  avatars: (sid) => avatars.get(sid) ?? new Map(),
+  profileUpdated: (id, profile) => sendTo([id], { t: 'survivorProfile', profile }),
+};
+setInterval(() => tickSurvivors(Date.now(), survivorDeps), SURVIVOR_TICK_MS);
 
 function leaveSession(u: Participant) {
   revokeUserSync(u.id);
   const sid = u.session;
   if (!sid) return;
   eliminate(sid, u.id, gameDeps);
+  removeSurvivor(sid, u.id, survivorDeps);
   const av = avatars.get(sid)!.get(u.id);
   if (avatars.get(sid)!.delete(u.id)) roomSend(sid, { t: 'avatarRemove', sid, id: u.id });
   for (const it of items.get(sid)!.values()) {
@@ -498,6 +537,7 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
       t: 'inbox', convs: convsOf(name), reads: inbox.reads[name] ?? {}, people: knownPeopleOf(name).map(personOf),
       watching: watchingOf(name), lastSeen, recentStatus: rec.recent,
     });
+    send(ws, { t: 'survivorProfile', profile: survivorProfile(msg.id) });
     broadcastUsers();
     if (cameOnline) {
       // 来たら知らせる は 1 回きり
@@ -649,6 +689,36 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     }
     case 'gameFell': {
       eliminate(sid, me.id, gameDeps);
+      return;
+    }
+    case 'survivorStyle': {
+      if (worldOf.get(sid) !== 'survivors') return;
+      chooseSurvivorStyle(sid, me, msg.style as SurvivorStyle, survivorDeps);
+      return;
+    }
+    case 'survivorStart': {
+      if (worldOf.get(sid) !== 'survivors') return;
+      startSurvivor(sid, me, survivorDeps);
+      return;
+    }
+    case 'survivorMove': {
+      if (worldOf.get(sid) !== 'survivors' || me.mode !== '2d') return;
+      moveSurvivor(sid, me, Number(msg.x), Number(msg.z), survivorDeps);
+      return;
+    }
+    case 'survivorChoose': {
+      if (worldOf.get(sid) !== 'survivors') return;
+      chooseSurvivorGear(sid, me, String(msg.gear), survivorDeps);
+      return;
+    }
+    case 'survivorUpgrade': {
+      if (worldOf.get(sid) !== 'survivors') return;
+      upgradeSurvivor(sid, me.id, msg.upgrade as SurvivorMetaUpgrade, survivorDeps);
+      return;
+    }
+    case 'survivorReset': {
+      if (worldOf.get(sid) !== 'survivors') return;
+      resetSurvivorUpgrades(sid, me.id, survivorDeps);
       return;
     }
     case 'elevatorCall': {
@@ -852,6 +922,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       home.sessions.splice(home.sessions.indexOf(def), 1);
       guild.sessions.splice(guild.sessions.indexOf(def), 1);
       sessionIds.delete(def.id);
+      clearSurvivor(def.id);
       items.get(def.id)?.clear();
       broadcastSessionInfo();
       for (const ev of home.events) if (ev.session === def.id) ev.session = null;

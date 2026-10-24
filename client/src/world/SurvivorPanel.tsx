@@ -1,0 +1,299 @@
+import { useEffect, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { useStore } from '../store.ts';
+import { send } from '../net/ws.ts';
+import { ROOM_HALF, SPAWN, type AvatarState, type Participant } from '../../../shared/protocol.ts';
+import {
+  SURVIVOR_ACHIEVEMENTS, SURVIVOR_DURATION_MS, SURVIVOR_GEAR,
+  SURVIVOR_JOIN, SURVIVOR_META_UPGRADES, SURVIVOR_MOVE_SPEED, SURVIVOR_STYLES,
+  SURVIVOR_TITLE, clampSurvivorPosition, survivorDistance, type SurvivorPlayer, type SurvivorState,
+} from '../../../shared/survivor.ts';
+import { openWindow } from './windows.ts';
+import { unlockSurvivorAudio } from './survivorAudio.ts';
+
+const STYLES = Object.entries(SURVIVOR_STYLES) as [keyof typeof SURVIVOR_STYLES, typeof SURVIVOR_STYLES[keyof typeof SURVIVOR_STYLES]][];
+const RARITY_NAME = { common: '一般', rare: '希少', epic: '英雄', mythic: '神話' } as const;
+const PLAYER_COLORS = ['#ff8ab2', '#8ed9ff', '#e1b0ff', '#ffd36d', '#9af0bd'];
+const ATTACK_COLORS: Record<string, string> = {
+  moonblade: '#ff65aa', eclipse: '#ffe675', bloodaura: '#ff315e', crimsonsun: '#ff9d35',
+  starbolt: '#5fe5ff', starfall: '#ffe16e', shade: '#bc8aff', umbralstorm: '#a457ff',
+};
+const attackColor = (gear: string) => ATTACK_COLORS[gear] ?? '#fff3a6';
+const isAreaWeapon = (gear: string) => ['moonblade', 'eclipse', 'bloodaura', 'crimsonsun'].includes(gear);
+const isActive = (phase: SurvivorState['phase']) => phase === 'running' || phase === 'boss';
+
+function formatTime(ms: number) {
+  const seconds = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function SurvivorCanvas({ state, player, participants, avatars, clock, serverOffset }: {
+  state?: SurvivorState; player?: SurvivorPlayer; participants: Participant[]; avatars: Record<string, AvatarState>; clock: number; serverOffset: number;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#1b1520'; ctx.fillRect(0, 0, w, h);
+    const scale = Math.min(w, h) / (ROOM_HALF * 2);
+    const cx = w / 2, cy = h / 2;
+    const point = (x: number, z: number) => ({ x: cx + x * scale, y: cy + z * scale });
+    const left = cx - ROOM_HALF * scale, top = cy - ROOM_HALF * scale, side = ROOM_HALF * 2 * scale;
+    ctx.fillStyle = '#565961'; ctx.fillRect(left, top, side, side);
+    ctx.strokeStyle = 'rgba(255,255,255,.11)'; ctx.lineWidth = 1;
+    for (let i = -ROOM_HALF; i <= ROOM_HALF; i += 2) {
+      const x = cx + i * scale, y = cy + i * scale;
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + side); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + side, y); ctx.stroke();
+    }
+    ctx.strokeStyle = '#aeb1bb'; ctx.lineWidth = 3; ctx.strokeRect(left, top, side, side);
+    const join = point(SURVIVOR_JOIN.x, SURVIVOR_JOIN.z);
+    ctx.beginPath(); ctx.arc(join.x, join.y, SURVIVOR_JOIN.r * scale, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(239,107,155,.2)'; ctx.fill(); ctx.strokeStyle = '#ff9ac8'; ctx.lineWidth = 2; ctx.stroke();
+    if (state?.phase === 'lobby') {
+      for (const [i, user] of participants.entries()) {
+        const pos = user.mode === '3d' ? avatars[user.id] : user.pos;
+        const p = point(pos?.x ?? SPAWN.x, pos?.z ?? SPAWN.z);
+        ctx.beginPath(); ctx.arc(p.x, p.y, user.id === player?.id ? 8 : 6, 0, Math.PI * 2);
+        ctx.fillStyle = PLAYER_COLORS[i % PLAYER_COLORS.length]; ctx.fill();
+        if (user.id === player?.id) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
+      }
+    }
+    for (const enemy of state?.enemies ?? []) {
+      const p = point(enemy.x, enemy.z);
+      if (p.x < -20 || p.x > w + 20 || p.y < -20 || p.y > h + 20) continue;
+      const boss = enemy.kind === 'boss';
+      const hitAge = clock + serverOffset - enemy.hitAt;
+      const hit = hitAge >= 0 && hitAge < 240 ? 1 - hitAge / 240 : 0;
+      const radius = (boss ? 11 : enemy.kind === 'knight' ? 6 : 4.5) * (1 + hit * 0.35);
+      ctx.save();
+      if (hit) { ctx.shadowColor = '#fff'; ctx.shadowBlur = 20 * hit; }
+      ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = hit ? '#fff4f7' : boss ? '#ff315d' : enemy.kind === 'knight' ? '#bd81d0' : enemy.kind === 'bat' ? '#a17de0' : '#df6287'; ctx.fill();
+      if (hit || boss) {
+        ctx.beginPath(); ctx.arc(p.x, p.y, radius + (hit ? 3 + (1 - hit) * 4 : 4), 0, Math.PI * 2);
+        ctx.strokeStyle = hit ? `rgba(255,255,255,${hit})` : 'rgba(255,82,117,.8)'; ctx.lineWidth = hit ? 2 : 1.5; ctx.stroke();
+      }
+      ctx.restore();
+    }
+    for (const [i, other] of Object.values(state?.players ?? {}).entries()) {
+      const p = point(other.x, other.z);
+      const hitAge = clock + serverOffset - other.hitAt;
+      const hit = hitAge >= 0 && hitAge < 300 ? 1 - hitAge / 300 : 0;
+      if (hit) {
+        ctx.save(); ctx.shadowColor = '#ff5a78'; ctx.shadowBlur = 18 * hit;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 12 + (1 - hit) * 8, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255,110,136,${hit})`; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
+      }
+      ctx.beginPath(); ctx.arc(p.x, p.y, other.id === player?.id ? 8 : 6, 0, Math.PI * 2);
+      ctx.fillStyle = hit ? '#fff2ee' : PLAYER_COLORS[i % PLAYER_COLORS.length]; ctx.fill();
+      if (other.id === player?.id) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
+    }
+    for (const effect of state?.effects ?? []) {
+      const age = clock + serverOffset - effect.at;
+      if (age < 0 || age > 650) continue;
+      const progress = age / 650, alpha = 1 - progress;
+      const from = point(effect.from.x, effect.from.z);
+      const color = attackColor(effect.gear);
+      ctx.save(); ctx.globalAlpha = alpha;
+      ctx.shadowColor = color; ctx.shadowBlur = 16;
+      if (isAreaWeapon(effect.gear)) {
+        const radius = Math.max(4, effect.reach * scale * (0.18 + progress * 0.82));
+        const glow = ctx.createRadialGradient(from.x, from.y, 1, from.x, from.y, radius);
+        glow.addColorStop(0, `${color}58`); glow.addColorStop(0.72, `${color}24`); glow.addColorStop(1, `${color}00`);
+        ctx.beginPath(); ctx.arc(from.x, from.y, radius, 0, Math.PI * 2); ctx.fillStyle = glow; ctx.fill();
+        ctx.beginPath(); ctx.arc(from.x, from.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = color; ctx.lineWidth = 5 * alpha + 1; ctx.stroke();
+        ctx.beginPath(); ctx.arc(from.x, from.y, Math.max(2, radius * 0.66), 0, Math.PI * 2);
+        ctx.strokeStyle = '#fff2cf'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.beginPath(); ctx.arc(from.x, from.y, 4 + progress * 5, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+      } else {
+        for (const target of effect.targets) {
+          const to = point(target.x, target.z);
+          ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y);
+          ctx.strokeStyle = color; ctx.lineWidth = 9; ctx.lineCap = 'round'; ctx.stroke();
+          ctx.shadowBlur = 0;
+          ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y);
+          ctx.strokeStyle = '#fff4e8'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke();
+          const head = { x: from.x + (to.x - from.x) * progress, y: from.y + (to.y - from.y) * progress };
+          ctx.save(); ctx.translate(head.x, head.y); ctx.rotate(Math.atan2(to.y - from.y, to.x - from.x));
+          ctx.beginPath(); ctx.moveTo(9, 0); ctx.lineTo(-5, -5); ctx.lineTo(-2, 0); ctx.lineTo(-5, 5); ctx.closePath();
+          ctx.fillStyle = color; ctx.shadowBlur = 14; ctx.fill(); ctx.restore();
+          ctx.beginPath(); ctx.arc(to.x, to.y, 7 + (1 - progress) * 7, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,255,255,${0.22 * alpha})`; ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5; ctx.stroke();
+          for (let i = 0; i < 6; i++) {
+            const angle = i * Math.PI / 3 + progress * 1.5;
+            const sparkRadius = (5 + progress * 12) * (i % 2 ? 0.72 : 1);
+            ctx.beginPath(); ctx.moveTo(to.x + Math.cos(angle) * sparkRadius, to.y + Math.sin(angle) * sparkRadius);
+            ctx.lineTo(to.x + Math.cos(angle) * (sparkRadius + 4), to.y + Math.sin(angle) * (sparkRadius + 4));
+            ctx.strokeStyle = i % 2 ? color : '#fff'; ctx.lineWidth = i % 2 ? 2 : 1; ctx.stroke();
+          }
+        }
+      }
+      ctx.restore();
+    }
+  }, [state?.enemies, state?.players, state?.effects, state?.phase, player?.x, player?.z, player?.id, participants, avatars, clock, serverOffset]);
+  return <canvas ref={ref} className="survivor-map" width={360} height={360} aria-label="敵と仲間の位置" />;
+}
+
+export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
+  const { state, profile, selfId, participants, avatars, mode, serverOffset } = useStore(useShallow((s) => ({
+    state: s.survivors[s.session ?? ''], profile: s.survivorProfile, selfId: s.selfId,
+    participants: s.participants, avatars: s.avatars, mode: s.mode, serverOffset: s.serverOffset,
+  })));
+  const [clock, setClock] = useState(Date.now());
+  const [confirmReset, setConfirmReset] = useState(false);
+  const keys = useRef(new Set<string>());
+  const pos = useRef({ x: 0, z: 0 });
+  const me = state?.players[selfId];
+  const phase = state?.phase ?? 'lobby';
+  const active = isActive(phase);
+  const paused = active && state?.pausedAt != null;
+  const stylePick = state?.stylePicks[selfId] ?? 'bloodrose';
+  const elapsed = active ? Math.max(0, Math.min(clock + serverOffset, state!.pausedAt ?? Infinity) - state!.startedAt) : 0;
+  const remaining = Math.max(0, SURVIVOR_DURATION_MS - elapsed);
+  const xpRatio = me ? Math.min(1, me.xp / Math.max(1, me.nextXp)) : 0;
+  const inJoin = participants.filter((u) => {
+    const p = u.mode === '3d' ? avatars[u.id] : u.pos;
+    return survivorDistance(p ?? SPAWN, SURVIVOR_JOIN) <= SURVIVOR_JOIN.r;
+  });
+  const canJoin = inJoin.some((u) => u.id === selfId);
+  const choices = me?.choiceQueue[0] ?? [];
+  const runFinishedReward = phase === 'ended' && me ? me.level : 0;
+  const investedPoints = profile.upgrades.might * SURVIVOR_META_UPGRADES.might.cost
+    + profile.upgrades.vitality * SURVIVOR_META_UPGRADES.vitality.cost
+    + profile.upgrades.haste * SURVIVOR_META_UPGRADES.haste.cost;
+  const boss = state?.enemies.find((enemy) => enemy.kind === 'boss');
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (me && mode === '2d' && !keys.current.size) pos.current = { x: me.x, z: me.z };
+  }, [me?.x, me?.z, mode, state?.run]);
+  useEffect(() => {
+    if (mode !== '2d' || !active || paused || !me?.alive) return;
+    const onDown = (e: KeyboardEvent) => {
+      if (!['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(e.code)) return;
+      const target = e.target as HTMLElement | null;
+      if (target && ['INPUT', 'TEXTAREA', 'BUTTON'].includes(target.tagName)) return;
+      e.preventDefault(); keys.current.add(e.code);
+    };
+    const onUp = (e: KeyboardEvent) => { keys.current.delete(e.code); };
+    const clear = () => keys.current.clear();
+    const timer = window.setInterval(() => {
+      const down = keys.current;
+      const f = Number(down.has('KeyW') || down.has('ArrowUp')) - Number(down.has('KeyS') || down.has('ArrowDown'));
+      const r = Number(down.has('KeyD') || down.has('ArrowRight')) - Number(down.has('KeyA') || down.has('ArrowLeft'));
+      if (!f && !r) return;
+      const speed = SURVIVOR_MOVE_SPEED * (1 + profile.upgrades.haste * 0.03) * (1 + (me.gear.nightcloak ?? 0) * 0.025);
+      const step = speed * 0.1 / Math.hypot(f, r);
+      let x = pos.current.x + r * step, z = pos.current.z - f * step;
+      ({ x, z } = clampSurvivorPosition(x, z));
+      pos.current = { x, z };
+      send({ t: 'survivorMove', x, z });
+    }, 100);
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    window.addEventListener('blur', clear);
+    return () => { clearInterval(timer); window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); window.removeEventListener('blur', clear); clear(); };
+  }, [mode, active, paused, me?.alive, profile.upgrades.haste, me?.gear.nightcloak]);
+
+  const status = paused ? '装備選択中 · 時が止まっています' : active && me && !me.alive ? '倒れました · 仲間を観戦中'
+    : phase === 'lobby' ? '参加者を待っています' : phase === 'running' ? '夜の眷属が迫る'
+      : phase === 'boss' ? '夜の王が現れた' : state?.bossDefeated ? '夜の王を討伐' : 'ラン終了';
+  return (
+    <div className={`survivor-panel ${overlay ? 'overlay' : ''} ${paused ? 'is-paused' : ''} ${phase === 'boss' ? 'is-boss' : ''}`} tabIndex={0} aria-label={SURVIVOR_TITLE} onPointerDownCapture={unlockSurvivorAudio}>
+      <div className="survivor-head">
+        <div><h2>{SURVIVOR_TITLE}</h2><span>{status}</span></div>
+        {active && <strong className={`survivor-time ${phase === 'boss' ? 'boss' : ''}`}>{phase === 'boss' ? 'BOSS' : formatTime(remaining)}</strong>}
+      </div>
+      {paused && <div className="survivor-pause-banner"><span className="survivor-pause-mark">✦</span><span><b>時が止まった</b><small>装備を選ぶまで、敵も時間も一時停止中</small></span><span className="survivor-pause-mark">✦</span></div>}
+      <SurvivorCanvas state={state} player={me} participants={participants} avatars={avatars} clock={clock} serverOffset={serverOffset} />
+      {phase === 'boss' && boss && <div className="survivor-boss-health"><span>夜の王 · {Math.ceil(boss.hp).toLocaleString()} / {boss.maxHp.toLocaleString()}</span><div><i style={{ width: `${Math.max(0, boss.hp / boss.maxHp * 100)}%` }} /></div></div>}
+      <div className="survivor-legend"><span>✦ 仲間と自分</span><span>◆ 夜の眷属</span><span>攻撃は自動 · 光る軌跡が攻撃</span>{mode === '2d' && active && <span>WASD / 矢印で移動</span>}{mode === '3d' && active && <span>WASDで移動 · 俯瞰視点</span>}</div>
+
+      {me && <div className="survivor-vitals">
+        <div className="survivor-vital"><span>Lv. {me.level}</span><div><i style={{ width: `${Math.max(0, me.hp / me.maxHp * 100)}%`, background: '#e45169' }} /></div><b>{Math.ceil(me.hp)} / {me.maxHp}</b></div>
+        <div className="survivor-vital"><span>EXP</span><div><i style={{ width: `${xpRatio * 100}%`, background: '#e9c75b' }} /></div><b>{Math.floor(me.xp)} / {me.nextXp}</b></div>
+        <span>討伐 {me.kills}</span>
+      </div>}
+
+      {choices.length > 0 && me?.alive && <section key={`${me.level}-${me.choiceQueue.length}`} className="survivor-choices" aria-label="レベルアップ装備選択">
+        <div className="survivor-choice-title"><span>✦ LEVEL UP ✦</span><h3>新たな力を選ぶ</h3><small>選択中はセッション全体が停止します</small></div>
+        <div className="survivor-choice-list">{choices.map((id) => {
+          const gear = SURVIVOR_GEAR[id];
+          const partner = gear.synergy ?? Object.values(SURVIVOR_GEAR).find((candidate) => candidate.synergy === gear.id)?.id;
+          return <button key={id} className={`survivor-choice rarity-${gear.rarity}`} onClick={() => { unlockSurvivorAudio(); send({ t: 'survivorChoose', gear: id }); }}>
+            <b>{gear.name}</b><small>{RARITY_NAME[gear.rarity]} · Lv.{(me.gear[id] ?? 0) + 1}</small><span>{gear.desc}</span>
+            {partner && <small>シナジー: {SURVIVOR_GEAR[partner]?.name}</small>}
+            {gear.evolvedFrom && <small>進化条件: {gear.evolvedFrom.map((source) => SURVIVOR_GEAR[source]?.name).join(' + ')}</small>}
+          </button>;
+        })}</div>
+      </section>}
+
+      {(!active || !me) && <section className="survivor-lobby">
+        <h3>{active ? '途中参加' : phase === 'ended' ? '次の夜へ' : 'スタイルを選ぶ'}</h3>
+        <div className="survivor-styles">{STYLES.map(([id, style]) => <button key={id} disabled={active && !canJoin} className={`survivor-style ${stylePick === id ? 'selected' : ''}`} onClick={() => send({ t: 'survivorStyle', style: id })}>
+          <b><span>{style.mark}</span>{style.name}</b><small>{style.desc}</small><small>初期装備: {SURVIVOR_GEAR[style.weapon].name} · HP {style.hp} · 移動 {style.speed.toFixed(1)}</small>
+        </button>)}</div>
+        <div className="survivor-join-status">参加エリアに {inJoin.length} 人 · {inJoin.map((u) => u.name).join('、') || '参加者なし'}</div>
+        <button className="primary big survivor-start" disabled={!canJoin || (!!me && me.alive)} onClick={() => { unlockSurvivorAudio(); send({ t: 'survivorStart' }); }}>
+          {active ? 'レベル1から途中参加' : phase === 'ended' ? 'もう一度プレイ' : '参加者でゲーム開始'}
+        </button>
+        {!canJoin && <small className="survivor-hint">参加エリアの輪の中に入ると参加できます</small>}
+        {phase === 'ended' && me && <p className="survivor-reward">今回の獲得ポイント: <b>+{runFinishedReward} pt</b></p>}
+      </section>}
+
+      {me && <div className="survivor-loadout"><b>装備</b>{Object.entries(me.gear).filter(([, level]) => level > 0).map(([id, level]) => <span key={id}>{SURVIVOR_GEAR[id]?.name ?? id} Lv.{level}</span>)}</div>}
+
+      <section className="survivor-meta">
+        <div className="survivor-section-head"><h3>永続強化</h3><b>{profile.points} pt</b></div>
+        <button className="survivor-library-open" onClick={() => openWindow('survivor-library')}>装備図鑑・実績を開く</button>
+        <div className="survivor-upgrades">{Object.entries(SURVIVOR_META_UPGRADES).map(([key, upgrade]) => {
+          const level = profile.upgrades[key as keyof typeof profile.upgrades];
+          return <button key={key} className="survivor-upgrade" disabled={profile.points < upgrade.cost || level >= upgrade.max} onClick={() => send({ t: 'survivorUpgrade', upgrade: key as keyof typeof profile.upgrades })}>
+            <span><b>{upgrade.name} Lv.{level}/{upgrade.max}</b><small>{upgrade.desc}</small></span><strong>{level >= upgrade.max ? 'MAX' : `${upgrade.cost} pt`}</strong>
+          </button>;
+        })}</div>
+        {investedPoints > 0 && (active
+          ? <small className="survivor-reset-hint">強化のリセットはラン終了後にできます</small>
+          : confirmReset
+            ? <div className="survivor-reset-confirm" role="group" aria-label="永続強化のリセット確認">
+              <span>すべての永続強化を Lv.0 に戻し、<b>{investedPoints} pt</b>を返却します。</span>
+              <div><button className="survivor-reset-danger" onClick={() => { send({ t: 'survivorReset' }); setConfirmReset(false); }}>リセットして {investedPoints} pt を受け取る</button><button className="survivor-reset-cancel" onClick={() => setConfirmReset(false)}>キャンセル</button></div>
+            </div>
+            : <button className="survivor-reset" onClick={() => setConfirmReset(true)}>永続強化をリセット <span>+{investedPoints} pt 返却</span></button>
+        )}
+      </section>
+
+    </div>
+  );
+}
+
+export function SurvivorLibrary() {
+  const profile = useStore((s) => s.survivorProfile);
+  const mythicFound = profile.discovered.some((id) => SURVIVOR_GEAR[id]?.rarity === 'mythic');
+  const visibleGear = Object.values(SURVIVOR_GEAR).filter((gear) => gear.rarity !== 'mythic' || mythicFound);
+  return (
+    <div className="survivor-library-window">
+      <div className="survivor-library-stats">プレイ {profile.runs} 回 · 最高 Lv.{profile.bestLevel} · 最高討伐 {profile.bestKills}</div>
+      <div className="survivor-gear-grid">{visibleGear.map((gear) => {
+        const found = profile.discovered.includes(gear.id);
+        const partner = gear.synergy ?? Object.values(SURVIVOR_GEAR).find((candidate) => candidate.synergy === gear.id)?.id;
+        return <article key={gear.id} className={`survivor-gear ${found ? 'found' : ''}`}>
+          <b>{gear.name}</b><small>{RARITY_NAME[gear.rarity]} · {found ? '発見済み' : '未獲得'}</small><span>{gear.desc}</span>
+          {partner && <small>シナジー: {SURVIVOR_GEAR[partner]?.name}</small>}
+          {gear.evolvedFrom && <small>進化条件: {gear.evolvedFrom.map((source) => SURVIVOR_GEAR[source]?.name).join(' + ')}</small>}
+        </article>;
+      })}{!mythicFound && <article className="survivor-gear hidden"><b>？？？</b><small>未発見</small><span>図鑑に載っていない装備</span></article>}</div>
+      <h4>実績</h4>
+      <div className="survivor-achievements">{Object.entries(SURVIVOR_ACHIEVEMENTS).map(([id, achievement]) => <span key={id} className={profile.achievements.includes(id as keyof typeof SURVIVOR_ACHIEVEMENTS) ? 'earned' : ''} title={achievement.desc}>{profile.achievements.includes(id as keyof typeof SURVIVOR_ACHIEVEMENTS) ? '✦' : '◇'} {achievement.name}</span>)}</div>
+    </div>
+  );
+}
