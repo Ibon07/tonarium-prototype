@@ -5,15 +5,15 @@ import { useStore } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { ROOM_HALF, SPAWN, type AvatarState, type Participant } from '../../../shared/protocol.ts';
 import {
-  SURVIVOR_ACHIEVEMENTS, SURVIVOR_DURATION_MS, SURVIVOR_GEAR, SURVIVOR_MAX_SYNERGY_GEAR,
+  SURVIVOR_ACHIEVEMENTS, SURVIVOR_CHOICE_TIMEOUT_MS, SURVIVOR_DURATION_MS, SURVIVOR_GEAR, SURVIVOR_MAX_SYNERGY_GEAR,
   SURVIVOR_JOIN, SURVIVOR_META_UPGRADES, SURVIVOR_MOVE_SPEED, SURVIVOR_STYLES,
-  SURVIVOR_TITLE, clampSurvivorPosition, survivorDistance, type SurvivorPlayer, type SurvivorState,
+  SURVIVOR_TITLE, clampSurvivorPosition, isSurvivorSynergyRecipe, survivorDistance, type SurvivorPlayer, type SurvivorState,
 } from '../../../shared/survivor.ts';
 import { openWindow } from './windows.ts';
 import { unlockSurvivorAudio } from './survivorAudio.ts';
 
 const STYLES = Object.entries(SURVIVOR_STYLES) as [keyof typeof SURVIVOR_STYLES, typeof SURVIVOR_STYLES[keyof typeof SURVIVOR_STYLES]][];
-const SYNERGY_RECIPES = Object.values(SURVIVOR_GEAR).filter((gear) => gear.synergyGear && gear.evolvedFrom?.length === 2);
+const SYNERGY_RECIPES = Object.values(SURVIVOR_GEAR).filter(isSurvivorSynergyRecipe);
 const SYNERGY_SOURCE_IDS = new Set(SYNERGY_RECIPES.flatMap((gear) => gear.evolvedFrom ?? []));
 const RARITY_NAME = { common: '一般', rare: '希少', epic: '英雄', mythic: '神話' } as const;
 const PLAYER_COLORS = ['#ff8ab2', '#8ed9ff', '#e1b0ff', '#ffd36d', '#9af0bd'];
@@ -21,15 +21,20 @@ const ATTACK_COLORS: Record<string, string> = {
   moonblade: '#ff65aa', eclipse: '#ffe675', bloodaura: '#ff315e', crimsonsun: '#ff9d35',
   starbolt: '#5fe5ff', starfall: '#ffe16e', shade: '#bc8aff', umbralstorm: '#a457ff',
   frostlance: '#8beaff', stormring: '#7cbdff', embermine: '#ff7c3b', thornshot: '#93e86b', voidpulse: '#d783ff',
-  lunarconvergence: '#fff29a', crimsonvoid: '#ff174f', stormfrost: '#70f4ff',
+  lunarconvergence: '#ff527d', crimsonvoid: '#b58cff', stormfrost: '#9af8ff',
+  astralbarrage: '#4deaff', soulreaper: '#ff2d72', thunderweb: '#f4e95c', infernomine: '#ff782b', thornstorm: '#95ff5b', lunarvoid: '#db7aff',
 };
 const attackColor = (gear: string) => ATTACK_COLORS[gear] ?? '#fff3a6';
-const isAreaWeapon = (gear: string) => ['moonblade', 'eclipse', 'bloodaura', 'crimsonsun', 'starfall', 'embermine', 'voidpulse', 'crimsonvoid'].includes(gear);
+const isAreaWeapon = (gear: string) => ['moonblade', 'eclipse', 'bloodaura', 'crimsonsun', 'starfall', 'embermine', 'voidpulse', 'lunarconvergence', 'soulreaper', 'infernomine', 'lunarvoid'].includes(gear);
 const isActive = (phase: SurvivorState['phase']) => phase === 'running' || phase === 'boss';
 
 function formatTime(ms: number) {
   const seconds = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function evolutionConditionText(gear: { evolvedFrom?: string[]; evolutionLevels?: number[] }) {
+  return gear.evolvedFrom?.map((id, index) => `${SURVIVOR_GEAR[id]?.name ?? id} Lv.${gear.evolutionLevels?.[index] ?? SURVIVOR_GEAR[id]?.maxLevel ?? 1}`).join(' + ');
 }
 
 function gearTooltipText(id: string, level?: number) {
@@ -40,8 +45,8 @@ function gearTooltipText(id: string, level?: number) {
     `${gear.name} · ${RARITY_NAME[gear.rarity]}`,
     `${gear.kind === 'weapon' ? '武器' : '補助装備'} · ${level == null ? `最大Lv.${gear.maxLevel}` : `Lv.${level}/${gear.maxLevel}`}`,
     gear.desc,
-    partner ? `シナジー: ${SURVIVOR_GEAR[partner]?.name}` : '',
-    gear.evolvedFrom ? `進化条件: ${gear.evolvedFrom.map((source) => SURVIVOR_GEAR[source]?.name).join(' + ')}` : '',
+    partner ? `対応シナジー: ${SURVIVOR_GEAR[partner]?.name}` : '',
+    gear.evolvedFrom ? `進化条件: ${evolutionConditionText(gear)}` : '',
     gear.synergyGear ? `専用シナジー枠 · 最大${SURVIVOR_MAX_SYNERGY_GEAR}個` : '',
   ].filter(Boolean).join('\n');
 }
@@ -269,6 +274,7 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
     .sort((a, b) => Number(b.id === selfId) - Number(a.id === selfId));
   const pendingChoiceKey = queuedPlayers.map((player) => `${player.id}:${player.choiceQueue.map((choices) => choices.join('.')).join('/')}`).join(',');
   const needsOwnChoice = !!me?.alive && choices.length > 0;
+  const choiceNow = clock + serverOffset;
   const runFinishedReward = phase === 'ended' && me ? me.level : 0;
   const investedPoints = profile.upgrades.might * SURVIVOR_META_UPGRADES.might.cost
     + profile.upgrades.vitality * SURVIVOR_META_UPGRADES.vitality.cost
@@ -280,11 +286,11 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
   const mythicFound = profile.discovered.some((id) => SURVIVOR_GEAR[id]?.rarity === 'mythic');
   const synergyProgress = SYNERGY_RECIPES.map((recipe) => {
     const acquired = (me?.gear[recipe.id] ?? 0) > 0;
-    const sources = (recipe.evolvedFrom ?? []).map((id) => {
+    const sources = (recipe.evolvedFrom ?? []).map((id, index) => {
       const source = SURVIVOR_GEAR[id];
-      const maximum = source?.maxLevel ?? 1;
+      const maximum = recipe.evolutionLevels?.[index] ?? source?.maxLevel ?? 1;
       const level = acquired ? maximum : Math.min(me?.gear[id] ?? 0, maximum);
-      return { id, name: source?.name ?? id, level, maximum };
+      return { id, name: source?.name ?? id, kind: source?.kind, level, maximum };
     });
     const maximum = sources.reduce((total, source) => total + source.maximum, 0);
     const completed = sources.reduce((total, source) => total + source.level, 0);
@@ -296,6 +302,9 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
       revealed: acquired || mythicFound || profile.discovered.includes(recipe.id),
     };
   });
+  const synergyGroups = [
+    { label: '武器と表示シナジーの補助装備', recipes: synergyProgress },
+  ];
 
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 250);
@@ -363,22 +372,28 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
         <div className="survivor-choice-title">
           <span>{needsOwnChoice ? '✦ あなたの番 ✦' : '✦ CO-OP LEVEL UP ✦'}</span>
           <h3 id="survivor-choice-title">{needsOwnChoice ? '装備を選んでください' : '仲間が装備を選択中'}</h3>
-          <small>選択中: {queuedPlayers.map((player) => player.id === selfId ? 'あなた' : player.name).join('、')} · ゲームは一時停止中{needsOwnChoice ? ` · シナジー専用枠 ${acquiredSynergyGear.length}/${SURVIVOR_MAX_SYNERGY_GEAR}` : ''}</small>
+          <small>選択中: {queuedPlayers.map((player) => player.id === selfId ? 'あなた' : player.name).join('、')} · ゲームは一時停止中{needsOwnChoice ? ` · 10秒で未選択なら自動選択 · シナジー専用枠 ${acquiredSynergyGear.length}/${SURVIVOR_MAX_SYNERGY_GEAR}` : ''}</small>
         </div>
         <div className="survivor-choice-players">{queuedPlayers.map((owner) => {
           const isMine = owner.id === selfId;
           const options = owner.choiceQueue[0] ?? [];
           const ownerSynergyCount = Object.entries(owner.gear).filter(([id, level]) => level > 0 && SURVIVOR_GEAR[id]?.synergyGear).length;
+          const deadline = owner.choiceDeadlineAt ?? choiceNow + SURVIVOR_CHOICE_TIMEOUT_MS;
+          const choiceTimeLeft = Math.max(0, Math.min(SURVIVOR_CHOICE_TIMEOUT_MS, deadline - choiceNow));
           return <section key={owner.id} className={`survivor-choice-player ${isMine ? 'is-self' : ''}`} aria-label={`${isMine ? 'あなた' : owner.name}の装備選択`}>
             <div className="survivor-choice-player-head"><b>{isMine ? 'あなた' : owner.name}</b><span>{isMine ? '選択してください' : '選択中 · 観戦'} · シナジー枠 {ownerSynergyCount}/{SURVIVOR_MAX_SYNERGY_GEAR}</span></div>
+            <div className="survivor-choice-timer" role="progressbar" aria-label={`${isMine ? 'あなた' : owner.name}の自動選択まで`} aria-valuemin={0} aria-valuemax={SURVIVOR_CHOICE_TIMEOUT_MS} aria-valuenow={choiceTimeLeft}>
+              <div><span>未選択時の自動選択まで</span><b>{Math.ceil(choiceTimeLeft / 1000)}秒</b></div>
+              <i style={{ width: `${Math.min(100, choiceTimeLeft / SURVIVOR_CHOICE_TIMEOUT_MS * 100)}%` }} />
+            </div>
             <div className="survivor-choice-list">{options.map((id, index) => {
               const gear = SURVIVOR_GEAR[id];
               const partner = gear.synergy ?? Object.values(SURVIVOR_GEAR).find((candidate) => candidate.synergy === gear.id)?.id;
               const level = (owner.gear[id] ?? 0) + 1;
               const details = <>
                 <b>{gear.name}</b><small>{RARITY_NAME[gear.rarity]} · Lv.{level}</small><span>{gear.desc}</span>
-                {partner && <small>シナジー: {SURVIVOR_GEAR[partner]?.name}</small>}
-                {gear.evolvedFrom && <small>進化条件: {gear.evolvedFrom.map((source) => SURVIVOR_GEAR[source]?.name).join(' + ')}</small>}
+                {partner && <small>対応シナジー: {SURVIVOR_GEAR[partner]?.name}</small>}
+                {gear.evolvedFrom && <small>進化条件: {evolutionConditionText(gear)}</small>}
                 {gear.synergyGear && <small className="survivor-synergy-choice-slot">✦ 専用枠 {Math.min(SURVIVOR_MAX_SYNERGY_GEAR, ownerSynergyCount + 1)}/{SURVIVOR_MAX_SYNERGY_GEAR}</small>}
               </>;
               return isMine
@@ -431,25 +446,28 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
         <div className="survivor-loadout"><b>装備</b><div className="survivor-loadout-items">{Object.entries(me.gear).filter(([id, level]) => level > 0 && !SURVIVOR_GEAR[id]?.synergyGear && !SYNERGY_SOURCE_IDS.has(id)).map(([id, level]) => <span key={id} title={gearTooltipText(id, level)}>{SURVIVOR_GEAR[id]?.name ?? id} Lv.{level}</span>)}</div></div>
         <div className="survivor-synergy-loadout" aria-label={`シナジー装備 ${acquiredSynergyGear.length}/${SURVIVOR_MAX_SYNERGY_GEAR}`}>
           <b><span>シナジー装備への道</span><strong>専用枠 {acquiredSynergyGear.length}/{SURVIVOR_MAX_SYNERGY_GEAR}</strong></b>
-          <small className="survivor-synergy-note">対応する武器2つを最大Lv.まで強化すると候補に登場（補助装備は不要）</small>
+          <small className="survivor-synergy-note">「シナジー」に表示された武器をLv.5、対応する補助装備をLv.1にすると進化装備が候補に登場</small>
           <div className="survivor-synergy-paths">
-            {synergyProgress.map(({ recipe, sources, maximum, completed, remaining, acquired, slotFull, choiceIndex, revealed }) => (
-              <article key={recipe.id} className={`survivor-synergy-path ${acquired || (!slotFull && remaining === 0) ? 'ready' : ''}`}>
-                <div className="survivor-synergy-pair">
-                  {sources.map((source, index) => <Fragment key={source.id}>
-                    {index > 0 && <span className="survivor-synergy-plus" aria-hidden="true">＋</span>}
-                    <span className="survivor-synergy-source"><b>{source.name}</b><small>Lv.{source.level}/{source.maximum}</small></span>
-                  </Fragment>)}
-                </div>
-                <div className="survivor-synergy-progress" role="progressbar" aria-label={`${sources.map((source) => source.name).join('と')}のシナジー進捗`} aria-valuemin={0} aria-valuemax={maximum} aria-valuenow={completed}>
-                  <i style={{ width: `${maximum ? completed / maximum * 100 : 0}%` }} />
-                </div>
-                <div className="survivor-synergy-result">
-                  <small>{acquired ? '獲得済み' : slotFull ? '専用枠が満杯 · 最大3個' : remaining === 0 ? choiceIndex === 0 ? '現在の選択肢に登場中' : choiceIndex > 0 ? '選択待ちに登場中' : '解放済み · 次のレベルアップで候補に登場' : `あと${remaining}回の強化で候補解放`}</small>
-                  <b>→ {revealed ? recipe.name : '？？？（シナジー装備）'}</b>
-                </div>
-              </article>
-            ))}
+            {synergyGroups.map((group) => <section key={group.label} className="survivor-synergy-category">
+              <b>{group.label}</b>
+              {group.recipes.map(({ recipe, sources, maximum, completed, remaining, acquired, slotFull, choiceIndex, revealed }) => (
+                <article key={recipe.id} className={`survivor-synergy-path ${acquired || (!slotFull && remaining === 0) ? 'ready' : ''}`}>
+                  <div className="survivor-synergy-pair">
+                    {sources.map((source, index) => <Fragment key={source.id}>
+                      {index > 0 && <span className="survivor-synergy-plus" aria-hidden="true">＋</span>}
+                      <span className="survivor-synergy-source"><b>{source.name}</b><small>Lv.{source.level}/{source.maximum}</small></span>
+                    </Fragment>)}
+                  </div>
+                  <div className="survivor-synergy-progress" role="progressbar" aria-label={`${sources.map((source) => source.name).join('と')}のシナジー進捗`} aria-valuemin={0} aria-valuemax={maximum} aria-valuenow={completed}>
+                    <i style={{ width: `${maximum ? completed / maximum * 100 : 0}%` }} />
+                  </div>
+                  <div className="survivor-synergy-result">
+                    <small>{acquired ? '獲得済み' : slotFull ? '専用枠が満杯 · 最大3個' : remaining === 0 ? choiceIndex === 0 ? '現在の選択肢に登場中' : choiceIndex > 0 ? '選択待ちに登場中' : '解放済み · 次のレベルアップで候補に登場' : `あと${remaining}回の強化で候補解放`}</small>
+                    <b>→ {revealed ? recipe.name : '？？？（シナジー装備）'}</b>
+                  </div>
+                </article>
+              ))}
+            </section>)}
           </div>
           <b className="survivor-synergy-slots-title">獲得済み</b>
           <div className="survivor-synergy-slots">{Array.from({ length: SURVIVOR_MAX_SYNERGY_GEAR }, (_, index) => {
@@ -497,8 +515,8 @@ export function SurvivorLibrary() {
         const partner = gear.synergy ?? Object.values(SURVIVOR_GEAR).find((candidate) => candidate.synergy === gear.id)?.id;
         return <article key={gear.id} title={gearTooltipText(gear.id)} className={`survivor-gear ${found ? 'found' : ''}`}>
           <b>{gear.name}</b><small>{RARITY_NAME[gear.rarity]} · {found ? '発見済み' : '未獲得'}</small><span>{gear.desc}</span>
-          {partner && <small>シナジー: {SURVIVOR_GEAR[partner]?.name}</small>}
-          {gear.evolvedFrom && <small>進化条件: {gear.evolvedFrom.map((source) => SURVIVOR_GEAR[source]?.name).join(' + ')}</small>}
+          {partner && <small>対応シナジー: {SURVIVOR_GEAR[partner]?.name}</small>}
+          {gear.evolvedFrom && <small>進化条件: {evolutionConditionText(gear)}</small>}
         </article>;
       })}{!mythicFound && <article className="survivor-gear hidden"><b>？？？</b><small>未発見</small><span>図鑑に載っていない装備</span></article>}</div>
       <h4>実績</h4>

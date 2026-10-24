@@ -536,6 +536,10 @@ img.av { object-fit: cover; display: block; }
 .survivor-choice-player-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #e8dbe2; }
 .survivor-choice-player-head b { font-size: 15px; }
 .survivor-choice-player-head span { color: #cbb9c4; font-size: 12px; }
+.survivor-choice-timer { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border: 1px solid rgba(255, 224, 163, .2); border-radius: 8px; background: rgba(15, 10, 18, .48); }
+.survivor-choice-timer > div { display: flex; justify-content: space-between; gap: 8px; color: #e7d6d2; font-size: 11px; }
+.survivor-choice-timer b { color: #ffe7a8; font-variant-numeric: tabular-nums; }
+.survivor-choice-timer > i { display: block; height: 5px; border-radius: 999px; background: linear-gradient(90deg, #ffdf76, #ed8e58); box-shadow: 0 0 10px rgba(255, 184, 94, .34); transition: width .2s linear; }
 .survivor-choice-player.is-self { margin: -6px; padding: 12px; border: 1px solid rgba(255, 224, 163, .48); border-radius: 15px; background: rgba(137, 94, 48, .12); animation: survivor-choice-attention 1.35s ease-in-out infinite alternate; }
 .survivor-choice-player.is-self .survivor-choice-player-head { color: #ffe6ad; }
 .survivor-choice-player.is-self .survivor-choice-player-head span { color: #fff0ca; font-weight: 700; }
@@ -575,7 +579,9 @@ img.av { object-fit: cover; display: block; }
 .survivor-synergy-loadout > b { display: flex; justify-content: space-between; color: #ffe9a2; font-size: 10px; }
 .survivor-synergy-loadout > b strong { color: #fff6cf; font-size: 11px; }
 .survivor-synergy-note { color: #d9c9d2; font-size: 9px; line-height: 1.4; }
-.survivor-synergy-paths { display: flex; flex-direction: column; gap: 4px; }
+.survivor-synergy-paths { display: flex; flex-direction: column; gap: 8px; }
+.survivor-synergy-category { display: flex; flex-direction: column; gap: 4px; }
+.survivor-synergy-category > b { color: #f3d69a; font-size: 9px; }
 .survivor-synergy-path { display: flex; flex-direction: column; gap: 4px; padding: 5px 6px; border: 1px solid rgba(255, 220, 120, .18); border-radius: 7px; background: rgba(24, 17, 29, .38); }
 .survivor-synergy-path.ready { border-color: rgba(255, 220, 120, .66); background: rgba(100, 68, 42, .28); }
 .survivor-synergy-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 5px; }

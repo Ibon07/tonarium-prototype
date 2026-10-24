@@ -1,10 +1,10 @@
 import type { AvatarState, Participant } from '../shared/protocol.ts';
 import {
-  SURVIVOR_DURATION_MS, SURVIVOR_TICK_MS, SURVIVOR_WORLD_LIMIT,
+  SURVIVOR_CHOICE_TIMEOUT_MS, SURVIVOR_DURATION_MS, SURVIVOR_TICK_MS, SURVIVOR_WORLD_LIMIT,
   SURVIVOR_GEAR, SURVIVOR_JOIN, SURVIVOR_MAX_ENEMIES, SURVIVOR_META_UPGRADES,
   SURVIVOR_MAX_SYNERGY_GEAR, SURVIVOR_MOVE_SPEED, SURVIVOR_STYLES, clampSurvivorPosition, newSurvivorState,
-  survivorDistance, survivorXpFor, type SurvivorAchievement, type SurvivorEnemy,
-  type SurvivorMetaUpgrade, type SurvivorPlayer, type SurvivorProfile, type SurvivorState, type SurvivorStyle,
+  survivorDistance, survivorXpFor, type SurvivorAchievement, type SurvivorEnemy, type SurvivorGearDef,
+  isSurvivorSynergyRecipe, type SurvivorMetaUpgrade, type SurvivorPlayer, type SurvivorProfile, type SurvivorState, type SurvivorStyle,
 } from '../shared/survivor.ts';
 import { SPAWN } from '../shared/protocol.ts';
 
@@ -54,7 +54,7 @@ function playerFor(u: Participant, s: SurvivorState, d: SurvivorDeps, index: num
   const maxHp = def.hp + profile.upgrades.vitality * 10;
   const player: SurvivorPlayer = {
     id: u.id, name: u.name, style, ...pos, hp: maxHp, maxHp, level: 1, xp: 0, nextXp: survivorXpFor(1),
-    alive: true, kills: 0, gear: { [def.weapon]: 1 }, choiceQueue: [], hitAt: 0, attackAt: {}, moveAt: Date.now(),
+    alive: true, kills: 0, gear: { [def.weapon]: 1 }, choiceQueue: [], choiceDeadlineAt: null, hitAt: 0, attackAt: {}, moveAt: Date.now(),
   };
   discover(u.id, def.weapon, d);
   d.saveProfiles();
@@ -124,8 +124,8 @@ function poolFor(p: SurvivorPlayer) {
     if (level >= g.maxLevel) return false;
     if (g.synergyGear) {
       return synergyCount < SURVIVOR_MAX_SYNERGY_GEAR
-        && (g.evolvedFrom ?? []).length === 2
-        && g.evolvedFrom!.every((source) => (p.gear[source] ?? 0) >= (SURVIVOR_GEAR[source]?.maxLevel ?? 1));
+        && isSurvivorSynergyRecipe(g)
+        && g.evolvedFrom!.every((source, index) => (p.gear[source] ?? 0) >= evolutionRequirement(g, index));
     }
     if (g.rarity === 'mythic') return false;
     if (g.evolvedFrom) {
@@ -135,14 +135,21 @@ function poolFor(p: SurvivorPlayer) {
     return true;
   }).map((g) => g.id);
 }
-function choicesFor(p: SurvivorPlayer, s: SurvivorState) {
+function evolutionRequirement(gear: SurvivorGearDef, index: number) {
+  const source = gear.evolvedFrom?.[index];
+  return gear.evolutionLevels?.[index] ?? (source ? SURVIVOR_GEAR[source]?.maxLevel : undefined) ?? 1;
+}
+function choicesFor(p: SurvivorPlayer, s: SurvivorState, prioritySynergies: string[] = []) {
   const pool = poolFor(p);
-  const choices = pool.filter((id) => SURVIVOR_GEAR[id]?.synergyGear).slice(0, 3);
+  const synergyPool = pool.filter((id) => SURVIVOR_GEAR[id]?.synergyGear);
+  const choices = prioritySynergies.filter((id) => synergyPool.includes(id)).slice(0, 3);
+  const remainingSynergies = synergyPool.filter((id) => !choices.includes(id));
+  while (remainingSynergies.length && choices.length < 3) choices.push(remainingSynergies.splice(Math.floor(random(s) * remainingSynergies.length), 1)[0]);
   const ordinaryPool = pool.filter((id) => !SURVIVOR_GEAR[id]?.synergyGear);
   while (ordinaryPool.length && choices.length < 3) choices.push(ordinaryPool.splice(Math.floor(random(s) * ordinaryPool.length), 1)[0]);
   return choices;
 }
-function giveXp(s: SurvivorState, d: SurvivorDeps, amount: number) {
+function giveXp(s: SurvivorState, d: SurvivorDeps, amount: number, now: number) {
   for (const p of Object.values(s.players)) {
     if (!p.alive) continue;
     p.xp += amount * (1 + (p.gear.soulcrown ?? 0) * 0.08);
@@ -151,7 +158,10 @@ function giveXp(s: SurvivorState, d: SurvivorDeps, amount: number) {
       p.level++;
       p.nextXp = survivorXpFor(p.level);
       const choices = choicesFor(p, s);
-      if (choices.length) p.choiceQueue.push(choices);
+      if (choices.length) {
+        if (!p.choiceQueue.length) p.choiceDeadlineAt = now + SURVIVOR_CHOICE_TIMEOUT_MS;
+        p.choiceQueue.push(choices);
+      }
     }
   }
 }
@@ -163,30 +173,39 @@ function discover(id: string, gear: string, d: SurvivorDeps) {
   if (SURVIVOR_GEAR[gear]?.rarity === 'mythic' && !profile.achievements.includes('mythic')) profile.achievements.push('mythic');
   d.profileUpdated(id, profile);
 }
-export function chooseSurvivorGear(sid: string, user: Participant, gear: string, d: SurvivorDeps) {
-  const s = survivorOf(sid), p = s.players[user.id];
+function applySurvivorGear(s: SurvivorState, p: SurvivorPlayer, gear: string, d: SurvivorDeps, now: number) {
   const choices = p?.choiceQueue[0];
   if (!p?.alive || !choices?.includes(gear)) return;
   const def = SURVIVOR_GEAR[gear];
   if (!def) return;
+  if (!poolFor(p).includes(gear)) {
+    p.choiceQueue[0] = choices.filter((id) => poolFor(p).includes(id));
+    if (!p.choiceQueue[0].length) {
+      p.choiceQueue.shift();
+      p.choiceDeadlineAt = p.choiceQueue.length ? now + SURVIVOR_CHOICE_TIMEOUT_MS : null;
+    }
+    return;
+  }
   if (def.synergyGear) {
     const synergyCount = Object.entries(p.gear).filter(([id, level]) => level > 0 && SURVIVOR_GEAR[id]?.synergyGear).length;
     const stillEligible = (id: string) => {
       const candidate = SURVIVOR_GEAR[id];
       return !!candidate && (!candidate.synergyGear || (
         synergyCount < SURVIVOR_MAX_SYNERGY_GEAR
-        && !!candidate.evolvedFrom?.every((source) => (p.gear[source] ?? 0) >= (SURVIVOR_GEAR[source]?.maxLevel ?? 1))
+        && !!candidate.evolvedFrom?.every((source, index) => (p.gear[source] ?? 0) >= evolutionRequirement(candidate, index))
       ));
     };
     if (!stillEligible(gear)) {
       p.choiceQueue[0] = choices.filter(stillEligible);
-      if (!p.choiceQueue[0].length) p.choiceQueue.shift();
-      send(sid, s, d);
+      if (!p.choiceQueue[0].length) {
+        p.choiceQueue.shift();
+        p.choiceDeadlineAt = p.choiceQueue.length ? now + SURVIVOR_CHOICE_TIMEOUT_MS : null;
+      }
       return;
     }
   }
   if (def.evolvedFrom) {
-    for (const source of def.evolvedFrom) p.gear[source] = 0;
+    for (const source of def.evolvedFrom) if (SURVIVOR_GEAR[source]?.kind === 'weapon') p.gear[source] = 0;
   }
   const oldLevel = p.gear[gear] ?? 0;
   p.gear[gear] = Math.min(def.maxLevel, oldLevel + 1);
@@ -195,12 +214,27 @@ export function chooseSurvivorGear(sid: string, user: Participant, gear: string,
     p.hp = Math.min(p.maxHp, p.hp + 8);
   }
   p.choiceQueue.shift();
-  if (!def.synergyGear && def.kind === 'weapon' && p.gear[gear] >= def.maxLevel) {
-    const newlyReady = poolFor(p).filter((id) => SURVIVOR_GEAR[id]?.synergyGear);
-    if (newlyReady.length) p.choiceQueue.unshift(choicesFor(p, s));
+  p.choiceDeadlineAt = p.choiceQueue.length ? now + SURVIVOR_CHOICE_TIMEOUT_MS : null;
+  if (!def.synergyGear) {
+    const newlyReady = poolFor(p).filter((id) => {
+      const recipe = SURVIVOR_GEAR[id];
+      const sourceIndex = recipe?.evolvedFrom?.indexOf(gear) ?? -1;
+      return !!recipe && isSurvivorSynergyRecipe(recipe) && sourceIndex >= 0
+        && oldLevel < evolutionRequirement(recipe, sourceIndex)
+        && p.gear[gear] >= evolutionRequirement(recipe, sourceIndex);
+    });
+    if (newlyReady.length) {
+      p.choiceQueue.unshift(choicesFor(p, s, newlyReady));
+      p.choiceDeadlineAt = now + SURVIVOR_CHOICE_TIMEOUT_MS;
+    }
   }
-  discover(user.id, gear, d);
+  discover(p.id, gear, d);
   d.saveProfiles();
+}
+export function chooseSurvivorGear(sid: string, user: Participant, gear: string, d: SurvivorDeps) {
+  const s = survivorOf(sid), p = s.players[user.id];
+  if (!p?.alive || !p.choiceQueue[0]?.includes(gear)) return;
+  applySurvivorGear(s, p, gear, d, Date.now());
   send(sid, s, d);
 }
 
@@ -255,9 +289,15 @@ function weaponAttack(s: SurvivorState, p: SurvivorPlayer, gear: string, level: 
     embermine: { interval: 1_450, range: 7, damage: 26, aoe: 2.8 },
     thornshot: { interval: 900, range: 9.5, damage: 13, targets: 4, fan: true, fanAngle: 0.42 },
     voidpulse: { interval: 780, range: 3.5, damage: 21, aoe: 3.5, centered: true },
-    lunarconvergence: { interval: 480, range: 12, damage: 185, targets: 10 },
-    crimsonvoid: { interval: 620, range: 5.5, damage: 105, aoe: 5.5 },
-    stormfrost: { interval: 680, range: 13, damage: 145, targets: 12 },
+    lunarconvergence: { interval: 400, range: 4.8, damage: 95, aoe: 4.8, centered: true },
+    crimsonvoid: { interval: 360, range: 14, damage: 92, targets: 16, pierce: true },
+    stormfrost: { interval: 590, range: 18, damage: 185, targets: 22, pierce: true },
+    astralbarrage: { interval: 250, range: 15, damage: 78, targets: 14 },
+    soulreaper: { interval: 600, range: 8, damage: 165, aoe: 7.2 },
+    thunderweb: { interval: 650, range: 15, damage: 125, targets: 18, chain: true, chainRange: 6.5 },
+    infernomine: { interval: 820, range: 14, damage: 205, aoe: 6.8 },
+    thornstorm: { interval: 440, range: 16, damage: 82, targets: 18, fan: true, fanAngle: 0.9 },
+    lunarvoid: { interval: 640, range: 8, damage: 180, aoe: 8, centered: true },
   };
   const cfg = configs[gear];
   if (!cfg || now < (p.attackAt[gear] ?? 0) + cfg.interval * passiveHaste) return;
@@ -329,7 +369,7 @@ function weaponAttack(s: SurvivorState, p: SurvivorPlayer, gear: string, level: 
       p.kills++;
       s.kills++;
       if (e.kind === 'boss') s.bossDefeated = true;
-      else giveXp(s, d, e.xp);
+      else giveXp(s, d, e.xp, now);
       if (e.kind === 'splitter') {
         for (const offset of [-1, 1]) {
           if (s.enemies.length >= SURVIVOR_MAX_ENEMIES) break;
@@ -372,8 +412,35 @@ function finish(sid: string, s: SurvivorState, d: SurvivorDeps, now: number) {
 export function tickSurvivors(now: number, d: SurvivorDeps) {
   for (const [sid, s] of states) {
     if (s.phase !== 'running' && s.phase !== 'boss') continue;
+    let choiceResolved = false;
+    for (const p of Object.values(s.players)) {
+      if (!p.alive || !p.choiceQueue.length) continue;
+      if (p.choiceDeadlineAt == null) {
+        p.choiceDeadlineAt = now + SURVIVOR_CHOICE_TIMEOUT_MS;
+        continue;
+      }
+      if (now < p.choiceDeadlineAt) continue;
+      let options = p.choiceQueue[0].filter((id) => poolFor(p).includes(id));
+      if (!options.length) {
+        options = choicesFor(p, s);
+        if (options.length) p.choiceQueue[0] = options;
+        else {
+          p.choiceQueue.shift();
+          p.choiceDeadlineAt = p.choiceQueue.length ? now + SURVIVOR_CHOICE_TIMEOUT_MS : null;
+          choiceResolved = true;
+          continue;
+        }
+      }
+      const selected = options.splice(Math.floor(random(s) * options.length), 1)[0];
+      applySurvivorGear(s, p, selected, d, now);
+      choiceResolved = true;
+    }
+    if (choiceResolved) d.saveProfiles();
     if (s.pausedAt != null) {
-      if (hasPendingChoice(s)) continue;
+      if (hasPendingChoice(s)) {
+        if (choiceResolved) send(sid, s, d);
+        continue;
+      }
       const pausedFor = Math.max(0, now - s.pausedAt);
       s.startedAt += pausedFor;
       s.nextSpawnAt += pausedFor;
@@ -457,7 +524,7 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
       const seconds = elapsed / 1000;
       const growthSeconds = spawnGrowthElapsed / 1000;
       const partyScale = 1 + Math.min(2.5, (partySize - 1) * 0.3);
-      const count = Math.min(24, Math.ceil((1 + spawnGrowthStage * 2) * partyScale));
+      const count = Math.min(24, Math.ceil((4 + spawnGrowthStage * 2) * partyScale));
       for (let i = 0; i < count && s.enemies.length < SURVIVOR_MAX_ENEMIES; i++) {
         const roll = random(s);
         const kind: SurvivorEnemy['kind'] = seconds >= 240
