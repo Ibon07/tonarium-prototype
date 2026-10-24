@@ -491,9 +491,10 @@ export function WorldScreen() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code !== 'Tab' || isTyping(e.target)) return;
       e.preventDefault();
-      if (get().folded.left && get().folded.right) return;
+      if (e.repeat) return;
       set((s) => {
-        const folded = { ...s.folded, left: true, right: true };
+        const fold = !(s.folded.left && s.folded.right);
+        const folded = { ...s.folded, left: fold, right: fold };
         save('tonarium.folded', folded);
         return { folded };
       });
