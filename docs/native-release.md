@@ -50,3 +50,19 @@ git push origin v0.0.1
 - `release.json`
 
 手動再実行は対象のタグを選ぶ。同じタグを再実行した場合は添付を同じコミットの内容で更新する。変更したビルドを配布する場合は新しいバージョンを使用する。Git LFSとGitHub Releasesには各サービスの保存容量・帯域制限が適用される。
+
+## Windows / Linux nightly
+
+`.github/workflows/native-nightly.yml` は `main` へのpush（PRマージを含む）と、mainを選んだ手動実行で起動する。毎晩の時刻指定ではなく、main更新ごとの継続ビルド。Ubuntu runner上でUnityのWindows/Linux Monoプレイヤーと.NET 10の自己完結クライアントをビルドする。Unityのバージョンは `ProjectVersion.txt` を使用する。
+
+実行するリポジトリのActions Secretsに `UNITY_EMAIL`・`UNITY_PASSWORD` と `UNITY_LICENSE`（Personal）または `UNITY_SERIAL`（Pro）を設定する。[GameCIの認証手順](https://game.ci/docs/github/activation/)を参照。未設定の場合はビルドを失敗として明示する。forkと上流ではSecretsをそれぞれ設定する必要がある。
+
+両OSのビルドとチェックサム検証に成功した場合にのみ、`nightly` タグをそのコミットへ移動し、同名のprereleaseへ以下を配置・上書きする。安定版のLatestにはしない。実行中にmainが先へ進んだ場合、古い実行はReleaseを更新しない。
+
+- `Tonarium-nightly-win-x64.zip`
+- `Tonarium-nightly-linux-x64.tar.gz`
+- 各ファイルの `.sha256`
+
+展開先は `win-x64/`・`linux-x64/`。いずれも `Unity/` とビルドコミットを記録した `release.json` を含む。Linux版は通常配布と同じシステム依存が必要で、AppImage/Flatpakではない。既存のバージョンタグ向けWindows Release workflowはそのまま維持する。
+
+ローカルでも `python3 native/package-nightly.py linux-x64 <dotnet publish先> native/build/unity-linux <出力先>`（Windowsは `win-x64` と `native/build/unity`）で同じ梱包処理を実行できる。中間ファイルは `native/build/`、配布アーカイブは `native/artifacts/` に分ける。
