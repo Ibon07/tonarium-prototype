@@ -72,15 +72,17 @@ function sampleHeat(): HeatCell[] {
   const scope = `${s.session ?? ''}:${worldKindOf(s)}`;
   if (scope !== heatScope) { heatScope = scope; heatMap.clear(); heatLastAt = 0; }
   const now = performance.now();
-  const dt = heatLastAt ? Math.min((now - heatLastAt) / 1000, 1) : 0;
+  const dt = heatLastAt ? (now - heatLastAt) / 1000 : 0;
   heatLastAt = now;
   if (dt > 0) {
     decayHeat(heatMap, dt);
+    // タブを離れていた間の発話状態は古い可能性があるので、溜める量だけ 1 秒ぶんまでに抑える
+    const addDt = Math.min(dt, 1);
     const places = placesOf(s);
     for (const [id, on] of Object.entries(s.speaking)) {
       if (!on) continue;
       const p = places.get(id);
-      if (p) addHeat(heatMap, p.x, p.z, dt);
+      if (p) addHeat(heatMap, p.x, p.z, addDt);
     }
   }
   return heatCells(heatMap);
@@ -89,11 +91,18 @@ function sampleHeat(): HeatCell[] {
 /** 冷めていく様子が見えるよう、表示中だけ定期的にサンプルし直す */
 function useHeatCells(): HeatCell[] {
   const [cells, setCells] = useState<HeatCell[]>([]);
+  const sig = useRef('');
   const enabled = useStore((s) => s.voiceHeat);
   useEffect(() => {
-    if (!enabled) { heatMap.clear(); setCells([]); return; }
-    setCells(sampleHeat());
-    const t = setInterval(() => setCells(sampleHeat()), 500);
+    if (!enabled) { heatMap.clear(); sig.current = ''; setCells([]); return; }
+    const update = () => {
+      const next = sampleHeat();
+      // 熱が無い・頭打ちの間は描き直さない
+      const key = next.map((c) => `${c.cx},${c.cz},${c.heat.toFixed(2)}`).join(';');
+      if (key !== sig.current) { sig.current = key; setCells(next); }
+    };
+    update();
+    const t = setInterval(update, 500);
     return () => clearInterval(t);
   }, [enabled]);
   return cells;
@@ -166,16 +175,17 @@ function Map2D({ kind }: { kind: WorldKind }) {
         </defs>
         <g transform={`translate(${v.tx} ${v.ty}) scale(${v.k})`}>
           <rect className="mfloor" x={b.minX} y={b.minZ} width={b.maxX - b.minX} height={b.maxZ - b.minZ} rx={0.4} />
-          {heat.map((c) => {
-            const ctr = cellCenter(c.cx, c.cz);
-            return <circle key={`${c.cx},${c.cz}`} className="mheat" cx={ctr.x} cy={ctr.z} r={HEAT_CELL_M * 0.95} fill="url(#voiceheat)" opacity={0.25 + c.heat * 0.55} />;
-          })}
           {WORLDS[kind].extent && <rect className="mfloor" x={-ROOM_HALF} y={-ROOM_HALF} width={ROOM_HALF * 2} height={ROOM_HALF * 2} rx={0.4} />}
           <circle className="mspawn" cx={SPAWN.x} cy={SPAWN.z} r={SPAWN.r} />
           {/* 地上の物だけ（マンションの上の階の壁や駅の柵は描かない） */}
           {WORLDS[kind].solids.filter((s) => (s.y0 ?? 0) < 0.5).map((s, i) => ('r' in s
             ? <circle key={i} className="msolid" cx={s.x} cy={s.z} r={s.r} />
             : <rect key={i} className="msolid" x={s.x - s.w / 2} y={s.z - s.d / 2} width={s.w} height={s.d} rx={0.08} />))}
+          {/* 床と家具より上に出さないと、extent のあるワールドで内側の床に隠れる */}
+          {heat.map((c) => {
+            const ctr = cellCenter(c.cx, c.cz);
+            return <circle key={`${c.cx},${c.cz}`} className="mheat" cx={ctr.x} cy={ctr.z} r={HEAT_CELL_M * 0.95} fill="url(#voiceheat)" opacity={0.25 + c.heat * 0.55} />;
+          })}
           {kind === 'city' && <CityTrain2D />}
           {me && walk?.to && <line className="mroute" x1={me.x} y1={me.z} x2={walk.to.x} y2={walk.to.z} />}
           {walk?.to && <g className="mgoal"><circle cx={walk.to.x} cy={walk.to.z} r={0.45} /><circle cx={walk.to.x} cy={walk.to.z} r={0.12} /></g>}
