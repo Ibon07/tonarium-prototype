@@ -29,6 +29,8 @@ import { closeWindow, openWindow, setWinMode } from './windows.ts';
 import { touchOnly, usePhone } from '../phone.ts';
 import { MasterVolume } from './VolumeMenus.tsx';
 import { SurvivorPanel } from './SurvivorPanel.tsx';
+import { EmoteDockButton } from './Emotes.tsx';
+import { unlockEmoteAudio } from './sounds.ts';
 
 /** 名前はだれでも変えられ、全員に反映されてログに出る */
 function SessionRename({ current, onDone }: { current: string; onDone: () => void }) {
@@ -136,6 +138,7 @@ function Dock() {
       <button className="dk" aria-label="サウンドボード" title="サウンドボード" data-popanchor onClick={(e) => setSb(sb ? null : e.currentTarget.getBoundingClientRect())}>
         <Icon name="music" size={22} />
       </button>
+      <EmoteDockButton />
       <button className="dk" aria-label="音量" title="音量" data-popanchor onClick={(e) => setVol(vol ? null : e.currentTarget.getBoundingClientRect())}>
         <Icon name="volume" size={22} />
       </button>
@@ -466,6 +469,14 @@ function PhoneTabs() {
 }
 
 export function WorldScreen() {
+  useEffect(() => {
+    window.addEventListener('pointerdown', unlockEmoteAudio);
+    window.addEventListener('keydown', unlockEmoteAudio);
+    return () => {
+      window.removeEventListener('pointerdown', unlockEmoteAudio);
+      window.removeEventListener('keydown', unlockEmoteAudio);
+    };
+  }, []);
   useOpenRequestedLive();
   const phone = usePhone();
   const phoneTab = useStore((s) => s.phoneTab);

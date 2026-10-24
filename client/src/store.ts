@@ -143,6 +143,7 @@ interface State {
   hits: Record<string, number>;
   /** つんつんされた時刻（顔のタイルの演出用） */
   pokes: Record<string, number>;
+  emotes: Record<string, import('../../shared/emotes.ts').ActiveEmote>;
   swings: Record<string, number>;
   hitFx: { key: number; from: string; to: string }[];
   locked: boolean;
@@ -260,6 +261,7 @@ export const useStore = create<State>(() => ({
   teleport: null,
   hits: {},
   pokes: {},
+  emotes: {},
   swings: {},
   hitFx: [],
   locked: false,
@@ -300,6 +302,7 @@ export function recompute() {
 /** セッションを出たら中の状態は捨てる（次に入るときは部屋から届き直す） */
 export function dropSession(sid: string | null) {
   if (!sid) return;
+  set({ emotes: {} });
   set((s) => {
     const omit = <T,>(m: Record<string, T>) => { const { [sid]: _, ...rest } = m; return rest; };
     return { chats: omit(s.chats), avatarsBy: omit(s.avatarsBy), itemsBy: omit(s.itemsBy), games: omit(s.games), survivors: omit(s.survivors), elevators: omit(s.elevators), broadcast: omit(s.broadcast), presence: {} };

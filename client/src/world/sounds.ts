@@ -1,6 +1,34 @@
 import { fxVolume } from '../volume.ts';
+import type { EmoteId } from '../../../shared/emotes.ts';
 
 let ctx: AudioContext | null = null;
+
+/** Call on the dock gesture so browsers can unlock audio before the server echo. */
+export function unlockEmoteAudio() {
+  try { ctx ??= new AudioContext(); if (ctx.state === 'suspended') void ctx.resume().catch(() => {}); } catch { /* optional audio */ }
+}
+
+export function playEmoteSound(id: EmoteId, distanceVolume: number) {
+  const volume = distanceVolume * fxVolume() * 0.22;
+  if (volume <= 0.001) return;
+  try {
+    ctx ??= new AudioContext();
+    if (ctx.state !== 'running') return;
+    const t = ctx.currentTime;
+    const out = ctx.destination;
+    if (id === 'wave') {
+      [660, 880, 1046].forEach((hz, i) => tone(ctx!, out, t + i * 0.13, hz, hz * 1.02, 0.2, 'sine', volume));
+    } else if (id === 'hop') {
+      for (let i = 0; i < 3; i++) tone(ctx, out, t + i * 0.33, 380 + i * 70, 850 + i * 100, 0.18, 'sine', volume);
+    } else if (id === 'slump') {
+      [620, 490, 370].forEach((hz, i) => tone(ctx!, out, t + i * 0.2, hz, hz * 0.8, 0.25, 'triangle', volume * 0.7));
+    } else {
+      tone(ctx, out, t, 520, 160, 0.45, 'sine', volume);
+      tone(ctx, out, t + 0.45, 180, 65, 0.18, 'sine', volume);
+      [1046, 1320, 1174].forEach((hz, i) => tone(ctx!, out, t + 0.65 + i * 0.12, hz, hz, 0.18, 'sine', volume * 0.55));
+    }
+  } catch { /* Reactions still work when audio is unavailable. */ }
+}
 
 function tone(c: AudioContext, out: AudioNode, t: number, f0: number, f1: number, dur: number, type: OscillatorType, vol: number) {
   const o = c.createOscillator();
@@ -13,6 +41,7 @@ function tone(c: AudioContext, out: AudioNode, t: number, f0: number, f1: number
   o.connect(g).connect(out);
   o.start(t);
   o.stop(t + dur + 0.02);
+  o.onended = () => { o.disconnect(); g.disconnect(); };
 }
 
 function noise(c: AudioContext, out: AudioNode, t: number, dur: number, vol: number) {

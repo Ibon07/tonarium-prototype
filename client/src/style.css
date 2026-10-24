@@ -408,6 +408,44 @@ img.av { object-fit: cover; display: block; }
 .dseg button:hover { color: #fff; }
 .dseg button.on { background: #fff; color: var(--ink); font-weight: 700; }
 .popover.soundboard { width: 260px; padding: 8px; }
+.popover.emote-picker { width: min(310px, calc(100vw - 24px)); padding: 14px; border-radius: 20px; }
+.emote-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.emote-heading > span { display: flex; flex-direction: column; gap: 2px; }
+.emote-heading b { font-family: "Zen Maru Gothic", sans-serif; font-size: 16px; }
+.emote-heading button { width: 30px; height: 30px; padding: 0; }
+.emote-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.emote-option { height: 110px; padding: 10px; flex-direction: column; gap: 3px; color: var(--emote-ink); background: var(--emote-tint); border: 1px solid transparent; border-radius: 15px; transition: transform .15s, box-shadow .15s; }
+.emote-option:hover:not(:disabled), .emote-option:focus-visible { transform: translateY(-3px) rotate(-2deg); border-color: currentColor; box-shadow: 0 4px 0 var(--emote-ink); outline: none; }
+.emote-option:disabled { opacity: .55; }
+.emote-option.playing { opacity: 1; border-color: currentColor; }
+.emote-option-mark { font-size: 30px; line-height: 1.2; }
+.emote-option b { font-size: 13px; }
+.emote-option .sub { font-size: 11px; color: inherit; }
+.emote-hint { margin: 12px 0 0; min-height: 18px; text-align: center; font-size: 11px; color: var(--muted); }
+.emote-badge { display: inline-flex; flex: none; align-items: center; gap: 3px; max-width: 100px; padding: 3px 6px; border-radius: 20px; font-size: 10px; font-weight: 700; color: var(--emote-ink); background: var(--emote-tint); box-shadow: 0 0 0 1px var(--emote-ink); animation: emote-pop .35s ease-out; }
+.emote-badge > span:first-child { font-size: 15px; }
+.emote-badge-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.farchip .emote-badge-name { display: none; }
+.portrait-emote { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; border-radius: inherit; box-shadow: inset 0 0 0 3px var(--emote-ink); }
+.emote-caption { position: absolute; top: 8%; right: 5%; padding: 3px 9px; background: var(--emote-tint); color: var(--emote-ink); border: 1.5px solid currentColor; border-radius: 40% 45% 40% 8%; font-family: "Zen Maru Gothic", sans-serif; font-size: clamp(11px, 1.4vw, 20px); font-weight: 700; transform: rotate(6deg); animation: emote-pop .35s ease-out; }
+.emote-particle { position: absolute; color: var(--emote-ink); font-style: normal; font-weight: bold; font-size: clamp(16px, 2.8vw, 34px); text-shadow: 0 2px white; animation: emote-spark .7s ease-in-out infinite alternate; }
+.particle-0 { left: 12%; top: 22%; }
+.particle-1 { right: 12%; top: 48%; animation-delay: -.2s; }
+.particle-2 { left: 24%; bottom: 22%; animation-delay: -.4s; }
+.particle-3 { right: 28%; top: 17%; animation-delay: -.6s; }
+.emote-slump .emote-particle { animation-name: emote-drip; }
+.emote-fall .emote-particle { animation-name: emote-dizzy; }
+.portrait-emote.compact .emote-caption { top: 3px; right: 3px; padding: 0 3px; font-size: 14px; }
+.portrait-emote.compact .emote-particle { font-size: 12px; }
+@keyframes emote-pop { from { opacity: 0; scale: .4; } 65% { scale: 1.12; } to { opacity: 1; scale: 1; } }
+@keyframes emote-spark { from { transform: translateY(4px) scale(.7) rotate(-12deg); opacity: .5; } to { transform: translateY(-5px) scale(1.1) rotate(12deg); opacity: 1; } }
+@keyframes emote-drip { from { transform: translateY(-6px); opacity: .3; } to { transform: translateY(10px); opacity: 1; } }
+@keyframes emote-dizzy { from { transform: rotate(-20deg) scale(.8); } to { transform: rotate(35deg) scale(1.2); } }
+@media (prefers-reduced-motion: reduce) {
+  .emote-badge, .emote-caption, .emote-particle { animation: none; }
+  .emote-option { transition: none; }
+  .emote-option:hover:not(:disabled), .emote-option:focus-visible { transform: none; }
+}
 .popover.volume { width: 260px; padding: 8px; gap: 4px; }
 .volrow { display: flex; flex-direction: column; gap: 4px; padding: 6px 12px; }
 .vollabel { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink2); }

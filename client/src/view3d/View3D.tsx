@@ -15,6 +15,7 @@ import { Player } from './Player.tsx';
 import { AttentionGlow, HammerModel, Item3D } from './items3d.tsx';
 import { Label } from './Label.tsx';
 import { OekakiAvatar } from './OekakiAvatar.tsx';
+import { Emote3D } from './Emote3D.tsx';
 import { CameraModel, CameraStreamer, CamMonitor } from './camera3d.tsx';
 import { WORLD_BG, WorldMesh } from './worlds3d.tsx';
 import { useLastSaid } from '../world/common.tsx';
@@ -57,7 +58,7 @@ function Standee({ user }: { user: Participant }) {
     <group ref={ref} position={[pos0.x, 0, pos0.z]} userData={{ hitTarget: user.id, carry: `user:${user.id}`, hint: `💻 ${user.name}（2Dで参加中）` } satisfies Interactable}>
       <group ref={card}>
         <Suspense fallback={null}>
-          <OekakiAvatar name={user.name} version={user.avatar} speaking={speaking} />
+          <OekakiAvatar userId={user.id} name={user.name} version={user.avatar} speaking={speaking} />
         </Suspense>
       </group>
       <mesh position-y={0.65}>
@@ -71,6 +72,7 @@ function Standee({ user }: { user: Participant }) {
         </mesh>
       )}
       <ChatBubble id={user.id} y={1.62} />
+      <Emote3D id={user.id} />
       <Label
         position={[0, 1.3, 0]} text={`2D ${micOff ? '🔇 ' : ''}${user.name}`}
         bg={recentlyHit(user.id) ? 'rgba(240,177,50,0.95)' : speaking ? 'rgba(35,165,90,0.95)' : 'rgba(78,80,88,0.9)'}
@@ -150,7 +152,7 @@ export function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
     >
       <group ref={body}>
         <Suspense fallback={null}>
-          <OekakiAvatar name={name} version={avatarV} speaking={speaking} look={() => pitchOf(id)} />
+          <OekakiAvatar userId={id} name={name} version={avatarV} speaking={speaking} look={() => pitchOf(id)} />
         </Suspense>
       </group>
       {/* 板ポリのモデルは横から当てにくいので、照準用の当たり判定を別に置く */}
@@ -176,6 +178,7 @@ export function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
         </mesh>
       )}
       {!self && <ChatBubble id={id} y={1.62} />}
+      <Emote3D id={id} />
       <Label position={[0, 1.3, 0]} text={`${micOff ? '🔇 ' : ''}${name}`} bg={speaking ? 'rgba(35,165,90,0.95)' : 'rgba(0,0,0,0.75)'} />
     </group>
   );

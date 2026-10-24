@@ -9,6 +9,7 @@ import { onHit } from '../items/effects.ts';
 import { pushNotice } from '../actions.ts';
 import { volumeFrom } from '../spatial.ts';
 import { playPoke, playSynth } from '../world/sounds.ts';
+import { receiveEmote } from '../emotes.ts';
 import { playSurvivorSound } from '../world/survivorAudio.ts';
 import { startSessionSync, stopSessionSync, roomSend, configureSessionSync, syncError, resetSessionSync } from './session.ts';
 
@@ -175,6 +176,9 @@ export function onMessage(msg: ServerMsg) {
       if (msg.to === get().selfId) { pushNotice('poke', msg.from); if (!selfBusy()) playPoke(); }
       return;
     }
+    case 'emote':
+      receiveEmote(msg);
+      return;
     case 'sound':
       if (msg.sid !== get().session) return;
       if (!get().blocked.includes(get().users.find((u) => u.id === msg.from)?.name ?? '')) playSynth(msg.id, volumeFrom(msg.from));
