@@ -68,6 +68,10 @@ function syncParticipants() {
   }
 }
 
+/** 画面共有の音は空間に置かないので、要素の音量に全体の「動画・画面共有」を掛けるだけ */
+const shareAudio = new Set<HTMLMediaElement>();
+useStore.subscribe((s) => { for (const el of shareAudio) el.volume = s.audioVol.media; });
+
 function attachRemote(track: RemoteTrack, pub: RemoteTrackPublication, identity: string) {
   const camId = camIdOf(pub.trackName);
   if (camId && track.kind === Track.Kind.Video) {
@@ -87,6 +91,9 @@ function attachRemote(track: RemoteTrack, pub: RemoteTrackPublication, identity:
       // 空間オーディオで鳴らす。Chrome では要素にもつながないと音が流れないので、要素はミュートして残す
       el.muted = true;
       addVoice(identity, track.mediaStreamTrack);
+    } else {
+      el.volume = get().audioVol.media;
+      shareAudio.add(el);
     }
     audioHost.appendChild(el);
   } else if (track.source === Track.Source.ScreenShare) {
@@ -98,7 +105,7 @@ room
   .on(RoomEvent.TrackSubscribed, (track, pub, p) => { attachRemote(track, pub, p.identity); syncViewSubscriptions(); syncParticipants(); })
   .on(RoomEvent.TrackUnsubscribed, (track, pub, p) => {
     if (track.source === Track.Source.Microphone) removeVoice(p.identity);
-    track.detach().forEach((el) => { if (el !== shareVideoEl) el.remove(); });
+    track.detach().forEach((el) => { shareAudio.delete(el); if (el !== shareVideoEl) el.remove(); });
     const camId = camIdOf(pub.trackName);
     if (camId) { camVideos.delete(camId); setCamFeed(camId, false); }
     syncParticipants();

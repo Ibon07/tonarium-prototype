@@ -7,6 +7,7 @@ import type { DieSides } from '../../shared/dice.ts';
 import { newGame, type GameState } from '../../shared/game.ts';
 import { NEW_ELEVATOR, type ElevatorState } from '../../shared/city.ts';
 import type { PositionRoute } from '../../shared/session-position.ts';
+import { newSurvivorProfile, type SurvivorProfile, type SurvivorState } from '../../shared/survivor.ts';
 import { deriveSession } from './sessionView.ts';
 import type { Walk } from './walk.ts';
 
@@ -95,6 +96,12 @@ interface State {
   walk: Walk | null;
   /** 動画・YouTube ごとの自分だけの音量（0〜1）。無ければ既定の半分 */
   volumes: Record<string, number>;
+  /** 全体の音量（0〜1、手元に保存）。voice は人の声、fx はサウンドボードや効果音、media は動画・YouTube・画面共有の音 */
+  audioVol: { voice: number; fx: number; media: number };
+  /** 人ごとの声の音量（0〜2、名前ごとに手元に保存）。無ければ等倍 */
+  peerVolume: Record<string, number>;
+  /** 自分だけミュートしている人の名前（手元に保存） */
+  peerMuted: string[];
   /** セッション中にホームを重ねて開いている */
   hubOpen: boolean;
   /** フレンドのページで開いているタブ（ホームの「もっと見る」から選んで開く） */
@@ -114,6 +121,10 @@ interface State {
   worldBy: Record<string, WorldKind>;
   /** セッションごとの板わたりのゲーム */
   games: Record<string, GameState>;
+  /** セッションごとの協力サバイバルラン */
+  survivors: Record<string, SurvivorState>;
+  /** 仮IDに紐づくサーバー保存の個人進行 */
+  survivorProfile: SurvivorProfile;
   /** 街のマンションのエレベーター（セッションごと） */
   elevators: Record<string, ElevatorState>;
   /** 注目を集めているアイテム ID → 光らせる期限（performance.now） */
@@ -222,6 +233,8 @@ export const useStore = create<State>(() => ({
   broadcast: {},
   worldBy: {},
   games: {},
+  survivors: {},
+  survivorProfile: newSurvivorProfile(),
   elevators: {},
   attention: {},
   toast: null,
@@ -232,6 +245,9 @@ export const useStore = create<State>(() => ({
   mapMode: load('tonarium.mapMode', 'none'),
   walk: null,
   volumes: {},
+  audioVol: load('tonarium.audioVol', { voice: 1, fx: 1, media: 1 }),
+  peerVolume: load('tonarium.peerVolume', {}),
+  peerMuted: load('tonarium.peerMuted', []),
   hubOpen: false,
   phoneTab: 'screen',
   friendsTab: 'all',
@@ -286,7 +302,7 @@ export function dropSession(sid: string | null) {
   if (!sid) return;
   set((s) => {
     const omit = <T,>(m: Record<string, T>) => { const { [sid]: _, ...rest } = m; return rest; };
-    return { chats: omit(s.chats), avatarsBy: omit(s.avatarsBy), itemsBy: omit(s.itemsBy), games: omit(s.games), elevators: omit(s.elevators), broadcast: omit(s.broadcast), presence: {} };
+    return { chats: omit(s.chats), avatarsBy: omit(s.avatarsBy), itemsBy: omit(s.itemsBy), games: omit(s.games), survivors: omit(s.survivors), elevators: omit(s.elevators), broadcast: omit(s.broadcast), presence: {} };
   });
 }
 

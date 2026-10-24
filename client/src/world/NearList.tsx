@@ -12,6 +12,7 @@ import {
   type Band, type PlayerEntry,
 } from './common.tsx';
 import { openWindow, toggleFromList, useIsOpen } from './windows.ts';
+import { PeerVolume } from './VolumeMenus.tsx';
 
 type Menu = { kind: 'user'; id: string; rect: DOMRect } | { kind: 'item'; id: string; rect: DOMRect };
 
@@ -56,14 +57,18 @@ function statusOf(u: Participant, friends: string[]) {
   return parts.join(' · ');
 }
 
-function PlayerRow({ e, onMenu, menuOpen }: { e: PlayerEntry; onMenu: (r: DOMRect) => void; menuOpen: boolean }) {
+const SPEAK_RING = '0 0 0 2px #fff, 0 0 0 4px var(--speak)';
+
+function PlayerRow({ e, onMenu, menuOpen, onVolume }: { e: PlayerEntry; onMenu: (r: DOMRect) => void; menuOpen: boolean; onVolume: (r: DOMRect) => void }) {
   const speaking = useStore((s) => !!s.speaking[e.user.id]);
   const friends = useStore((s) => s.friends);
   const hammer = useStore((s) => s.mode === '2d' && !!heldHammer(s));
   const trend = useTrend(e.user.id);
   const u = e.user;
   const status = statusOf(u, friends);
-  const ring = speaking ? '0 0 0 2px #fff, 0 0 0 4px var(--speak)' : undefined;
+  const muted = useStore((s) => s.peerMuted.includes(u.name));
+  const context = (ev: React.MouseEvent) => { ev.preventDefault(); onVolume(new DOMRect(ev.clientX, ev.clientY, 0, 0)); };
+  const ring = speaking ? SPEAK_RING : undefined;
   const menuBtn = (
     <button
       className={`ib more ${menuOpen ? 'on' : ''}`} aria-label={`${u.name} のアクション`} aria-haspopup="menu" aria-expanded={menuOpen}
@@ -72,14 +77,14 @@ function PlayerRow({ e, onMenu, menuOpen }: { e: PlayerEntry; onMenu: (r: DOMRec
   );
   if (e.band === 'far') {
     return (
-      <button className="farchip ib" data-uid={u.id} title={formatDistance(e.d)} onClick={() => pickUser(u.id)} style={glowStyle(trend)}>
+      <button className="farchip ib" data-uid={u.id} title={formatDistance(e.d)} onClick={() => pickUser(u.id)} onContextMenu={context} style={glowStyle(trend)}>
         <Face id={u.id} name={u.name} size={20} />{u.name}{u.mode === '3d' && <Badge3D />}
       </button>
     );
   }
   const big = e.band === 'near';
   return (
-    <div className={`prow ${big ? 'big' : ''} ${e.child ? 'child' : ''} ${menuOpen ? 'menuon' : ''} ${hammer ? 'hittable' : ''}`} data-uid={u.id} style={glowStyle(trend)}>
+    <div className={`prow ${big ? 'big' : ''} ${e.child ? 'child' : ''} ${menuOpen ? 'menuon' : ''} ${hammer ? 'hittable' : ''}`} data-uid={u.id} style={glowStyle(trend)} onContextMenu={context}>
       {e.child && <span className="branch" aria-hidden="true" />}
       <button className="pmain" onClick={() => pickUser(u.id)} aria-label={hammer ? `${u.name} を叩く` : `${u.name} のプロフィール`}>
         <Face id={u.id} name={u.name} size={big ? 32 : 22} ring={ring} />
@@ -88,6 +93,7 @@ function PlayerRow({ e, onMenu, menuOpen }: { e: PlayerEntry; onMenu: (r: DOMRec
           {big && status && <span className="pstat">{status}</span>}
         </span>
         <Equip id={u.id} />
+        {muted && <span className="pmuted" title="自分だけミュート中"><Icon name="volumeOff" size={14} /></span>}
       </button>
       <LiveButton u={u} small={!big} />
       <span className="dist">{formatDistance(e.d)}</span>
@@ -258,6 +264,7 @@ export function NearList() {
   const selfName = useStore((s) => s.selfName);
   const mode = useStore((s) => s.mode);
   const me = useStore((s) => s.participants.find((p) => p.id === s.selfId));
+  const selfSpeaking = useStore((s) => !!s.speaking[s.selfId]);
   const players = usePlayers();
   // 自分についてきている人は、ほかの人と同じく自分の行の子として並べる
   const followers = players.filter((e) => e.user.follow === selfId).map((e) => ({ ...e, band: 'mid' as const, child: true }));
@@ -265,10 +272,12 @@ export function NearList() {
   const items = useItemsNear();
   const [menu, setMenu] = useState<Menu | null>(null);
   const [picker, setPicker] = useState<DOMRect | null>(null);
+  const [vol, setVol] = useState<{ name: string; rect: DOMRect } | null>(null);
   const playerRow = (e: PlayerEntry) => (
     <PlayerRow
       key={e.user.id} e={e} menuOpen={menu?.kind === 'user' && menu.id === e.user.id}
       onMenu={(rect) => setMenu(menu?.id === e.user.id ? null : { kind: 'user', id: e.user.id, rect })}
+      onVolume={(rect) => { setMenu(null); setVol({ name: e.user.name, rect }); }}
     />
   );
   const fold = (left: boolean) => set((s) => { const f = { ...s.folded, left }; save('tonarium.folded', f); return { folded: f }; });
@@ -291,7 +300,7 @@ export function NearList() {
       </div>
       <div className="pscroll">
         <div className="selfrow" data-uid={selfId}>
-          <Face id={selfId} name={selfName} size={32} />
+          <Face id={selfId} name={selfName} size={32} ring={selfSpeaking ? SPEAK_RING : undefined} />
           <span className="pname">{selfName}</span>
           {me && <LiveButton u={me} />}
           <span className="pill dark">あなた</span>
@@ -322,6 +331,7 @@ export function NearList() {
       </div>
       {menu && <ActionMenu menu={menu} onClose={() => setMenu(null)} />}
       {picker && <ItemPicker anchor={picker} onClose={() => setPicker(null)} />}
+      {vol && <PeerVolume key={vol.name} name={vol.name} anchor={vol.rect} onClose={() => setVol(null)} />}
     </aside>
   );
 }

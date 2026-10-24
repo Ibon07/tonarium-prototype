@@ -240,6 +240,11 @@ function Viewfinder() {
 
 function Crosshair() {
   const locked = useStore((s) => s.locked);
+  const survivorWorld = useStore((s) => worldKindOf(s) === 'survivors');
+  const survivorActive = useStore((s) => {
+    const phase = s.survivors[s.session ?? '']?.phase;
+    return worldKindOf(s) === 'survivors' && (phase === 'running' || phase === 'boss');
+  });
   const hint = useStore((s) => s.aimHint);
   const holding = useStore((s) => !!heldHammer(s) || !!heldCamera(s));
   const hitMe = useStore((s) => s.hits[s.selfId]);
@@ -255,9 +260,11 @@ function Crosshair() {
       {locked && hint && <div className="aimhint">{hint}</div>}
       {recentlyHit(get().selfId) && <div className="hitme">ピコッ!</div>}
       <div className="keyhelp">
-        {locked
-          ? <>WASD: 移動 ・ Space: ジャンプ ・ マウス: 視点 ・ クリック: 操作 ・ 右クリック: 運ぶ/置く ・ X: 片付ける{holding && ' ・ Q: 手に持った物を置く'} ・ Esc: カーソルを出す</>
-          : <>画面をクリックすると操作を始めます（マウスで視点・照準で操作）</>}
+        {survivorWorld && survivorActive
+          ? <>WASD / 矢印: 移動 ・ Esc: カーソルを出す</>
+          : locked
+            ? <>WASD: 移動 ・ Space: ジャンプ ・ マウス: 視点 ・ クリック: 操作 ・ 右クリック: 運ぶ/置く ・ X: 片付ける{holding && ' ・ Q: 手に持った物を置く'} ・ Esc: カーソルを出す</>
+            : <>画面をクリックすると操作を始めます（マウスで視点・照準で操作）</>}
       </div>
     </>
   );

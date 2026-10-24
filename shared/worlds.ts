@@ -1,8 +1,9 @@
 import { ARENA, START_BUTTON } from './game.ts';
 import { CITY_HALF, CITY_SOLIDS } from './city.ts';
+import { SURVIVOR_TITLE } from './survivor.ts';
 
 /** ワールド＝ 3D 空間の種類。セッションはどれか 1 つを読み込み、途中で切り替えられる */
-export type WorldKind = 'room' | 'cafe' | 'game' | 'city';
+export type WorldKind = 'room' | 'cafe' | 'game' | 'survivors' | 'city';
 
 /** 床の上の通り抜けられない物。r があれば円、なければ w×d の箱（x, z が中心）。
  * y0〜y1 があればその高さの間だけ効く（マンションの階ごとの壁など）。無ければどの高さでも効く */
@@ -57,6 +58,11 @@ export const WORLDS: Record<WorldKind, WorldInfo> = {
     desc: '板わたりサバイバル。ガラスの向こうの 5 層の塔で、最後まで落ちずに残った人が勝ち',
     solids: [{ x: START_BUTTON.x, z: START_BUTTON.z, r: 0.45 }],
     extent: { minX: -10, maxX: 10, minZ: ARENA.z - ARENA.half, maxZ: 10 },
+  },
+  survivors: {
+    name: SURVIVOR_TITLE,
+    desc: '夜明けまで10分。仲間と装備を重ね、押し寄せる夜の眷属を生き延びる',
+    solids: [],
   },
   city: {
     name: '街',

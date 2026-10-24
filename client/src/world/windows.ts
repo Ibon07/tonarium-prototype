@@ -18,7 +18,11 @@ export function openWindow(key: string) {
   });
 }
 
-export function closeWindow(key: string) {
+export function closeWindow(key: string, force = false) {
+  if (key === 'survivors' && !force) {
+    if (get().confirmClose === key) set({ confirmClose: null });
+    return;
+  }
   set((s) => ({ windows: s.windows.filter((w) => w.key !== key), maxWin: s.maxWin === key ? null : s.maxWin, confirmClose: null }));
 }
 
@@ -44,7 +48,8 @@ export const useIsOpen = (key: string) => useStore((s) => s.windows.some((w) => 
 
 /** 開いたウィンドウを閉じるときだけ確認を出す（リストのボタンから） */
 export function toggleFromList(key: string) {
-  if (get().windows.some((w) => w.key === key)) set({ confirmClose: key });
+  if (get().windows.some((w) => w.key === key) && key === 'survivors') raiseWindow(key);
+  else if (get().windows.some((w) => w.key === key)) set({ confirmClose: key });
   else openWindow(key);
 }
 

@@ -3,7 +3,8 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GRAVITY, JUMP_V, type AvatarState } from '../../../shared/protocol.ts';
 import { ARENA, FALL_Y, LAYER_Y, inArena, startTile, tileBelow, tileCenter } from '../../../shared/game.ts';
-import { get, set, heldHammer, heldCamera, nameOf, solidsOf, worldKindOf, gameOfSession, elevatorOfSession, serverNow, spawnPoint } from '../store.ts';
+import { SURVIVOR_MOVE_SPEED, SURVIVOR_STYLES } from '../../../shared/survivor.ts';
+import { get, set, useStore, heldHammer, heldCamera, nameOf, solidsOf, worldKindOf, gameOfSession, elevatorOfSession, serverNow, spawnPoint } from '../store.ts';
 import { CAR, clampCity } from '../../../shared/city.ts';
 import { STEP_UP, carPose, cityGround, citySolids, keepInCar, toCarLocal } from './cityPhysics.ts';
 import { pushOut } from '../../../shared/worlds.ts';
@@ -20,6 +21,11 @@ const SPEED = 4;
 const BODY_R = 0.3;
 
 type Store = ReturnType<typeof get>;
+const survivorPlaying = (s: Store) => {
+  if (worldKindOf(s) !== 'survivors') return false;
+  const phase = s.survivors[s.session ?? '']?.phase;
+  return phase === 'running' || phase === 'boss';
+};
 
 /** (x, z) で足元 y から落ちたときに着く高さ。塔の上で下に板が無ければ null（落ち続ける）。car は街の電車の床 */
 function groundAt(s: Store, x: number, z: number, y: number): { y: number; tile: number | null; car?: number | null } | null {
@@ -69,16 +75,21 @@ function finishCarry() {
 
 export function Player() {
   const { camera, gl, scene } = useThree();
+  const survivorActive = useStore((s) => survivorPlaying(s));
   const keys = useRef<Record<string, boolean>>({});
   const look = useRef({ yaw: get().selfAvatar.ry, pitch: -0.05 });
   // NaN だと比較が常に false になり一度も送られないので Infinity
   const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, jump: 0, y: 0 });
   // 足元の高さ・上下の速さ・跳んだ回数。stepped は最後に踏んだと伝えた板、round は塔の上に移ったゲームの回
   // car は街の電車に乗っている号車。乗っている間は毎フレーム電車が動いた分だけ一緒に動かす
-  const body = useRef({ y: get().selfAvatar.y ?? 0, vy: 0, grounded: true, n: get().selfAvatar.jump ?? 0, stepped: -1, round: -1, car: null as number | null });
+  const body = useRef({ y: get().selfAvatar.y ?? 0, vy: 0, grounded: true, n: get().selfAvatar.jump ?? 0, stepped: -1, round: -1, survivorRun: -1, car: null as number | null });
   const aim = useRef<ReturnType<typeof aimAt>>(null);
   const hammerRef = useRef<THREE.Group>(null);
   const dragging = useRef<{ data: Interactable; obj: THREE.Object3D; hit: THREE.Intersection | null } | null>(null);
+
+  useEffect(() => {
+    if (survivorActive && document.pointerLockElement === gl.domElement) document.exitPointerLock();
+  }, [survivorActive, gl]);
 
   useEffect(() => {
     const a = get().selfAvatar;
@@ -94,6 +105,7 @@ export function Player() {
       if (!locked) keys.current = {};
     };
     const onMouseDown = (e: MouseEvent) => {
+      if (survivorPlaying(get())) return;
       if (e.button === 2) {
         if (document.pointerLockElement !== canvas) return;
         if (carrying.current) finishCarry();
@@ -115,6 +127,7 @@ export function Player() {
     };
     const onMouseMove = (e: MouseEvent) => {
       if (document.pointerLockElement !== canvas) return;
+      if (survivorPlaying(get())) return;
       look.current.yaw -= e.movementX * SENS;
       look.current.pitch = Math.max(-1.4, Math.min(1.4, look.current.pitch - e.movementY * SENS));
     };
@@ -122,7 +135,7 @@ export function Player() {
       if (isTyping(e.target)) return;
       keys.current[e.code] = true;
       if (e.code === 'Escape') selectNote(null);
-      if (e.code === 'Space') {
+      if (e.code === 'Space' && !survivorPlaying(get())) {
         e.preventDefault();
         const b = body.current;
         if (b.grounded) { b.vy = JUMP_V; b.grounded = false; b.n++; }
@@ -206,6 +219,15 @@ export function Player() {
       set({ teleport: p });
     };
     const g = gameOfSession(s);
+    const survivorRun = s.survivors[s.session ?? ''];
+    const survivorMe = survivorRun?.players[s.selfId];
+    const survivorPaused = survivorRun?.pausedAt != null;
+    if (worldKindOf(s) !== 'survivors') b.survivorRun = -1;
+    if (survivorPlaying(s) && survivorMe && b.survivorRun !== survivorRun?.run) {
+      b.survivorRun = survivorRun!.run;
+      b.stepped = -1;
+      set({ teleport: { x: survivorMe.x, z: survivorMe.z, ry: 0 } });
+    }
     if (worldKindOf(s) === 'game') {
       const meIdx = g.players.findIndex((p) => p.id === s.selfId && p.out === null);
       // ゲームが始まったら参加者は最上段の自分の板へ
@@ -245,19 +267,27 @@ export function Player() {
       camera.position.z = cur.z + cur.az * l.along + cur.nz * l.side;
       look.current.yaw += Math.atan2(Math.sin(cur.ry - prev.ry), Math.cos(cur.ry - prev.ry));
     }
-    const { yaw, pitch } = look.current;
+    const survivors = survivorPlaying(s);
+    const { yaw: viewYaw, pitch } = look.current;
+    const yaw = survivors ? 0 : viewYaw;
     const shake = bump(s.hits[s.selfId]);
     camera.rotation.set(pitch - shake * 0.15, yaw + Math.sin(performance.now() / 30) * shake * 0.03, 0);
 
     const k = keys.current;
-    const f = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0);
-    const r = (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
+    const f = survivorPaused ? 0 : (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0);
+    const r = survivorPaused ? 0 : (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
     const onTower = worldKindOf(s) === 'game' && inArena(camera.position.x, camera.position.z);
     const cl = clampTo(onTower, city);
     if (f || r) {
-      const step = (SPEED * Math.min(dt, 0.1)) / Math.hypot(f, r);
-      camera.position.x = cl(camera.position.x + (-Math.sin(yaw) * f + Math.cos(yaw) * r) * step, ARENA.x);
-      camera.position.z = cl(camera.position.z + (-Math.cos(yaw) * f - Math.sin(yaw) * r) * step, ARENA.z);
+      const survivorStyle = survivorMe ? SURVIVOR_STYLES[survivorMe.style] : undefined;
+      const moveSpeed = survivors
+        ? (survivorStyle?.speed ?? SURVIVOR_MOVE_SPEED) * (1 + (s.survivorProfile.upgrades.haste ?? 0) * 0.03) * (1 + (survivorMe?.gear.nightcloak ?? 0) * 0.025)
+        : SPEED;
+      const step = (moveSpeed * Math.min(dt, 0.1)) / Math.hypot(f, r);
+      const nx = camera.position.x + (-Math.sin(yaw) * f + Math.cos(yaw) * r) * step;
+      const nz = camera.position.z + (-Math.cos(yaw) * f - Math.sin(yaw) * r) * step;
+      camera.position.x = cl(nx, ARENA.x);
+      camera.position.z = cl(nz, ARENA.z);
     }
     // ワールドの切り替えやテレポートで家具の中に入ったときも、ここで外へ出る
     const solids = city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s);
@@ -288,7 +318,14 @@ export function Player() {
       b.stepped = ground.tile;
       if (g.players.some((p) => p.id === s.selfId && p.out === null)) send({ t: 'gameStep', tile: ground.tile });
     }
-    camera.position.y = EYE + b.y - shake * 0.12;
+    if (survivors) {
+      camera.up.set(0, 0, -1);
+      camera.position.set(camera.position.x, 16, camera.position.z);
+      camera.lookAt(camera.position.x, 0, camera.position.z);
+    } else {
+      camera.up.set(0, 1, 0);
+      camera.position.y = EYE + b.y - shake * 0.12;
+    }
 
     const now = performance.now();
     const x = camera.position.x;
