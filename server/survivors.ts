@@ -524,7 +524,8 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
       const seconds = elapsed / 1000;
       const growthSeconds = spawnGrowthElapsed / 1000;
       const partyScale = 1 + Math.min(2.5, (partySize - 1) * 0.3);
-      const count = Math.min(24, Math.ceil((4 + spawnGrowthStage * 2) * partyScale));
+      const baseWaveCount = elapsed < 60_000 ? 2 : 4 + spawnGrowthStage * 2;
+      const count = Math.min(24, Math.ceil(baseWaveCount * partyScale));
       for (let i = 0; i < count && s.enemies.length < SURVIVOR_MAX_ENEMIES; i++) {
         const roll = random(s);
         const kind: SurvivorEnemy['kind'] = seconds >= 240
@@ -538,11 +539,48 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
       }
       s.nextSpawnAt = now + Math.max(650, 1050 - growthSeconds * 1.2);
     }
+    const packCellSize = 4;
+    const packBuckets = new Map<string, SurvivorEnemy[]>();
+    const packCellKey = (x: number, z: number) => `${Math.floor(x / packCellSize)}:${Math.floor(z / packCellSize)}`;
+    const addPackToIndex = (enemy: SurvivorEnemy) => {
+      const key = packCellKey(enemy.x, enemy.z);
+      const bucket = packBuckets.get(key);
+      if (bucket) bucket.push(enemy);
+      else packBuckets.set(key, [enemy]);
+    };
+    const removePackFromIndex = (enemy: SurvivorEnemy) => {
+      const key = packCellKey(enemy.x, enemy.z);
+      const bucket = packBuckets.get(key);
+      const index = bucket?.indexOf(enemy) ?? -1;
+      if (bucket && index >= 0) {
+        bucket.splice(index, 1);
+        if (!bucket.length) packBuckets.delete(key);
+      }
+    };
+    for (const enemy of s.enemies) if (enemy.kind === 'pack') addPackToIndex(enemy);
+    const nearbyPackCount = (enemy: SurvivorEnemy) => {
+      const cellX = Math.floor(enemy.x / packCellSize), cellZ = Math.floor(enemy.z / packCellSize);
+      let count = 0;
+      for (let x = cellX - 1; x <= cellX + 1; x++) for (let z = cellZ - 1; z <= cellZ + 1; z++) {
+        for (const other of packBuckets.get(`${x}:${z}`) ?? []) {
+          if (other !== enemy && survivorDistance(other, enemy) < packCellSize) count++;
+        }
+      }
+      return count;
+    };
     let playerWasHit = false;
     for (const e of s.enemies) {
       if (e.hp <= 0) continue;
-      const targets = alive.filter((p) => p.alive).sort((a, b) => survivorDistance(a, e) - survivorDistance(b, e));
-      const target = targets[0];
+      let target: SurvivorPlayer | undefined;
+      let nearestDistance = Infinity;
+      for (const player of alive) {
+        if (!player.alive) continue;
+        const distance = survivorDistance(player, e);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          target = player;
+        }
+      }
       if (!target) continue;
       if (e.kind === 'charger' && !e.chargeTarget && now >= e.nextSpecialAt) {
         e.chargeTarget = { x: target.x, z: target.z };
@@ -649,12 +687,12 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
           dirX = curvedX / length; dirZ = curvedZ / length;
         }
         let packSpeed = 1;
-        if (e.kind === 'pack') {
-          const allies = s.enemies.filter((other) => other.id !== e.id && other.kind === 'pack' && survivorDistance(other, e) < 4).length;
-          packSpeed += Math.min(0.6, allies * 0.12);
-        }
+        if (e.kind === 'pack') packSpeed += Math.min(0.6, nearbyPackCount(e) * 0.12);
         const step = Math.min(e.speed * packSpeed * SURVIVOR_TICK_MS / 1000, destinationGap);
-        Object.assign(e, clampSurvivorPosition(e.x + dirX * step, e.z + dirZ * step));
+        const next = clampSurvivorPosition(e.x + dirX * step, e.z + dirZ * step);
+        if (e.kind === 'pack') removePackFromIndex(e);
+        Object.assign(e, next);
+        if (e.kind === 'pack') addPackToIndex(e);
       } else if (e.kind !== 'slinger' && now >= e.attackAt + 850 && now >= target.hitAt + Math.max(250, 550 - (target.gear.nightcloak ?? 0) * 60)) {
         const armor = Math.min(0.4, (target.gear.ironheart ?? 0) * 0.06);
         target.hp -= e.damage * (1 - armor);

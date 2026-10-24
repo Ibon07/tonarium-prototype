@@ -13,7 +13,7 @@ export const clampSurvivorPosition = (x: number, z: number) => ({
   z: Math.max(-SURVIVOR_WORLD_LIMIT, Math.min(SURVIVOR_WORLD_LIMIT, z)),
 });
 export const SURVIVOR_MOVE_SPEED = 4.2;
-export const SURVIVOR_MAX_ENEMIES = 180;
+export const SURVIVOR_MAX_ENEMIES = 100;
 export const SURVIVOR_MAX_SYNERGY_GEAR = 3;
 
 export type SurvivorStyle = 'bloodrose' | 'stargazer' | 'wraith';
@@ -137,7 +137,7 @@ export const newSurvivorProfile = (): SurvivorProfile => ({
   points: 0, upgrades: { might: 0, vitality: 0, haste: 0 }, runs: 0, bestLevel: 0, bestKills: 0,
   achievements: [], discovered: [],
 });
-export const survivorXpFor = (level: number) => 8 + level * 4;
+export const survivorXpFor = (level: number) => level <= 4 ? 4 + level * 2 : 8 + level * 4;
 export const survivorDistance = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
 export const SURVIVOR_EVOLUTIONS: Record<string, string> = {
   moonblade: 'eclipse', starbolt: 'starfall', shade: 'umbralstorm', bloodaura: 'crimsonsun',
