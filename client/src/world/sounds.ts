@@ -1,4 +1,3 @@
-import { createAudioContext } from '../audioDevices.ts';
 import { fxVolume } from '../volume.ts';
 import type { EmoteId } from '../../../shared/emotes.ts';
 
@@ -6,14 +5,14 @@ let ctx: AudioContext | null = null;
 
 /** Call on the dock gesture so browsers can unlock audio before the server echo. */
 export function unlockEmoteAudio() {
-  try { ctx ??= createAudioContext(); if (ctx.state === 'suspended') void ctx.resume().catch(() => {}); } catch { /* optional audio */ }
+  try { ctx ??= new AudioContext(); if (ctx.state === 'suspended') void ctx.resume().catch(() => {}); } catch { /* optional audio */ }
 }
 
 export function playEmoteSound(id: EmoteId, distanceVolume: number) {
   const volume = distanceVolume * fxVolume() * 0.22;
   if (volume <= 0.001) return;
   try {
-    ctx ??= createAudioContext();
+    ctx ??= new AudioContext();
     if (ctx.state !== 'running') return;
     const t = ctx.currentTime;
     const out = ctx.destination;
@@ -75,7 +74,7 @@ const SYNTH: Record<string, (c: AudioContext, out: AudioNode, t: number) => void
 /** つんつんされたときの音（自分だけに鳴る） */
 export function playPoke() {
   try {
-    ctx ??= createAudioContext();
+    ctx ??= new AudioContext();
     const t = ctx.currentTime;
     const v = 0.3 * fxVolume();
     tone(ctx, ctx.destination, t, 700, 1100, 0.09, 'sine', v);
@@ -88,7 +87,7 @@ export function playSynth(id: string, distanceVolume: number) {
   const volume = distanceVolume * fxVolume();
   if (!f || volume <= 0.001) return;
   try {
-    ctx ??= createAudioContext();
+    ctx ??= new AudioContext();
     const g = ctx.createGain();
     g.gain.value = volume;
     g.connect(ctx.destination);

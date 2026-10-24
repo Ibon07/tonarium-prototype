@@ -1,4 +1,3 @@
-import { openAudioSettings } from '../audioDevices.ts';
 import { useStore } from '../store.ts';
 import { peerLevel, setMasterVolume, setPeerVolume, togglePeerMute, type VolumeKind } from '../volume.ts';
 import { Popover } from './common.tsx';
@@ -26,7 +25,6 @@ export function MasterVolume({ anchor, onClose }: { anchor: DOMRect; onClose: ()
     <Popover anchor={anchor} side="up" onClose={onClose} className="volume">
       <span className="menutitle">音量（自分だけ）</span>
       {KINDS.map((k) => <Slider key={k.kind} label={k.label} value={vol[k.kind]} max={1} onChange={(v) => setMasterVolume(k.kind, v)} />)}
-      <button onClick={() => { onClose(); openAudioSettings(); }}>マイク・スピーカーを選ぶ</button>
     </Popover>
   );
 }

@@ -27,7 +27,7 @@ function pass(message){checks.push(message);console.log('PASS',message);}
   const url=`http://127.0.0.1:${server.address().port}/`;
   let page=await launch(url); await page.locator('#text').waitFor();
   const prefs=await application.evaluate(({BrowserWindow})=>{const w=BrowserWindow.getAllWindows()[0];return w.webContents.getLastWebPreferences();});
-  assert.equal(prefs.nodeIntegration,false);assert.equal(prefs.sandbox,true);assert.equal(prefs.contextIsolation,true);assert.ok(!prefs.preload);
+  assert.equal(prefs.nodeIntegration,false);assert.equal(prefs.sandbox,true);assert.equal(prefs.contextIsolation,true);assert.equal(await page.evaluate(()=>typeof window.__tonariumElectronAudio?.status),'function');
   assert.deepEqual(await page.evaluate(()=>[typeof require,typeof process,typeof window.tonariumShell]),['undefined','undefined','undefined']);
   pass('Remote renderer has isolated/sandbox preferences and exposes neither Node nor privileged shell APIs');
   assert.equal(await page.evaluate(()=>!!document.querySelector('#webgl').getContext('webgl2')),true);

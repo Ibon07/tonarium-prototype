@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'">
+<title>Tonarium Electron — マイク・スピーカー</title><link rel="stylesheet" href="local.css"></head>
+<body><main><h1>マイク・スピーカー</h1>
+<p>Electronで使用する音声機器を選びます。</p>
+<button id="permit">機器の利用を許可</button>
+<label for="input">マイク（入力）</label><select id="input"><option value="">システムの既定</option></select>
+<label for="output">スピーカー（出力）</label><select id="output"><option value="">システムの既定</option></select>
+<p id="message" role="status"></p><p class="hint">設定は接続先ごとに保存します。録音中の入力変更は次の録音から反映します。YouTube埋め込みの出力はOS側で選択してください。</p>
+<div class="actions"><button id="refresh">機器一覧を更新</button><button id="close">閉じる</button></div>
+</main><script src="audio.js"></script></body></html>

@@ -21,6 +21,7 @@ try {
 app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
 let mainWindow;
 let settingsWindow;
+let audioWindow;
 let pickerWindow;
 let activeServer = DEFAULT_SERVER;
 let connectionError = '';
@@ -66,13 +67,42 @@ function showSettings() {
   settingsWindow.on('closed', () => { settingsWindow = undefined; });
 }
 
-async function showAudioSettings() {
-  if (!trustedContents(mainWindow?.webContents)) return;
+function audioConfig() {
   try {
-    // Only a fixed DOM event. The remote page receives no Node or privileged IPC API.
-    const handled = await mainWindow.webContents.executeJavaScript("!window.dispatchEvent(new Event('tonarium:audio-settings', { cancelable: true }))");
-    if (!handled) await dialog.showMessageBox(mainWindow, { type: 'info', title: 'マイク・スピーカー', message: '接続先Webの更新が必要です', detail: 'この接続先にはまだ音声デバイス設定が配信されていません。更新後にページを再読み込みしてください。' });
-  } catch { /* Navigation or window close cancels the request. */ }
+    const all = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'audio-devices.json'), 'utf8'));
+    return validAudioConfig(all[new URL(activeServer).origin]);
+  } catch { return { input: '', output: '' }; }
+}
+function validAudioConfig(value) {
+  if (!value || ['input', 'output'].some(key => typeof value[key] !== 'string' || value[key].length > 2048)) throw new Error('機器の設定が正しくありません。');
+  return { input: value.input, output: value.output };
+}
+function saveAudioConfig(value) {
+  const file = path.join(app.getPath('userData'), 'audio-devices.json');
+  let all = {};
+  try { all = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
+  if (!all || typeof all !== 'object' || Array.isArray(all)) all = {};
+  all[new URL(activeServer).origin] = validAudioConfig(value);
+  fs.mkdirSync(app.getPath('userData'), { recursive: true });
+  fs.writeFileSync(file + '.tmp', JSON.stringify(all, null, 2), { mode: 0o600 });
+  fs.renameSync(file + '.tmp', file);
+}
+function showAudioSettings() {
+  if (audioWindow && !audioWindow.isDestroyed()) { audioWindow.focus(); return; }
+  audioWindow = localWindow('audio.html', { width: 640, height: 560, parent: mainWindow, title: 'Tonarium Electron — マイク・スピーカー' });
+  audioWindow.on('closed', () => { audioWindow = undefined; });
+}
+async function audioCommand(method, value) {
+  if (!trustedContents(mainWindow?.webContents)) throw new Error('接続先の読み込みを待ってください。');
+  const contents = mainWindow.webContents;
+  const origin = activeServer;
+  const result = await contents.executeJavaScript(`(async () => {
+    const adapter = window.__tonariumElectronAudio;
+    if (!adapter) throw new Error('音声設定を準備中です。ページを再読み込みしてください。');
+    return await adapter.${method}(${value === undefined ? '' : JSON.stringify(value)});
+  })()`);
+  if (origin !== activeServer || !trustedContents(contents)) throw new Error('接続先が変更されました。');
+  return result;
 }
 
 async function connect(server) {
@@ -83,6 +113,7 @@ async function connect(server) {
   permissionGrants.clear();
   permissionEpoch++;
   captureState?.finish(null);
+  if (audioWindow && !audioWindow.isDestroyed()) audioWindow.close();
   if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.close();
   try { await mainWindow.loadURL(activeServer); } catch { /* did-fail-load で接続画面を表示する。 */ }
 }
@@ -162,7 +193,7 @@ function createMainWindow() {
   const remoteSession = session.fromPartition('persist:tonarium-web');
   configureSession(remoteSession);
   const icon = app.isPackaged ? path.join(process.resourcesPath, 'icon.png') : path.join(__dirname, '..', 'resources', 'icon.png');
-  mainWindow = new BrowserWindow({ icon, width: 1280, height: 850, minWidth: 720, minHeight: 500, title: 'Tonarium Electron', webPreferences: { ...securePreferences, session: remoteSession } });
+  mainWindow = new BrowserWindow({ icon, width: 1280, height: 850, minWidth: 720, minHeight: 500, title: 'Tonarium Electron', webPreferences: { ...securePreferences, session: remoteSession, preload: path.join(__dirname, 'audio-preload.cjs') } });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
   const navigate = (event, url) => { if (!sameOrigin(url, activeServer)) { event.preventDefault(); openExternal(url); } };
   mainWindow.webContents.on('will-navigate', navigate);
@@ -187,6 +218,34 @@ function createMainWindow() {
   ]));
   connect(activeServer);
 }
+
+ipcMain.on('shell:audio-config', event => {
+  event.returnValue = mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents
+    && event.senderFrame === mainWindow.webContents.mainFrame && sameOrigin(event.senderFrame.url, activeServer) ? audioConfig() : null;
+});
+ipcMain.handle('shell:audio-list', event => {
+  if (!localSender(event, audioWindow, 'audio.html')) throw new Error('許可されていない操作です。');
+  return audioCommand('list');
+});
+ipcMain.handle('shell:audio-apply', async (event, value) => {
+  if (!localSender(event, audioWindow, 'audio.html')) throw new Error('許可されていない操作です。');
+  const next = validAudioConfig(value);
+  const previous = await audioCommand('status');
+  await audioCommand('apply', next);
+  try { saveAudioConfig(next); }
+  catch (error) { await audioCommand('apply', validAudioConfig(previous)).catch(() => {}); throw error; }
+  return audioCommand('list');
+});
+ipcMain.handle('shell:audio-permit', async event => {
+  if (!localSender(event, audioWindow, 'audio.html') || !trustedContents(mainWindow?.webContents)) throw new Error('許可されていない操作です。');
+  const epoch = permissionEpoch;
+  const origin = activeServer;
+  const answer = await dialog.showMessageBox(audioWindow, { type: 'question', title: '音声機器の利用', message: `${new URL(activeServer).origin} にマイクとスピーカー選択の利用を許可しますか？`, detail: '機器名を表示し、選択できるようにします。この操作だけでは録音・送信しません。', buttons: ['許可しない', '許可する'], defaultId: 0, cancelId: 0 });
+  if (answer.response === 1 && epoch === permissionEpoch && origin === activeServer) {
+    permissionGrants.add('media:audio'); permissionGrants.add('speaker-selection');
+  }
+  return audioCommand('list');
+});
 
 ipcMain.handle('shell:state', event => {
   if (localSender(event, settingsWindow, 'settings.html')) return { server: activeServer, error: connectionError };

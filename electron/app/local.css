@@ -11,3 +11,4 @@ button:focus-visible, input:focus-visible { outline: 3px solid #8572d5; }
 #sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-bottom: 20px; }
 #sources button { display: grid; justify-items: center; gap: 8px; overflow-wrap: anywhere; }
 #sources img { width: 220px; height: 140px; object-fit: contain; }
+select { width: 100%; padding: 10px; font: inherit; }

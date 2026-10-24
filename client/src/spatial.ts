@@ -1,4 +1,3 @@
-import { createAudioContext } from './audioDevices.ts';
 import { useSyncExternalStore } from 'react';
 import { VOICE_RANGE, computePlaces, placeDistance, type Place } from '../../shared/places.ts';
 import { formatDistance, nearbyUsers, projectProximity, stepTrend, type ListedItem, type ListedPlayer, type TrendState } from './nearby.ts';
@@ -171,13 +170,13 @@ const voices = new Map<string, { gain: GainNode; pan: StereoPannerNode; source: 
 
 /** AudioContext はユーザー操作の中で再開しないと鳴らない */
 export function resumeAudio() {
-  ctx ??= createAudioContext();
+  ctx ??= new AudioContext();
   void ctx.resume();
 }
 
 export function addVoice(identity: string, track: MediaStreamTrack) {
   removeVoice(identity);
-  ctx ??= createAudioContext();
+  ctx ??= new AudioContext();
   const source = ctx.createMediaStreamSource(new MediaStream([track]));
   const gain = ctx.createGain();
   const pan = ctx.createStereoPanner();

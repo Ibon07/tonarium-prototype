@@ -1,4 +1,3 @@
-import { audioDeviceSnapshot, microphoneOptions, registerMicrophoneSwitcher, refreshAudioDevices, applyMediaOutput } from '../audioDevices.ts';
 // 接続はここで1つだけ持ち、2D/3D の表示切替では切らない。セッションを移るときだけつなぎ直す。
 import {
   Room, RoomEvent, Track, LocalVideoTrack,
@@ -11,9 +10,6 @@ import { send } from './ws.ts';
 // HMR でこのモジュールが読み直されても同じ接続を使う（別の Room が同じ ID で入ると、互いに蹴り出してつなぎ直しを繰り返す）
 const g = globalThis as unknown as { __tonariumRoom?: Room };
 export const room = (g.__tonariumRoom ??= new Room({ adaptiveStream: false, dynacast: true }));
-registerMicrophoneSwitcher(async (id) => {
-  if (!await room.switchActiveDevice('audioinput', id || 'default')) throw new Error('マイクを切り替えられませんでした');
-});
 room.removeAllListeners();
 for (const topic of ['msg', 'snapshot']) room.unregisterTextStreamHandler(topic);
 
@@ -91,7 +87,6 @@ function attachRemote(track: RemoteTrack, pub: RemoteTrackPublication, identity:
   }
   if (track.kind === Track.Kind.Audio) {
     const el = track.attach();
-    applyMediaOutput(el);
     if (track.source === Track.Source.Microphone) {
       // 空間オーディオで鳴らす。Chrome では要素にもつながないと音が流れないので、要素はミュートして残す
       el.muted = true;
@@ -196,8 +191,6 @@ export async function connectVoice(sid: string) {
     if (j.error) throw new Error(j.error);
     if (gen !== generation) return;
     try {
-      await refreshAudioDevices();
-      await room.switchActiveDevice('audioinput', audioDeviceSnapshot().input || 'default');
       await room.connect(j.url, j.token);
     } catch (e) {
       throw new Error(await explainConnectError(j.url, j.token) ?? (e as Error).message);
@@ -212,7 +205,7 @@ export async function connectVoice(sid: string) {
   }
   if (get().micEnabled) {
     try {
-      await room.localParticipant.setMicrophoneEnabled(true, microphoneOptions());
+      await room.localParticipant.setMicrophoneEnabled(true);
     } catch (e) {
       set({ micEnabled: false, voiceError: `マイクを開始できません: ${(e as Error).message}` });
     }
@@ -225,7 +218,7 @@ export async function toggleMic() {
   set({ micEnabled: next });
   if (get().voice !== 'connected') return;
   try {
-    await room.localParticipant.setMicrophoneEnabled(next, microphoneOptions());
+    await room.localParticipant.setMicrophoneEnabled(next);
   } catch (e) {
     set({ voiceError: `マイク: ${(e as Error).message}` });
   }

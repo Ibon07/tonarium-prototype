@@ -1,4 +1,3 @@
-import { microphoneOptions } from '../audioDevices.ts';
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store.ts';
 import { PLAN_QUORUM, RSVP_LABEL, type Message, type Recap, type Rsvp } from '../../../shared/protocol.ts';
@@ -196,7 +195,7 @@ function useVoiceRecorder(onDone: (url: string, sec: number) => void) {
   const stop = () => rec.current?.r.state === 'recording' && rec.current.r.stop();
   const start = async () => {
     let stream: MediaStream;
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: microphoneOptions() }); } catch { return; }
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { return; }
     const r = new MediaRecorder(stream, MediaRecorder.isTypeSupported('audio/webm') ? { mimeType: 'audio/webm' } : undefined);
     const chunks: Blob[] = [];
     const started = Date.now();

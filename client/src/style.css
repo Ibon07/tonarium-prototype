@@ -1248,8 +1248,3 @@ img.av { object-fit: cover; display: block; }
 .maintwait { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--muted); }
 .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-
-.audio-settings-backdrop { position: fixed; inset: 0; z-index: 10000; background: #26262e88; display: grid; place-items: center; padding: 20px; }
-.audio-settings-dialog { width: min(480px, 100%); max-height: 90vh; overflow: auto; background: var(--paper, #fffdf9); color: #26262e; border-radius: 18px; padding: 24px; box-shadow: 0 12px 48px #0004; }
-.audio-device-field { display: grid; gap: 6px; margin: 16px 0; font-weight: 600; }
-.audio-device-field select { width: 100%; min-width: 0; padding: 10px; border: 1px solid #d8d0c6; border-radius: 8px; background: #fff; color: #26262e; }

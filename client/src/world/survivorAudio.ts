@@ -1,4 +1,3 @@
-import { createAudioContext } from '../audioDevices.ts';
 import { fxVolume } from '../volume.ts';
 
 type SurvivorSound = 'start' | 'attack' | 'level' | 'choice' | 'hit' | 'equip' | 'boss' | 'pause' | 'resume' | 'end' | 'victory';
@@ -9,7 +8,7 @@ let lastAttackAt = 0;
 function context() {
   if (typeof window === 'undefined' || !window.AudioContext) return null;
   try {
-    audio ??= createAudioContext();
+    audio ??= new AudioContext();
     if (audio.state === 'suspended') void audio.resume().catch(() => {});
     return audio;
   } catch { return null; }
