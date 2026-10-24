@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { SURVIVOR_JOIN, SURVIVOR_STYLES, survivorDistance, type SurvivorAttackEffect, type SurvivorPlayer } from '../../../shared/survivor.ts';
+import { SURVIVOR_JOIN, SURVIVOR_STYLES, survivorDistance, type SurvivorAttackEffect, type SurvivorEnemy, type SurvivorPlayer, type SurvivorProjectile } from '../../../shared/survivor.ts';
 import { useStore, get, colorOf, serverNow } from '../store.ts';
 import { Cyl } from './parts3d.tsx';
 import { Label } from './Label.tsx';
@@ -150,13 +150,15 @@ function StartAltar() {
   );
 }
 
-function Enemy({ enemy, paused }: { enemy: { id: string; kind: string; x: number; z: number; hp: number; maxHp: number; hitAt: number }; paused: boolean }) {
+function Enemy({ enemy, paused }: { enemy: SurvivorEnemy; paused: boolean }) {
   const ref = useRef<THREE.Group>(null);
   const material = useRef<THREE.MeshStandardMaterial>(null);
   const halo = useRef<THREE.Mesh>(null);
   const haloMaterial = useRef<THREE.MeshBasicMaterial>(null);
   const groundRing = useRef<THREE.Mesh>(null);
   const groundRingMaterial = useRef<THREE.MeshBasicMaterial>(null);
+  const dashTrail = useRef<THREE.Mesh>(null);
+  const dashTrailMaterial = useRef<THREE.MeshBasicMaterial>(null);
   const boss = enemy.kind === 'boss';
   const color = boss ? '#a41142' : enemy.kind === 'knight' ? '#7b547a' : enemy.kind === 'bat' ? '#513b77' : '#7c3154';
   const size = boss ? 0.72 : enemy.kind === 'knight' ? 0.42 : 0.3;
@@ -177,6 +179,19 @@ function Enemy({ enemy, paused }: { enemy: { id: string; kind: string; x: number
       if (haloMaterial.current) haloMaterial.current.opacity = 0.16 + pulse * 0.16;
       groundRing.current?.scale.setScalar(1 + pulse * 0.12);
       if (groundRingMaterial.current) groundRingMaterial.current.opacity = 0.52 + pulse * 0.28;
+      if (dashTrail.current && dashTrailMaterial.current) {
+        const remaining = enemy.dashUntil - serverNow();
+        const from = enemy.dashFrom;
+        const dx = from ? enemy.x - from.x : 0, dz = from ? enemy.z - from.z : 0;
+        const length = Math.hypot(dx, dz);
+        dashTrail.current.visible = !!from && remaining > 0 && length > 0.05;
+        if (from && length > 0.05) {
+          dashTrail.current.position.set((from.x + enemy.x) / 2 - enemy.x, 0.42, (from.z + enemy.z) / 2 - enemy.z);
+          dashTrail.current.rotation.y = -Math.atan2(dz, dx);
+          dashTrail.current.scale.x = length;
+        }
+        dashTrailMaterial.current.opacity = Math.max(0, Math.min(1, remaining / 520)) * 0.9;
+      }
     }
   });
   return (
@@ -186,6 +201,10 @@ function Enemy({ enemy, paused }: { enemy: { id: string; kind: string; x: number
         <meshStandardMaterial ref={material} color={color} emissive={color} emissiveIntensity={boss ? 0.65 : 0.12} roughness={0.55} />
       </mesh>
       {boss && <>
+        <mesh ref={dashTrail} visible={false}>
+          <boxGeometry args={[1, 0.07, 0.18]} />
+          <meshBasicMaterial ref={dashTrailMaterial} color="#fff0d8" transparent opacity={0.9} depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+        </mesh>
         <mesh ref={halo}>
           <icosahedronGeometry args={[size * 1.42, 0]} />
           <meshBasicMaterial ref={haloMaterial} color="#ff315d" wireframe transparent opacity={0.22} depthWrite={false} toneMapped={false} />
@@ -195,6 +214,28 @@ function Enemy({ enemy, paused }: { enemy: { id: string; kind: string; x: number
           <meshBasicMaterial ref={groundRingMaterial} color="#ff456d" transparent opacity={0.7} depthWrite={false} toneMapped={false} />
         </mesh>
       </>}
+    </group>
+  );
+}
+
+function BossProjectile({ projectile, paused }: { projectile: SurvivorProjectile; paused: boolean }) {
+  const ref = useRef<THREE.Group>(null);
+  useFrame((_, dt) => {
+    if (!ref.current || paused) return;
+    const blend = Math.min(1, dt * 18);
+    ref.current.position.x += (projectile.x - ref.current.position.x) * blend;
+    ref.current.position.z += (projectile.z - ref.current.position.z) * blend;
+  });
+  return (
+    <group ref={ref} position={[projectile.x, 0.32, projectile.z]} userData={{ noRay: true }}>
+      <mesh>
+        <octahedronGeometry args={[0.17, 1]} />
+        <meshBasicMaterial color="#fff0d8" toneMapped={false} />
+      </mesh>
+      <mesh position={[-projectile.vx / 5.8 * 0.25, 0, -projectile.vz / 5.8 * 0.25]} rotation-y={-Math.atan2(projectile.vz, projectile.vx)}>
+        <boxGeometry args={[0.55, 0.055, 0.055]} />
+        <meshBasicMaterial color="#ff315d" transparent opacity={0.85} depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+      </mesh>
     </group>
   );
 }
@@ -267,6 +308,7 @@ export function SurvivorObjects() {
       <Label text="宵闇サバイバーズ" position={[0, 2.2, -8]} height={0.34} bg="rgba(48,24,52,.94)" />
       {Object.values(run?.players ?? {}).map((p, i) => <RunPlayer key={p.id} player={p} index={i} self={p.id === selfId} />)}
       {run?.enemies.map((e) => <Enemy key={e.id} enemy={e} paused={run.pausedAt != null} />)}
+      {(run?.projectiles ?? []).map((projectile) => <BossProjectile key={projectile.id} projectile={projectile} paused={run?.pausedAt != null} />)}
       {(run?.effects ?? []).flatMap((effect) => effect.targets.map((target, index) => (
         <AttackTrace key={`${effect.id}:${index}`} effect={effect} target={target} showArea={index === 0} />
       )))}

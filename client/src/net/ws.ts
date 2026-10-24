@@ -69,7 +69,13 @@ function playSurvivorTransitions(sid: string, next: SurvivorState) {
 
   const previousPlayers = previous.players;
   const players = Object.values(next.players);
-  if (players.some((player) => player.level > (previousPlayers[player.id]?.level ?? player.level))) playSurvivorSound('level');
+  const selfId = get().selfId;
+  const previousSelf = previousPlayers[selfId];
+  const nextSelf = next.players[selfId];
+  const ownChoiceStarted = !!nextSelf?.alive && nextSelf.choiceQueue.length > 0 && !(previousSelf?.choiceQueue.length ?? 0);
+  if (ownChoiceStarted) playSurvivorSound('choice');
+  if (previousSelf && nextSelf && nextSelf.hp < previousSelf.hp) playSurvivorSound('hit');
+  if (!ownChoiceStarted && players.some((player) => player.level > (previousPlayers[player.id]?.level ?? player.level))) playSurvivorSound('level');
   else if (players.some((player) => {
     const before = previousPlayers[player.id];
     return !!before && Object.entries(player.gear).some(([gear, level]) => level !== (before.gear[gear] ?? 0));
@@ -85,6 +91,9 @@ function playSurvivorTransitions(sid: string, next: SurvivorState) {
 export function applySessionSnapshot(snap: SessionSnapshot) {
   const sid = snap.sid;
   if (sid !== get().session) return;
+  const previousSelf = get().survivors[sid]?.players[get().selfId];
+  const nextSelf = snap.survivor?.players[get().selfId];
+  if (nextSelf?.alive && nextSelf.choiceQueue.length > 0 && !(previousSelf?.choiceQueue.length ?? 0)) playSurvivorSound('choice');
   set((s) => ({
     chats: { ...s.chats, [sid]: snap.chats },
     avatarsBy: { ...s.avatarsBy, [sid]: snap.avatars },

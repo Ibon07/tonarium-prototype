@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store.ts';
 import { send } from '../net/ws.ts';
@@ -25,6 +26,19 @@ const isActive = (phase: SurvivorState['phase']) => phase === 'running' || phase
 function formatTime(ms: number) {
   const seconds = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function gearTooltipText(id: string, level?: number) {
+  const gear = SURVIVOR_GEAR[id];
+  if (!gear) return id;
+  const partner = gear.synergy ?? Object.values(SURVIVOR_GEAR).find((candidate) => candidate.synergy === gear.id)?.id;
+  return [
+    `${gear.name} · ${RARITY_NAME[gear.rarity]}`,
+    `${gear.kind === 'weapon' ? '武器' : '補助装備'} · ${level == null ? `最大Lv.${gear.maxLevel}` : `Lv.${level}/${gear.maxLevel}`}`,
+    gear.desc,
+    partner ? `シナジー: ${SURVIVOR_GEAR[partner]?.name}` : '',
+    gear.evolvedFrom ? `進化条件: ${gear.evolvedFrom.map((source) => SURVIVOR_GEAR[source]?.name).join(' + ')}` : '',
+  ].filter(Boolean).join('\n');
 }
 
 function SurvivorCanvas({ state, player, participants, avatars, clock, serverOffset }: {
@@ -70,6 +84,14 @@ function SurvivorCanvas({ state, player, participants, avatars, clock, serverOff
       const hit = hitAge >= 0 && hitAge < 240 ? 1 - hitAge / 240 : 0;
       const radius = (boss ? 11 : enemy.kind === 'knight' ? 6 : 4.5) * (1 + hit * 0.35);
       ctx.save();
+      const dashRemaining = enemy.dashUntil - (clock + serverOffset);
+      if (boss && enemy.dashFrom && dashRemaining > 0) {
+        const from = point(enemy.dashFrom.x, enemy.dashFrom.z);
+        ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(p.x, p.y);
+        ctx.strokeStyle = '#ff315d'; ctx.lineWidth = 13; ctx.lineCap = 'round'; ctx.shadowColor = '#ff315d'; ctx.shadowBlur = 24; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(p.x, p.y);
+        ctx.strokeStyle = '#fff0d8'; ctx.lineWidth = 3; ctx.shadowBlur = 0; ctx.stroke();
+      }
       if (hit) { ctx.shadowColor = '#fff'; ctx.shadowBlur = 20 * hit; }
       ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
       ctx.fillStyle = hit ? '#fff4f7' : boss ? '#ff315d' : enemy.kind === 'knight' ? '#bd81d0' : enemy.kind === 'bat' ? '#a17de0' : '#df6287'; ctx.fill();
@@ -77,6 +99,16 @@ function SurvivorCanvas({ state, player, participants, avatars, clock, serverOff
         ctx.beginPath(); ctx.arc(p.x, p.y, radius + (hit ? 3 + (1 - hit) * 4 : 4), 0, Math.PI * 2);
         ctx.strokeStyle = hit ? `rgba(255,255,255,${hit})` : 'rgba(255,82,117,.8)'; ctx.lineWidth = hit ? 2 : 1.5; ctx.stroke();
       }
+      ctx.restore();
+    }
+    for (const projectile of state?.projectiles ?? []) {
+      const p = point(projectile.x, projectile.z);
+      const tail = point(projectile.x - projectile.vx * 0.12, projectile.z - projectile.vz * 0.12);
+      ctx.save(); ctx.shadowColor = '#ff315d'; ctx.shadowBlur = 14;
+      ctx.beginPath(); ctx.moveTo(tail.x, tail.y); ctx.lineTo(p.x, p.y);
+      ctx.strokeStyle = 'rgba(255,73,111,.8)'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3, projectile.radius * scale), 0, Math.PI * 2);
+      ctx.fillStyle = '#fff1da'; ctx.fill(); ctx.strokeStyle = '#ff315d'; ctx.lineWidth = 2; ctx.stroke();
       ctx.restore();
     }
     for (const [i, other] of Object.values(state?.players ?? {}).entries()) {
@@ -136,7 +168,7 @@ function SurvivorCanvas({ state, player, participants, avatars, clock, serverOff
       }
       ctx.restore();
     }
-  }, [state?.enemies, state?.players, state?.effects, state?.phase, player?.x, player?.z, player?.id, participants, avatars, clock, serverOffset]);
+  }, [state?.enemies, state?.players, state?.projectiles, state?.effects, state?.phase, player?.x, player?.z, player?.id, participants, avatars, clock, serverOffset]);
   return <canvas ref={ref} className="survivor-map" width={360} height={360} aria-label="敵と仲間の位置" />;
 }
 
@@ -147,8 +179,12 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
   })));
   const [clock, setClock] = useState(Date.now());
   const [confirmReset, setConfirmReset] = useState(false);
+  const [damageEvent, setDamageEvent] = useState<{ key: number; amount: number } | null>(null);
   const keys = useRef(new Set<string>());
   const pos = useRef({ x: 0, z: 0 });
+  const choiceDialogRef = useRef<HTMLElement>(null);
+  const previousHealth = useRef<{ run: number; hp: number } | null>(null);
+  const damageSequence = useRef(0);
   const me = state?.players[selfId];
   const phase = state?.phase ?? 'lobby';
   const active = isActive(phase);
@@ -163,16 +199,37 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
   });
   const canJoin = inJoin.some((u) => u.id === selfId);
   const choices = me?.choiceQueue[0] ?? [];
+  const queuedPlayers = Object.values(state?.players ?? {})
+    .filter((player) => player.alive && player.choiceQueue.length > 0)
+    .sort((a, b) => Number(b.id === selfId) - Number(a.id === selfId));
+  const pendingChoiceKey = queuedPlayers.map((player) => `${player.id}:${player.choiceQueue.map((choices) => choices.join('.')).join('/')}`).join(',');
+  const needsOwnChoice = !!me?.alive && choices.length > 0;
   const runFinishedReward = phase === 'ended' && me ? me.level : 0;
   const investedPoints = profile.upgrades.might * SURVIVOR_META_UPGRADES.might.cost
     + profile.upgrades.vitality * SURVIVOR_META_UPGRADES.vitality.cost
     + profile.upgrades.haste * SURVIVOR_META_UPGRADES.haste.cost;
-  const boss = state?.enemies.find((enemy) => enemy.kind === 'boss');
+  const bosses = state?.enemies.filter((enemy) => enemy.kind === 'boss') ?? [];
+  const bossHp = bosses.reduce((total, enemy) => total + enemy.hp, 0);
+  const bossMaxHp = bosses.reduce((total, enemy) => total + enemy.maxHp, 0);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 250);
     return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => {
+    if (!me || !state) {
+      previousHealth.current = null;
+      return;
+    }
+    const previous = previousHealth.current;
+    if (previous?.run === state.run && me.hp < previous.hp) {
+      setDamageEvent({ key: ++damageSequence.current, amount: Math.max(1, Math.ceil(previous.hp - me.hp)) });
+    }
+    previousHealth.current = { run: state.run, hp: me.hp };
+  }, [me?.id, me?.hp, state?.run]);
+  useEffect(() => {
+    if (queuedPlayers.length > 0 && !needsOwnChoice) choiceDialogRef.current?.focus();
+  }, [pendingChoiceKey, needsOwnChoice]);
   useEffect(() => {
     if (me && mode === '2d' && !keys.current.size) pos.current = { x: me.x, z: me.z };
   }, [me?.x, me?.z, mode, state?.run]);
@@ -206,16 +263,59 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
 
   const status = paused ? '装備選択中 · 時が止まっています' : active && me && !me.alive ? '倒れました · 仲間を観戦中'
     : phase === 'lobby' ? '参加者を待っています' : phase === 'running' ? '夜の眷属が迫る'
-      : phase === 'boss' ? '夜の王が現れた' : state?.bossDefeated ? '夜の王を討伐' : 'ラン終了';
+      : phase === 'boss' ? `夜の王が現れた · ${bosses.length}体` : state?.bossDefeated ? '夜の王を討伐' : 'ラン終了';
+  const choiceDialog = queuedPlayers.length > 0 && typeof document !== 'undefined'
+    ? createPortal(<div className={`survivor-choice-overlay ${needsOwnChoice ? 'needs-choice' : 'watching-choice'}`} onKeyDown={(e) => {
+      if (e.key !== 'Tab') return;
+      e.stopPropagation();
+      const focusable = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+      if (!focusable.length) { e.preventDefault(); choiceDialogRef.current?.focus(); return; }
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }}>
+      <section ref={choiceDialogRef} tabIndex={-1} key={`${state?.run}-${pendingChoiceKey}`} className="survivor-choices" role="dialog" aria-modal="true" aria-labelledby="survivor-choice-title">
+        <div className="survivor-choice-title">
+          <span>{needsOwnChoice ? '✦ あなたの番 ✦' : '✦ CO-OP LEVEL UP ✦'}</span>
+          <h3 id="survivor-choice-title">{needsOwnChoice ? '装備を選んでください' : '仲間が装備を選択中'}</h3>
+          <small>選択中: {queuedPlayers.map((player) => player.id === selfId ? 'あなた' : player.name).join('、')} · ゲームは一時停止中</small>
+        </div>
+        <div className="survivor-choice-players">{queuedPlayers.map((owner) => {
+          const isMine = owner.id === selfId;
+          const options = owner.choiceQueue[0] ?? [];
+          return <section key={owner.id} className={`survivor-choice-player ${isMine ? 'is-self' : ''}`} aria-label={`${isMine ? 'あなた' : owner.name}の装備選択`}>
+            <div className="survivor-choice-player-head"><b>{isMine ? 'あなた' : owner.name}</b><span>{isMine ? '選択してください' : '選択中 · 観戦'}</span></div>
+            <div className="survivor-choice-list">{options.map((id, index) => {
+              const gear = SURVIVOR_GEAR[id];
+              const partner = gear.synergy ?? Object.values(SURVIVOR_GEAR).find((candidate) => candidate.synergy === gear.id)?.id;
+              const level = (owner.gear[id] ?? 0) + 1;
+              const details = <>
+                <b>{gear.name}</b><small>{RARITY_NAME[gear.rarity]} · Lv.{level}</small><span>{gear.desc}</span>
+                {partner && <small>シナジー: {SURVIVOR_GEAR[partner]?.name}</small>}
+                {gear.evolvedFrom && <small>進化条件: {gear.evolvedFrom.map((source) => SURVIVOR_GEAR[source]?.name).join(' + ')}</small>}
+              </>;
+              return isMine
+                ? <button key={id} type="button" autoFocus={index === 0} title={gearTooltipText(id, level)} className={`survivor-choice rarity-${gear.rarity}`} onClick={() => { unlockSurvivorAudio(); send({ t: 'survivorChoose', gear: id }); }}>{details}</button>
+                : <article key={id} title={gearTooltipText(id, level)} className={`survivor-choice survivor-choice-readonly rarity-${gear.rarity}`}>{details}</article>;
+            })}</div>
+          </section>;
+        })}</div>
+      </section>
+    </div>, document.body)
+    : null;
+  const damageFlash = damageEvent && typeof document !== 'undefined'
+    ? createPortal(<div key={damageEvent.key} className="survivor-damage-flash" aria-hidden="true"><div className="survivor-damage-label"><b>被弾!</b><span>−{damageEvent.amount} HP</span></div></div>, document.body)
+    : null;
   return (
     <div className={`survivor-panel ${overlay ? 'overlay' : ''} ${paused ? 'is-paused' : ''} ${phase === 'boss' ? 'is-boss' : ''}`} tabIndex={0} aria-label={SURVIVOR_TITLE} onPointerDownCapture={unlockSurvivorAudio}>
       <div className="survivor-head">
         <div><h2>{SURVIVOR_TITLE}</h2><span>{status}</span></div>
+        {active && <span className="survivor-enemy-count">敵 {state?.enemies.length ?? 0}体</span>}
         {active && <strong className={`survivor-time ${phase === 'boss' ? 'boss' : ''}`}>{phase === 'boss' ? 'BOSS' : formatTime(remaining)}</strong>}
       </div>
       {paused && <div className="survivor-pause-banner"><span className="survivor-pause-mark">✦</span><span><b>時が止まった</b><small>装備を選ぶまで、敵も時間も一時停止中</small></span><span className="survivor-pause-mark">✦</span></div>}
       <SurvivorCanvas state={state} player={me} participants={participants} avatars={avatars} clock={clock} serverOffset={serverOffset} />
-      {phase === 'boss' && boss && <div className="survivor-boss-health"><span>夜の王 · {Math.ceil(boss.hp).toLocaleString()} / {boss.maxHp.toLocaleString()}</span><div><i style={{ width: `${Math.max(0, boss.hp / boss.maxHp * 100)}%` }} /></div></div>}
+      {phase === 'boss' && bossMaxHp > 0 && <div className="survivor-boss-health"><span>夜の王 ×{bosses.length} · {Math.ceil(bossHp).toLocaleString()} / {bossMaxHp.toLocaleString()}</span><div><i style={{ width: `${Math.max(0, bossHp / bossMaxHp * 100)}%` }} /></div></div>}
       <div className="survivor-legend"><span>✦ 仲間と自分</span><span>◆ 夜の眷属</span><span>攻撃は自動 · 光る軌跡が攻撃</span>{mode === '2d' && active && <span>WASD / 矢印で移動</span>}{mode === '3d' && active && <span>WASDで移動 · 俯瞰視点</span>}</div>
 
       {me && <div className="survivor-vitals">
@@ -224,18 +324,8 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
         <span>討伐 {me.kills}</span>
       </div>}
 
-      {choices.length > 0 && me?.alive && <section key={`${me.level}-${me.choiceQueue.length}`} className="survivor-choices" aria-label="レベルアップ装備選択">
-        <div className="survivor-choice-title"><span>✦ LEVEL UP ✦</span><h3>新たな力を選ぶ</h3><small>選択中はセッション全体が停止します</small></div>
-        <div className="survivor-choice-list">{choices.map((id) => {
-          const gear = SURVIVOR_GEAR[id];
-          const partner = gear.synergy ?? Object.values(SURVIVOR_GEAR).find((candidate) => candidate.synergy === gear.id)?.id;
-          return <button key={id} className={`survivor-choice rarity-${gear.rarity}`} onClick={() => { unlockSurvivorAudio(); send({ t: 'survivorChoose', gear: id }); }}>
-            <b>{gear.name}</b><small>{RARITY_NAME[gear.rarity]} · Lv.{(me.gear[id] ?? 0) + 1}</small><span>{gear.desc}</span>
-            {partner && <small>シナジー: {SURVIVOR_GEAR[partner]?.name}</small>}
-            {gear.evolvedFrom && <small>進化条件: {gear.evolvedFrom.map((source) => SURVIVOR_GEAR[source]?.name).join(' + ')}</small>}
-          </button>;
-        })}</div>
-      </section>}
+      {damageFlash}
+      {choiceDialog}
 
       {(!active || !me) && <section className="survivor-lobby">
         <h3>{active ? '途中参加' : phase === 'ended' ? '次の夜へ' : 'スタイルを選ぶ'}</h3>
@@ -250,7 +340,7 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
         {phase === 'ended' && me && <p className="survivor-reward">今回の獲得ポイント: <b>+{runFinishedReward} pt</b></p>}
       </section>}
 
-      {me && <div className="survivor-loadout"><b>装備</b>{Object.entries(me.gear).filter(([, level]) => level > 0).map(([id, level]) => <span key={id}>{SURVIVOR_GEAR[id]?.name ?? id} Lv.{level}</span>)}</div>}
+      {me && <div className="survivor-loadout"><b>装備</b>{Object.entries(me.gear).filter(([, level]) => level > 0).map(([id, level]) => <span key={id} title={gearTooltipText(id, level)}>{SURVIVOR_GEAR[id]?.name ?? id} Lv.{level}</span>)}</div>}
 
       <section className="survivor-meta">
         <div className="survivor-section-head"><h3>永続強化</h3><b>{profile.points} pt</b></div>
@@ -286,7 +376,7 @@ export function SurvivorLibrary() {
       <div className="survivor-gear-grid">{visibleGear.map((gear) => {
         const found = profile.discovered.includes(gear.id);
         const partner = gear.synergy ?? Object.values(SURVIVOR_GEAR).find((candidate) => candidate.synergy === gear.id)?.id;
-        return <article key={gear.id} className={`survivor-gear ${found ? 'found' : ''}`}>
+        return <article key={gear.id} title={gearTooltipText(gear.id)} className={`survivor-gear ${found ? 'found' : ''}`}>
           <b>{gear.name}</b><small>{RARITY_NAME[gear.rarity]} · {found ? '発見済み' : '未獲得'}</small><span>{gear.desc}</span>
           {partner && <small>シナジー: {SURVIVOR_GEAR[partner]?.name}</small>}
           {gear.evolvedFrom && <small>進化条件: {gear.evolvedFrom.map((source) => SURVIVOR_GEAR[source]?.name).join(' + ')}</small>}
