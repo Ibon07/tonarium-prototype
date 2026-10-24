@@ -281,7 +281,7 @@ export function Player() {
     if (f || r) {
       const survivorStyle = survivorMe ? SURVIVOR_STYLES[survivorMe.style] : undefined;
       const moveSpeed = survivors
-        ? (survivorStyle?.speed ?? SURVIVOR_MOVE_SPEED) * (1 + (s.survivorProfile.upgrades.haste ?? 0) * 0.03) * (1 + (survivorMe?.gear.nightcloak ?? 0) * 0.025)
+        ? (survivorStyle?.speed ?? SURVIVOR_MOVE_SPEED) * (1 + (survivorMe?.gear.nightcloak ?? 0) * 0.025)
         : SPEED;
       const step = (moveSpeed * Math.min(dt, 0.1)) / Math.hypot(f, r);
       const nx = camera.position.x + (-Math.sin(yaw) * f + Math.cos(yaw) * r) * step;

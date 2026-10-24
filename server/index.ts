@@ -28,8 +28,8 @@ import { getOgp } from './ogp.ts';
 import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
 import { eliminate, gameOf, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
-import { chooseSurvivorGear, chooseSurvivorStyle, clearSurvivor, moveSurvivor, removeSurvivor, resetSurvivorUpgrades, startSurvivor, tickSurvivors, upgradeSurvivor, survivorOf, type SurvivorDeps } from './survivors.ts';
-import { newSurvivorProfile, SURVIVOR_META_UPGRADES, SURVIVOR_TICK_MS, type SurvivorMetaUpgrade, type SurvivorProfile, type SurvivorStyle } from '../shared/survivor.ts';
+import { chooseSurvivorGear, chooseSurvivorStyle, clearSurvivor, moveSurvivor, removeSurvivor, resetSurvivorUpgrades, rerollSurvivorChoice, startSurvivor, tickSurvivors, upgradeSurvivor, survivorOf, type SurvivorDeps } from './survivors.ts';
+import { newSurvivorProfile, SURVIVOR_META_UPGRADES, SURVIVOR_PROFILE_VERSION, SURVIVOR_TICK_MS, type SurvivorMetaUpgrade, type SurvivorProfile, type SurvivorStyle } from '../shared/survivor.ts';
 import { createSyncGrant, handleSyncOffer, upgradeSync, revokeSync, revokeUserSync, leaveRoom, livekitRoom, roomSend, roomSendSnapshot, shutdownRooms, type RoomHandlers } from './rooms.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
@@ -72,15 +72,21 @@ function survivorCount(value: unknown, max: number) {
 }
 function survivorProfile(id: string): SurvivorProfile {
   const p = survivorProfiles[id] ??= newSurvivorProfile();
-  const upgrades = p.upgrades as Partial<Record<SurvivorMetaUpgrade, unknown>> | null | undefined;
-  p.upgrades = {
-    might: survivorCount(upgrades?.might, SURVIVOR_META_UPGRADES.might.max),
-    vitality: survivorCount(upgrades?.vitality, SURVIVOR_META_UPGRADES.vitality.max),
-    haste: survivorCount(upgrades?.haste, SURVIVOR_META_UPGRADES.haste.max),
-  };
+  p.points = survivorCount(p.points, Number.MAX_SAFE_INTEGER);
+  const upgrades = p.upgrades as Record<string, unknown> | null | undefined;
+  if (p.upgradeVersion !== SURVIVOR_PROFILE_VERSION) {
+    const legacyRefund = ['might', 'vitality', 'haste']
+      .reduce((total, key) => total + survivorCount(upgrades?.[key], 10) * 2, 0);
+    p.points = survivorCount(p.points + legacyRefund, Number.MAX_SAFE_INTEGER);
+    p.upgradeVersion = SURVIVOR_PROFILE_VERSION;
+    p.upgrades = newSurvivorProfile().upgrades;
+    saveSurvivorProfiles();
+  } else {
+    p.upgrades = Object.fromEntries(Object.entries(SURVIVOR_META_UPGRADES)
+      .map(([key, upgrade]) => [key, survivorCount(upgrades?.[key], upgrade.max)])) as SurvivorProfile['upgrades'];
+  }
   p.achievements ??= [];
   p.discovered ??= [];
-  p.points = survivorCount(p.points, Number.MAX_SAFE_INTEGER);
   p.runs ??= 0; p.bestLevel ??= 0; p.bestKills ??= 0;
   return p;
 }
@@ -718,6 +724,11 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     case 'survivorChoose': {
       if (worldOf.get(sid) !== 'survivors') return;
       chooseSurvivorGear(sid, me, String(msg.gear), survivorDeps);
+      return;
+    }
+    case 'survivorReroll': {
+      if (worldOf.get(sid) !== 'survivors') return;
+      rerollSurvivorChoice(sid, me, survivorDeps);
       return;
     }
     case 'survivorUpgrade': {

@@ -536,11 +536,19 @@ img.av { object-fit: cover; display: block; }
 .survivor-choice-player-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #e8dbe2; }
 .survivor-choice-player-head b { font-size: 15px; }
 .survivor-choice-player-head span { color: #cbb9c4; font-size: 12px; }
+.survivor-choice-timer { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border: 1px solid rgba(255, 224, 163, .2); border-radius: 8px; background: rgba(15, 10, 18, .48); }
+.survivor-choice-timer > div { display: flex; justify-content: space-between; gap: 8px; color: #e7d6d2; font-size: 11px; }
+.survivor-choice-timer b { color: #ffe7a8; font-variant-numeric: tabular-nums; }
+.survivor-choice-timer > i { display: block; height: 5px; border-radius: 999px; background: linear-gradient(90deg, #ffdf76, #ed8e58); box-shadow: 0 0 10px rgba(255, 184, 94, .34); transition: width .2s linear; }
 .survivor-choice-player.is-self { margin: -6px; padding: 12px; border: 1px solid rgba(255, 224, 163, .48); border-radius: 15px; background: rgba(137, 94, 48, .12); animation: survivor-choice-attention 1.35s ease-in-out infinite alternate; }
 .survivor-choice-player.is-self .survivor-choice-player-head { color: #ffe6ad; }
 .survivor-choice-player.is-self .survivor-choice-player-head span { color: #fff0ca; font-weight: 700; }
+.survivor-reroll { align-self: flex-start; min-height: 34px; padding: 6px 12px; border-color: rgba(255, 224, 163, .55); background: linear-gradient(135deg, #634757, #393148); color: #fff0ca; font-weight: 700; }
+.survivor-reroll:not(:disabled):hover { border-color: #ffe2a0; background: linear-gradient(135deg, #80586e, #514363); }
+.survivor-reroll:disabled { opacity: .55; }
 .survivor-styles, .survivor-choice-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .survivor-choice-list { gap: 12px; }
+.survivor-choice-list { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 .survivor-style, .survivor-choice { height: auto; min-height: 92px; padding: 8px; align-items: flex-start; justify-content: flex-start; flex-direction: column; gap: 5px; text-align: left; border-color: #594355; background: #302333; color: #f7eaf2; }
 .survivor-style.selected { border-color: #f17eae; box-shadow: inset 0 0 0 1px #f17eae; background: #483043; }
 .survivor-style b { display: flex; align-items: center; gap: 5px; font-size: 11px; }
@@ -567,12 +575,30 @@ img.av { object-fit: cover; display: block; }
 .survivor-choice small { color: #f1d9bd; font-size: 12px; line-height: 1.45; }
 .survivor-choice > span { font-size: 13px; line-height: 1.5; color: #eee0e9; }
 .survivor-gear span { font-size: 10px; line-height: 1.45; color: #d6c5d0; }
-.survivor-loadout { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
-.survivor-loadout b { margin-right: 4px; }
-.survivor-loadout > span { padding: 3px 7px; border-radius: 999px; background: #3b2d3e; color: #f0d8e5; font-size: 10px; cursor: help; }
+.survivor-loadout { display: flex; flex-wrap: wrap; gap: 5px; align-items: flex-start; }
+.survivor-loadout > b { margin-right: 4px; }
+.survivor-loadout-items { display: flex; flex-wrap: wrap; gap: 5px; flex: 1 1 75%; }
+.survivor-loadout-items > span { padding: 3px 7px; border-radius: 999px; background: #3b2d3e; color: #f0d8e5; font-size: 10px; cursor: help; }
 .survivor-synergy-loadout { display: flex; flex-direction: column; gap: 5px; padding: 7px; border: 1px solid rgba(255, 220, 120, .35); border-radius: 10px; background: linear-gradient(110deg, rgba(94, 57, 74, .55), rgba(49, 37, 58, .8)); }
 .survivor-synergy-loadout > b { display: flex; justify-content: space-between; color: #ffe9a2; font-size: 10px; }
 .survivor-synergy-loadout > b strong { color: #fff6cf; font-size: 11px; }
+.survivor-synergy-note { color: #d9c9d2; font-size: 9px; line-height: 1.4; }
+.survivor-synergy-paths { display: flex; flex-direction: column; gap: 8px; }
+.survivor-synergy-category { display: flex; flex-direction: column; gap: 4px; }
+.survivor-synergy-category > b { color: #f3d69a; font-size: 9px; }
+.survivor-synergy-path { display: flex; flex-direction: column; gap: 4px; padding: 5px 6px; border: 1px solid rgba(255, 220, 120, .18); border-radius: 7px; background: rgba(24, 17, 29, .38); }
+.survivor-synergy-path.ready { border-color: rgba(255, 220, 120, .66); background: rgba(100, 68, 42, .28); }
+.survivor-synergy-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 5px; }
+.survivor-synergy-source { display: flex; min-width: 0; justify-content: space-between; align-items: center; gap: 4px; color: #f2e5ec; font-size: 9px; }
+.survivor-synergy-source b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.survivor-synergy-source small { flex: none; color: #d7bfcd; font-size: 8px; }
+.survivor-synergy-plus { color: #ffe49c; font-size: 11px; font-weight: 800; }
+.survivor-synergy-progress { height: 4px; overflow: hidden; border-radius: 999px; background: rgba(12, 8, 15, .75); }
+.survivor-synergy-progress i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #dc8bba, #ffe58d); transition: width .2s ease; }
+.survivor-synergy-result { display: flex; justify-content: space-between; align-items: center; gap: 5px; }
+.survivor-synergy-result small { color: #e2cbd7; font-size: 8px; }
+.survivor-synergy-result b { color: #fff0b1; font-size: 9px; text-align: right; }
+.survivor-synergy-slots-title { margin-top: 2px; color: #ffe9a2; font-size: 9px; }
 .survivor-synergy-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
 .survivor-synergy-slots > span { display: grid; min-height: 30px; place-items: center; padding: 4px; border: 1px solid rgba(255, 220, 120, .2); border-radius: 7px; text-align: center; font-size: 9px; }
 .survivor-synergy-slots > .empty { border-style: dashed; color: #c6b6bc; background: rgba(19, 14, 22, .25); }
@@ -584,6 +610,7 @@ img.av { object-fit: cover; display: block; }
 .survivor-section-head h3 { margin: 0; }
 .survivor-section-head > b { color: #ffe2a1; }
 .survivor-upgrades { display: flex; flex-direction: column; gap: 5px; }
+.survivor-upgrade-note { color: #cdbbc8; font-size: 10px; }
 .survivor-upgrade { width: 100%; height: auto; min-height: 42px; padding: 6px 9px; display: flex; justify-content: space-between; text-align: left; border-color: #51404f; background: #2c232f; color: #f1e4ed; }
 .survivor-upgrade span { display: flex; flex-direction: column; gap: 2px; }
 .survivor-upgrade small { color: #cdbbc8; font-size: 10px; }
