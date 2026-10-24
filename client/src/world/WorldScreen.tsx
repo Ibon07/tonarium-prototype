@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { SOUNDS } from '../../../shared/sounds.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, WORLD_KINDS } from '../../../shared/worlds.ts';
-import { useStore, get, set, nameOf, sessionOf, isBroadcast, worldKindOf, serverNow } from '../store.ts';
+import { useStore, get, set, save, nameOf, sessionOf, isBroadcast, worldKindOf, serverNow } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { dropFollowers, follow, leaveSession, playSound, requestLive, setViewLive } from '../actions.ts';
 import { dropHammer, place2d } from '../items/actions.ts';
@@ -468,6 +468,21 @@ export function WorldScreen() {
   const locked = useStore((s) => s.locked);
   const folded = useStore((s) => s.folded);
   const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (mode !== '3d') return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Tab' || isTyping(e.target)) return;
+      e.preventDefault();
+      if (get().folded.left && get().folded.right) return;
+      set((s) => {
+        const folded = { ...s.folded, left: true, right: true };
+        save('tonarium.folded', folded);
+        return { folded };
+      });
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mode]);
   return (
     <div ref={root} className={`world ${mode} ${locked ? 'locked' : ''} ${folded.left ? 'fl' : ''} ${folded.right ? 'fr' : ''} ${phone ? `phone pt-${phoneTab}` : ''}`}>
       {mode === '3d' && <View3D />}
