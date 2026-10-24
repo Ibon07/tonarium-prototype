@@ -82,19 +82,46 @@ function SurvivorCanvas({ state, player, participants, avatars, clock, serverOff
       const boss = enemy.kind === 'boss';
       const hitAge = clock + serverOffset - enemy.hitAt;
       const hit = hitAge >= 0 && hitAge < 240 ? 1 - hitAge / 240 : 0;
-      const radius = (boss ? 11 : enemy.kind === 'knight' ? 6 : 4.5) * (1 + hit * 0.35);
+      const radius = (boss ? 11 : enemy.kind === 'knight' ? 6 : enemy.kind === 'charger' ? 7 : 5) * (1 + hit * 0.35);
       ctx.save();
+      const now = clock + serverOffset;
+      if (enemy.kind === 'charger' && enemy.chargeTarget && enemy.chargeUntil > now) {
+        const target = point(enemy.chargeTarget.x, enemy.chargeTarget.z);
+        const pulse = 0.55 + Math.sin(now * 0.018) * 0.2;
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(target.x, target.y);
+        ctx.setLineDash([8, 6]); ctx.strokeStyle = `rgba(255,170,62,${pulse})`; ctx.lineWidth = 8; ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,242,190,.9)'; ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(target.x, target.y, 10 + (1 - pulse) * 8, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255,105,54,${pulse})`; ctx.lineWidth = 2.5; ctx.stroke();
+      }
       const dashRemaining = enemy.dashUntil - (clock + serverOffset);
-      if (boss && enemy.dashFrom && dashRemaining > 0) {
+      if ((boss || enemy.kind === 'charger') && enemy.dashFrom && dashRemaining > 0) {
         const from = point(enemy.dashFrom.x, enemy.dashFrom.z);
         ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(p.x, p.y);
-        ctx.strokeStyle = '#ff315d'; ctx.lineWidth = 13; ctx.lineCap = 'round'; ctx.shadowColor = '#ff315d'; ctx.shadowBlur = 24; ctx.stroke();
+        const dashColor = boss ? '#ff315d' : '#ff9b38';
+        ctx.strokeStyle = dashColor; ctx.lineWidth = 13; ctx.lineCap = 'round'; ctx.shadowColor = dashColor; ctx.shadowBlur = 24; ctx.stroke();
         ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(p.x, p.y);
         ctx.strokeStyle = '#fff0d8'; ctx.lineWidth = 3; ctx.shadowBlur = 0; ctx.stroke();
       }
       if (hit) { ctx.shadowColor = '#fff'; ctx.shadowBlur = 20 * hit; }
-      ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = hit ? '#fff4f7' : boss ? '#ff315d' : enemy.kind === 'knight' ? '#bd81d0' : enemy.kind === 'bat' ? '#a17de0' : '#df6287'; ctx.fill();
+      const color = hit ? '#fff4f7' : boss ? '#ff315d' : enemy.kind === 'charger' ? '#ff9b38' : enemy.kind === 'wisp' ? '#54e9e2' : enemy.kind === 'knight' ? '#bd81d0' : enemy.kind === 'bat' ? '#a17de0' : '#df6287';
+      ctx.fillStyle = color;
+      if (enemy.kind === 'charger') {
+        const aimX = enemy.chargeTarget?.x ?? enemy.x + 1, aimZ = enemy.chargeTarget?.z ?? enemy.z;
+        ctx.save();
+        ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(aimZ - enemy.z, aimX - enemy.x));
+        ctx.beginPath(); ctx.moveTo(radius + 3, 0); ctx.lineTo(-radius, -radius * 0.82); ctx.lineTo(-radius * 0.5, 0); ctx.lineTo(-radius, radius * 0.82); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      } else if (enemy.kind === 'wisp') {
+        ctx.save();
+        ctx.translate(p.x, p.y); ctx.rotate(Math.PI / 4 + Math.sin(now * 0.008 + enemy.movePhase) * 0.25);
+        ctx.fillRect(-radius * 0.72, -radius * 0.72, radius * 1.44, radius * 1.44);
+        ctx.beginPath(); ctx.ellipse(0, 0, radius + 4, radius * 0.55, now * 0.002, 0, Math.PI * 2);
+        ctx.strokeStyle = hit ? '#fff' : 'rgba(176,255,248,.9)'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.restore();
+      } else {
+        ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2); ctx.fill();
+      }
       if (hit || boss) {
         ctx.beginPath(); ctx.arc(p.x, p.y, radius + (hit ? 3 + (1 - hit) * 4 : 4), 0, Math.PI * 2);
         ctx.strokeStyle = hit ? `rgba(255,255,255,${hit})` : 'rgba(255,82,117,.8)'; ctx.lineWidth = hit ? 2 : 1.5; ctx.stroke();
@@ -316,7 +343,7 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
       {paused && <div className="survivor-pause-banner"><span className="survivor-pause-mark">✦</span><span><b>時が止まった</b><small>装備を選ぶまで、敵も時間も一時停止中</small></span><span className="survivor-pause-mark">✦</span></div>}
       <SurvivorCanvas state={state} player={me} participants={participants} avatars={avatars} clock={clock} serverOffset={serverOffset} />
       {phase === 'boss' && bossMaxHp > 0 && <div className="survivor-boss-health"><span>夜の王 ×{bosses.length} · {Math.ceil(bossHp).toLocaleString()} / {bossMaxHp.toLocaleString()}</span><div><i style={{ width: `${Math.max(0, bossHp / bossMaxHp * 100)}%` }} /></div></div>}
-      <div className="survivor-legend"><span>✦ 仲間と自分</span><span>◆ 夜の眷属</span><span>攻撃は自動 · 光る軌跡が攻撃</span>{mode === '2d' && active && <span>WASD / 矢印で移動</span>}{mode === '3d' && active && <span>WASDで移動 · 俯瞰視点</span>}</div>
+      <div className="survivor-legend"><span>✦ 仲間と自分</span><span>敵: ◆通常 · 橙=突進 · 水色=蛇行</span><span>攻撃は自動 · 光る軌跡が攻撃</span>{mode === '2d' && active && <span>WASD / 矢印で移動</span>}{mode === '3d' && active && <span>WASDで移動 · 俯瞰視点</span>}</div>
 
       {me && <div className="survivor-vitals">
         <div className="survivor-vital"><span>Lv. {me.level}</span><div><i style={{ width: `${Math.max(0, me.hp / me.maxHp * 100)}%`, background: '#e45169' }} /></div><b>{Math.ceil(me.hp)} / {me.maxHp}</b></div>

@@ -160,12 +160,15 @@ function Enemy({ enemy, paused }: { enemy: SurvivorEnemy; paused: boolean }) {
   const dashTrail = useRef<THREE.Mesh>(null);
   const dashTrailMaterial = useRef<THREE.MeshBasicMaterial>(null);
   const boss = enemy.kind === 'boss';
-  const color = boss ? '#a41142' : enemy.kind === 'knight' ? '#7b547a' : enemy.kind === 'bat' ? '#513b77' : '#7c3154';
-  const size = boss ? 0.72 : enemy.kind === 'knight' ? 0.42 : 0.3;
+  const charger = enemy.kind === 'charger';
+  const color = boss ? '#a41142' : charger ? '#e87927' : enemy.kind === 'wisp' ? '#33c7c5' : enemy.kind === 'knight' ? '#7b547a' : enemy.kind === 'bat' ? '#513b77' : '#7c3154';
+  const size = boss ? 0.72 : enemy.kind === 'knight' ? 0.42 : charger ? 0.38 : enemy.kind === 'wisp' ? 0.32 : 0.3;
   useFrame(({ clock }) => {
     if (!ref.current) return;
     if (paused) return;
-    ref.current.position.y = enemy.kind === 'boss' ? 0.95 + Math.sin(clock.elapsedTime * 2) * 0.1 : 0.35 + Math.sin(clock.elapsedTime * 5 + enemy.x) * 0.06;
+    ref.current.position.y = boss ? 0.95 + Math.sin(clock.elapsedTime * 2) * 0.1
+      : enemy.kind === 'wisp' ? 0.72 + Math.sin(clock.elapsedTime * 8 + enemy.movePhase) * 0.24
+        : 0.35 + Math.sin(clock.elapsedTime * 5 + enemy.x) * 0.06;
     ref.current.position.x = enemy.x; ref.current.position.z = enemy.z;
     const hitAge = serverNow() - enemy.hitAt;
     const flash = enemy.hitAt > 0 && hitAge >= 0 && hitAge < 220 ? 1 - hitAge / 220 : 0;
@@ -173,38 +176,56 @@ function Enemy({ enemy, paused }: { enemy: SurvivorEnemy; paused: boolean }) {
     ref.current.scale.setScalar(scale);
     material.current?.emissive.set(flash > 0 ? '#ffffff' : color);
     if (material.current) material.current.emissiveIntensity = (boss ? 0.65 : 0.12) + flash * 2.8;
+    if (dashTrail.current && dashTrailMaterial.current && (boss || charger)) {
+      const remaining = enemy.dashUntil - serverNow();
+      const from = enemy.dashFrom;
+      const dx = from ? enemy.x - from.x : 0, dz = from ? enemy.z - from.z : 0;
+      const length = Math.hypot(dx, dz);
+      dashTrail.current.visible = !!from && remaining > 0 && length > 0.05;
+      if (from && length > 0.05) {
+        dashTrail.current.position.set((from.x + enemy.x) / 2 - enemy.x, 0.42, (from.z + enemy.z) / 2 - enemy.z);
+        dashTrail.current.rotation.y = -Math.atan2(dz, dx);
+        dashTrail.current.scale.x = length;
+      }
+      dashTrailMaterial.current.color.set(boss ? '#fff0d8' : '#ffe6a0');
+      dashTrailMaterial.current.opacity = Math.max(0, Math.min(1, remaining / (boss ? 520 : 480))) * 0.9;
+    }
     if (boss) {
       const pulse = 0.5 + Math.sin(clock.elapsedTime * 3.2) * 0.5;
       halo.current?.scale.setScalar(1.08 + pulse * 0.12);
       if (haloMaterial.current) haloMaterial.current.opacity = 0.16 + pulse * 0.16;
       groundRing.current?.scale.setScalar(1 + pulse * 0.12);
       if (groundRingMaterial.current) groundRingMaterial.current.opacity = 0.52 + pulse * 0.28;
-      if (dashTrail.current && dashTrailMaterial.current) {
-        const remaining = enemy.dashUntil - serverNow();
-        const from = enemy.dashFrom;
-        const dx = from ? enemy.x - from.x : 0, dz = from ? enemy.z - from.z : 0;
-        const length = Math.hypot(dx, dz);
-        dashTrail.current.visible = !!from && remaining > 0 && length > 0.05;
-        if (from && length > 0.05) {
-          dashTrail.current.position.set((from.x + enemy.x) / 2 - enemy.x, 0.42, (from.z + enemy.z) / 2 - enemy.z);
-          dashTrail.current.rotation.y = -Math.atan2(dz, dx);
-          dashTrail.current.scale.x = length;
-        }
-        dashTrailMaterial.current.opacity = Math.max(0, Math.min(1, remaining / 520)) * 0.9;
-      }
     }
   });
   return (
     <group ref={ref} position={[enemy.x, 0, enemy.z]}>
       <mesh>
-        {boss ? <dodecahedronGeometry args={[size, 1]} /> : <icosahedronGeometry args={[size, 0]} />}
+        {boss ? <dodecahedronGeometry args={[size, 1]} />
+          : charger ? <coneGeometry args={[size, size * 2.2, 6]} />
+            : enemy.kind === 'wisp' ? <octahedronGeometry args={[size, 1]} />
+              : <icosahedronGeometry args={[size, 0]} />}
         <meshStandardMaterial ref={material} color={color} emissive={color} emissiveIntensity={boss ? 0.65 : 0.12} roughness={0.55} />
       </mesh>
-      {boss && <>
-        <mesh ref={dashTrail} visible={false}>
-          <boxGeometry args={[1, 0.07, 0.18]} />
-          <meshBasicMaterial ref={dashTrailMaterial} color="#fff0d8" transparent opacity={0.9} depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+      {(boss || charger) && <mesh ref={dashTrail} visible={false}>
+        <boxGeometry args={[1, 0.07, 0.18]} />
+        <meshBasicMaterial ref={dashTrailMaterial} color={boss ? '#fff0d8' : '#ffe6a0'} transparent opacity={0.9} depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+      </mesh>}
+      {charger && <mesh rotation-x={-Math.PI / 2} position-y={0.035}>
+        <ringGeometry args={[0.43, 0.5, 6]} />
+        <meshBasicMaterial color="#ff9b38" transparent opacity={0.78} depthWrite={false} toneMapped={false} />
+      </mesh>}
+      {enemy.kind === 'wisp' && <>
+        <mesh rotation-x={-Math.PI / 2} position-y={0.04}>
+          <ringGeometry args={[0.36, 0.4, 32]} />
+          <meshBasicMaterial color="#8dfff4" transparent opacity={0.7} depthWrite={false} toneMapped={false} />
         </mesh>
+        <mesh rotation-x={Math.PI / 2} position-y={0.72}>
+          <torusGeometry args={[0.43, 0.025, 6, 24]} />
+          <meshBasicMaterial color="#81fff2" transparent opacity={0.78} depthWrite={false} toneMapped={false} />
+        </mesh>
+      </>}
+      {boss && <>
         <mesh ref={halo}>
           <icosahedronGeometry args={[size * 1.42, 0]} />
           <meshBasicMaterial ref={haloMaterial} color="#ff315d" wireframe transparent opacity={0.22} depthWrite={false} toneMapped={false} />
@@ -214,6 +235,46 @@ function Enemy({ enemy, paused }: { enemy: SurvivorEnemy; paused: boolean }) {
           <meshBasicMaterial ref={groundRingMaterial} color="#ff456d" transparent opacity={0.7} depthWrite={false} toneMapped={false} />
         </mesh>
       </>}
+    </group>
+  );
+}
+
+function ChargeTelegraph({ enemy, pausedAt }: { enemy: SurvivorEnemy; pausedAt: number | null }) {
+  const line = useRef<THREE.Mesh>(null);
+  const lineMaterial = useRef<THREE.MeshBasicMaterial>(null);
+  const mark = useRef<THREE.Mesh>(null);
+  const markMaterial = useRef<THREE.MeshBasicMaterial>(null);
+  useFrame(({ clock }) => {
+    const target = enemy.chargeTarget;
+    if (!line.current || !lineMaterial.current || !mark.current || !markMaterial.current) return;
+    const remaining = enemy.chargeUntil - (pausedAt ?? serverNow());
+    if (!target || remaining <= 0) {
+      line.current.visible = false; mark.current.visible = false;
+      return;
+    }
+    const dx = target.x - enemy.x, dz = target.z - enemy.z;
+    const length = Math.hypot(dx, dz);
+    line.current.visible = length > 0.05;
+    line.current.position.set((enemy.x + target.x) / 2, 0.055, (enemy.z + target.z) / 2);
+    line.current.rotation.y = -Math.atan2(dz, dx);
+    line.current.scale.x = length;
+    mark.current.visible = true;
+    mark.current.position.set(target.x, 0.06, target.z);
+    mark.current.scale.setScalar(1 + Math.sin(clock.elapsedTime * 18) * 0.12);
+    const opacity = 0.5 + Math.sin(clock.elapsedTime * 18) * 0.22;
+    lineMaterial.current.opacity = opacity;
+    markMaterial.current.opacity = opacity + 0.12;
+  });
+  return (
+    <group userData={{ noRay: true }}>
+      <mesh ref={line} visible={false}>
+        <boxGeometry args={[1, 0.035, 0.16]} />
+        <meshBasicMaterial ref={lineMaterial} color="#ff9b38" transparent opacity={0.6} depthWrite={false} toneMapped={false} />
+      </mesh>
+      <mesh ref={mark} rotation-x={-Math.PI / 2} visible={false}>
+        <ringGeometry args={[0.45, 0.55, 6]} />
+        <meshBasicMaterial ref={markMaterial} color="#fff0b8" transparent opacity={0.75} depthWrite={false} toneMapped={false} />
+      </mesh>
     </group>
   );
 }
@@ -308,6 +369,7 @@ export function SurvivorObjects() {
       <Label text="宵闇サバイバーズ" position={[0, 2.2, -8]} height={0.34} bg="rgba(48,24,52,.94)" />
       {Object.values(run?.players ?? {}).map((p, i) => <RunPlayer key={p.id} player={p} index={i} self={p.id === selfId} />)}
       {run?.enemies.map((e) => <Enemy key={e.id} enemy={e} paused={run.pausedAt != null} />)}
+      {run?.enemies.filter((e) => e.kind === 'charger' && e.chargeTarget).map((e) => <ChargeTelegraph key={`${e.id}-charge`} enemy={e} pausedAt={run?.pausedAt ?? null} />)}
       {(run?.projectiles ?? []).map((projectile) => <BossProjectile key={projectile.id} projectile={projectile} paused={run?.pausedAt != null} />)}
       {(run?.effects ?? []).flatMap((effect) => effect.targets.map((target, index) => (
         <AttackTrace key={`${effect.id}:${index}`} effect={effect} target={target} showArea={index === 0} />

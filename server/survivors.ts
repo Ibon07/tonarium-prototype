@@ -180,12 +180,15 @@ function createEnemy(s: SurvivorState, kind: SurvivorEnemy['kind'], now: number)
   const base = kind === 'ghoul' ? { hp: 18, speed: 1.15, damage: 7, xp: 2, radius: 0.32 }
     : kind === 'bat' ? { hp: 10, speed: 2.0, damage: 5, xp: 2, radius: 0.25 }
     : kind === 'knight' ? { hp: 55, speed: 0.72, damage: 14, xp: 5, radius: 0.42 }
+    : kind === 'charger' ? { hp: 34, speed: 0.95, damage: 13, xp: 4, radius: 0.36 }
+    : kind === 'wisp' ? { hp: 17, speed: 1.7, damage: 6, xp: 3, radius: 0.28 }
     : { hp: 34_000, speed: 1.05, damage: 28, xp: 0, radius: 1.25 };
   const hp = kind === 'boss' ? base.hp : Math.round(base.hp * scale);
   return {
     id: `e${s.run}-${++s.spawnIndex}`, kind, x: Math.cos(a) * r, z: Math.sin(a) * r,
     hp, maxHp: hp, speed: base.speed * (kind === 'boss' ? 1 : Math.min(1.8, scale)), damage: base.damage, xp: base.xp, radius: base.radius,
-    hitAt: 0, attackAt: now, nextSpecialAt: kind === 'boss' ? now + 5_000 : 0, dashFrom: null, dashUntil: 0,
+    hitAt: 0, attackAt: now, nextSpecialAt: kind === 'boss' ? now + 5_000 : kind === 'charger' ? now + 4_500 : 0,
+    dashFrom: null, dashUntil: 0, movePhase: random(s) * Math.PI * 2, chargeTarget: null, chargeUntil: 0,
   };
 }
 function weaponAttack(s: SurvivorState, p: SurvivorPlayer, gear: string, level: number, now: number, d: SurvivorDeps) {
@@ -275,6 +278,7 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
         if (enemy.hitAt > 0) enemy.hitAt += pausedFor;
         if (enemy.nextSpecialAt > 0) enemy.nextSpecialAt += pausedFor;
         if (enemy.dashUntil > 0) enemy.dashUntil += pausedFor;
+        if (enemy.chargeUntil > 0) enemy.chargeUntil += pausedFor;
       }
       for (const projectile of s.projectiles) projectile.expiresAt += pausedFor;
       s.pausedAt = null;
@@ -314,7 +318,10 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
       const count = Math.min(4, (seconds > 300 ? 2 : 1) + Math.floor(noDamageSteps / 2));
       for (let i = 0; i < count && s.enemies.length < SURVIVOR_MAX_ENEMIES; i++) {
         const roll = random(s);
-        const kind = seconds > 240 && roll < 0.26 ? 'knight' : seconds > 90 && roll < 0.56 ? 'bat' : 'ghoul';
+        const kind: SurvivorEnemy['kind'] = seconds >= 240
+          ? roll < 0.16 ? 'charger' : roll < 0.30 ? 'wisp' : roll < 0.48 ? 'knight' : roll < 0.72 ? 'bat' : 'ghoul'
+          : seconds >= 180 ? roll < 0.18 ? 'wisp' : roll < 0.44 ? 'bat' : 'ghoul'
+            : seconds >= 90 && roll < 0.56 ? 'bat' : 'ghoul';
         s.enemies.push(createEnemy(s, kind, now));
       }
       s.nextSpawnAt = now + Math.max(650, 1050 - seconds * 1.2 - noDamageSteps * 60);
@@ -325,6 +332,34 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
       const targets = alive.filter((p) => p.alive).sort((a, b) => survivorDistance(a, e) - survivorDistance(b, e));
       const target = targets[0];
       if (!target) continue;
+      if (e.kind === 'charger' && !e.chargeTarget && now >= e.nextSpecialAt) {
+        e.chargeTarget = { x: target.x, z: target.z };
+        e.chargeUntil = now + 700;
+        e.nextSpecialAt = now + 7_000;
+      }
+      if (e.kind === 'charger' && e.chargeTarget) {
+        if (now < e.chargeUntil) continue;
+        const from = { x: e.x, z: e.z };
+        const dx = e.chargeTarget.x - e.x, dz = e.chargeTarget.z - e.z;
+        const distance = Math.hypot(dx, dz) || 1;
+        const landing = clampSurvivorPosition(e.chargeTarget.x + dx / distance * 1.5, e.chargeTarget.z + dz / distance * 1.5);
+        e.dashFrom = from;
+        e.x = landing.x; e.z = landing.z;
+        e.dashUntil = now + 480;
+        e.chargeTarget = null;
+        e.chargeUntil = 0;
+        for (const player of alive) {
+          if (!player.alive || pointSegmentDistance(player, from, landing) > e.radius + 0.5) continue;
+          const hitCooldown = Math.max(250, 550 - (player.gear.nightcloak ?? 0) * 60);
+          if (now < player.hitAt + hitCooldown) continue;
+          const armor = Math.min(0.4, (player.gear.ironheart ?? 0) * 0.06);
+          player.hp -= e.damage * 2.2 * (1 - armor);
+          player.hitAt = now;
+          damageTargets.push(player);
+          if (player.hp <= 0) { player.hp = 0; player.alive = false; }
+        }
+        continue;
+      }
       if (e.kind === 'boss' && now >= e.nextSpecialAt) {
         const dx = target.x - e.x, dz = target.z - e.z;
         const distance = Math.hypot(dx, dz) || 1;
@@ -355,8 +390,16 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
       const dist = survivorDistance(target, e);
       if (dist > e.radius + 0.42) {
         const step = Math.min(e.speed * SURVIVOR_TICK_MS / 1000, dist);
-        e.x += (target.x - e.x) / dist * step;
-        e.z += (target.z - e.z) / dist * step;
+        let dirX = (target.x - e.x) / dist, dirZ = (target.z - e.z) / dist;
+        if (e.kind === 'wisp') {
+          const weave = Math.sin(now * 0.004 + e.movePhase) * 1.25;
+          const zigzagX = dirX * 0.82 - dirZ * weave;
+          const zigzagZ = dirZ * 0.82 + dirX * weave;
+          const length = Math.hypot(zigzagX, zigzagZ) || 1;
+          dirX = zigzagX / length; dirZ = zigzagZ / length;
+        }
+        e.x += dirX * step;
+        e.z += dirZ * step;
       } else if (now >= e.attackAt + 850 && now >= target.hitAt + Math.max(250, 550 - (target.gear.nightcloak ?? 0) * 60)) {
         const armor = Math.min(0.4, (target.gear.ironheart ?? 0) * 0.06);
         target.hp -= e.damage * (1 - armor);

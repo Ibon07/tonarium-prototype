@@ -68,9 +68,10 @@ export interface SurvivorPlayer {
   choiceQueue: string[][]; hitAt: number; attackAt: Record<string, number>; moveAt: number;
 }
 export interface SurvivorEnemy {
-  id: string; kind: 'ghoul' | 'bat' | 'knight' | 'boss'; x: number; z: number;
+  id: string; kind: 'ghoul' | 'bat' | 'knight' | 'charger' | 'wisp' | 'boss'; x: number; z: number;
   hp: number; maxHp: number; speed: number; damage: number; xp: number; radius: number;
   hitAt: number; attackAt: number; nextSpecialAt: number; dashFrom: { x: number; z: number } | null; dashUntil: number;
+  movePhase: number; chargeTarget: { x: number; z: number } | null; chargeUntil: number;
 }
 export interface SurvivorProjectile {
   id: string; sourceId: string; x: number; z: number; vx: number; vz: number;
