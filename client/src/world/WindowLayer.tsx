@@ -20,6 +20,7 @@ import { YouTubePlayer, youTubeDuration } from '../youtube.tsx';
 import { send } from '../net/ws.ts';
 import { DiceBody } from './DiceBody.tsx';
 import { SurvivorLibrary, SurvivorPanel } from './SurvivorPanel.tsx';
+import { AntimatterSpaceWindowBody, AntimatterWindowBody } from './antimatter/windowBodies.tsx';
 
 const BAR = 40;
 type Kind = 'video' | 'panel' | 'note' | 'media' | 'face' | 'dice' | 'survivor';
@@ -84,6 +85,8 @@ function useResolved(key: string, compact: boolean): Resolved | null {
   const name = (id: string | null) => (id ? users.find((p) => p.id === id)?.name ?? '（退出済み）' : '');
   const at = (id: string) => <UserDist id={id} />;
   if (key === 'survivors') return { kind: 'survivor', dark: true, title: '宵闇サバイバーズ', sub: survivor?.phase === 'running' || survivor?.phase === 'boss' ? '協力サバイバル' : '10分間のサバイバル', width: 680, aspect: 1.28, noClose: true, body: <SurvivorPanel /> };
+  if (key === 'antimatter') return { kind: 'survivor', dark: true, title: 'AD 研究所', sub: '反物質次元（進行はプレイヤーごと）', width: 720, aspect: 1.2, body: <AntimatterWindowBody /> };
+  if (key === 'antimatter-space') return { kind: 'survivor', dark: true, title: 'AD 研究所 — 空間パネル', sub: '3D の塔・コアから開いた操作パネル', width: 520, body: <AntimatterSpaceWindowBody /> };
   if (key === 'survivor-library') return { kind: 'survivor', dark: true, title: '装備図鑑・実績', sub: '発見した装備と記録', width: 620, aspect: 1.05, body: <SurvivorLibrary /> };
   if (key === 'share') {
     if (!sharer) return null;

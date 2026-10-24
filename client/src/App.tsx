@@ -57,7 +57,10 @@ function JoinScreen() {
   const join = () => {
     const n = name.trim() || 'ゲスト';
     try { localStorage.setItem('tonarium.name', n); } catch { /* ignore */ }
-    set({ selfId: loadId(), selfName: n, joined: true });
+    const id = loadId();
+    set({ selfId: id, selfName: n, joined: true });
+    // AD の進行は Tonarium の ID に紐付けて開始する（認証として信用はしない）
+    useStore.getState().adBindTonarium(id, n);
     connectWs();
   };
   return (

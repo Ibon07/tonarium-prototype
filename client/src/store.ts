@@ -8,6 +8,8 @@ import { newGame, type GameState } from '../../shared/game.ts';
 import { NEW_ELEVATOR, type ElevatorState } from '../../shared/city.ts';
 import type { PositionRoute } from '../../shared/session-position.ts';
 import { newSurvivorProfile, type SurvivorProfile, type SurvivorState } from '../../shared/survivor.ts';
+import { createAdSlice, type AdSlice } from './ad/slice.ts';
+import type { AdPanelTarget } from '../../shared/antimatterLayout.ts';
 import { deriveSession } from './sessionView.ts';
 import type { Walk } from './walk.ts';
 
@@ -21,7 +23,9 @@ export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | '
 /** ホームの右の欄に出すもの */
 export type SideWidget = 'now' | 'events' | 'sessions' | 'worlds' | 'items';
 
-interface State {
+interface State extends AdSlice {
+  /** 3D の照準クリックで開いた AD 前面パネルの宛先（antimatter-space ウィンドウ用） */
+  adSpaceTarget: AdPanelTarget | null;
   selfId: string;
   selfName: string;
   joined: boolean;
@@ -190,7 +194,9 @@ export function spawnPoint(): AvatarState {
   return { x: SPAWN.x + Math.sin(a) * r, z: SPAWN.z + Math.cos(a) * r, ry: 0 };
 }
 
-export const useStore = create<State>(() => ({
+export const useStore = create<State>((set, get) => ({
+  adSpaceTarget: null,
+  ...createAdSlice((p) => set(p as Partial<State>), () => get() as unknown as AdSlice),
   selfId: '',
   selfName: '',
   joined: false,
