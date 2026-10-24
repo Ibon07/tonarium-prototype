@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store.ts';
@@ -13,6 +13,8 @@ import { openWindow } from './windows.ts';
 import { unlockSurvivorAudio } from './survivorAudio.ts';
 
 const STYLES = Object.entries(SURVIVOR_STYLES) as [keyof typeof SURVIVOR_STYLES, typeof SURVIVOR_STYLES[keyof typeof SURVIVOR_STYLES]][];
+const SYNERGY_RECIPES = Object.values(SURVIVOR_GEAR).filter((gear) => gear.synergyGear && gear.evolvedFrom?.length === 2);
+const SYNERGY_SOURCE_IDS = new Set(SYNERGY_RECIPES.flatMap((gear) => gear.evolvedFrom ?? []));
 const RARITY_NAME = { common: '一般', rare: '希少', epic: '英雄', mythic: '神話' } as const;
 const PLAYER_COLORS = ['#ff8ab2', '#8ed9ff', '#e1b0ff', '#ffd36d', '#9af0bd'];
 const ATTACK_COLORS: Record<string, string> = {
@@ -275,6 +277,25 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
   const bossHp = bosses.reduce((total, enemy) => total + enemy.hp, 0);
   const bossMaxHp = bosses.reduce((total, enemy) => total + enemy.maxHp, 0);
   const acquiredSynergyGear = Object.entries(me?.gear ?? {}).filter(([id, level]) => level > 0 && SURVIVOR_GEAR[id]?.synergyGear);
+  const mythicFound = profile.discovered.some((id) => SURVIVOR_GEAR[id]?.rarity === 'mythic');
+  const synergyProgress = SYNERGY_RECIPES.map((recipe) => {
+    const acquired = (me?.gear[recipe.id] ?? 0) > 0;
+    const sources = (recipe.evolvedFrom ?? []).map((id) => {
+      const source = SURVIVOR_GEAR[id];
+      const maximum = source?.maxLevel ?? 1;
+      const level = acquired ? maximum : Math.min(me?.gear[id] ?? 0, maximum);
+      return { id, name: source?.name ?? id, level, maximum };
+    });
+    const maximum = sources.reduce((total, source) => total + source.maximum, 0);
+    const completed = sources.reduce((total, source) => total + source.level, 0);
+    const remaining = maximum - completed;
+    const slotFull = !acquired && acquiredSynergyGear.length >= SURVIVOR_MAX_SYNERGY_GEAR;
+    const choiceIndex = me?.choiceQueue.findIndex((queue) => queue.includes(recipe.id)) ?? -1;
+    return {
+      recipe, sources, maximum, completed, remaining, acquired, slotFull, choiceIndex,
+      revealed: acquired || mythicFound || profile.discovered.includes(recipe.id),
+    };
+  });
 
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 250);
@@ -407,9 +428,30 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
       </section>}
 
       {me && <>
-        <div className="survivor-loadout"><b>装備</b>{Object.entries(me.gear).filter(([id, level]) => level > 0 && !SURVIVOR_GEAR[id]?.synergyGear).map(([id, level]) => <span key={id} title={gearTooltipText(id, level)}>{SURVIVOR_GEAR[id]?.name ?? id} Lv.{level}</span>)}</div>
+        <div className="survivor-loadout"><b>装備</b><div className="survivor-loadout-items">{Object.entries(me.gear).filter(([id, level]) => level > 0 && !SURVIVOR_GEAR[id]?.synergyGear && !SYNERGY_SOURCE_IDS.has(id)).map(([id, level]) => <span key={id} title={gearTooltipText(id, level)}>{SURVIVOR_GEAR[id]?.name ?? id} Lv.{level}</span>)}</div></div>
         <div className="survivor-synergy-loadout" aria-label={`シナジー装備 ${acquiredSynergyGear.length}/${SURVIVOR_MAX_SYNERGY_GEAR}`}>
-          <b>シナジー装備 <strong>{acquiredSynergyGear.length}/{SURVIVOR_MAX_SYNERGY_GEAR}</strong></b>
+          <b><span>シナジー装備への道</span><strong>専用枠 {acquiredSynergyGear.length}/{SURVIVOR_MAX_SYNERGY_GEAR}</strong></b>
+          <small className="survivor-synergy-note">対応する武器2つを最大Lv.まで強化すると候補に登場（補助装備は不要）</small>
+          <div className="survivor-synergy-paths">
+            {synergyProgress.map(({ recipe, sources, maximum, completed, remaining, acquired, slotFull, choiceIndex, revealed }) => (
+              <article key={recipe.id} className={`survivor-synergy-path ${acquired || (!slotFull && remaining === 0) ? 'ready' : ''}`}>
+                <div className="survivor-synergy-pair">
+                  {sources.map((source, index) => <Fragment key={source.id}>
+                    {index > 0 && <span className="survivor-synergy-plus" aria-hidden="true">＋</span>}
+                    <span className="survivor-synergy-source"><b>{source.name}</b><small>Lv.{source.level}/{source.maximum}</small></span>
+                  </Fragment>)}
+                </div>
+                <div className="survivor-synergy-progress" role="progressbar" aria-label={`${sources.map((source) => source.name).join('と')}のシナジー進捗`} aria-valuemin={0} aria-valuemax={maximum} aria-valuenow={completed}>
+                  <i style={{ width: `${maximum ? completed / maximum * 100 : 0}%` }} />
+                </div>
+                <div className="survivor-synergy-result">
+                  <small>{acquired ? '獲得済み' : slotFull ? '専用枠が満杯 · 最大3個' : remaining === 0 ? choiceIndex === 0 ? '現在の選択肢に登場中' : choiceIndex > 0 ? '選択待ちに登場中' : '解放済み · 次のレベルアップで候補に登場' : `あと${remaining}回の強化で候補解放`}</small>
+                  <b>→ {revealed ? recipe.name : '？？？（シナジー装備）'}</b>
+                </div>
+              </article>
+            ))}
+          </div>
+          <b className="survivor-synergy-slots-title">獲得済み</b>
           <div className="survivor-synergy-slots">{Array.from({ length: SURVIVOR_MAX_SYNERGY_GEAR }, (_, index) => {
             const item = acquiredSynergyGear[index];
             return item
