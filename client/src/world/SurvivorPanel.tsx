@@ -5,7 +5,7 @@ import { useStore } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { ROOM_HALF, SPAWN, type AvatarState, type Participant } from '../../../shared/protocol.ts';
 import {
-  SURVIVOR_ACHIEVEMENTS, SURVIVOR_DURATION_MS, SURVIVOR_GEAR,
+  SURVIVOR_ACHIEVEMENTS, SURVIVOR_DURATION_MS, SURVIVOR_GEAR, SURVIVOR_MAX_SYNERGY_GEAR,
   SURVIVOR_JOIN, SURVIVOR_META_UPGRADES, SURVIVOR_MOVE_SPEED, SURVIVOR_STYLES,
   SURVIVOR_TITLE, clampSurvivorPosition, survivorDistance, type SurvivorPlayer, type SurvivorState,
 } from '../../../shared/survivor.ts';
@@ -18,9 +18,11 @@ const PLAYER_COLORS = ['#ff8ab2', '#8ed9ff', '#e1b0ff', '#ffd36d', '#9af0bd'];
 const ATTACK_COLORS: Record<string, string> = {
   moonblade: '#ff65aa', eclipse: '#ffe675', bloodaura: '#ff315e', crimsonsun: '#ff9d35',
   starbolt: '#5fe5ff', starfall: '#ffe16e', shade: '#bc8aff', umbralstorm: '#a457ff',
+  frostlance: '#8beaff', stormring: '#7cbdff', embermine: '#ff7c3b', thornshot: '#93e86b', voidpulse: '#d783ff',
+  lunarconvergence: '#fff29a', crimsonvoid: '#ff174f', stormfrost: '#70f4ff',
 };
 const attackColor = (gear: string) => ATTACK_COLORS[gear] ?? '#fff3a6';
-const isAreaWeapon = (gear: string) => ['moonblade', 'eclipse', 'bloodaura', 'crimsonsun'].includes(gear);
+const isAreaWeapon = (gear: string) => ['moonblade', 'eclipse', 'bloodaura', 'crimsonsun', 'starfall', 'embermine', 'voidpulse', 'crimsonvoid'].includes(gear);
 const isActive = (phase: SurvivorState['phase']) => phase === 'running' || phase === 'boss';
 
 function formatTime(ms: number) {
@@ -38,6 +40,7 @@ function gearTooltipText(id: string, level?: number) {
     gear.desc,
     partner ? `シナジー: ${SURVIVOR_GEAR[partner]?.name}` : '',
     gear.evolvedFrom ? `進化条件: ${gear.evolvedFrom.map((source) => SURVIVOR_GEAR[source]?.name).join(' + ')}` : '',
+    gear.synergyGear ? `専用シナジー枠 · 最大${SURVIVOR_MAX_SYNERGY_GEAR}個` : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -82,7 +85,7 @@ function SurvivorCanvas({ state, player, participants, avatars, clock, serverOff
       const boss = enemy.kind === 'boss';
       const hitAge = clock + serverOffset - enemy.hitAt;
       const hit = hitAge >= 0 && hitAge < 240 ? 1 - hitAge / 240 : 0;
-      const radius = (boss ? 11 : enemy.kind === 'knight' ? 6 : enemy.kind === 'charger' ? 7 : 5) * (1 + hit * 0.35);
+      const radius = (boss ? 11 : enemy.kind === 'knight' || enemy.kind === 'bulwark' ? 7 : enemy.kind === 'charger' ? 7 : 5) * (1 + hit * 0.35);
       ctx.save();
       const now = clock + serverOffset;
       if (enemy.kind === 'charger' && enemy.chargeTarget && enemy.chargeUntil > now) {
@@ -95,16 +98,16 @@ function SurvivorCanvas({ state, player, participants, avatars, clock, serverOff
         ctx.strokeStyle = `rgba(255,105,54,${pulse})`; ctx.lineWidth = 2.5; ctx.stroke();
       }
       const dashRemaining = enemy.dashUntil - (clock + serverOffset);
-      if ((boss || enemy.kind === 'charger') && enemy.dashFrom && dashRemaining > 0) {
+      if ((boss || enemy.kind === 'charger' || enemy.kind === 'shifter') && enemy.dashFrom && dashRemaining > 0) {
         const from = point(enemy.dashFrom.x, enemy.dashFrom.z);
         ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(p.x, p.y);
-        const dashColor = boss ? '#ff315d' : '#ff9b38';
+        const dashColor = boss ? '#ff315d' : enemy.kind === 'shifter' ? '#d783ff' : '#ff9b38';
         ctx.strokeStyle = dashColor; ctx.lineWidth = 13; ctx.lineCap = 'round'; ctx.shadowColor = dashColor; ctx.shadowBlur = 24; ctx.stroke();
         ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(p.x, p.y);
         ctx.strokeStyle = '#fff0d8'; ctx.lineWidth = 3; ctx.shadowBlur = 0; ctx.stroke();
       }
       if (hit) { ctx.shadowColor = '#fff'; ctx.shadowBlur = 20 * hit; }
-      const color = hit ? '#fff4f7' : boss ? '#ff315d' : enemy.kind === 'charger' ? '#ff9b38' : enemy.kind === 'wisp' ? '#54e9e2' : enemy.kind === 'knight' ? '#bd81d0' : enemy.kind === 'bat' ? '#a17de0' : '#df6287';
+      const color = hit ? '#fff4f7' : boss ? '#ff315d' : enemy.kind === 'charger' ? '#ff9b38' : enemy.kind === 'wisp' ? '#54e9e2' : enemy.kind === 'knight' ? '#bd81d0' : enemy.kind === 'bat' ? '#a17de0' : enemy.kind === 'slinger' ? '#ffd166' : enemy.kind === 'splitter' ? '#ff8066' : enemy.kind === 'shifter' ? '#d783ff' : enemy.kind === 'pack' ? '#a7e85c' : enemy.kind === 'bulwark' ? '#8ea0b7' : '#df6287';
       ctx.fillStyle = color;
       if (enemy.kind === 'charger') {
         const aimX = enemy.chargeTarget?.x ?? enemy.x + 1, aimZ = enemy.chargeTarget?.z ?? enemy.z;
@@ -119,6 +122,34 @@ function SurvivorCanvas({ state, player, participants, avatars, clock, serverOff
         ctx.beginPath(); ctx.ellipse(0, 0, radius + 4, radius * 0.55, now * 0.002, 0, Math.PI * 2);
         ctx.strokeStyle = hit ? '#fff' : 'rgba(176,255,248,.9)'; ctx.lineWidth = 1.5; ctx.stroke();
         ctx.restore();
+      } else if (enemy.kind === 'slinger' || enemy.kind === 'shifter') {
+        ctx.save(); ctx.translate(p.x, p.y);
+        ctx.rotate(enemy.kind === 'slinger' ? Math.PI / 4 : now * 0.004 + enemy.movePhase);
+        ctx.fillRect(-radius * 0.72, -radius * 0.72, radius * 1.44, radius * 1.44);
+        if (enemy.kind === 'shifter') {
+          ctx.beginPath(); ctx.ellipse(0, 0, radius + 4, radius * 0.58, -0.6, 0, Math.PI * 2);
+          ctx.strokeStyle = '#f2b7ff'; ctx.lineWidth = 1.5; ctx.stroke();
+        }
+        ctx.restore();
+      } else if (enemy.kind === 'splitter' || enemy.kind === 'bulwark') {
+        ctx.save(); ctx.translate(p.x, p.y);
+        ctx.beginPath();
+        if (enemy.kind === 'bulwark') {
+          ctx.moveTo(0, -radius * 1.25); ctx.lineTo(radius, -radius * 0.55); ctx.lineTo(radius * 0.82, radius * 0.65);
+          ctx.lineTo(0, radius * 1.2); ctx.lineTo(-radius * 0.82, radius * 0.65); ctx.lineTo(-radius, -radius * 0.55);
+        } else {
+          for (let side = 0; side < 6; side++) {
+            const angle = side * Math.PI / 3 - Math.PI / 2;
+            const x = Math.cos(angle) * radius, y = Math.sin(angle) * radius;
+            if (side === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          }
+        }
+        ctx.closePath(); ctx.fill();
+        if (enemy.kind === 'bulwark') { ctx.strokeStyle = '#e5efff'; ctx.lineWidth = 1.5; ctx.stroke(); }
+        ctx.restore();
+      } else if (enemy.kind === 'pack') {
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.PI / 2);
+        ctx.beginPath(); ctx.moveTo(radius + 2, 0); ctx.lineTo(-radius, -radius * 0.8); ctx.lineTo(-radius, radius * 0.8); ctx.closePath(); ctx.fill(); ctx.restore();
       } else {
         ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2); ctx.fill();
       }
@@ -131,11 +162,12 @@ function SurvivorCanvas({ state, player, participants, avatars, clock, serverOff
     for (const projectile of state?.projectiles ?? []) {
       const p = point(projectile.x, projectile.z);
       const tail = point(projectile.x - projectile.vx * 0.12, projectile.z - projectile.vz * 0.12);
-      ctx.save(); ctx.shadowColor = '#ff315d'; ctx.shadowBlur = 14;
+      const shotColor = projectile.kind === 'boss' ? '#ff315d' : '#ffd166';
+      ctx.save(); ctx.shadowColor = shotColor; ctx.shadowBlur = 14;
       ctx.beginPath(); ctx.moveTo(tail.x, tail.y); ctx.lineTo(p.x, p.y);
-      ctx.strokeStyle = 'rgba(255,73,111,.8)'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
+      ctx.strokeStyle = shotColor; ctx.lineWidth = projectile.kind === 'boss' ? 5 : 3; ctx.lineCap = 'round'; ctx.stroke();
       ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3, projectile.radius * scale), 0, Math.PI * 2);
-      ctx.fillStyle = '#fff1da'; ctx.fill(); ctx.strokeStyle = '#ff315d'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = projectile.kind === 'boss' ? '#fff1da' : '#fff8d2'; ctx.fill(); ctx.strokeStyle = shotColor; ctx.lineWidth = 2; ctx.stroke();
       ctx.restore();
     }
     for (const [i, other] of Object.values(state?.players ?? {}).entries()) {
@@ -156,28 +188,32 @@ function SurvivorCanvas({ state, player, participants, avatars, clock, serverOff
       if (age < 0 || age > 650) continue;
       const progress = age / 650, alpha = 1 - progress;
       const from = point(effect.from.x, effect.from.z);
+      const areaOrigin = point(effect.areaCenter?.x ?? effect.from.x, effect.areaCenter?.z ?? effect.from.z);
       const color = attackColor(effect.gear);
       ctx.save(); ctx.globalAlpha = alpha;
       ctx.shadowColor = color; ctx.shadowBlur = 16;
       if (isAreaWeapon(effect.gear)) {
         const radius = Math.max(4, effect.reach * scale * (0.18 + progress * 0.82));
-        const glow = ctx.createRadialGradient(from.x, from.y, 1, from.x, from.y, radius);
+        const glow = ctx.createRadialGradient(areaOrigin.x, areaOrigin.y, 1, areaOrigin.x, areaOrigin.y, radius);
         glow.addColorStop(0, `${color}58`); glow.addColorStop(0.72, `${color}24`); glow.addColorStop(1, `${color}00`);
-        ctx.beginPath(); ctx.arc(from.x, from.y, radius, 0, Math.PI * 2); ctx.fillStyle = glow; ctx.fill();
-        ctx.beginPath(); ctx.arc(from.x, from.y, radius, 0, Math.PI * 2);
+        ctx.beginPath(); ctx.arc(areaOrigin.x, areaOrigin.y, radius, 0, Math.PI * 2); ctx.fillStyle = glow; ctx.fill();
+        ctx.beginPath(); ctx.arc(areaOrigin.x, areaOrigin.y, radius, 0, Math.PI * 2);
         ctx.strokeStyle = color; ctx.lineWidth = 5 * alpha + 1; ctx.stroke();
-        ctx.beginPath(); ctx.arc(from.x, from.y, Math.max(2, radius * 0.66), 0, Math.PI * 2);
+        ctx.beginPath(); ctx.arc(areaOrigin.x, areaOrigin.y, Math.max(2, radius * 0.66), 0, Math.PI * 2);
         ctx.strokeStyle = '#fff2cf'; ctx.lineWidth = 2; ctx.stroke();
-        ctx.beginPath(); ctx.arc(from.x, from.y, 4 + progress * 5, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+        ctx.beginPath(); ctx.arc(areaOrigin.x, areaOrigin.y, 4 + progress * 5, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
       } else {
-        for (const target of effect.targets) {
+        for (const [index, target] of effect.targets.entries()) {
+          const beamFrom = effect.chain && index > 0
+            ? point(effect.targets[index - 1].x, effect.targets[index - 1].z)
+            : from;
           const to = point(target.x, target.z);
-          ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y);
+          ctx.beginPath(); ctx.moveTo(beamFrom.x, beamFrom.y); ctx.lineTo(to.x, to.y);
           ctx.strokeStyle = color; ctx.lineWidth = 9; ctx.lineCap = 'round'; ctx.stroke();
           ctx.shadowBlur = 0;
-          ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y);
+          ctx.beginPath(); ctx.moveTo(beamFrom.x, beamFrom.y); ctx.lineTo(to.x, to.y);
           ctx.strokeStyle = '#fff4e8'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke();
-          const head = { x: from.x + (to.x - from.x) * progress, y: from.y + (to.y - from.y) * progress };
+          const head = { x: beamFrom.x + (to.x - beamFrom.x) * progress, y: beamFrom.y + (to.y - beamFrom.y) * progress };
           ctx.save(); ctx.translate(head.x, head.y); ctx.rotate(Math.atan2(to.y - from.y, to.x - from.x));
           ctx.beginPath(); ctx.moveTo(9, 0); ctx.lineTo(-5, -5); ctx.lineTo(-2, 0); ctx.lineTo(-5, 5); ctx.closePath();
           ctx.fillStyle = color; ctx.shadowBlur = 14; ctx.fill(); ctx.restore();
@@ -238,6 +274,7 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
   const bosses = state?.enemies.filter((enemy) => enemy.kind === 'boss') ?? [];
   const bossHp = bosses.reduce((total, enemy) => total + enemy.hp, 0);
   const bossMaxHp = bosses.reduce((total, enemy) => total + enemy.maxHp, 0);
+  const acquiredSynergyGear = Object.entries(me?.gear ?? {}).filter(([id, level]) => level > 0 && SURVIVOR_GEAR[id]?.synergyGear);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 250);
@@ -305,13 +342,14 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
         <div className="survivor-choice-title">
           <span>{needsOwnChoice ? '✦ あなたの番 ✦' : '✦ CO-OP LEVEL UP ✦'}</span>
           <h3 id="survivor-choice-title">{needsOwnChoice ? '装備を選んでください' : '仲間が装備を選択中'}</h3>
-          <small>選択中: {queuedPlayers.map((player) => player.id === selfId ? 'あなた' : player.name).join('、')} · ゲームは一時停止中</small>
+          <small>選択中: {queuedPlayers.map((player) => player.id === selfId ? 'あなた' : player.name).join('、')} · ゲームは一時停止中{needsOwnChoice ? ` · シナジー専用枠 ${acquiredSynergyGear.length}/${SURVIVOR_MAX_SYNERGY_GEAR}` : ''}</small>
         </div>
         <div className="survivor-choice-players">{queuedPlayers.map((owner) => {
           const isMine = owner.id === selfId;
           const options = owner.choiceQueue[0] ?? [];
+          const ownerSynergyCount = Object.entries(owner.gear).filter(([id, level]) => level > 0 && SURVIVOR_GEAR[id]?.synergyGear).length;
           return <section key={owner.id} className={`survivor-choice-player ${isMine ? 'is-self' : ''}`} aria-label={`${isMine ? 'あなた' : owner.name}の装備選択`}>
-            <div className="survivor-choice-player-head"><b>{isMine ? 'あなた' : owner.name}</b><span>{isMine ? '選択してください' : '選択中 · 観戦'}</span></div>
+            <div className="survivor-choice-player-head"><b>{isMine ? 'あなた' : owner.name}</b><span>{isMine ? '選択してください' : '選択中 · 観戦'} · シナジー枠 {ownerSynergyCount}/{SURVIVOR_MAX_SYNERGY_GEAR}</span></div>
             <div className="survivor-choice-list">{options.map((id, index) => {
               const gear = SURVIVOR_GEAR[id];
               const partner = gear.synergy ?? Object.values(SURVIVOR_GEAR).find((candidate) => candidate.synergy === gear.id)?.id;
@@ -320,10 +358,11 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
                 <b>{gear.name}</b><small>{RARITY_NAME[gear.rarity]} · Lv.{level}</small><span>{gear.desc}</span>
                 {partner && <small>シナジー: {SURVIVOR_GEAR[partner]?.name}</small>}
                 {gear.evolvedFrom && <small>進化条件: {gear.evolvedFrom.map((source) => SURVIVOR_GEAR[source]?.name).join(' + ')}</small>}
+                {gear.synergyGear && <small className="survivor-synergy-choice-slot">✦ 専用枠 {Math.min(SURVIVOR_MAX_SYNERGY_GEAR, ownerSynergyCount + 1)}/{SURVIVOR_MAX_SYNERGY_GEAR}</small>}
               </>;
               return isMine
-                ? <button key={id} type="button" autoFocus={index === 0} title={gearTooltipText(id, level)} className={`survivor-choice rarity-${gear.rarity}`} onClick={() => { unlockSurvivorAudio(); send({ t: 'survivorChoose', gear: id }); }}>{details}</button>
-                : <article key={id} title={gearTooltipText(id, level)} className={`survivor-choice survivor-choice-readonly rarity-${gear.rarity}`}>{details}</article>;
+                ? <button key={id} type="button" autoFocus={index === 0} title={gearTooltipText(id, level)} className={`survivor-choice rarity-${gear.rarity} ${gear.synergyGear ? 'survivor-synergy-choice' : ''}`} onClick={() => { unlockSurvivorAudio(); send({ t: 'survivorChoose', gear: id }); }}>{details}</button>
+                : <article key={id} title={gearTooltipText(id, level)} className={`survivor-choice survivor-choice-readonly rarity-${gear.rarity} ${gear.synergyGear ? 'survivor-synergy-choice' : ''}`}>{details}</article>;
             })}</div>
           </section>;
         })}</div>
@@ -343,7 +382,7 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
       {paused && <div className="survivor-pause-banner"><span className="survivor-pause-mark">✦</span><span><b>時が止まった</b><small>装備を選ぶまで、敵も時間も一時停止中</small></span><span className="survivor-pause-mark">✦</span></div>}
       <SurvivorCanvas state={state} player={me} participants={participants} avatars={avatars} clock={clock} serverOffset={serverOffset} />
       {phase === 'boss' && bossMaxHp > 0 && <div className="survivor-boss-health"><span>夜の王 ×{bosses.length} · {Math.ceil(bossHp).toLocaleString()} / {bossMaxHp.toLocaleString()}</span><div><i style={{ width: `${Math.max(0, bossHp / bossMaxHp * 100)}%` }} /></div></div>}
-      <div className="survivor-legend"><span>✦ 仲間と自分</span><span>敵: ◆通常 · 橙=突進 · 水色=蛇行</span><span>攻撃は自動 · 光る軌跡が攻撃</span>{mode === '2d' && active && <span>WASD / 矢印で移動</span>}{mode === '3d' && active && <span>WASDで移動 · 俯瞰視点</span>}</div>
+      <div className="survivor-legend"><span>✦ 仲間と自分</span><span>敵: 橙=突進 · 水色=蛇行 · 黄=射撃 · 紫=転移 · 緑=群れ · 灰=重装 · 珊瑚=分裂</span><span>攻撃は自動 · 光る軌跡が攻撃</span>{mode === '2d' && active && <span>WASD / 矢印で移動</span>}{mode === '3d' && active && <span>WASDで移動 · 俯瞰視点</span>}</div>
 
       {me && <div className="survivor-vitals">
         <div className="survivor-vital"><span>Lv. {me.level}</span><div><i style={{ width: `${Math.max(0, me.hp / me.maxHp * 100)}%`, background: '#e45169' }} /></div><b>{Math.ceil(me.hp)} / {me.maxHp}</b></div>
@@ -367,7 +406,18 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
         {phase === 'ended' && me && <p className="survivor-reward">今回の獲得ポイント: <b>+{runFinishedReward} pt</b></p>}
       </section>}
 
-      {me && <div className="survivor-loadout"><b>装備</b>{Object.entries(me.gear).filter(([, level]) => level > 0).map(([id, level]) => <span key={id} title={gearTooltipText(id, level)}>{SURVIVOR_GEAR[id]?.name ?? id} Lv.{level}</span>)}</div>}
+      {me && <>
+        <div className="survivor-loadout"><b>装備</b>{Object.entries(me.gear).filter(([id, level]) => level > 0 && !SURVIVOR_GEAR[id]?.synergyGear).map(([id, level]) => <span key={id} title={gearTooltipText(id, level)}>{SURVIVOR_GEAR[id]?.name ?? id} Lv.{level}</span>)}</div>
+        <div className="survivor-synergy-loadout" aria-label={`シナジー装備 ${acquiredSynergyGear.length}/${SURVIVOR_MAX_SYNERGY_GEAR}`}>
+          <b>シナジー装備 <strong>{acquiredSynergyGear.length}/{SURVIVOR_MAX_SYNERGY_GEAR}</strong></b>
+          <div className="survivor-synergy-slots">{Array.from({ length: SURVIVOR_MAX_SYNERGY_GEAR }, (_, index) => {
+            const item = acquiredSynergyGear[index];
+            return item
+              ? <span key={index} className="filled" title={gearTooltipText(item[0], item[1])}>✦ {SURVIVOR_GEAR[item[0]]?.name}</span>
+              : <span key={index} className="empty">空き枠 {index + 1}</span>;
+          })}</div>
+        </div>
+      </>}
 
       <section className="survivor-meta">
         <div className="survivor-section-head"><h3>永続強化</h3><b>{profile.points} pt</b></div>
