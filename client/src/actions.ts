@@ -62,6 +62,11 @@ export function switchMode(mode: Mode) {
   }, dur);
 }
 
+export function setMapMode(mapMode: 'none' | '2d' | '3d') {
+  set({ mapMode });
+  save('tonarium.mapMode', mapMode);
+}
+
 export function setLightweight(lightweight: boolean) {
   set({ lightweight });
   save('tonarium.lightweight', lightweight);

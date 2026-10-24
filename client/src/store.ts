@@ -87,6 +87,8 @@ interface State {
   loadScale: number;
   /** 軽量設定。3D のポイントライトなど重いものを読み込まない（手元に保存） */
   lightweight: boolean;
+  /** 2D の背景に出すマップ（手元に保存）。マップを入れるべきか試すための設定 */
+  mapMode: 'none' | '2d' | '3d';
   /** 動画・YouTube ごとの自分だけの音量（0〜1）。無ければ既定の半分 */
   volumes: Record<string, number>;
   /** セッション中にホームを重ねて開いている */
@@ -220,6 +222,7 @@ export const useStore = create<State>(() => ({
   switching: null,
   loadScale: load('tonarium.loadScale', 1),
   lightweight: load('tonarium.lightweight', false),
+  mapMode: load('tonarium.mapMode', 'none'),
   volumes: {},
   hubOpen: false,
   phoneTab: 'screen',
