@@ -13,6 +13,8 @@ native/**/Builds/
 native/artifacts/
 native/build/
 native/**/*.log
+electron/build/
+electron/artifacts/
 
 # PNPM
 pnpm-lock.yaml
@@ -26,4 +28,3 @@ packaging/aur/**/*.pkg.tar.*
 **/__pycache__/
 
 data-isolated
-

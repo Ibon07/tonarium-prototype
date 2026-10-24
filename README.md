@@ -17,6 +17,10 @@
 
 詳しい仕組みと使い方は [docs/](docs/) にある。
 
+## Electron 版
+
+Web 版と同じ 2D・3D・ゲームを専用ウィンドウで利用する別アプリ。サーバーに配信された Web 版の更新に追従する。Linux / Windows のビルドとインストールは [Electron 版](docs/electron.md) を参照。
+
 ## Linux ネイティブ版
 
 Linux x86_64版のビルド・インストール・AUR用PKGBUILDは [Linux ネイティブ版](docs/native-linux.md) を参照。2DはAvalonia、3DはUnity Linuxプレイヤーを使用する。
@@ -58,6 +62,7 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 - `npm run dev` 中は保存するとサーバーが再起動する（セッション内のチャットは消える。アイテムは `data/items.json` から戻る）。`npm start` の場合は再起動が必要
 
 ## 主な機能
+- Web 版をそのまま使う Electron クライアント → [docs/electron.md](docs/electron.md)
 - ホーム（セッション外の画面。セッション・フレンド・イベント・グループの一覧と作成、公開範囲、招待）→ [docs/home.md](docs/home.md)
 - ステータス、DM とグループのチャンネル、日程の相談、セッションのまとめ → [docs/messages.md](docs/messages.md)
 - 2D の画面（距離ごとのプレイヤー・アイテムのリスト、顔、通知・チャット、ウィンドウ、試験中のマップ、スマホ・PWA）→ [docs/screens.md](docs/screens.md)

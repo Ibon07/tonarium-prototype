@@ -1,0 +1,42 @@
+{
+  "name": "tonarium-electron",
+  "productName": "Tonarium Electron",
+  "desktopName": "tonarium-electron.desktop",
+  "version": "0.0.8",
+  "description": "Tonarium Web client desktop application",
+  "private": true,
+  "license": "UNLICENSED",
+  "author": "Tonarium contributors",
+  "homepage": "https://github.com/katteni-kaihatu/tonarium-prototype",
+  "main": "app/main.cjs",
+  "scripts": {
+    "postinstall": "node node_modules/electron/install.js",
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "pack": "electron-builder --dir",
+    "build:linux": "electron-builder --linux tar.gz AppImage --x64 && node scripts/collect.cjs linux",
+    "build:windows": "electron-builder --win zip --x64 && node scripts/collect.cjs win"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "work.rheni.tonarium.electron",
+    "productName": "Tonarium Electron",
+    "artifactName": "Tonarium-Electron-${version}-${os}-${arch}.${ext}",
+    "directories": { "output": "build", "buildResources": "resources" },
+    "files": ["app/**/*", "package.json"],
+    "extraResources": [{ "from": "resources/icon.png", "to": "icon.png" }],
+    "asar": true,
+    "linux": {
+      "syncDesktopName": true,
+      "executableName": "tonarium-electron",
+      "icon": "resources/icon.png",
+      "category": "Network",
+      "target": ["tar.gz", "AppImage"],
+      "desktop": { "entry": { "Name": "Tonarium Electron", "StartupWMClass": "tonarium-electron" } }
+    },
+    "win": { "icon": "resources/icon.ico", "target": ["zip"], "signExecutable": false }
+  }
+}
