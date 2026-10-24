@@ -3,7 +3,8 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { jumpHeight, spawnSlot, type Participant } from '../../../shared/protocol.ts';
 import { NOTE_COLORS } from '../../../shared/items.ts';
-import { useStore, get, colorOf, nameOf, heldHammer, heldCamera, worldKindOf } from '../store.ts';
+import { useStore, get, colorOf, nameOf, heldHammer, heldCamera, worldKindOf, serverNow } from '../store.ts';
+import { carPose, fromCarLocal } from '../../../shared/city.ts';
 import { selectNote } from '../actions.ts';
 import { pitchOf, placesOf } from '../spatial.ts';
 import { publishView } from '../net/livekit.ts';
@@ -102,21 +103,40 @@ export function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
   const initialTransform = useRef({ position: [born.x, 0, born.z] as [number, number, number], ry: born.ry });
   // 途中から見えた人の過去のジャンプは再生しない
   const jump = useRef({ n: born.jump ?? 0, at: -Infinity });
+  // 電車に乗っている間は車内の位置をなめらかにつなぎ、今の電車の位置に足して置く
+  const ride = useRef<NonNullable<typeof born.ride> | null>(null);
   useFrame((_, dt) => {
     const g = ref.current;
     if (!g) return;
     const state = self ? get().selfAvatar : get().avatars[id];
     if (!state) return;
     const k = Math.min(1, dt * 10);
-    g.position.x += (state.x - g.position.x) * k;
-    g.position.z += (state.z - g.position.z) * k;
+    const r = state.ride;
+    if (r && !self) {
+      const L = ride.current;
+      if (!L || L.car !== r.car) ride.current = { ...r };
+      else {
+        L.along += (r.along - L.along) * k;
+        L.side += (r.side - L.side) * k;
+        L.ry += Math.atan2(Math.sin(r.ry - L.ry), Math.cos(r.ry - L.ry)) * k;
+      }
+      const c = carPose(serverNow(), r.car);
+      const p = fromCarLocal(c, ride.current!.along, ride.current!.side);
+      g.position.x = p.x;
+      g.position.z = p.z;
+    } else {
+      ride.current = null;
+      g.position.x += (state.x - g.position.x) * k;
+      g.position.z += (state.z - g.position.z) * k;
+    }
     const j = jump.current;
     if ((state.jump ?? 0) !== j.n) { j.n = state.jump ?? 0; j.at = performance.now(); }
     if (state.y !== undefined) g.position.y += (state.y - g.position.y) * Math.min(1, dt * 15);
     else g.position.y = jumpHeight(performance.now() - j.at);
-    let d = state.ry - g.rotation.y;
+    const targetRy = ride.current && r ? carPose(serverNow(), r.car).ry + ride.current.ry : state.ry;
+    let d = targetRy - g.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));
-    g.rotation.y += d * k;
+    g.rotation.y += ride.current ? d : d * k;
     const s = get();
     const b = bump(s.hits[id]);
     body.current?.scale.set(1 + 0.3 * b, 1 - 0.45 * b, 1 + 0.3 * b);
@@ -253,7 +273,8 @@ export function View3D() {
   const a0 = get().selfAvatar;
   return (
     <div className={`view3d ${locked ? 'locked' : ''}`}>
-      <Canvas camera={{ fov: 70, near: 0.05, far: 100, position: [a0.x, EYE, a0.z] }}>
+      {/* 街は端から端まで 170m ほどあるので遠くまで描く */}
+      <Canvas camera={{ fov: 70, near: 0.05, far: 300, position: [a0.x, EYE, a0.z] }}>
         <color attach="background" args={[WORLD_BG[world]]} />
         <WorldMesh kind={world} />
         <ShareDisplay />

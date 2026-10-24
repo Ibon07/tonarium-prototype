@@ -1,5 +1,5 @@
 import type { Item } from '../../shared/items.ts';
-import { NEAR_RANGE, VOICE_RANGE, type Place } from '../../shared/places.ts';
+import { NEAR_RANGE, VOICE_RANGE, placeDistance, type Place } from '../../shared/places.ts';
 import type { Participant } from '../../shared/protocol.ts';
 
 export type Band = 'near' | 'mid' | 'far';
@@ -40,7 +40,7 @@ export function nearbyUsers(participants: Participant[], places: Map<string, Pla
   return participants
     .map((user) => {
       const p = places.get(user.id);
-      const d = user.id === selfId ? 0 : me && p ? Math.hypot(p.x - me.x, p.z - me.z) : Infinity;
+      const d = user.id === selfId ? 0 : me && p ? placeDistance(p, me) : Infinity;
       return { user, d };
     })
     .sort((a, b) => a.d - b.d);

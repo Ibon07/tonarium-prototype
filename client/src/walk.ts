@@ -1,6 +1,7 @@
 import { ROOM_HALF } from '../../shared/protocol.ts';
 import { pushOut } from '../../shared/worlds.ts';
-import { get, set, solidsOf } from './store.ts';
+import { get, set, solidsOf, worldKindOf } from './store.ts';
+import { clampCity } from '../../shared/city.ts';
 import { send } from './net/ws.ts';
 
 /** 3D の歩く速さと同じ（m/s） */
@@ -21,7 +22,8 @@ export interface Walk {
   until: number;
 }
 
-const clamp = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
+const clampRoom = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
+const clamp = (v: number) => (worldKindOf(get()) === 'city' ? clampCity(v) : clampRoom(v));
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let last = 0;

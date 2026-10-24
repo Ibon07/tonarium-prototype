@@ -5,6 +5,7 @@ import type { Item } from '../../shared/items.ts';
 import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
 import type { DieSides } from '../../shared/dice.ts';
 import { newGame, type GameState } from '../../shared/game.ts';
+import { NEW_ELEVATOR, type ElevatorState } from '../../shared/city.ts';
 import type { PositionRoute } from '../../shared/session-position.ts';
 import { deriveSession } from './sessionView.ts';
 import type { Walk } from './walk.ts';
@@ -113,6 +114,8 @@ interface State {
   worldBy: Record<string, WorldKind>;
   /** セッションごとの板わたりのゲーム */
   games: Record<string, GameState>;
+  /** 街のマンションのエレベーター（セッションごと） */
+  elevators: Record<string, ElevatorState>;
   /** 注目を集めているアイテム ID → 光らせる期限（performance.now） */
   attention: Record<string, number>;
   toast: { text: string; at: number } | null;
@@ -219,6 +222,7 @@ export const useStore = create<State>(() => ({
   broadcast: {},
   worldBy: {},
   games: {},
+  elevators: {},
   attention: {},
   toast: null,
   liveRequested: null,
@@ -282,7 +286,7 @@ export function dropSession(sid: string | null) {
   if (!sid) return;
   set((s) => {
     const omit = <T,>(m: Record<string, T>) => { const { [sid]: _, ...rest } = m; return rest; };
-    return { chats: omit(s.chats), avatarsBy: omit(s.avatarsBy), itemsBy: omit(s.itemsBy), games: omit(s.games), broadcast: omit(s.broadcast), presence: {} };
+    return { chats: omit(s.chats), avatarsBy: omit(s.avatarsBy), itemsBy: omit(s.itemsBy), games: omit(s.games), elevators: omit(s.elevators), broadcast: omit(s.broadcast), presence: {} };
   });
 }
 
@@ -315,6 +319,7 @@ export const worldKindOf = (s = get(), sid = s.session): WorldKind => (sid && s.
 export const solidsOf = (s = get()) => WORLDS[worldKindOf(s)].solids;
 const NO_GAME = newGame();
 export const gameOfSession = (s = get()) => (s.session && s.games[s.session]) || NO_GAME;
+export const elevatorOfSession = (s = get()) => (s.session && s.elevators[s.session]) || NEW_ELEVATOR;
 
 export function showToast(text: string) {
   set({ toast: { text, at: Date.now() } });

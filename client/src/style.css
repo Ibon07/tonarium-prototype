@@ -191,6 +191,9 @@ img.av { object-fit: cover; display: block; }
 .mspawn { fill: rgba(47, 95, 196, .08); stroke: rgba(47, 95, 196, .5); stroke-width: .06; stroke-dasharray: .25 .2; }
 .mvoice { fill: rgba(47, 95, 196, .05); stroke: rgba(47, 95, 196, .45); stroke-width: .06; }
 .mnear { fill: rgba(35, 165, 90, .08); stroke: rgba(35, 165, 90, .6); stroke-width: .05; }
+.mtrack { fill: none; stroke: #8a9099; stroke-width: 1.6; stroke-linejoin: round; }
+.mstation { fill: #b9b3a8; stroke: #6d7480; stroke-width: .1; }
+.mtrain { fill: #3a9c5c; stroke: #fff; stroke-width: .15; }
 .mroute { stroke: #E2533F; stroke-width: .08; stroke-dasharray: .3 .2; stroke-linecap: round; }
 .mgoal circle:first-child { fill: rgba(226, 83, 63, .15); stroke: #E2533F; stroke-width: .08; }
 .mgoal circle:last-child { fill: #E2533F; }

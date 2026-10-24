@@ -7,7 +7,8 @@ import { ITEM_INFO } from '../../../shared/items.ts';
 import { ROOM_HALF, SPAWN } from '../../../shared/protocol.ts';
 import { NEAR_RANGE, VOICE_RANGE } from '../../../shared/places.ts';
 import { WORLDS, type WorldKind } from '../../../shared/worlds.ts';
-import { useStore, get, worldKindOf } from '../store.ts';
+import { useStore, get, worldKindOf, serverNow } from '../store.ts';
+import { CAR, LOOP, STATION_PARTS, carPose, trackAt } from '../../../shared/city.ts';
 import { placesOf } from '../spatial.ts';
 import { walkTo } from '../walk.ts';
 import { usePhone, touchOnly } from '../phone.ts';
@@ -121,9 +122,11 @@ function Map2D({ kind }: { kind: WorldKind }) {
           <rect className="mfloor" x={b.minX} y={b.minZ} width={b.maxX - b.minX} height={b.maxZ - b.minZ} rx={0.4} />
           {WORLDS[kind].extent && <rect className="mfloor" x={-ROOM_HALF} y={-ROOM_HALF} width={ROOM_HALF * 2} height={ROOM_HALF * 2} rx={0.4} />}
           <circle className="mspawn" cx={SPAWN.x} cy={SPAWN.z} r={SPAWN.r} />
-          {WORLDS[kind].solids.map((s, i) => ('r' in s
+          {/* 地上の物だけ（マンションの上の階の壁や駅の柵は描かない） */}
+          {WORLDS[kind].solids.filter((s) => (s.y0 ?? 0) < 0.5).map((s, i) => ('r' in s
             ? <circle key={i} className="msolid" cx={s.x} cy={s.z} r={s.r} />
             : <rect key={i} className="msolid" x={s.x - s.w / 2} y={s.z - s.d / 2} width={s.w} height={s.d} rx={0.08} />))}
+          {kind === 'city' && <CityTrain2D />}
           {me && walk?.to && <line className="mroute" x1={me.x} y1={me.z} x2={walk.to.x} y2={walk.to.z} />}
           {walk?.to && <g className="mgoal"><circle cx={walk.to.x} cy={walk.to.z} r={0.45} /><circle cx={walk.to.x} cy={walk.to.z} r={0.12} /></g>}
           {me && <circle className="mvoice" cx={me.x} cy={me.z} r={VOICE_RANGE} />}
@@ -146,6 +149,40 @@ function Map2D({ kind }: { kind: WorldKind }) {
         );
       })}
     </div>
+  );
+}
+
+const TRACK_PATH = (() => {
+  const pts: string[] = [];
+  for (let s = 0; s <= LOOP; s += 2) { const p = trackAt(s); pts.push(`${p.x.toFixed(2)},${p.z.toFixed(2)}`); }
+  return `M${pts.join('L')}Z`;
+})();
+
+/** 2D マップの街の線路・駅と、走っている電車。電車の位置は時刻から出すので、短い間隔で描き直す */
+function CityTrain2D() {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 150);
+    return () => clearInterval(t);
+  }, []);
+  const now = serverNow();
+  return (
+    <>
+      <path className="mtrack" d={TRACK_PATH} />
+      {STATION_PARTS.map((p, i) => {
+        const r = p.surfaces[0];
+        return <rect key={i} className="mstation" x={r.x0} y={r.z0} width={r.x1 - r.x0} height={r.z1 - r.z0} />;
+      })}
+      {[0, 1].map((k) => {
+        const c = carPose(now, k);
+        return (
+          <rect
+            key={k} className="mtrain" x={-CAR.w / 2} y={-CAR.len / 2} width={CAR.w} height={CAR.len} rx={0.4}
+            transform={`translate(${c.x} ${c.z}) rotate(${(-c.ry * 180) / Math.PI})`}
+          />
+        );
+      })}
+    </>
   );
 }
 
@@ -185,7 +222,7 @@ function PinProjector({ els }: { els: React.RefObject<Map<string, HTMLElement>> 
     const places = placesOf(get());
     for (const [id, el] of els.current) {
       const p = places.get(id);
-      if (p) v.set(p.x, 2.2, p.z).project(camera);
+      if (p) v.set(p.x, (p.y ?? 0) + 2.2, p.z).project(camera);
       const shown = !!p && v.z < 1;
       el.style.visibility = shown ? 'visible' : 'hidden';
       if (shown) el.style.transform = `translate(${((v.x + 1) / 2) * size.width}px, ${((1 - v.y) / 2) * size.height}px) translate(-50%, -50%)`;
@@ -221,6 +258,8 @@ function CenterInBox({ box }: { box: ReturnType<typeof useMapBox> }) {
 }
 
 const FOV = 45;
+/** 天井のある部屋だけ。ゲームの塔や街の建物は切らない */
+const CLIP_Y: Partial<Record<WorldKind, number>> = { room: 3, cafe: 3 };
 
 /** 最初だけカメラを構える。窓の大きさやパネルが変わったときは、見ている角度は保ったままスペースで戻る先だけ更新する。
  * Canvas の中で OrbitControls の後に置くと、ref が付いてから動く */
@@ -261,11 +300,11 @@ function Map3D({ kind }: { kind: WorldKind }) {
   };
   return (
     <div className="map3d" onAuxClick={(e) => e.preventDefault()} onContextMenu={(e) => e.preventDefault()}>
-      {/* 天井や梁が見下ろす視界をふさぐので、マップでは高さ 3m より上を切り落とす */}
-      <Canvas camera={{ fov: FOV, near: 0.1, far: 400, position: camera0.toArray() }} onCreated={({ gl }) => { gl.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, -1, 0), 3)]; }}>
+      {/* 天井や梁が見下ろす視界をふさぐ部屋では、マップでは天井より上を切り落とす */}
+      <Canvas camera={{ fov: FOV, near: 0.1, far: 400, position: camera0.toArray() }} onCreated={({ gl }) => { const y = CLIP_Y[kind]; if (y !== undefined) gl.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, -1, 0), y)]; }}>
         <color attach="background" args={[WORLD_BG[kind]]} />
         <CenterInBox box={box} />
-        <WorldMesh kind={kind} />
+        <WorldMesh kind={kind} map />
         <ShareDisplay />
         <Entrance />
         {avatarIds.map((id) => <Avatar3D key={id} id={id} />)}
