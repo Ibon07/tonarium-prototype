@@ -1304,7 +1304,10 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
-  let file = path.join(DIST, decodeURIComponent(url.pathname));
+  // 不正な % エンコーディングで例外になると、async ハンドラの未処理 rejection でプロセスごと落ちる
+  let pathname: string;
+  try { pathname = decodeURIComponent(url.pathname); } catch { res.statusCode = 400; res.end('bad path'); return; }
+  let file = path.join(DIST, pathname);
   if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory())
     file = path.join(DIST, 'index.html');
   if (!fs.existsSync(file)) {
