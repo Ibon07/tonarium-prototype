@@ -1,9 +1,10 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { jumpHeight, spawnSlot, type AvatarState, type Participant } from '../../../shared/protocol.ts';
+import { jumpHeight, spawnSlot, type Participant } from '../../../shared/protocol.ts';
 import { NOTE_COLORS } from '../../../shared/items.ts';
-import { useStore, get, colorOf, nameOf, heldHammer, heldCamera, worldKindOf } from '../store.ts';
+import { useStore, get, colorOf, nameOf, heldHammer, heldCamera, worldKindOf, serverNow } from '../store.ts';
+import { carPose, fromCarLocal } from '../../../shared/city.ts';
 import { selectNote } from '../actions.ts';
 import { pitchOf, placesOf } from '../spatial.ts';
 import { publishView } from '../net/livekit.ts';
@@ -79,7 +80,7 @@ function Standee({ user }: { user: Participant }) {
   );
 }
 
-function Entrance() {
+export function Entrance() {
   const participants = useStore((s) => s.participants);
   useStore((s) => s.hits);
   const in2d = participants.filter((p) => p.mode === '2d');
@@ -87,7 +88,7 @@ function Entrance() {
 }
 
 /** self は一人称では見えないので隠しておき、カメラで撮るときだけ表示する（renderCamera） */
-function Avatar3D({ id, state, self = false }: { id: string; state: AvatarState; self?: boolean }) {
+export function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
   const name = useStore((s) => s.participants.find((p) => p.id === id)?.name);
   const speaking = useStore((s) => !!s.speaking[id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[id] === false);
@@ -97,23 +98,45 @@ function Avatar3D({ id, state, self = false }: { id: string; state: AvatarState;
   const ref = useRef<THREE.Group>(null);
   const body = useRef<THREE.Group>(null);
   const hand = useRef<THREE.Group>(null);
+  const born = (self ? get().selfAvatar : get().avatars[id]) ?? { x: 0, z: 0, ry: 0 };
   // 受信ごとに React が座標を上書きすると、useFrame の補間が打ち消される。
-  const initialTransform = useRef({ position: [state.x, 0, state.z] as [number, number, number], ry: state.ry });
+  const initialTransform = useRef({ position: [born.x, 0, born.z] as [number, number, number], ry: born.ry });
   // 途中から見えた人の過去のジャンプは再生しない
-  const jump = useRef({ n: state.jump ?? 0, at: -Infinity });
+  const jump = useRef({ n: born.jump ?? 0, at: -Infinity });
+  // 電車に乗っている間は車内の位置をなめらかにつなぎ、今の電車の位置に足して置く
+  const ride = useRef<NonNullable<typeof born.ride> | null>(null);
   useFrame((_, dt) => {
     const g = ref.current;
     if (!g) return;
+    const state = self ? get().selfAvatar : get().avatars[id];
+    if (!state) return;
     const k = Math.min(1, dt * 10);
-    g.position.x += (state.x - g.position.x) * k;
-    g.position.z += (state.z - g.position.z) * k;
+    const r = state.ride;
+    if (r && !self) {
+      const L = ride.current;
+      if (!L || L.car !== r.car) ride.current = { ...r };
+      else {
+        L.along += (r.along - L.along) * k;
+        L.side += (r.side - L.side) * k;
+        L.ry += Math.atan2(Math.sin(r.ry - L.ry), Math.cos(r.ry - L.ry)) * k;
+      }
+      const c = carPose(serverNow(), r.car);
+      const p = fromCarLocal(c, ride.current!.along, ride.current!.side);
+      g.position.x = p.x;
+      g.position.z = p.z;
+    } else {
+      ride.current = null;
+      g.position.x += (state.x - g.position.x) * k;
+      g.position.z += (state.z - g.position.z) * k;
+    }
     const j = jump.current;
     if ((state.jump ?? 0) !== j.n) { j.n = state.jump ?? 0; j.at = performance.now(); }
     if (state.y !== undefined) g.position.y += (state.y - g.position.y) * Math.min(1, dt * 15);
     else g.position.y = jumpHeight(performance.now() - j.at);
-    let d = state.ry - g.rotation.y;
+    const targetRy = ride.current && r ? carPose(serverNow(), r.car).ry + ride.current.ry : state.ry;
+    let d = targetRy - g.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));
-    g.rotation.y += d * k;
+    g.rotation.y += ride.current ? d : d * k;
     const s = get();
     const b = bump(s.hits[id]);
     body.current?.scale.set(1 + 0.3 * b, 1 - 0.45 * b, 1 + 0.3 * b);
@@ -241,23 +264,23 @@ function Crosshair() {
 }
 
 export function View3D() {
-  const avatars = useStore((s) => s.avatars);
+  const avatarIds = useStore((s) => s.avatarIds);
   const items = useStore((s) => s.items);
   const locked = useStore((s) => s.locked);
   const selfId = useStore((s) => s.selfId);
-  const selfAvatar = useStore((s) => s.selfAvatar);
   const viewLive = useStore((s) => !!s.participants.find((p) => p.id === s.selfId)?.viewLive);
   const world = useStore((s) => worldKindOf(s));
   const a0 = get().selfAvatar;
   return (
     <div className={`view3d ${locked ? 'locked' : ''}`}>
-      <Canvas camera={{ fov: 70, near: 0.05, far: 100, position: [a0.x, EYE, a0.z] }}>
+      {/* 街は端から端まで 170m ほどあるので遠くまで描く */}
+      <Canvas camera={{ fov: 70, near: 0.05, far: 300, position: [a0.x, EYE, a0.z] }}>
         <color attach="background" args={[WORLD_BG[world]]} />
         <WorldMesh kind={world} />
         <ShareDisplay />
         <Entrance />
-        {Object.entries(avatars).map(([id, s]) => <Avatar3D key={id} id={id} state={s} />)}
-        <Avatar3D id={selfId} state={selfAvatar} self />
+        {avatarIds.map((id) => <Avatar3D key={id} id={id} />)}
+        <Avatar3D id={selfId} self />
         {Object.values(items).map((it) => <Item3D key={it.id} item={it} />)}
         {Object.values(items).map((it) => <AttentionGlow key={`attn-${it.id}`} item={it} />)}
         {Object.values(items).map((it) => (it.kind === 'camera' && it.live && it.operator === selfId

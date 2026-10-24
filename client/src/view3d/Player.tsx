@@ -3,7 +3,9 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GRAVITY, JUMP_V, type AvatarState } from '../../../shared/protocol.ts';
 import { ARENA, FALL_Y, LAYER_Y, inArena, startTile, tileBelow, tileCenter } from '../../../shared/game.ts';
-import { get, set, heldHammer, heldCamera, nameOf, solidsOf, worldKindOf, gameOfSession, serverNow, spawnPoint } from '../store.ts';
+import { get, set, heldHammer, heldCamera, nameOf, solidsOf, worldKindOf, gameOfSession, elevatorOfSession, serverNow, spawnPoint } from '../store.ts';
+import { CAR, clampCity } from '../../../shared/city.ts';
+import { STEP_UP, carPose, cityGround, citySolids, keepInCar, toCarLocal } from './cityPhysics.ts';
 import { pushOut } from '../../../shared/worlds.ts';
 import { send } from '../net/ws.ts';
 import { selectNote } from '../actions.ts';
@@ -19,17 +21,18 @@ const BODY_R = 0.3;
 
 type Store = ReturnType<typeof get>;
 
-/** (x, z) で足元 y から落ちたときに着く高さ。塔の上で下に板が無ければ null（落ち続ける） */
-function groundAt(s: Store, x: number, z: number, y: number): { y: number; tile: number | null } | null {
+/** (x, z) で足元 y から落ちたときに着く高さ。塔の上で下に板が無ければ null（落ち続ける）。car は街の電車の床 */
+function groundAt(s: Store, x: number, z: number, y: number): { y: number; tile: number | null; car?: number | null } | null {
+  if (worldKindOf(s) === 'city') return { ...cityGround(x, z, y, serverNow(), elevatorOfSession(s)), tile: null };
   if (worldKindOf(s) !== 'game' || !inArena(x, z)) return y >= -0.05 ? { y: 0, tile: null } : null;
   const t = tileBelow(gameOfSession(s), x, z, y, serverNow());
   return t ? { y: t.y, tile: t.i } : null;
 }
 
-/** 塔の上にいる間は塔の端から出られない（ロビーへはガラスで戻れない） */
-const clampTo = (onTower: boolean) => (onTower
+/** 塔の上にいる間は塔の端から出られない（ロビーへはガラスで戻れない）。街は広い */
+const clampTo = (onTower: boolean, city: boolean) => (onTower
   ? (v: number, c: number) => Math.max(c - ARENA.half + 0.25, Math.min(c + ARENA.half - 0.25, v))
-  : (v: number) => clampRoom(v));
+  : city ? (v: number) => clampCity(v) : (v: number) => clampRoom(v));
 const SENS = 0.0025;
 
 const isTyping = (t: EventTarget | null) =>
@@ -71,7 +74,8 @@ export function Player() {
   // NaN だと比較が常に false になり一度も送られないので Infinity
   const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, jump: 0, y: 0 });
   // 足元の高さ・上下の速さ・跳んだ回数。stepped は最後に踏んだと伝えた板、round は塔の上に移ったゲームの回
-  const body = useRef({ y: get().selfAvatar.y ?? 0, vy: 0, grounded: true, n: get().selfAvatar.jump ?? 0, stepped: -1, round: -1 });
+  // car は街の電車に乗っている号車。乗っている間は毎フレーム電車が動いた分だけ一緒に動かす
+  const body = useRef({ y: get().selfAvatar.y ?? 0, vy: 0, grounded: true, n: get().selfAvatar.jump ?? 0, stepped: -1, round: -1, car: null as number | null });
   const aim = useRef<ReturnType<typeof aimAt>>(null);
   const hammerRef = useRef<THREE.Group>(null);
   const dragging = useRef<{ data: Interactable; obj: THREE.Object3D; hit: THREE.Intersection | null } | null>(null);
@@ -188,7 +192,7 @@ export function Player() {
     (window as unknown as Record<string, unknown>).__t3d = {
       use,
       look: (yaw: number, pitch: number) => { look.current = { yaw, pitch }; },
-      pos: (x: number, z: number) => { camera.position.x = x; camera.position.z = z; },
+      pos: (x: number, z: number, y?: number) => { camera.position.x = x; camera.position.z = z; if (y !== undefined) { body.current.y = y; body.current.vy = 0; } },
       key: (code: string) => window.dispatchEvent(new KeyboardEvent('keydown', { code })),
       state: get,
     };
@@ -226,7 +230,20 @@ export function Player() {
       b.y = tp.y ?? 0;
       b.vy = 0;
       b.grounded = false;
+      // 電車に乗ったまま飛ぶと、次のフレームで車内に引き戻されてしまう
+      b.car = null;
       set({ teleport: null });
+    }
+    const city = worldKindOf(s) === 'city';
+    const now0 = serverNow();
+    if (city && b.car !== null) {
+      // 電車に乗っていれば、前のフレームからの電車の動きと向きの変化をそのまま足す
+      const prev = carPose(now0 - Math.min(dt, 0.1) * 1000, b.car);
+      const cur = carPose(now0, b.car);
+      const l = toCarLocal(prev, camera.position.x, camera.position.z);
+      camera.position.x = cur.x + cur.ax * l.along + cur.nx * l.side;
+      camera.position.z = cur.z + cur.az * l.along + cur.nz * l.side;
+      look.current.yaw += Math.atan2(Math.sin(cur.ry - prev.ry), Math.cos(cur.ry - prev.ry));
     }
     const { yaw, pitch } = look.current;
     const shake = bump(s.hits[s.selfId]);
@@ -236,29 +253,37 @@ export function Player() {
     const f = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0);
     const r = (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
     const onTower = worldKindOf(s) === 'game' && inArena(camera.position.x, camera.position.z);
-    const cl = clampTo(onTower);
+    const cl = clampTo(onTower, city);
     if (f || r) {
       const step = (SPEED * Math.min(dt, 0.1)) / Math.hypot(f, r);
       camera.position.x = cl(camera.position.x + (-Math.sin(yaw) * f + Math.cos(yaw) * r) * step, ARENA.x);
       camera.position.z = cl(camera.position.z + (-Math.cos(yaw) * f - Math.sin(yaw) * r) * step, ARENA.z);
     }
     // ワールドの切り替えやテレポートで家具の中に入ったときも、ここで外へ出る
-    const solids = solidsOf(s);
+    const solids = city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s);
     if (solids.length && !onTower) {
-      const p = pushOut(camera.position.x, camera.position.z, BODY_R, solids);
-      camera.position.x = clampRoom(p.x);
-      camera.position.z = clampRoom(p.z);
+      const p = pushOut(camera.position.x, camera.position.z, BODY_R, solids, b.y);
+      camera.position.x = cl(p.x, 0);
+      camera.position.z = cl(p.z, 0);
+    }
+    if (city && b.car !== null) {
+      const p = keepInCar(carPose(now0, b.car), camera.position.x, camera.position.z, now0);
+      camera.position.x = p.x;
+      camera.position.z = p.z;
     }
 
     // 先に横へ動かしてから、その場所の足元で上下を決める（板が消えた・端から出たときも落ちる）
     const fdt = Math.min(dt, 0.05);
     const ground = groundAt(s, camera.position.x, camera.position.z, b.y);
+    // 坂・階段・上がっていくエレベーターでは足元に合わせて上がる
+    if (b.grounded && ground && ground.y > b.y && ground.y - b.y <= STEP_UP) b.y = ground.y;
     if (b.grounded && (!ground || ground.y < b.y - 0.001)) b.grounded = false;
     if (!b.grounded) {
       b.vy -= GRAVITY * fdt;
       b.y += b.vy * fdt;
       if (ground && b.vy <= 0 && b.y <= ground.y) { b.y = ground.y; b.vy = 0; b.grounded = true; }
     }
+    b.car = city && b.grounded && ground?.car != null ? ground.car : city && b.car !== null && !b.grounded ? b.car : null;
     if (b.grounded && ground?.tile != null && ground.tile !== b.stepped && g.phase === 'running') {
       b.stepped = ground.tile;
       if (g.players.some((p) => p.id === s.selfId && p.out === null)) send({ t: 'gameStep', tile: ground.tile });
@@ -270,8 +295,9 @@ export function Player() {
     const z = camera.position.z;
     const st = sent.current;
     const jumped = b.n !== st.jump;
-    // 塔の上や落ちている間は高さも送る。床でのジャンプは回数だけ送り、相手の画面で放物線を描く
-    const sendY = onTower || b.y < -0.01;
+    // 塔の上・落ちている間・高い足場（街の上の階や駅）にいる間は高さも送る。
+    // 床でのジャンプは回数だけ送り、相手の画面で放物線を描く（途中の高さを送るとカクつく）
+    const sendY = onTower || b.y < -0.01 || (ground?.y ?? 0) > 0.01;
     const yNow = sendY ? b.y : undefined;
     const changed = Math.abs(x - st.x) > 0.01 || Math.abs(z - st.z) > 0.01 || Math.abs(yaw - st.ry) > 0.01
       || Math.abs(pitch - st.pitch) > 0.03 || (yNow ?? 0) !== st.y;
@@ -279,15 +305,18 @@ export function Player() {
     // 跳んだことは待たずに送る（相手の放物線が遅れて始まらないように）
     if (jumped || (now - st.t > interval && changed)) {
       Object.assign(st, { t: now, x, z, ry: yaw, pitch, jump: b.n, y: yNow ?? 0 });
-      const a: AvatarState = { x, z, ry: yaw, pitch, jump: b.n, ...(yNow !== undefined ? { y: yNow } : {}) };
+      const cp = b.car !== null ? carPose(now0, b.car) : null;
+      const l = cp ? toCarLocal(cp, x, z) : null;
+      const ride = cp && l && b.car !== null ? { car: b.car, along: l.along, side: Math.max(-CAR.w, Math.min(CAR.w, l.side)), ry: yaw - cp.ry } : undefined;
+      const a: AvatarState = { x, z, ry: yaw, pitch, jump: b.n, ...(yNow !== undefined ? { y: yNow } : {}), ...(ride ? { ride } : {}) };
       set({ selfAvatar: a });
       send({ t: 'avatar', s: a });
     }
 
     const c = carrying.current;
     if (c) {
-      c.x = clampRoom(x - Math.sin(yaw) * 2);
-      c.z = clampRoom(z - Math.cos(yaw) * 2);
+      c.x = (city ? clampCity : clampRoom)(x - Math.sin(yaw) * 2);
+      c.z = (city ? clampCity : clampRoom)(z - Math.cos(yaw) * 2);
       c.ry = yaw;
       if (now - c.last > 80) {
         c.last = now;

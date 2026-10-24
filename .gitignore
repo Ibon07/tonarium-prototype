@@ -24,3 +24,6 @@ packaging/aur/**/pkg/
 packaging/aur/**/*.tar.gz
 packaging/aur/**/*.pkg.tar.*
 **/__pycache__/
+
+data-isolated
+

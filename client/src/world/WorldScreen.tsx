@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useShallow } from 'zustand/react/shallow';
 import { SOUNDS } from '../../../shared/sounds.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, WORLD_KINDS } from '../../../shared/worlds.ts';
 import { useStore, get, set, nameOf, sessionOf, isBroadcast, worldKindOf, serverNow } from '../store.ts';
@@ -20,11 +21,30 @@ import { ProfileCard } from './ProfileCard.tsx';
 import { HoppingMascots } from './Mascot.tsx';
 import { SessionMenu } from '../home/SessionMenu.tsx';
 import { PortraitCanvas } from './Portraits.tsx';
+import { MapLayer } from './MapLayer.tsx';
 import { ConfirmOpen } from './Links.tsx';
 import { shareFiles, shareYouTube, youTubeId } from '../media.ts';
 import { MediaSync } from '../mediaSync.tsx';
 import { closeWindow, openWindow, setWinMode } from './windows.ts';
 import { touchOnly, usePhone } from '../phone.ts';
+
+/** 名前はだれでも変えられ、全員に反映されてログに出る */
+function SessionRename({ current, onDone }: { current: string; onDone: () => void }) {
+  const [name, setName] = useState(current);
+  const v = name.trim();
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!v || v === current) return;
+    send({ t: 'sessionRename', name: v });
+    onDone();
+  };
+  return (
+    <form className="renamerow" onSubmit={submit}>
+      <input aria-label="セッション名" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+      <button className="renamebtn" type="submit" disabled={!v || v === current}>変更</button>
+    </form>
+  );
+}
 
 function WorldBadge() {
   const world = useStore((s) => sessionOf(s.session));
@@ -49,6 +69,8 @@ function WorldBadge() {
       {menu && (
         <Popover anchor={menu} side="down" onClose={() => setMenu(null)} className="settings">
           <span className="menutitle">セッションの設定</span>
+          <SessionRename current={world?.name ?? ''} onDone={() => setMenu(null)} />
+          <span className="menusep" />
           <label className="switchrow">
             <span><b>ブロードキャストモード</b><span className="sub wrap">距離に関係なく全員の声が聞こえ、声の範囲のチャットも全員に届く（全員に反映）</span></span>
             <input type="checkbox" role="switch" checked={broadcast} onChange={(e) => send({ t: 'broadcast', on: e.target.checked })} />
@@ -87,7 +109,9 @@ function Soundboard({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
 }
 
 function Dock() {
-  const { voice, micEnabled, sharer, selfId, winMode } = useStore();
+  const { voice, micEnabled, sharer, selfId, winMode } = useStore(useShallow((s) => ({
+    voice: s.voice, micEnabled: s.micEnabled, sharer: s.sharer, selfId: s.selfId, winMode: s.winMode,
+  })));
   const [sb, setSb] = useState<DOMRect | null>(null);
   const ok = voice === 'connected';
   const sharingSelf = sharer === selfId;
@@ -124,7 +148,22 @@ function Dock() {
 
 /** ドックの上に出す、いまの状態のお知らせ */
 function StatusChips() {
-  const s = useStore();
+  const s = useStore(useShallow((st) => ({
+    participants: st.participants,
+    selfId: st.selfId,
+    items: st.items,
+    sync: st.sync,
+    syncError: st.syncError,
+    syncTransport: st.syncTransport,
+    syncRtt: st.syncRtt,
+    syncRoutes: st.syncRoutes,
+    users: st.users,
+    voice: st.voice,
+    voiceError: st.voiceError,
+    mode: st.mode,
+    camFeeds: st.camFeeds,
+    liveRequested: st.liveRequested,
+  })));
   const me = s.participants.find((p) => p.id === s.selfId);
   const hammer = Object.values(s.items).find((i) => i.kind === 'hammer' && i.holder === s.selfId);
   const followers = s.participants.filter((p) => p.follow === s.selfId);
@@ -432,6 +471,7 @@ export function WorldScreen() {
   return (
     <div ref={root} className={`world ${mode} ${locked ? 'locked' : ''} ${folded.left ? 'fl' : ''} ${folded.right ? 'fr' : ''} ${phone ? `phone pt-${phoneTab}` : ''}`}>
       {mode === '3d' && <View3D />}
+      {mode === '2d' && <MapLayer />}
       <WindowLayer />
       <PortraitCanvas />
       <div className="front">

@@ -1,13 +1,17 @@
-import type { Participant } from '../../shared/protocol.ts';
-import type { Item } from '../../shared/items.ts';
-import { VOICE_RANGE, computePlaces, type Place } from '../../shared/places.ts';
+import { useSyncExternalStore } from 'react';
+import { VOICE_RANGE, computePlaces, placeDistance, type Place } from '../../shared/places.ts';
+import { formatDistance, nearbyUsers, projectProximity, stepTrend, type ListedItem, type ListedPlayer, type TrendState } from './nearby.ts';
 import { useStore, get, isBroadcast } from './store.ts';
+
+export { formatDistance };
 
 export type { Place };
 
-/** 自分の 3D 位置だけはサーバー経由より手元の値が新しい */
+/** 自分の 3D 位置と、マップで歩いている途中の 2D 位置は、サーバー経由より手元の値が新しい */
 export function placesOf(s = get()): Map<string, Place> {
-  return computePlaces(s.participants, (id) => (id === s.selfId ? (s.mode === '3d' ? s.selfAvatar : undefined) : s.avatars[id]));
+  const out = computePlaces(s.participants, (id) => (id === s.selfId ? (s.mode === '3d' ? s.selfAvatar : undefined) : s.avatars[id]));
+  if (s.walk && s.mode === '2d' && out.has(s.selfId)) out.set(s.selfId, { ...s.walk.at, small: false });
+  return out;
 }
 
 /** 3D の人の顔の上下。自分は手元の値が新しい */
@@ -19,46 +23,128 @@ export function distanceTo(id: string, s = get()) {
   const places = placesOf(s);
   const me = places.get(s.selfId);
   const p = places.get(id);
-  return id === s.selfId ? 0 : me && p ? Math.hypot(p.x - me.x, p.z - me.z) : Infinity;
+  return id === s.selfId ? 0 : me && p ? placeDistance(p, me) : Infinity;
 }
 
-export function useNearby(): { user: Participant; d: number }[] {
-  useStore((s) => s.participants);
-  useStore((s) => s.avatars);
-  useStore((s) => s.selfAvatar);
-  useStore((s) => s.mode);
+/** 2D の距離表示だけ。声の音量と 3D の補間は get() をそのまま読む。購読者がいる間だけ測る */
+const SAMPLE_MS = 100;
+const listListeners = new Set<() => void>();
+const trendListeners = new Set<() => void>();
+let sampleTimer: ReturnType<typeof setInterval> | null = null;
+let unsubscribeStore: (() => void) | null = null;
+let proximity = { players: [] as ListedPlayer[], items: [] as ListedItem[] };
+let labels: Record<string, string> = {};
+const trendState = new Map<string, TrendState>();
+let trends: Record<string, number> = {};
+
+function watchOf(s = get()) {
+  return { participants: s.participants, items: s.items, mode: s.mode, session: s.session, selfId: s.selfId };
+}
+
+let watch = watchOf();
+
+function sampleTrends(rows: { id: string; d: number }[], now: number) {
+  const next: Record<string, number> = {};
+  let changed = false;
+  for (const row of rows) {
+    const stepped = stepTrend(trendState.get(row.id), row.d, now);
+    trendState.set(row.id, stepped.state);
+    next[row.id] = stepped.trend;
+    if (trends[row.id] !== stepped.trend) changed = true;
+  }
+  for (const id of trendState.keys()) {
+    if (!(id in next)) {
+      trendState.delete(id);
+      changed = true;
+    }
+  }
+  if (!changed) return false;
+  trends = next;
+  return true;
+}
+
+function sample(now = performance.now()) {
   const s = get();
   const places = placesOf(s);
-  const me = places.get(s.selfId);
-  return s.participants
-    .map((user) => {
-      const p = places.get(user.id);
-      const d = user.id === s.selfId ? 0 : me && p ? Math.hypot(p.x - me.x, p.z - me.z) : Infinity;
-      return { user, d };
-    })
-    .sort((a, b) => a.d - b.d);
+  const users = nearbyUsers(s.participants, places, s.selfId);
+  const next = projectProximity(proximity, s.participants, places, s.items, s.selfId);
+  const listChanged = next.players !== proximity.players || next.items !== proximity.items;
+  proximity = next;
+  const nextLabels: Record<string, string> = {};
+  for (const u of users) nextLabels[`user:${u.user.id}`] = formatDistance(u.d);
+  for (const it of next.items) nextLabels[`item:${it.item.id}`] = formatDistance(it.d);
+  labels = nextLabels;
+  const trendChanged = sampleTrends(users.filter((u) => u.user.id !== s.selfId).map((u) => ({ id: u.user.id, d: u.d })), now);
+  return { listChanged, trendChanged };
 }
 
-export function useNearbyItems(): { item: Item; d: number; heldBy: string | null }[] {
-  useStore((s) => s.items);
-  useStore((s) => s.participants);
-  useStore((s) => s.avatars);
-  useStore((s) => s.selfAvatar);
-  useStore((s) => s.mode);
-  const s = get();
-  const places = placesOf(s);
-  const me = places.get(s.selfId);
-  return Object.values(s.items)
-    .map((item) => {
-      const heldBy = 'holder' in item ? item.holder : null;
-      const p = heldBy ? places.get(heldBy) : item;
-      const d = me && p ? Math.hypot(p.x - me.x, p.z - me.z) : Infinity;
-      return { item, d, heldBy };
-    })
-    .sort((a, b) => a.d - b.d);
+function publish() {
+  const { listChanged, trendChanged } = sample();
+  if (listChanged) for (const listener of listListeners) listener();
+  if (trendChanged) for (const listener of trendListeners) listener();
 }
 
-export const formatDistance = (d: number) => (d === 0 ? '自分' : !Number.isFinite(d) ? '—' : d < 10 ? `${d.toFixed(1)}m` : `${Math.round(d)}m`);
+function ensureSample() {
+  if (sampleTimer !== null) return;
+  watch = watchOf();
+  sample();
+  sampleTimer = setInterval(publish, SAMPLE_MS);
+  unsubscribeStore = useStore.subscribe(() => {
+    const next = watchOf();
+    if (next.participants === watch.participants && next.items === watch.items && next.mode === watch.mode && next.session === watch.session && next.selfId === watch.selfId) return;
+    watch = next;
+    publish();
+  });
+}
+
+function releaseSample() {
+  if (listListeners.size + trendListeners.size > 0) return;
+  if (sampleTimer !== null) clearInterval(sampleTimer);
+  sampleTimer = null;
+  unsubscribeStore?.();
+  unsubscribeStore = null;
+  trendState.clear();
+  trends = {};
+}
+
+function subscribeList(listener: () => void) {
+  listListeners.add(listener);
+  ensureSample();
+  return () => {
+    listListeners.delete(listener);
+    releaseSample();
+  };
+}
+
+function subscribeTrend(listener: () => void) {
+  trendListeners.add(listener);
+  ensureSample();
+  return () => {
+    trendListeners.delete(listener);
+    releaseSample();
+  };
+}
+
+// 購読は描画の後なので、タイマーが無い最初の描画はここで測る。測った参照は次の getSnapshot でも同じ
+function warm() {
+  if (sampleTimer === null) sample();
+}
+
+export function useNearby(): ListedPlayer[] {
+  return useSyncExternalStore(subscribeList, () => { warm(); return proximity.players; }, () => proximity.players);
+}
+
+export function useNearbyItems(): ListedItem[] {
+  return useSyncExternalStore(subscribeList, () => { warm(); return proximity.items; }, () => proximity.items);
+}
+
+export function useDistanceLabel(kind: 'user' | 'item', id: string) {
+  return useSyncExternalStore(subscribeList, () => { warm(); return labels[`${kind}:${id}`] ?? '—'; }, () => '—');
+}
+
+export function useTrend(id: string) {
+  return useSyncExternalStore(subscribeTrend, () => { warm(); return trends[id] ?? 0; }, () => 0);
+}
 
 const FULL = 2;
 export const SILENT = VOICE_RANGE;
@@ -127,7 +213,7 @@ function update() {
     if (me && p && !blocked.has(id)) {
       const dx = p.x - me.x;
       const dz = p.z - me.z;
-      const d = Math.hypot(dx, dz);
+      const d = placeDistance(p, me);
       g = bc ? 1 : falloff(d);
       if (directional && d > 0.3) pan = ((dx * Math.cos(me.ry) - dz * Math.sin(me.ry)) / d) * 0.8;
     }

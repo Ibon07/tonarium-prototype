@@ -3,7 +3,7 @@ import { iconUrl, pickIcon } from './icon.ts';
 import { avatarTextureUrl, uploadAvatarImage, uploadAvatarManifest } from './avatar.ts';
 import { send } from './net/ws.ts';
 import { useStore } from './store.ts';
-import { setLightweight, setLoadScale } from './actions.ts';
+import { setLightweight, setLoadScale, setMapMode } from './actions.ts';
 
 const LOAD_SCALES = [0, 0.5, 1, 2, 3];
 
@@ -18,6 +18,7 @@ export function ProfileDialog({ name, onClose }: { name: string; onClose: () => 
   const [bio, setBio] = useState('');
   const loadScale = useStore((s) => s.loadScale);
   const lightweight = useStore((s) => s.lightweight);
+  const mapMode = useStore((s) => s.mapMode);
   useEffect(() => {
     let alive = true;
     void fetch(`/profile?name=${encodeURIComponent(n)}`).then((r) => r.json()).then((p: { bio: string }) => { if (alive) setBio(p.bio); });
@@ -80,6 +81,17 @@ export function ProfileDialog({ name, onClose }: { name: string; onClose: () => 
             <input type="checkbox" checked={lightweight} onChange={(e) => setLightweight(e.target.checked)} />
             軽量設定（3D のワールドのポイントライトを読み込まない）
           </label>
+        </section>
+        <section>
+          <h3>2D のマップ</h3>
+          <div className="seg" role="radiogroup" aria-label="2D のマップ">
+            {(['none', '2d', '3d'] as const).map((k) => (
+              <button key={k} role="radio" aria-checked={mapMode === k} className={mapMode === k ? 'on' : 'ib'} onClick={() => setMapMode(k)}>
+                {k === 'none' ? 'なし' : k === '2d' ? '2D マップ' : '3D マップ'}
+              </button>
+            ))}
+          </div>
+          <div className="sub">2D で参加しているときの背景に出します。クリックした場所へ移動、ホイールで拡大縮小、ホイールを押しながらドラッグで動かす、スペースで元に戻す。3D マップは右ドラッグで角度を変えられます。この端末にだけ保存されます</div>
         </section>
         {message && <div className="msgline">{message}</div>}
         <div className="row end"><button onClick={onClose}>閉じる</button></div>

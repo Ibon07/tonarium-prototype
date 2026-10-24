@@ -12,6 +12,7 @@ description: Tonarium に新しいワールド（セッションが読み込む 
 ## 部屋の決まった形
 
 - 床は x, z とも -10〜10（`ROOM_HALF`）、壁の高さ 4m。ふつうは形を変えず、色と中身だけ変える（`Shell` が床と壁を描く）
+- 階や高い所があるワールド（街のマンションや駅など）は、当たり判定に `y0`〜`y1`（その高さの間だけ効く）を付け、歩ける面（床・坂）と動く物（電車・エレベーター）は `shared/city.ts` と `client/src/view3d/cityPhysics.ts` のやり方に倣う
 - 部屋の外にも行ける場所が要るとき（ゲームワールドの塔など）は、`WORLDS` の `extent` で 3D の人がいられる範囲を広げ、床と壁は自前で描く（`game3d.tsx` の `GameWorld` を参照）。部屋の外での移動・高さ・落下は `client/src/view3d/Player.tsx` の `groundAt` と `clampTo` に足す
 - 南寄りの丸いスポーンエリア（`shared/protocol.ts` の `SPAWN`：中心 (0, 6.5)、半径 1.6）には家具を置かない。入ってきた人と 2D の人がここに立つ
 - yaw 0 は -Z（北）向き

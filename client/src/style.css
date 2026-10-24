@@ -175,6 +175,10 @@ img.av { object-fit: cover; display: block; }
 .menuitem { height: 40px; border-radius: 10px; padding: 0 12px; font-size: 13px; justify-content: flex-start; gap: 10px; width: 100%; }
 .menusep { height: 1px; background: var(--line2); margin: 4px 6px; }
 .wkind { font-size: 11px; font-weight: 700; color: var(--muted); border: 1px solid var(--line2); border-radius: 999px; padding: 1px 8px; }
+.renamerow { display: flex; gap: 6px; padding: 4px 6px; }
+.renamerow input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px; background: #fff; color: var(--ink); }
+.renamebtn { height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; }
+.renamebtn:disabled { opacity: .45; }
 .worldpick { display: grid; gap: 6px; padding: 4px 6px; }
 .wpick { height: auto; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line2); text-align: left; font-size: 13px; }
 .wpick.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -182,6 +186,32 @@ img.av { object-fit: cover; display: block; }
 /* ワールド画面 */
 .world { position: fixed; inset: 0; overflow: hidden; background-color: var(--ground); background-image: radial-gradient(var(--dots) 1px, transparent 1px); background-size: 22px 22px; }
 .world .view3d { position: absolute; inset: 0; z-index: 0; }
+/* 2D の背景のマップ。前面のパネルやウィンドウの無いところを押すとここに届く */
+.map2d, .map3d { position: absolute; inset: 0; z-index: 0; touch-action: none; user-select: none; }
+.map2d { cursor: crosshair; overflow: hidden; }
+.map2d svg { position: absolute; inset: 0; }
+.mfloor { fill: #F7F3EC; stroke: #CFC6B6; stroke-width: .08; }
+.msolid { fill: #D9CFBF; stroke: #BDB2A0; stroke-width: .04; }
+.mspawn { fill: rgba(47, 95, 196, .08); stroke: rgba(47, 95, 196, .5); stroke-width: .06; stroke-dasharray: .25 .2; }
+.mvoice { fill: rgba(47, 95, 196, .05); stroke: rgba(47, 95, 196, .45); stroke-width: .06; }
+.mnear { fill: rgba(35, 165, 90, .08); stroke: rgba(35, 165, 90, .6); stroke-width: .05; }
+.mtrack { fill: none; stroke: #8a9099; stroke-width: 1.6; stroke-linejoin: round; }
+.mstation { fill: #b9b3a8; stroke: #6d7480; stroke-width: .1; }
+.mtrain { fill: #3a9c5c; stroke: #fff; stroke-width: .15; }
+.mroute { stroke: #E2533F; stroke-width: .08; stroke-dasharray: .3 .2; stroke-linecap: round; }
+.mgoal circle:first-child { fill: rgba(226, 83, 63, .15); stroke: #E2533F; stroke-width: .08; }
+.mgoal circle:last-child { fill: #E2533F; }
+.mperson.smooth { transition: left .2s linear, top .2s linear; }
+.mperson, .mitem { position: absolute; transform: translate(-50%, -50%); pointer-events: none; }
+.mperson { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.mperson .face { box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(40, 30, 10, .25); }
+.mperson.self .face { box-shadow: 0 0 0 3px var(--accent), 0 2px 6px rgba(40, 30, 10, .25); }
+.mname { padding: 0 6px; border-radius: 6px; background: rgba(255, 253, 249, .9); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.mperson.small .mname { display: none; }
+.mpin { position: absolute; left: 0; top: 0; visibility: hidden; display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
+.mpin .face { box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0, 0, 0, .35); }
+.mpin.self .face { box-shadow: 0 0 0 3px var(--accent), 0 2px 6px rgba(0, 0, 0, .35); }
+.mitem { width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; box-shadow: 0 1px 4px rgba(40, 30, 10, .25); }
 .front { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
 .front > * { pointer-events: auto; }
 .world.locked .front > * { opacity: .4; pointer-events: none; }
@@ -701,6 +731,12 @@ img.av { object-fit: cover; display: block; }
 .hchip.group { background: #FBE9D7; color: #A24A16; }
 .hchip.invite { background: var(--globalbg); color: var(--global); }
 .hchip.genre { background: var(--sand); }
+.hchip.live { background: #FDE2DD; color: var(--danger); }
+/* ホームのセクションは 1 段だけ。はみ出す分は横にスクロール */
+.hrow { display: flex; gap: 14px; overflow-x: auto; padding: 4px 4px 10px; margin: -4px -4px 0; scroll-snap-type: x proximity; }
+.hrow > * { flex: 0 0 280px; scroll-snap-align: start; }
+.hchip.live.solid { background: var(--danger); color: #fff; }
+.scard .evfaces { margin-top: 2px; }
 .hchip.mode { background: var(--ink); color: #fff; height: 18px; padding: 0 6px; font-size: 10px; margin-left: 4px; }
 
 .ftiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 12px; }
@@ -795,18 +831,6 @@ img.av { object-fit: cover; display: block; }
 .strecent { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .stpreview { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 14px; background: var(--sand); }
 .stpreview .row { gap: 10px; }
-
-.okaeri { background: var(--paper); border-radius: 20px; box-shadow: var(--shadow); padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
-.okaeri h2 { font-size: 17px; }
-.okcards { display: flex; gap: 10px; flex-wrap: wrap; }
-.okcard { flex: 1 1 200px; height: auto; min-height: 56px; padding: 10px 14px; border-radius: 14px; background: var(--sand); justify-content: flex-start; gap: 10px; text-align: left; }
-.okcard.msg { background: var(--globalbg); }
-.okcard.plan { background: var(--accentbg); }
-.okic { width: 34px; height: 34px; border-radius: 10px; background: var(--ink); color: #fff; display: inline-flex; align-items: center; justify-content: center; flex: none; }
-.okcard.msg .okic { background: var(--global); }
-.okcard.plan .okic { background: var(--accent); }
-.ucards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr)); gap: 12px; }
-.ucard { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 16px; }
 
 .thread { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 8px; }
 .msg { display: flex; gap: 10px; align-items: flex-start; }
@@ -922,6 +946,8 @@ img.av { object-fit: cover; display: block; }
 .hseg button { flex: 1; min-width: 0; height: 32px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; gap: 4px; }
 .hseg button.on { background: #fff; color: var(--accent); box-shadow: 0 1px 3px rgba(40, 30, 10, .18); }
 .hleave { color: var(--danger); margin-bottom: 4px; }
+.hfeedback { display: flex; align-items: center; text-decoration: none; color: var(--muted2); white-space: nowrap; }
+.hfeedback svg:last-child { margin-left: auto; opacity: .6; }
 .hhere { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 10px; background: #E3F2E8; color: #2E6E4E; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .hhere i { width: 8px; height: 8px; border-radius: 50%; background: var(--speak); }
 .hcurrent { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--paper); border-radius: 16px; box-shadow: var(--shadow); flex-wrap: wrap; }

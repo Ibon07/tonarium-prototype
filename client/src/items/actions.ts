@@ -4,6 +4,7 @@ import { approach } from '../../../shared/places.ts';
 import { get, set, recompute, heldHammer, heldCamera, type ItemUi } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { placesOf } from '../spatial.ts';
+import { stopWalk } from '../walk.ts';
 
 const LIMIT = ROOM_HALF - 0.5;
 const clamp = (v: number) => Math.max(-LIMIT, Math.min(LIMIT, v));
@@ -112,6 +113,7 @@ export function hit(to: string) {
 }
 
 export function place2d(target: string, pos: { x: number; z: number; ry: number } | null) {
+  if (target === get().selfId) stopWalk();
   send({ t: 'place2d', target, pos });
 }
 

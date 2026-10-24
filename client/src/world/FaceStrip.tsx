@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Participant } from '../../../shared/protocol.ts';
 import { useStore, get, set, save, heldHammer } from '../store.ts';
 import { formatDistance } from '../spatial.ts';
@@ -42,7 +42,7 @@ function clickFace(id: string) {
   else openWindow(`face:${id}`);
 }
 
-function BigFace({ u, d, self = false, width }: { u: Participant; d: number; self?: boolean; width?: number }) {
+const BigFace = memo(function BigFace({ u, d, self = false, width }: { u: Participant; d: number; self?: boolean; width?: number }) {
   const poked = usePoked(u.id);
   const speaking = useStore((s) => !!s.speaking[u.id]);
   const sharer = useStore((s) => s.sharer);
@@ -80,9 +80,9 @@ function BigFace({ u, d, self = false, width }: { u: Participant; d: number; sel
       </div>
     </div>
   );
-}
+});
 
-function MidFace({ p }: { p: PlayerEntry }) {
+const MidFace = memo(function MidFace({ p }: { p: PlayerEntry }) {
   const poked = usePoked(p.user.id);
   return (
     <button
@@ -95,7 +95,7 @@ function MidFace({ p }: { p: PlayerEntry }) {
       {poked && <PokeFx at={poked} small />}
     </button>
   );
-}
+});
 
 /** タイルがいちばん大きくなる列数を選ぶ */
 function gridTile(n: number, w: number, h: number, gap = 12) {
@@ -131,7 +131,8 @@ function FaceGrid({ list }: { list: { user: Participant; d: number; self?: boole
 export function FaceStrip() {
   const players = usePlayers();
   const folded = useStore((s) => s.folded.faces);
-  const noWindows = useStore((s) => s.windows.length === 0 && s.mode === '2d');
+  // マップを背景にしているときは、マップが隠れないよう大きい顔は出さない
+  const noWindows = useStore((s) => s.windows.length === 0 && s.mode === '2d' && s.mapMode === 'none');
   const me = useStore((s) => s.participants.find((p) => p.id === s.selfId));
   const near = players.filter((p) => p.band === 'near');
   const mid = players.filter((p) => p.band === 'mid');

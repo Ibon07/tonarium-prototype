@@ -7,6 +7,7 @@ import { HammerCursor, Lightbox } from './world/common.tsx';
 import { Home } from './home/Home.tsx';
 import { WorldScreen } from './world/WorldScreen.tsx';
 import { PeekMascot, type MascotHandle } from './world/Mascot.tsx';
+import { FEEDBACK_URL } from './feedback.ts';
 
 function loadId() {
   try {
@@ -94,6 +95,7 @@ function JoinScreen() {
           <ul>
             <li>名前・アイコン・チャットなどは誰でも見られます。個人情報や大切な情報は入力しないでください</li>
             <li>小さな VPS で動いています。たくさんのタブで入る、大きな画像を何度も送るなど、負荷をかけすぎないようにお願いします</li>
+            <li>気づいたことや「こうだったらいいのに」は、<a href={FEEDBACK_URL} target="_blank" rel="noreferrer">フィードバックフォーム</a>から気軽に送ってください</li>
           </ul>
         </div>
       </aside>

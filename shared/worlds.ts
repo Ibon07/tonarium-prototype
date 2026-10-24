@@ -1,10 +1,12 @@
 import { ARENA, START_BUTTON } from './game.ts';
+import { CITY_HALF, CITY_SOLIDS } from './city.ts';
 
 /** ワールド＝ 3D 空間の種類。セッションはどれか 1 つを読み込み、途中で切り替えられる */
-export type WorldKind = 'room' | 'cafe' | 'game';
+export type WorldKind = 'room' | 'cafe' | 'game' | 'city';
 
-/** 床の上の通り抜けられない物。r があれば円、なければ w×d の箱（x, z が中心） */
-export type Solid = { x: number; z: number; r: number } | { x: number; z: number; w: number; d: number };
+/** 床の上の通り抜けられない物。r があれば円、なければ w×d の箱（x, z が中心）。
+ * y0〜y1 があればその高さの間だけ効く（マンションの階ごとの壁など）。無ければどの高さでも効く */
+export type Solid = ({ x: number; z: number; r: number } | { x: number; z: number; w: number; d: number }) & { y0?: number; y1?: number };
 
 export interface WorldInfo {
   name: string;
@@ -56,6 +58,12 @@ export const WORLDS: Record<WorldKind, WorldInfo> = {
     solids: [{ x: START_BUTTON.x, z: START_BUTTON.z, r: 0.45 }],
     extent: { minX: -10, maxX: 10, minZ: ARENA.z - ARENA.half, maxZ: 10 },
   },
+  city: {
+    name: '街',
+    desc: '10 階建てのマンションと、駅が 3 つある高架の環状線が走る広い街',
+    solids: CITY_SOLIDS,
+    extent: { minX: -CITY_HALF, maxX: CITY_HALF, minZ: -CITY_HALF, maxZ: CITY_HALF },
+  },
 };
 
 /** 切り替えを決めてから実際に切り替わるまで（全員に予告を出す） */
@@ -64,11 +72,15 @@ export const WORLD_COUNTDOWN_MS = 3000;
 export const WORLD_KINDS = Object.keys(WORLDS) as WorldKind[];
 export const isWorldKind = (v: unknown): v is WorldKind => typeof v === 'string' && v in WORLDS;
 
-/** 半径 r の体が家具にめり込んでいたら外へ押し出した位置 */
-export function pushOut(x: number, z: number, r: number, solids: Solid[]) {
+/** 背の高さ。高さのある当たり判定は、足元 y からこの高さまでと重なるときだけ効く */
+const BODY_H = 1.7;
+
+/** 半径 r の体が家具にめり込んでいたら外へ押し出した位置。y は足元の高さ（地上の人・アイテムは 0） */
+export function pushOut(x: number, z: number, r: number, solids: Solid[], y = 0) {
   for (let pass = 0; pass < 3; pass++) {
     let moved = false;
     for (const s of solids) {
+      if (s.y0 !== undefined && (y + BODY_H <= s.y0 || y >= s.y1!)) continue;
       if ('r' in s) {
         const dx = x - s.x;
         const dz = z - s.z;

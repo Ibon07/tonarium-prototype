@@ -1,11 +1,14 @@
 import { create } from 'zustand';
 import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, SessionInfo, User } from '../../shared/protocol.ts';
-import { EMPTY_PRESENCE, SPAWN } from '../../shared/protocol.ts';
+import { SPAWN } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
 import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
 import type { DieSides } from '../../shared/dice.ts';
 import { newGame, type GameState } from '../../shared/game.ts';
+import { NEW_ELEVATOR, type ElevatorState } from '../../shared/city.ts';
 import type { PositionRoute } from '../../shared/session-position.ts';
+import { deriveSession } from './sessionView.ts';
+import type { Walk } from './walk.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
 export type WinMode = 'simple' | 'free';
@@ -58,9 +61,11 @@ interface State {
   /** 前回いなくなった時刻（おかえりのまとめに使う）。まだ届いていなければ undefined */
   lastSeen: number | null | undefined;
 
-  // 以下は参加中セッションの分だけを recompute() で切り出したもの
+  // 以下は参加中セッションの分だけを recompute() で切り出したもの。位置の更新では participants を差し替えない
   participants: Participant[];
   avatars: Record<string, AvatarState>;
+  /** 3D に出す相手の ID。座標が変わっても配列の参照は保つ */
+  avatarIds: string[];
   items: Record<string, Item>;
 
   /** 同期しない手元だけの状態 */
@@ -84,10 +89,16 @@ interface State {
   loadScale: number;
   /** 軽量設定。3D のポイントライトなど重いものを読み込まない（手元に保存） */
   lightweight: boolean;
+  /** 2D の背景に出すマップ（手元に保存）。マップを入れるべきか試すための設定 */
+  mapMode: 'none' | '2d' | '3d';
+  /** マップで選んだ目的地へ 2D の自分が歩いている途中 */
+  walk: Walk | null;
   /** 動画・YouTube ごとの自分だけの音量（0〜1）。無ければ既定の半分 */
   volumes: Record<string, number>;
   /** セッション中にホームを重ねて開いている */
   hubOpen: boolean;
+  /** フレンドのページで開いているタブ（ホームの「もっと見る」から選んで開く） */
+  friendsTab: 'all' | 'now' | 'req' | 'block';
   /** スマホ幅のセッション画面で、下のタブで選んでいるもの */
   phoneTab: 'screen' | 'list' | 'log';
   sideWidget: SideWidget;
@@ -103,6 +114,8 @@ interface State {
   worldBy: Record<string, WorldKind>;
   /** セッションごとの板わたりのゲーム */
   games: Record<string, GameState>;
+  /** 街のマンションのエレベーター（セッションごと） */
+  elevators: Record<string, ElevatorState>;
   /** 注目を集めているアイテム ID → 光らせる期限（performance.now） */
   attention: Record<string, number>;
   toast: { text: string; at: number } | null;
@@ -192,6 +205,7 @@ export const useStore = create<State>(() => ({
   lastSeen: undefined,
   participants: [],
   avatars: {},
+  avatarIds: [],
   items: {},
   itemUi: {},
   windows: [],
@@ -208,15 +222,19 @@ export const useStore = create<State>(() => ({
   broadcast: {},
   worldBy: {},
   games: {},
+  elevators: {},
   attention: {},
   toast: null,
   liveRequested: null,
   switching: null,
   loadScale: load('tonarium.loadScale', 1),
   lightweight: load('tonarium.lightweight', false),
+  mapMode: load('tonarium.mapMode', 'none'),
+  walk: null,
   volumes: {},
   hubOpen: false,
   phoneTab: 'screen',
+  friendsTab: 'all',
   sideWidget: load('tonarium.sideWidget', 'events'),
   joinMode: load('tonarium.joinMode', '2d'),
   dice: load('tonarium.dice', { sides: 6 as DieSides, count: 2, secret: false }),
@@ -256,22 +274,11 @@ export interface ItemUi { sel?: number; chessRevision?: number; promotionTo?: nu
 export const set = useStore.setState;
 export const get = useStore.getState;
 
-const EMPTY: Record<string, never> = {};
 export function recompute() {
   const s = get();
-  const sid = s.session;
-  const participants = sid ? s.users.filter((u) => u.session === sid).map((u) => ({ ...EMPTY_PRESENCE, ...s.presence[u.id], ...u })) : [];
-  // 位置は本人から直接届くので、2D の人や自分の分が残っていても表示しない
-  const avatars: Record<string, AvatarState> = {};
-  for (const u of participants) {
-    const a = u.mode === '3d' && u.id !== s.selfId ? s.avatarsBy[sid!]?.[u.id] : undefined;
-    if (a) avatars[u.id] = a;
-  }
-  set({
-    participants,
-    items: (sid && s.itemsBy[sid]) || EMPTY,
-    avatars,
-  });
+  const next = deriveSession(s, s);
+  if (next.participants === s.participants && next.avatars === s.avatars && next.items === s.items && next.avatarIds === s.avatarIds) return;
+  set(next);
 }
 
 /** セッションを出たら中の状態は捨てる（次に入るときは部屋から届き直す） */
@@ -279,7 +286,7 @@ export function dropSession(sid: string | null) {
   if (!sid) return;
   set((s) => {
     const omit = <T,>(m: Record<string, T>) => { const { [sid]: _, ...rest } = m; return rest; };
-    return { chats: omit(s.chats), avatarsBy: omit(s.avatarsBy), itemsBy: omit(s.itemsBy), games: omit(s.games), broadcast: omit(s.broadcast), presence: {} };
+    return { chats: omit(s.chats), avatarsBy: omit(s.avatarsBy), itemsBy: omit(s.itemsBy), games: omit(s.games), elevators: omit(s.elevators), broadcast: omit(s.broadcast), presence: {} };
   });
 }
 
@@ -312,6 +319,7 @@ export const worldKindOf = (s = get(), sid = s.session): WorldKind => (sid && s.
 export const solidsOf = (s = get()) => WORLDS[worldKindOf(s)].solids;
 const NO_GAME = newGame();
 export const gameOfSession = (s = get()) => (s.session && s.games[s.session]) || NO_GAME;
+export const elevatorOfSession = (s = get()) => (s.session && s.elevators[s.session]) || NEW_ELEVATOR;
 
 export function showToast(text: string) {
   set({ toast: { text, at: Date.now() } });
