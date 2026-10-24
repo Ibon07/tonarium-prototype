@@ -286,7 +286,8 @@ function convsOf(name: string) {
 
 /** フレンドと、同じグループの人 */
 function knownPeopleOf(name: string, friendsByName?: Map<string, string[]>) {
-  const set = new Set(friendsByName?.get(name) ?? friendsOf(name));
+  // 写しが渡されたらそれだけを使う（無い人はフレンドなし）。friendsOf へ落とすと配信の人数分だけ全走査が戻ってしまう
+  const set = new Set(friendsByName ? friendsByName.get(name) ?? [] : friendsOf(name));
   for (const g of home.groups) if (g.members.includes(name)) for (const m of g.members) set.add(m);
   set.delete(name);
   return [...set];
