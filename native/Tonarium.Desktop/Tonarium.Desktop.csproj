@@ -13,6 +13,8 @@
     <None Update="Linux/*.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <AvaloniaResource Include="Assets/fonts/**" />
     <None Update="Assets/fonts/*OFL.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" TargetPath="licenses/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Assets/survivor-audio.json" LogicalName="Tonarium.SurvivorAudio.json" />
+    <EmbeddedResource Include="Assets/survivor.json" LogicalName="Tonarium.SurvivorCatalog.json" />
     <EmbeddedResource Include="../Tonarium.Unity/Assets/Resources/OekakiGeometry.json" LogicalName="Tonarium.OekakiGeometry.json" />
     <EmbeddedResource Include="../../client/public/oekaki/sample.png" LogicalName="Tonarium.OekakiSample.png" />
     <PackageReference Include="Avalonia" Version="12.0.0" />

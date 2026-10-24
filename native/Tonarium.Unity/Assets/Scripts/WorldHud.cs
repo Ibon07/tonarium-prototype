@@ -45,7 +45,7 @@ namespace Tonarium.UnityClient
             var helpStyle=new GUIStyle(labelStyle){fontSize=locked?12:15,alignment=TextAnchor.MiddleCenter,clipping=TextClipping.Clip};
             float helpWidth=Mathf.Min(helpStyle.CalcSize(new GUIContent(help)).x+32,HudWidth*.78f);
             var helpRect=new Rect((HudWidth-helpWidth)/2,locked?HudHeight-170:HudHeight/2,helpWidth,locked?28:40);
-            if(!menu&&selected==null&&chessPromotionTo<0){HudPanel(helpRect,"#141418BD");GUI.Label(helpRect,help,helpStyle);}
+            if(world!="survivors"&&!menu&&selected==null&&chessPromotionTo<0){HudPanel(helpRect,"#141418BD");GUI.Label(helpRect,help,helpStyle);}
             if(locked)
             {
                 string hint=AimHint();bool active=!string.IsNullOrEmpty(hint);float diameter=active?18:10;
@@ -72,6 +72,8 @@ namespace Tonarium.UnityClient
                 var rect=new Rect(Mathf.Max(12,HudWidth/2-240),HudHeight-174,Mathf.Min(480,HudWidth-24),32);
                 HudPanel(rect,"#26262eD9");GUI.Label(rect,notice,new GUIStyle(labelStyle){alignment=TextAnchor.MiddleCenter});
             }
+            if (chatOpen && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape)
+            { chatOpen = false; GUI.FocusControl(null); Event.current.Use(); }
             if(chatOpen&&!embedded)
             {
                 var key = Event.current;
@@ -85,12 +87,13 @@ namespace Tonarium.UnityClient
                 GUI.SetNextControlName("chat");draft=GUI.TextField(new Rect(20,HudHeight-88,HudWidth-120,38),draft);
                 GUI.FocusControl("chat");if(GUI.Button(new Rect(HudWidth-90,HudHeight-88,70,38),"送信",buttonStyle)){SendChat();chatOpen=false;}
             }
+            SurvivorGUI();
             if(menu&&!embedded)MenuGUI();
             if(selected!=null&&items.TryGetValue(selected,out var item))ItemGUI(item);
             if(chessPromotionTo>=0)ChessPromotionGUI();
             // UIが消費しなかったクリックだけを視点操作へ渡す。
             if (Event.current.type == EventType.MouseDown && Event.current.button == 0
-                && !menu && !chatOpen && selected == null && chessPromotionTo < 0 && Cursor.lockState != CursorLockMode.Locked)
+                && !SurvivorActive && !menu && !chatOpen && selected == null && chessPromotionTo < 0 && Cursor.lockState != CursorLockMode.Locked)
             { LockPointer(); Event.current.Use(); }
         }
 
@@ -130,7 +133,7 @@ namespace Tonarium.UnityClient
             GUILayout.BeginArea(new Rect(rect.x+20,rect.y+20,width-40,height-40));
             GUILayout.Label("セッションの設定",new GUIStyle(titleStyle){normal={textColor=ColorValue("#26262e")}});
             GUILayout.Space(12);GUILayout.BeginHorizontal();
-            foreach(string kind in new[]{"room","cafe","game"})if(GUILayout.Button(WorldName(kind),buttonStyle)){Room(new{t="world",world=kind});if(!bridge.Connected)BuildWorld(kind);menu=false;}
+            foreach(string kind in new[]{"room","cafe","game","survivors"})if(GUILayout.Button(WorldName(kind),buttonStyle)){Room(new{t="world",world=kind});if(!bridge.Connected)BuildWorld(kind);menu=false;}
             GUILayout.EndHorizontal();GUILayout.Space(18);
             foreach(string kind in new[]{"note","canvas","chess","chessAi","dice","hammer","camera","g2048"})
                 if(GUILayout.Button(KindName(kind),buttonStyle)){var p=controller.transform.position+controller.transform.forward*2;Room(new{t="itemCreate",kind,x=p.x,z=-p.z,ry=-yaw*Mathf.Deg2Rad});menu=false;}

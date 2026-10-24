@@ -14,6 +14,34 @@ Arch Linux。UIはX11、WaylandセッションではXWaylandを使用する。�
 
 同期受信はUIスレッドから分離する。一時的な同期切断では3Dを閉じず、再接続後のSnapshotで状態を復元する。送信失敗は3D画面内に通知し、失敗した操作は自動再送しない。同期復旧後に再度操作する。セッション退出・2Dへの切替時は通常どおり3Dを終了する。
 
+## 宵闇サバイバーズ
+
+セッションのワールドを「宵闇サバイバーズ」にすると、2Dはゲーム用のマップと操作パネル、3Dは操作パネルを表示し、ラン中は俯瞰視点、ロビーと終了後は通常の一人称操作になる。Windowsと同じ通信・操作を使用する。
+
+スタイルを選び、参加エリア内で「参加者でゲーム開始」を押す。参加エリア外の場合は通常の位置操作で輪の中へ移動する。2DではWASD／矢印で移動する。チャットなどの入力欄やボタンにフォーカスがある間はゲーム移動を止める。3DではUnityウィンドウにフォーカスしてWASD／矢印で移動する。攻撃は自動。レベルアップ時は装備を選び、全参加者の選択が済むまで敵と時計を停止する。途中参加、ラン終了後の再開、永続強化と確認付きのリセット、装備図鑑・実績にも対応する。
+
+ランの状態はセッションごと、永続強化はサーバー上のユーザーIDごとに保持する。再参加・同期の再接続・2D／3D切替ではサーバーの状態を復元する。3D表示中に同じセッションの別ワールドから戻る場合も、保持したロビー・終了結果を反映する。ゲーム進行・戦闘判定はWeb版と同じサーバー実装を使い、装備・スタイル・実績・参加範囲・ゲーム時間・移動速度の定義は `shared/survivor.ts` から生成する。2DマップとUnity内のミニマップ、装備選択・永続強化・図鑑の構成はWebの `SurvivorPanel.tsx` を基準に移植している。Unityの立体描画はWebのThree.js描画を基準に、敵種別・武器ごとの攻撃・被弾の演出を実装する。基本形状の頂点・法線もThree.jsから生成し、Unity Resourcesへ同期する。
+
+専用効果音はWebの `survivorAudio.ts` からレシピを生成し、同じ状態変化でネイティブ音声出力へ合成する。2D／3Dとも親Desktopで一度だけ再生し、Unity単体起動では鳴らさない。音量は「音声設定」の「ゲーム効果音の音量」で変更でき、0で無音になる。攻撃音の90ms制限、レベルアップ・装備選択・ボス・停止／再開・終了の発火条件もWebと揃える。
+
+描画エンジンはAvalonia／UnityとCanvas／Three.jsで異なる。文字の折返し、フォント、ライティング・透過・発光、CSSの影やアニメーションはピクセル単位で同一ではない。ミニマップの一部の光彩は単色の円・線で近似する。音声も同じ音程・長さ・音量のレシピを使うが、WebAudioとの波形の完全一致は保証しない。
+
+ローカルの検証用サーバーで2Dの実通信と操作を確認する。専用セッションを作り、終了時に削除する。マイク・画面共有は使わない。検証結果は中間生成物の `native/build/` へ出力する。
+
+```bash
+dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3015 native/build/survivor-check --survivors
+```
+
+`--survivors-3d` を加えると実Unityプレイヤーも起動し、参加エリアへの移動、開始、3D位置とサーバーの戦闘位置の一致、2Dへの復帰を確認する。ビルド済みプレイヤーと仮想X11画面を使う例：
+
+```bash
+TONARIUM_UNITY_PLAYER="$PWD/native/build/unity-linux/Tonarium3D.x86_64" \
+  xvfb-run -a dotnet run --project native/Tonarium.UiSmoke -c Release -- \
+  http://localhost:3015 native/build/survivor-3d-check --survivors --survivors-3d
+```
+
+外部サーバーを使わないローカルTCPの状態復元確認は `--3d-lifecycle` に含める。Unity起動時の初期状態、個人プロフィール、別ワールドから戻った際のロビー・終了結果の転送を検証する。
+
 ## ビルド
 
 .NET 10 SDK、Unity 6000.6.7f1 Linux EditorとLinux Build Support、Unity CLIが必要。
@@ -28,6 +56,8 @@ Editorのバージョンは `native/Tonarium.Unity/ProjectSettings/ProjectVersio
 native/build-unity-linux.sh
 native/publish-linux.sh 0.0.8
 ```
+
+上流更新後は必ず上記のUnityビルドから実行する。共有定義・Webの音レシピ・形状の生成とUnityへの同期もこの段階で行う。publishやFlatpak/AppImageの梱包だけでは古いUnityを更新しない。
 
 Editorを明示する場合は `TONARIUM_UNITY_EDITOR=/path/to/Editor/Unity` を設定する。配布物は `native/artifacts/Tonarium-0.0.8-linux-x64.tar.gz`。同じ出力先がある場合は上書きせず停止する。起動時には.NETの追加インストールは不要。
 

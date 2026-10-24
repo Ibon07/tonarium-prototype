@@ -15,6 +15,7 @@ public sealed class ClientState
     public string World { get; set; } = "room";
     public string? SessionId { get; set; }
     public bool Connected { get; set; }
+    public double FxVolume { get; set; } = 1;
     public bool MicOn { get; set; }
     public bool Sharing { get; set; }
     public bool Broadcast { get; set; }
@@ -25,6 +26,8 @@ public sealed class ClientState
     public JsonObject Conversations { get; set; } = new();
     public JsonObject Reads { get; set; } = new();
     public JsonObject SessionInfo { get; set; } = new();
+    public JsonObject Survivor { get; set; } = new();
+    public JsonObject SurvivorProfile { get; set; } = new();
     public JsonObject Game { get; set; } = new();
     public JsonArray Users { get; set; } = new();
     public JsonArray Sessions { get; set; } = new();

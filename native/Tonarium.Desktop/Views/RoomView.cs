@@ -64,6 +64,7 @@ public sealed partial class RoomView : UserControl
     private readonly Button _leftFold;
     private readonly Button _rightFold;
     private readonly Border _center;
+    private readonly SurvivorPanel _survivor;
     private int _openItemCount, _portraitWindowCount;
     private bool Gallery => _openItemCount + _portraitWindowCount == 0 && _ctx.State.Mode == "2d";
     private readonly Border _threeDSurface = new() { Margin = new Thickness(345, 90, 340, 100), IsVisible = false };
@@ -182,6 +183,8 @@ public sealed partial class RoomView : UserControl
         _mode.Background = Brush.Parse("#2F5FC4"); _mode.Foreground = Brushes.White;
         _center = new Border { Child = centerStack, Margin = new Thickness(360, 90, 340, 144) };
         _root.Children.Add(_center);
+        _survivor = new SurvivorPanel(context) { IsVisible = false };
+        _root.Children.Add(_survivor);
 
         _mic = DockButton("micOff", "マイクのミュートを解除", () => Run(() => _ctx.Media.SetMicrophoneAsync(!_ctx.State.MicOn)));
         _share = DockButton("screen", "画面共有", () => Run(() => _ctx.Media.SetScreenShareAsync(!_ctx.State.Sharing)));
@@ -259,6 +262,9 @@ public sealed partial class RoomView : UserControl
     public void Refresh()
     {
         var s = _ctx.State;
+        _survivor.IsVisible = s.World == "survivors" && s.Mode == "2d";
+        _center.IsVisible = !_survivor.IsVisible;
+        _survivor.Refresh();
         ComputePlaces();
         if(_layoutMode!=s.Mode){_layoutMode=s.Mode;Fit();}
         _sessionMenu.Refresh();
@@ -573,9 +579,12 @@ public sealed partial class RoomView : UserControl
         broadcast.IsCheckedChanged += (_, _) => SendRoom(new { t = "broadcast", on = broadcast.IsChecked == true }); box.Children.Add(broadcast);
         box.Children.Add(Ui.Text("距離に関係なく全員に声が届きます", 12, Ui.Muted));
         box.Children.Add(Ui.Text("ワールド（全員に反映）", 13));
-        foreach (var (kind, name) in new[] { ("room", "ホール"), ("cafe", "カフェ"), ("game", "ゲーム") }) box.Children.Add(Ui.Button(name + (kind == _ctx.State.World ? "  ✓" : ""), () => ConfirmWorld(kind, name)));
+        foreach (var (kind, name) in new[] { ("room", "ホール"), ("cafe", "カフェ"), ("game", "ゲーム"), ("survivors", "宵闇サバイバーズ") }) box.Children.Add(Ui.Button(name + (kind == _ctx.State.World ? "  ✓" : ""), () => ConfirmWorld(kind, name)));
         box.Children.Add(Ui.Button("プロフィールを編集", () => _ctx.OpenProfile(_ctx.State.SelfId)));
         box.Children.Add(Ui.Button("マイク・スピーカーの設定", () => Run(() => _ctx.ShowAudioSettingsAsync())));
+        var fxVolume = new Slider { Minimum = 0, Maximum = 100, Value = _ctx.State.FxVolume * 100 };
+        fxVolume.PropertyChanged += (_, e) => { if (e.Property == Slider.ValueProperty) _ctx.Client.SetFxVolume(fxVolume.Value / 100); };
+        box.Children.Add(Ui.Text("ゲーム効果音の音量", 13)); box.Children.Add(fxVolume);
         box.Children.Add(Ui.Button("セッションを移動", () => _ctx.ShowHome("home")));
         box.Children.Add(Ui.Button(_ctx.State.Mode == "3d" ? "2D に切り替える" : "3D に切り替える", () => Run(() => _ctx.ChangeModeAsync(_ctx.State.Mode == "3d" ? "2d" : "3d")))); ShowPopup(box, 370);
     }
@@ -646,6 +655,7 @@ public sealed partial class RoomView : UserControl
         _right.Margin = new Thickness(0, 20, _sidePanelsStowed ? -_right.Width - 12 : 20, 20);
         _itemScroll.MaxHeight = Math.Max(100, (Bounds.Height - 94) * .42);
         var left = _leftHidden || _sidePanelsStowed ? 92 : _left.Width + 40; var right = _rightHidden || _sidePanelsStowed ? 92 : _right.Width + 40;
+        _survivor.Margin = new Thickness(left, 74, right, 144);
         _center.Margin = new Thickness(left, Gallery && !_facesHidden ? 90 : 16, right, Gallery && !_facesHidden ? 144 : 0);
         _center.VerticalAlignment = Gallery && !_facesHidden ? VerticalAlignment.Stretch : VerticalAlignment.Top;
         // Keep the Unity stage inside the same native-panel safe area as before.

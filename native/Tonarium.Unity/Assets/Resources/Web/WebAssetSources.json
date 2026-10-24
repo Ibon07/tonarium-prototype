@@ -1,5 +1,10 @@
 [
   {
+    "source": "native/Tonarium.Desktop/Assets/survivor.json",
+    "asset": "SurvivorCatalog.json",
+    "sha256": "5cb64a3eb468f2393b9feefb84348aa82d371278fb3b9cde74257af818c212b1"
+  },
+  {
     "source": "client/public/brand/mark.png",
     "asset": "Brand/mark.png",
     "sha256": "a795c5ad962c0cede0aa20fcdb4fa2e5cdbcdec4125ca6b0ebf64af8b051b634"

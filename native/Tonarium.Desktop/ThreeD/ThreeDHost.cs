@@ -255,6 +255,7 @@ public sealed partial class ThreeDHost : IAsyncDisposable
                 ["users"] = s.Users.DeepClone(), ["avatars"] = s.Avatars.DeepClone(),
                 ["items"] = s.Items.DeepClone(), ["presence"] = s.Presence.DeepClone(),
                 ["chats"] = s.Chats.DeepClone(), ["game"] = s.Game.DeepClone(),
+                ["survivor"] = s.Survivor.DeepClone(), ["survivorProfile"] = s.SurvivorProfile.DeepClone(),
                 ["now"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + s.ServerOffset
             };
         });
@@ -268,7 +269,13 @@ public sealed partial class ThreeDHost : IAsyncDisposable
         {
             if (message["sid"] is { } sid && sid.ToString() != client.State.SessionId) return;
             if (message["t"]?.ToString() == "sessionSnapshot") await SendSnapshotAsync();
-            else await SendAsync(message.DeepClone());
+            else
+            {
+                await SendAsync(message.DeepClone());
+                // ワールド切替ではサーバーがロビー・終了済みのランを再送しない。
+                if (message["t"]?.ToString() == "world" && message["world"]?.ToString() == "survivors")
+                    await SendAsync(new JsonObject { ["t"] = "survivor", ["sid"] = client.State.SessionId, ["state"] = client.State.Survivor.DeepClone() });
+            }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
     }

@@ -11,6 +11,7 @@ namespace Tonarium.Desktop.Core;
 /// <summary>Native social WebSocket and authenticated KokoSync room connection.</summary>
 public sealed class TonariumClient : IAsyncDisposable
 {
+    private readonly Media.SurvivorAudio survivorAudio = new();
     private readonly SemaphoreSlim homeSend = new(1);
     private readonly SemaphoreSlim roomSend = new(1);
     private readonly object roomGate = new();
@@ -35,6 +36,7 @@ public sealed class TonariumClient : IAsyncDisposable
     {
         "peerOperation", "sync", "mode", "status", "follow", "dropFollowers", "place2d", "displayMove", "chat",
         "avatar", "viewing", "poke", "sound", "liveRequest", "viewLive", "itemCreate", "attention", "broadcast",
+        "survivorStyle", "survivorStart", "survivorMove", "survivorChoose", "survivorUpgrade", "survivorReset",
         "world", "gameStart", "gameStep", "gameFell", "itemRemove", "itemMove", "itemAction", "hit"
     };
     private KokoSync.EventQueueDiagnostics? lastEventQueueDiagnostics;
@@ -57,6 +59,7 @@ public sealed class TonariumClient : IAsyncDisposable
             if (persistSettings && JsonNode.Parse(File.ReadAllText(settingsPath)) is JsonObject saved)
             {
                 State.Name = Text(saved, "name", State.Name);
+                State.FxVolume = Math.Clamp(saved["fxVolume"]?.GetValue<double>() ?? 1, 0, 1);
                 State.SelfId = Text(saved, "selfId", State.SelfId);
                 State.ServerUrl = Text(saved, "server", State.ServerUrl);
             }
@@ -177,7 +180,7 @@ public sealed class TonariumClient : IAsyncDisposable
 
     private void ResetRoomState()
     {
-        State.Items = new(); State.Avatars = new(); State.Presence = new(); State.Chats = new(); State.Game = new();
+        State.Items = new(); State.Avatars = new(); State.Presence = new(); State.Chats = new(); State.Game = new(); State.Survivor = new();
         State.Broadcast = false; State.MicOn = false; State.Sharing = false; State.WorldPending = null;
         State.World = State.SessionInfo[State.SessionId ?? ""] is JsonObject info ? Text(info, "world", "room") : "room";
     }
@@ -642,6 +645,7 @@ public sealed class TonariumClient : IAsyncDisposable
         State.Broadcast = Boolean(snapshot, "broadcast");
         State.World = Text(snapshot, "world", "room");
         State.Game = Object(snapshot, "game");
+        State.Survivor = Object(snapshot, "survivor");
         State.ServerOffset = Number(snapshot, "now") - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         MessageReceived?.Invoke(new JsonObject { ["t"] = "sessionSnapshot", ["s"] = snapshot.DeepClone() });
         if (notify) State.Touch();
@@ -691,6 +695,11 @@ public sealed class TonariumClient : IAsyncDisposable
             case "broadcast": State.Broadcast = Boolean(message, "on"); break;
             case "worldPending": State.WorldPending = (JsonObject)message.DeepClone(); break;
             case "world": State.World = Text(message, "world", "room"); State.WorldPending = null; break;
+            case "survivor":
+                var nextSurvivor = Object(message, "state");
+                survivorAudio.Apply(State.Survivor, nextSurvivor, State.FxVolume);
+                State.Survivor = nextSurvivor; break;
+            case "survivorProfile": State.SurvivorProfile = Object(message, "profile"); break;
             case "game": State.Game = Object(message, "game"); break;
             case "gameTile":
                 if (State.Game["tiles"] is not JsonObject tiles) { tiles = new(); State.Game["tiles"] = tiles; }
@@ -744,6 +753,12 @@ public sealed class TonariumClient : IAsyncDisposable
         while (list.Count > limit) list.RemoveAt(0);
     }
 
+    public void SetFxVolume(double volume)
+    {
+        State.FxVolume = double.IsFinite(volume) ? Math.Clamp(volume, 0, 1) : 1;
+        Persist(); State.Touch();
+    }
+
     private void Persist()
     {
         if (!persistSettings) return;
@@ -751,7 +766,7 @@ public sealed class TonariumClient : IAsyncDisposable
         {
             Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
             var temporary = settingsPath + ".tmp";
-            File.WriteAllText(temporary, new JsonObject { ["selfId"] = State.SelfId, ["name"] = State.Name, ["server"] = State.ServerUrl }.ToJsonString());
+            File.WriteAllText(temporary, new JsonObject { ["selfId"] = State.SelfId, ["name"] = State.Name, ["server"] = State.ServerUrl, ["fxVolume"] = State.FxVolume }.ToJsonString());
             File.Move(temporary, settingsPath, true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
@@ -769,5 +784,5 @@ public sealed class TonariumClient : IAsyncDisposable
     private static JsonArray Array(JsonObject obj, string key) => obj[key]?.DeepClone() as JsonArray ?? new();
     private static JsonObject Object(JsonObject obj, string key) => obj[key]?.DeepClone() as JsonObject ?? new();
     private static string Friendly(Exception ex) => ex is WebSocketException ? "サーバーとの接続を確認してください。" : ex is KokoSync.ProtocolException ? "ルーム同期の接続を確認してください。" : ex.Message;
-    public async ValueTask DisposeAsync() { await DisconnectAsync(); homeSend.Dispose(); roomSend.Dispose(); }
+    public async ValueTask DisposeAsync() { await DisconnectAsync(); survivorAudio.Dispose(); homeSend.Dispose(); roomSend.Dispose(); }
 }

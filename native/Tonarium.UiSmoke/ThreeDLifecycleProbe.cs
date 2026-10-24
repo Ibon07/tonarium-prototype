@@ -17,6 +17,7 @@ internal static class ThreeDLifecycleProbe
     internal static async Task Run(string output, Action<string> pass, bool native)
     {
         using var preferences = DesktopInstance.Acquire(Path.Combine(output, "preferences"));
+        await SurvivorBridgeProbe.Run(pass);
         var owner = new Window { Width = 600, Height = 400 };
         owner.Show();
         var hud = new ThreeDOverlayWindow(owner, new Panel(), () => null);

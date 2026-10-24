@@ -89,6 +89,7 @@ namespace Tonarium.UnityClient
                 if (arg == "--tonarium-canvas-perf") gameObject.AddComponent<CanvasPerformanceProbe>();
                 if (arg == "--tonarium-chess-probe") gameObject.AddComponent<ChessInteractionProbe>();
                 if (arg == "--tonarium-item-behavior") gameObject.AddComponent<ItemBehaviorProbe>();
+                if (arg == "--tonarium-survivor-probe") gameObject.AddComponent<SurvivorBehaviorProbe>();
                 if (arg == "--tonarium-media-playback") gameObject.AddComponent<MediaPlaybackProbe>();
             }
         }
@@ -126,6 +127,11 @@ namespace Tonarium.UnityClient
             if (type == "snapshot")
             {
                 selfId = (string)m["selfId"] ?? selfId; playerName = (string)m["name"] ?? playerName;
+                if (sessionId != ((string)m["sessionId"] ?? sessionId))
+                {
+                    initialPosition = false;
+                    ClearSurvivorScene();
+                }
                 sessionId = (string)m["sessionId"] ?? sessionId;
                 serverUrl = ((string)m["serverUrl"] ?? serverUrl).TrimEnd('/');
                 users = m["users"] as JArray ?? new JArray(); presence = m["presence"] as JObject ?? new JObject();
@@ -140,6 +146,8 @@ namespace Tonarium.UnityClient
                 chat.Clear();
                 if (m["chats"] is JArray chats)
                     foreach (var c in chats.OfType<JObject>()) AddChat(c);
+                survivorProfile = m["survivorProfile"] as JObject ?? new JObject();
+                ApplySurvivor(m["survivor"] as JObject);
                 ApplyGame(m["game"] as JObject);
                 SyncUsers();
                 return;
@@ -160,6 +168,8 @@ namespace Tonarium.UnityClient
             if (type == "chat") AddChat(m["m"] as JObject);
             if (type == "world") { initialPosition = false; BuildWorld((string)m["world"] ?? "room"); }
             if (type == "worldPending") notice = "ワールドを切り替えます…";
+            if (type == "survivor") ApplySurvivor(m["state"] as JObject);
+            if (type == "survivorProfile") survivorProfile = m["profile"] as JObject ?? new JObject();
             if (type == "game") ApplyGame(m["game"] as JObject);
             if (type == "gameTile") brokenTiles[(int)m["tile"]] = (long)m["at"];
             if (type == "itemAction") ApplyDelta(m);
@@ -308,7 +318,7 @@ namespace Tonarium.UnityClient
 
         void ApplyGame(JObject value)
         {
-            if (value == null) return;
+            if (value == null || world != "game") return;
             game = value;
             if (value["tiles"] is JObject tileMap) foreach (var t in tileMap.Properties()) if (int.TryParse(t.Name, out int n)) brokenTiles[n] = (long)t.Value;
             int newRound = (int?)value["round"] ?? 0;
@@ -345,7 +355,8 @@ namespace Tonarium.UnityClient
             if (embedded && controls && Input.GetKeyDown(KeyCode.Tab)) bridge.Send(new { t = "toggleSidePanels" });
             if (embedded && controls && (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)) && Input.GetKeyDown(KeyCode.V)) bridge.Send(new { t = "pasteMedia" });
             bool justLocked = Time.frameCount <= pointerLockedFrame + 1;
-            if (controls && Cursor.lockState == CursorLockMode.Locked)
+            UpdateSurvivor(controls);
+            if (!SurvivorActive && controls && Cursor.lockState == CursorLockMode.Locked)
             {
                 Vector2 delta;
                 if(relativePointer!=null)
@@ -598,7 +609,7 @@ namespace Tonarium.UnityClient
         }
         public void ReturnTo2D() { if (returnSent) return; returnSent = true; EndNoteEditing(); Unlock(); bridge.Send(new { t = "return2d" }); if (!bridge.Connected) Application.Quit(); }
         void OnApplicationQuit() { ReturnTo2D(); }
-        void OnDestroy() { mediaInput?.Dispose(); relativePointer?.Dispose(); DisposeCameraCapture(); }
+        void OnDestroy() { mediaInput?.Dispose(); relativePointer?.Dispose(); DisposeCameraCapture(); foreach (var material in survivorMaterials.Values) Destroy(material); foreach(var texture in survivorRings.Values) Destroy(texture); if(survivorDisc!=null)Destroy(survivorDisc); foreach(var mesh in survivorMeshes.Values)Destroy(mesh); }
         long Now => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + (long)serverOffset;
         static Vector3 ToUnity(Vector3 p) => new Vector3(p.x, p.y, -p.z);
         static Vector3 Position(JObject p) => ToUnity(new Vector3(Float(p, "x"), Float(p, "y"), Float(p, "z")));

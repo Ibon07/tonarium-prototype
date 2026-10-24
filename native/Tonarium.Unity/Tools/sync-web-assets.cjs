@@ -3,7 +3,10 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const root = path.resolve(__dirname, '../../..');
 const target = path.join(root, 'native/Tonarium.Unity/Assets/Resources/Web');
+require('node:child_process').execFileSync(process.execPath, ['--import', 'tsx', path.join(root, 'native/generate-survivor-catalog.ts')], { cwd: root });
+require('./sync-survivor-meshes.cjs');
 const sources = [
+  ['native/Tonarium.Desktop/Assets/survivor.json', 'SurvivorCatalog.json'],
   ['client/public/brand/mark.png', 'Brand/mark.png'],
   ['client/public/brand/logo.png', 'Brand/logo.png'],
   ['client/public/brand/favicon.png', 'Brand/favicon.png'],

@@ -22,7 +22,7 @@ powershell -ExecutionPolicy Bypass -File native/publish-desktop.ps1
 
 Unity EditorとWindows Build Supportが必要。ビルドはProjectVersion.txtで指定されたEditorを使い、`native/build/unity/Tonarium3D.exe` を生成する。ビルドがなければ3Dボタンからもビルドを試みる。`TONARIUM_UNITY_EDITOR` / `TONARIUM_UNITY_PLAYER` で実行ファイルを指定できる。
 
-配布用フォルダーは `native/artifacts/Tonarium-win-x64/`。全体をコピーして `Tonarium.exe` を起動する。.NETランタイムとUnityを含むため配布先にSDKは不要。接続先のTonariumサーバーは別途必要。YouTubeを開く場合だけWebView2 Runtimeを使用する。Unityビルド済みならpublishに `-SkipUnity` を指定できる。独立した3Dウィンドウで比較する場合はアプリに `--separate-3d` を付ける。
+配布用フォルダーは `native/artifacts/Tonarium-win-x64/`。全体をコピーして `Tonarium.exe` を起動する。.NETランタイムとUnityを含むため配布先にSDKは不要。接続先のTonariumサーバーは別途必要。YouTubeを開く場合だけWebView2 Runtimeを使用する。同じソースでUnityビルド済みならpublishに `-SkipUnity` を指定できる。上流更新後は省略せずビルドし、共有定義・Webの音レシピ・形状も再生成する。独立した3Dウィンドウで比較する場合はアプリに `--separate-3d` を付ける。
 
 同じ `Tonarium.exe` を複数回起動できる。最初のウィンドウは従来の保存データを使い、2つ目以降は別のユーザーID・名前・表示設定・音声設定を使用する。追加ウィンドウのタイトルは「クライアント 2」のように表示する。初回の追加ウィンドウは接続先だけ引き継ぐので、別の表示名を入力して参加する。各ウィンドウで3Dも個別に起動できる。
 
@@ -47,6 +47,26 @@ Unity EditorとWindows Build Supportが必要。ビルドはProjectVersion.txt�
 | 切り替え | Unity埋め込み、リサイズ、2D復帰 | 実際のHWND・プロセス・接続状態 |
 
 「実装」と「確認」は区別している。全操作を全端末で確認した意味ではなく、Web版とのピクセル単位の同一性も保証しない。
+
+## 宵闇サバイバーズ
+
+セッションのワールドを「宵闇サバイバーズ」にすると、2Dはマップと操作パネル、Unityの3Dは操作パネルを表示し、ラン中は俯瞰視点、ロビーと終了後は通常の一人称操作になる。スタイルを選び、参加エリア内で「参加者でゲーム開始」を押す。参加エリア外の場合は通常の位置操作で輪の中へ移動する。
+
+2DではWASD／矢印で移動する。チャットなどの入力欄やボタンにフォーカスがある間はゲーム移動を止める。3DではUnityにフォーカスして同じキーで移動する。攻撃は自動。レベルアップ時には表示された装備から選び、全参加者が選択するまでセッション全体の敵と時計を停止する。途中参加、終了後の再開、永続強化、確認付きの強化リセット、装備図鑑・実績も操作できる。
+
+ランはセッションごと、永続強化はサーバー上のユーザーIDごとに保存する。再参加・同期の再接続・2D／3D切替で状態を復元し、別ワールドから戻った場合も保持されたロビー・終了結果を表示する。ゲーム進行・戦闘判定はWeb版と同じサーバー実装を使い、装備・スタイル・実績・参加範囲・ゲーム時間・移動速度の定義は `shared/survivor.ts` から生成する。2DマップとUnity内のミニマップ、装備選択・永続強化・図鑑の構成はWebの `SurvivorPanel.tsx` を基準に移植している。Unityの立体描画はWebのThree.js描画を基準に、敵種別・武器ごとの攻撃・被弾の演出を実装する。基本形状の頂点・法線もThree.jsから生成し、Unity Resourcesへ同期する。
+
+専用効果音はWebの `survivorAudio.ts` からレシピを生成し、同じ状態変化でネイティブ音声出力へ合成する。2D／3Dとも親Desktopで一度だけ再生し、Unity単体起動では鳴らさない。音量は「音声設定」の「ゲーム効果音の音量」で変更でき、0で無音になる。攻撃音の90ms制限、レベルアップ・装備選択・ボス・停止／再開・終了の発火条件もWebと揃える。
+
+描画エンジンはAvalonia／UnityとCanvas／Three.jsで異なる。文字の折返し、フォント、ライティング・透過・発光、CSSの影やアニメーションはピクセル単位で同一ではない。ミニマップの一部の光彩は単色の円・線で近似する。音声も同じ音程・長さ・音量のレシピを使うが、WebAudioとの波形の完全一致は保証しない。Linuxと共通の実装だが、今回の修正に対するWindows実機でのキー入力と描画は別途確認が必要。
+
+2Dの通常操作は、検証用のローカルサーバーに対して次で確認できる。専用セッションは終了時に削除する。マイク・画面共有は使わない。
+
+```powershell
+dotnet run --project native/Tonarium.UiSmoke -c Release -- http://localhost:3015 native/build/survivor-check --survivors
+```
+
+ビルド済みのUnity Playerに対する確認は `TONARIUM_UNITY_PLAYER` に実行ファイルを指定し、同じコマンドへ `--survivors-3d` を追加する。参加エリアへの移動、開始、3D位置のサーバー反映、2D復帰まで確認する。`--3d-lifecycle` にはUnityを起動しないローカルTCPの検証も含み、初期状態・個人プロフィール・ワールド復帰時の状態転送を確認する。
 
 ## 通常操作の再確認
 
