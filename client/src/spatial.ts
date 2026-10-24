@@ -7,9 +7,11 @@ export { formatDistance };
 
 export type { Place };
 
-/** 自分の 3D 位置だけはサーバー経由より手元の値が新しい */
+/** 自分の 3D 位置と、マップで歩いている途中の 2D 位置は、サーバー経由より手元の値が新しい */
 export function placesOf(s = get()): Map<string, Place> {
-  return computePlaces(s.participants, (id) => (id === s.selfId ? (s.mode === '3d' ? s.selfAvatar : undefined) : s.avatars[id]));
+  const out = computePlaces(s.participants, (id) => (id === s.selfId ? (s.mode === '3d' ? s.selfAvatar : undefined) : s.avatars[id]));
+  if (s.walk && s.mode === '2d' && out.has(s.selfId)) out.set(s.selfId, { ...s.walk.at, small: false });
+  return out;
 }
 
 /** 3D の人の顔の上下。自分は手元の値が新しい */

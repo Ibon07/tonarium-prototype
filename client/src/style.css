@@ -191,6 +191,10 @@ img.av { object-fit: cover; display: block; }
 .mspawn { fill: rgba(47, 95, 196, .08); stroke: rgba(47, 95, 196, .5); stroke-width: .06; stroke-dasharray: .25 .2; }
 .mvoice { fill: rgba(47, 95, 196, .05); stroke: rgba(47, 95, 196, .45); stroke-width: .06; }
 .mnear { fill: rgba(35, 165, 90, .08); stroke: rgba(35, 165, 90, .6); stroke-width: .05; }
+.mroute { stroke: #E2533F; stroke-width: .08; stroke-dasharray: .3 .2; stroke-linecap: round; }
+.mgoal circle:first-child { fill: rgba(226, 83, 63, .15); stroke: #E2533F; stroke-width: .08; }
+.mgoal circle:last-child { fill: #E2533F; }
+.mperson.smooth { transition: left .2s linear, top .2s linear; }
 .mperson, .mitem { position: absolute; transform: translate(-50%, -50%); pointer-events: none; }
 .mperson { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .mperson .face { box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(40, 30, 10, .25); }
