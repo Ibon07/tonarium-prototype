@@ -1,4 +1,5 @@
 import { isRoomClientMsg, type ClientMsg, type ServerMsg, type SessionInfo, type SessionSnapshot } from '../../../shared/protocol.ts';
+import type { SurvivorState } from '../../../shared/survivor.ts';
 import { applyAvatars } from '../sessionView.ts';
 import { get, recompute, set, spawnPoint } from '../store.ts';
 
@@ -8,6 +9,7 @@ import { onHit } from '../items/effects.ts';
 import { pushNotice } from '../actions.ts';
 import { volumeFrom } from '../spatial.ts';
 import { playPoke, playSynth } from '../world/sounds.ts';
+import { playSurvivorSound } from '../world/survivorAudio.ts';
 import { startSessionSync, stopSessionSync, roomSend, configureSessionSync, syncError, resetSessionSync } from './session.ts';
 
 /** 注目を集めたアイテムが光っている時間 */
@@ -54,6 +56,31 @@ export function send(msg: ClientMsg) {
 
 const worldsOf = (info: Record<string, SessionInfo>) => Object.fromEntries(Object.entries(info).map(([sid, i]) => [sid, i.world]));
 
+function playSurvivorTransitions(sid: string, next: SurvivorState) {
+  if (sid !== get().session) return;
+  const previous = get().survivors[sid];
+  if (!previous || previous.run !== next.run) {
+    if (next.phase === 'running') playSurvivorSound('start');
+    return;
+  }
+  const priorEffects = new Set(previous.effects.map((effect) => effect.id));
+  const freshEffects = next.effects.filter((effect) => !priorEffects.has(effect.id));
+  if (freshEffects.length) playSurvivorSound('attack', freshEffects[freshEffects.length - 1].gear);
+
+  const previousPlayers = previous.players;
+  const players = Object.values(next.players);
+  if (players.some((player) => player.level > (previousPlayers[player.id]?.level ?? player.level))) playSurvivorSound('level');
+  else if (players.some((player) => {
+    const before = previousPlayers[player.id];
+    return !!before && Object.entries(player.gear).some(([gear, level]) => level !== (before.gear[gear] ?? 0));
+  })) playSurvivorSound('equip');
+
+  if (previous.phase !== 'boss' && next.phase === 'boss') playSurvivorSound('boss');
+  if (previous.phase !== 'ended' && next.phase === 'ended') playSurvivorSound(next.bossDefeated ? 'victory' : 'end');
+  if (previous.pausedAt == null && next.pausedAt != null) playSurvivorSound('pause');
+  else if (previous.pausedAt != null && next.pausedAt == null && (next.phase === 'running' || next.phase === 'boss')) playSurvivorSound('resume');
+}
+
 /** 部屋に入ったとき・つなぎ直したときにサーバーから届く、いるセッションの中の状態 */
 export function applySessionSnapshot(snap: SessionSnapshot) {
   const sid = snap.sid;
@@ -66,6 +93,7 @@ export function applySessionSnapshot(snap: SessionSnapshot) {
     broadcast: { ...s.broadcast, [sid]: snap.broadcast },
     worldBy: { ...s.worldBy, [sid]: snap.world },
     games: { ...s.games, [sid]: snap.game },
+    survivors: { ...s.survivors, [sid]: snap.survivor },
     elevators: { ...s.elevators, [sid]: snap.elevator },
     serverOffset: snap.now - Date.now(),
   }));
@@ -154,6 +182,13 @@ export function onMessage(msg: ServerMsg) {
       return;
     case 'game':
       set((s) => ({ games: { ...s.games, [msg.sid]: msg.game } }));
+      return;
+    case 'survivor':
+      playSurvivorTransitions(msg.sid, msg.state);
+      set((s) => ({ survivors: { ...s.survivors, [msg.sid]: msg.state } }));
+      return;
+    case 'survivorProfile':
+      set({ survivorProfile: msg.profile });
       return;
     case 'elevator':
       set((s) => ({ elevators: { ...s.elevators, [msg.sid]: msg.elevator } }));

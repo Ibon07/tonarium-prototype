@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { VOICE_RANGE, computePlaces, placeDistance, type Place } from '../../shared/places.ts';
 import { formatDistance, nearbyUsers, projectProximity, stepTrend, type ListedItem, type ListedPlayer, type TrendState } from './nearby.ts';
 import { useStore, get, isBroadcast } from './store.ts';
+import { peerGain } from './volume.ts';
 
 export { formatDistance };
 
@@ -206,6 +207,7 @@ function update() {
   const directional = s.mode === '3d' || !!(s.participants.find((p) => p.id === s.selfId)?.follow);
   const blocked = blockedIds(s);
   const bc = isBroadcast(s);
+  const names = new Map(s.users.map((u) => [u.id, u.name]));
   for (const [id, v] of voices) {
     const p = places.get(id);
     let g = 0;
@@ -214,7 +216,7 @@ function update() {
       const dx = p.x - me.x;
       const dz = p.z - me.z;
       const d = placeDistance(p, me);
-      g = bc ? 1 : falloff(d);
+      g = (bc ? 1 : falloff(d)) * s.audioVol.voice * peerGain(names.get(id) ?? '', s);
       if (directional && d > 0.3) pan = ((dx * Math.cos(me.ry) - dz * Math.sin(me.ry)) / d) * 0.8;
     }
     v.gain.gain.setTargetAtTime(g, ctx.currentTime, 0.08);

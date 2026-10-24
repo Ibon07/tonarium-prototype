@@ -2,6 +2,7 @@ import type { Item, ItemAction, ItemKind, MediaInit } from './items.ts';
 import type { WorldKind } from './worlds.ts';
 import type { DiceRoll } from './dice.ts';
 import type { GameState } from './game.ts';
+import type { SurvivorMetaUpgrade, SurvivorProfile, SurvivorState, SurvivorStyle } from './survivor.ts';
 import type { ElevatorState } from './city.ts';
 import type { SyncConfig } from './session-wire.ts';
 import type { PeerOperation } from './session-events.ts';
@@ -253,6 +254,7 @@ export interface SessionSnapshot {
   broadcast: boolean;
   world: WorldKind;
   game: GameState;
+  survivor: SurvivorState;
   elevator: ElevatorState;
   now: number;
 }
@@ -322,6 +324,12 @@ export type RoomClientMsg =
   /** 自分が乗った板（サーバーが消える時刻を決める） */
   | { t: 'gameStep'; tile: number }
   | { t: 'gameFell' }
+  | { t: 'survivorStyle'; style: SurvivorStyle }
+  | { t: 'survivorStart' }
+  | { t: 'survivorMove'; x: number; z: number }
+  | { t: 'survivorChoose'; gear: string }
+  | { t: 'survivorUpgrade'; upgrade: SurvivorMetaUpgrade }
+  | { t: 'survivorReset' }
   /** 街のマンションのエレベーターを呼ぶ・行き先を押す（floor は 0 = 1 階 … 10 = 屋上） */
   | { t: 'elevatorCall'; floor: number }
   | { t: 'itemRemove'; id: string }
@@ -336,7 +344,8 @@ const ROOM_CLIENT_TYPES: Record<RoomClientMsg['t'], true> = {
   peerOperation: true,
   sync: true, mode: true, status: true, follow: true, dropFollowers: true, place2d: true, displayMove: true, chat: true, avatar: true,
   viewing: true, poke: true, sound: true, liveRequest: true, viewLive: true, itemCreate: true, attention: true, broadcast: true, world: true, sessionRename: true,
-  gameStart: true, gameStep: true, gameFell: true, elevatorCall: true, itemRemove: true, itemMove: true, itemAction: true, hit: true,
+  gameStart: true, gameStep: true, gameFell: true, survivorStyle: true, survivorStart: true, survivorMove: true, survivorChoose: true, survivorUpgrade: true, survivorReset: true,
+  elevatorCall: true, itemRemove: true, itemMove: true, itemAction: true, hit: true,
 };
 export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => m.t in ROOM_CLIENT_TYPES;
 
@@ -361,6 +370,7 @@ export type HomeServerMsg =
   | { t: 'read'; conv: string; at: number }
   | { t: 'people'; list: Person[] }
   | { t: 'watching'; names: string[]; recentStatus: string[] }
+  | { t: 'survivorProfile'; profile: SurvivorProfile }
   | { t: 'askJoin'; from: string; fromName: string; session: string }
   | { t: 'online'; from: string; fromName: string };
 
@@ -384,6 +394,7 @@ export type RoomServerMsg =
   | { t: 'world'; sid: string; world: WorldKind }
   | { t: 'game'; sid: string; game: GameState }
   | { t: 'gameTile'; sid: string; tile: number; at: number }
+  | { t: 'survivor'; sid: string; state: SurvivorState }
   | { t: 'elevator'; sid: string; elevator: ElevatorState };
 
 export type ServerMsg = HomeServerMsg | RoomServerMsg;

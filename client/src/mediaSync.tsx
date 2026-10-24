@@ -23,9 +23,9 @@ const DEFAULT_VOLUME = 0.5;
 export const userVolume = (id: string, s = get()) => s.volumes[id] ?? DEFAULT_VOLUME;
 export const setUserVolume = (id: string, v: number) => set((s) => ({ volumes: { ...s.volumes, [id]: Math.max(0, Math.min(1, v)) } }));
 
-/** 自分で決めた音量に、ウィンドウで見ているなら等倍、3D では距離で小さく、2D でウィンドウを閉じていれば無音を掛ける */
+/** 自分で決めた音量と全体の音量に、ウィンドウで見ているなら等倍、3D では距離で小さく、2D でウィンドウを閉じていれば無音を掛ける */
 export function mediaVolume(item: Item) {
-  const base = userVolume(item.id);
+  const base = userVolume(item.id) * get().audioVol.media;
   if (windowOpen(item.id)) return base;
   return get().mode === '3d' ? base * volumeAt(item.x, item.z) : 0;
 }

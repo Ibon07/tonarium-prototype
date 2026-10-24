@@ -1,0 +1,275 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useFrame } from '@react-three/fiber';
+import * as THREE from 'three';
+import { SURVIVOR_JOIN, SURVIVOR_STYLES, survivorDistance, type SurvivorAttackEffect, type SurvivorPlayer } from '../../../shared/survivor.ts';
+import { useStore, get, colorOf, serverNow } from '../store.ts';
+import { Cyl } from './parts3d.tsx';
+import { Label } from './Label.tsx';
+
+const ATTACK_COLORS: Record<string, string> = {
+  moonblade: '#ff65aa', eclipse: '#ffe675', bloodaura: '#ff315e', crimsonsun: '#ff9d35',
+  starbolt: '#5fe5ff', starfall: '#ffe16e', shade: '#bc8aff', umbralstorm: '#a457ff',
+};
+const isAreaWeapon = (gear: string) => ['moonblade', 'eclipse', 'bloodaura', 'crimsonsun'].includes(gear);
+
+function AttackTrace({ effect, target, showArea }: { effect: SurvivorAttackEffect; target: { x: number; z: number }; showArea: boolean }) {
+  const area = isAreaWeapon(effect.gear);
+  const color = ATTACK_COLORS[effect.gear] ?? '#fff3a6';
+  const ring = useRef<THREE.Mesh>(null);
+  const ringMaterial = useRef<THREE.MeshBasicMaterial>(null);
+  const projectile = useRef<THREE.Mesh>(null);
+  const projectileMaterial = useRef<THREE.MeshBasicMaterial>(null);
+  const beam = useRef<THREE.Mesh>(null);
+  const beamMaterial = useRef<THREE.MeshBasicMaterial>(null);
+  const beamGlow = useRef<THREE.Mesh>(null);
+  const beamGlowMaterial = useRef<THREE.MeshBasicMaterial>(null);
+  const sparks = useRef<(THREE.Mesh | null)[]>([]);
+  const sparkMaterials = useRef<(THREE.MeshBasicMaterial | null)[]>([]);
+  const impact = useRef<THREE.Mesh>(null);
+  const impactMaterial = useRef<THREE.MeshBasicMaterial>(null);
+  const from = useMemo(() => new THREE.Vector3(effect.from.x, 0.42, effect.from.z), [effect.from.x, effect.from.z]);
+  const to = useMemo(() => new THREE.Vector3(target.x, 0.42, target.z), [target.x, target.z]);
+  const direction = useMemo(() => new THREE.Vector3(), []);
+  const middle = useMemo(() => new THREE.Vector3(), []);
+  const up = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  useFrame(() => {
+    const age = Math.max(0, serverNow() - effect.at);
+    const progress = Math.min(1, age / 650);
+    const fade = 1 - progress;
+    if (ring.current && ringMaterial.current && showArea) {
+      ring.current.position.set(effect.from.x, 0.055, effect.from.z);
+      ring.current.scale.setScalar(0.15 + effect.reach * progress);
+      ringMaterial.current.opacity = fade * 0.95;
+    }
+    if (!area && projectile.current && projectileMaterial.current && beam.current && beamMaterial.current) {
+      projectile.current.position.lerpVectors(from, to, progress);
+      projectile.current.position.y = 0.52;
+      projectile.current.visible = age <= 650;
+      projectileMaterial.current.opacity = fade;
+      direction.subVectors(to, from);
+      const beamLength = direction.length();
+      middle.addVectors(from, to).multiplyScalar(0.5);
+      beam.current.position.copy(middle);
+      beam.current.position.y = 0.39;
+      beam.current.quaternion.setFromUnitVectors(up, direction.normalize());
+      beam.current.scale.set(0.035, beamLength, 0.035);
+      beam.current.visible = age <= 650 && beamLength > 0.01;
+      beamMaterial.current.opacity = fade * 0.68;
+      if (beamGlow.current && beamGlowMaterial.current) {
+        beamGlow.current.position.copy(beam.current.position);
+        beamGlow.current.quaternion.copy(beam.current.quaternion);
+        beamGlow.current.scale.set(0.1, beamLength, 0.1);
+        beamGlow.current.visible = beam.current.visible;
+        beamGlowMaterial.current.opacity = fade * 0.3;
+      }
+    }
+    if (impact.current && impactMaterial.current) {
+      impact.current.position.set(target.x, 0.06, target.z);
+      impact.current.scale.setScalar(0.2 + progress * 0.85);
+      impact.current.rotation.z = -progress * Math.PI * 0.45;
+      impactMaterial.current.opacity = fade * 0.9;
+    }
+    for (let i = 0; i < sparks.current.length; i++) {
+      const mesh = sparks.current[i], material = sparkMaterials.current[i];
+      if (!mesh || !material) continue;
+      const angle = i * Math.PI * 2 / 6 + (effect.at % 997) * 0.004;
+      const distance = progress * (0.3 + (i % 3) * 0.12);
+      mesh.position.set(target.x + Math.cos(angle) * distance, 0.12 + Math.sin(progress * Math.PI) * 0.22, target.z + Math.sin(angle) * distance);
+      mesh.scale.setScalar(0.13 * fade);
+      material.opacity = fade;
+      mesh.visible = age <= 650;
+    }
+  });
+  return (
+    <group userData={{ noRay: true }}>
+      {area && showArea && <mesh ref={ring} rotation-x={-Math.PI / 2}>
+        <ringGeometry args={[0.82, 1, 48]} />
+        <meshBasicMaterial ref={ringMaterial} color={color} transparent opacity={0.9} depthWrite={false} toneMapped={false} />
+      </mesh>}
+      {!area && <>
+        <mesh ref={beamGlow}>
+          <cylinderGeometry args={[1, 1, 1, 8]} />
+          <meshBasicMaterial ref={beamGlowMaterial} color={color} transparent opacity={0.3} depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+        </mesh>
+        <mesh ref={beam}>
+          <cylinderGeometry args={[1, 1, 1, 8]} />
+          <meshBasicMaterial ref={beamMaterial} color={color} transparent opacity={0.68} depthWrite={false} toneMapped={false} />
+        </mesh>
+        <mesh ref={projectile}>
+          <octahedronGeometry args={[0.2, 1]} />
+          <meshBasicMaterial ref={projectileMaterial} color={color} transparent opacity={1} depthWrite={false} toneMapped={false} />
+        </mesh>
+      </>}
+      <mesh ref={impact} rotation-x={-Math.PI / 2}>
+        <ringGeometry args={[0.72, 1, 32]} />
+        <meshBasicMaterial ref={impactMaterial} color="#fff" transparent opacity={0.9} depthWrite={false} toneMapped={false} />
+      </mesh>
+      {Array.from({ length: 6 }, (_, index) => <mesh key={index} ref={(node) => { sparks.current[index] = node; }}>
+        <octahedronGeometry args={[1, 0]} />
+        <meshBasicMaterial ref={(material) => { sparkMaterials.current[index] = material; }} color={index % 2 ? color : '#fff6d9'} transparent opacity={1} depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+      </mesh>)}
+    </group>
+  );
+}
+
+function JoinCircle() {
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 500); return () => clearInterval(t); }, []);
+  const s = get();
+  const users = s.participants.filter((u) => {
+    const p = u.mode === '3d' ? s.avatars[u.id] : u.pos;
+    return survivorDistance(p ?? { x: 0, z: 6.5 }, SURVIVOR_JOIN) <= SURVIVOR_JOIN.r;
+  });
+  const run = s.survivors[s.session ?? ''];
+  const label = run?.phase === 'running' || run?.phase === 'boss' ? '途中参加エリア' : `参加エリア · ${users.length}人`;
+  return (
+    <group position={[SURVIVOR_JOIN.x, 0, SURVIVOR_JOIN.z]} userData={{ noRay: true }}>
+      <mesh rotation-x={-Math.PI / 2} position-y={0.018}>
+        <circleGeometry args={[SURVIVOR_JOIN.r, 48]} />
+        <meshBasicMaterial color="#ce5c91" transparent opacity={0.17} depthWrite={false} />
+      </mesh>
+      <mesh rotation-x={-Math.PI / 2} position-y={0.025}>
+        <ringGeometry args={[SURVIVOR_JOIN.r - 0.07, SURVIVOR_JOIN.r, 64]} />
+        <meshBasicMaterial color="#ff9ac8" />
+      </mesh>
+      <Label text={label} position={[0, 2.1, 0]} height={0.24} bg="rgba(92,28,68,.92)" />
+    </group>
+  );
+}
+
+function StartAltar() {
+  return (
+    <group position={[SURVIVOR_JOIN.x + 2.8, 0, SURVIVOR_JOIN.z]} userData={{ noRay: true }}>
+      <Cyl p={[0, 0.42, 0]} r={0.42} r2={0.5} h={0.84} color="#38213b" />
+      <mesh position-y={0.9}>
+        <icosahedronGeometry args={[0.28, 1]} />
+        <meshStandardMaterial color="#ef6b9b" emissive="#b32e70" emissiveIntensity={1.2} roughness={0.3} />
+      </mesh>
+      <Label text="夜の受付" position={[0, 1.5, 0]} height={0.22} bg="rgba(93,30,68,.96)" />
+    </group>
+  );
+}
+
+function Enemy({ enemy, paused }: { enemy: { id: string; kind: string; x: number; z: number; hp: number; maxHp: number; hitAt: number }; paused: boolean }) {
+  const ref = useRef<THREE.Group>(null);
+  const material = useRef<THREE.MeshStandardMaterial>(null);
+  const halo = useRef<THREE.Mesh>(null);
+  const haloMaterial = useRef<THREE.MeshBasicMaterial>(null);
+  const groundRing = useRef<THREE.Mesh>(null);
+  const groundRingMaterial = useRef<THREE.MeshBasicMaterial>(null);
+  const boss = enemy.kind === 'boss';
+  const color = boss ? '#a41142' : enemy.kind === 'knight' ? '#7b547a' : enemy.kind === 'bat' ? '#513b77' : '#7c3154';
+  const size = boss ? 0.72 : enemy.kind === 'knight' ? 0.42 : 0.3;
+  useFrame(({ clock }) => {
+    if (!ref.current) return;
+    if (paused) return;
+    ref.current.position.y = enemy.kind === 'boss' ? 0.95 + Math.sin(clock.elapsedTime * 2) * 0.1 : 0.35 + Math.sin(clock.elapsedTime * 5 + enemy.x) * 0.06;
+    ref.current.position.x = enemy.x; ref.current.position.z = enemy.z;
+    const hitAge = serverNow() - enemy.hitAt;
+    const flash = enemy.hitAt > 0 && hitAge >= 0 && hitAge < 220 ? 1 - hitAge / 220 : 0;
+    const scale = 1 + flash * 0.28;
+    ref.current.scale.setScalar(scale);
+    material.current?.emissive.set(flash > 0 ? '#ffffff' : color);
+    if (material.current) material.current.emissiveIntensity = (boss ? 0.65 : 0.12) + flash * 2.8;
+    if (boss) {
+      const pulse = 0.5 + Math.sin(clock.elapsedTime * 3.2) * 0.5;
+      halo.current?.scale.setScalar(1.08 + pulse * 0.12);
+      if (haloMaterial.current) haloMaterial.current.opacity = 0.16 + pulse * 0.16;
+      groundRing.current?.scale.setScalar(1 + pulse * 0.12);
+      if (groundRingMaterial.current) groundRingMaterial.current.opacity = 0.52 + pulse * 0.28;
+    }
+  });
+  return (
+    <group ref={ref} position={[enemy.x, 0, enemy.z]}>
+      <mesh>
+        {boss ? <dodecahedronGeometry args={[size, 1]} /> : <icosahedronGeometry args={[size, 0]} />}
+        <meshStandardMaterial ref={material} color={color} emissive={color} emissiveIntensity={boss ? 0.65 : 0.12} roughness={0.55} />
+      </mesh>
+      {boss && <>
+        <mesh ref={halo}>
+          <icosahedronGeometry args={[size * 1.42, 0]} />
+          <meshBasicMaterial ref={haloMaterial} color="#ff315d" wireframe transparent opacity={0.22} depthWrite={false} toneMapped={false} />
+        </mesh>
+        <mesh ref={groundRing} rotation-x={-Math.PI / 2} position-y={-0.94}>
+          <ringGeometry args={[0.9, 1.04, 48]} />
+          <meshBasicMaterial ref={groundRingMaterial} color="#ff456d" transparent opacity={0.7} depthWrite={false} toneMapped={false} />
+        </mesh>
+      </>}
+    </group>
+  );
+}
+
+function RunPlayer({ player, index, self }: { player: SurvivorPlayer; index: number; self: boolean }) {
+  const style = SURVIVOR_STYLES[player.style];
+  const ref = useRef<THREE.Group>(null);
+  const levelRing = useRef<THREE.Mesh>(null);
+  const levelRingMaterial = useRef<THREE.MeshBasicMaterial>(null);
+  const hitRing = useRef<THREE.Mesh>(null);
+  const hitRingMaterial = useRef<THREE.MeshBasicMaterial>(null);
+  const previousLevel = useRef(player.level);
+  const levelAt = useRef(0);
+  useEffect(() => {
+    if (player.level > previousLevel.current) levelAt.current = serverNow();
+    previousLevel.current = player.level;
+  }, [player.level]);
+  useFrame((_, dt) => {
+    if (!ref.current) return;
+    const target = self ? get().selfAvatar : player;
+    const k = self ? 1 : Math.min(1, dt * 10);
+    ref.current.position.x += (target.x - ref.current.position.x) * k;
+    ref.current.position.z += (target.z - ref.current.position.z) * k;
+    if (levelRing.current && levelRingMaterial.current) {
+      const age = serverNow() - levelAt.current;
+      const progress = Math.max(0, Math.min(1, age / 850));
+      levelRing.current.visible = levelAt.current > 0 && age >= 0 && age < 850;
+      levelRing.current.scale.setScalar(0.36 + progress * 1.35);
+      levelRingMaterial.current.opacity = Math.sin(progress * Math.PI) * 0.9;
+    }
+    if (hitRing.current && hitRingMaterial.current) {
+      const age = serverNow() - player.hitAt;
+      const flash = player.hitAt > 0 && age >= 0 && age < 300 ? 1 - age / 300 : 0;
+      hitRing.current.visible = flash > 0;
+      hitRing.current.scale.setScalar(0.48 + (1 - flash) * 0.55);
+      hitRingMaterial.current.opacity = flash * 0.9;
+    }
+  });
+  return (
+    <group ref={ref} position={[player.x, 0, player.z]} userData={{ noRay: true }}>
+      <mesh ref={levelRing} rotation-x={-Math.PI / 2} position-y={0.045} visible={false}>
+        <ringGeometry args={[0.72, 1, 48]} />
+        <meshBasicMaterial ref={levelRingMaterial} color="#ffe7a0" transparent opacity={0} depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+      </mesh>
+      <mesh ref={hitRing} rotation-x={-Math.PI / 2} position-y={0.052} visible={false}>
+        <ringGeometry args={[0.72, 1, 40]} />
+        <meshBasicMaterial ref={hitRingMaterial} color="#ff5577" transparent opacity={0} depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+      </mesh>
+      <mesh position-y={0.12} rotation-x={-Math.PI / 2}>
+        <circleGeometry args={[0.34, 32]} />
+        <meshBasicMaterial color={colorOf(player.id)} transparent opacity={0.7} />
+      </mesh>
+      <Cyl p={[0, 0.34, 0]} r={0.19} r2={0.16} h={0.44} color={player.alive ? (index === 0 ? '#ffe29a' : '#8ed9ff') : '#55515a'} />
+      <mesh position-y={0.64}>
+        <sphereGeometry args={[0.12, 12, 8]} />
+        <meshStandardMaterial color={player.alive ? '#fff0d5' : '#777'} />
+      </mesh>
+      <Label text={`${style.mark} ${player.name} · Lv.${player.level}`} position={[0, 1.12, 0]} height={0.18} bg={player.alive ? 'rgba(55,28,55,.92)' : 'rgba(45,43,49,.9)'} />
+    </group>
+  );
+}
+
+export function SurvivorObjects() {
+  const run = useStore((s) => s.survivors[s.session ?? '']);
+  const selfId = useStore((s) => s.selfId);
+  return (
+    <>
+      <JoinCircle />
+      <StartAltar />
+      <Label text="宵闇サバイバーズ" position={[0, 2.2, -8]} height={0.34} bg="rgba(48,24,52,.94)" />
+      {Object.values(run?.players ?? {}).map((p, i) => <RunPlayer key={p.id} player={p} index={i} self={p.id === selfId} />)}
+      {run?.enemies.map((e) => <Enemy key={e.id} enemy={e} paused={run.pausedAt != null} />)}
+      {(run?.effects ?? []).flatMap((effect) => effect.targets.map((target, index) => (
+        <AttackTrace key={`${effect.id}:${index}`} effect={effect} target={target} showArea={index === 0} />
+      )))}
+    </>
+  );
+}

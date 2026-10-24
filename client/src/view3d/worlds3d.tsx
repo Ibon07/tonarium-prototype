@@ -7,6 +7,7 @@ import { makeCanvasTexture } from './textTexture.ts';
 import { Box, Cyl, SpawnArea } from './parts3d.tsx';
 import { GameWorld } from './game3d.tsx';
 import { CityWorld } from './city3d.tsx';
+import { SurvivorObjects } from './survivors3d.tsx';
 
 const H = ROOM_HALF;
 const WALL_H = 4;
@@ -16,6 +17,7 @@ const PALETTES: Record<WorldKind, Palette> = {
   room: { floor: '#565961', wall: '#80848e', spawn: '#7fb3ff' },
   cafe: { floor: '#8a5a3b', wall: '#eadcc4', spawn: '#ffd28a' },
   game: { floor: '#3b3f6b', wall: '#2a2d52', spawn: '#9cf0ff' },
+  survivors: { floor: '#38243d', wall: '#4b2945', spawn: '#ef6b9b' },
   city: { floor: '#9db08a', wall: '#ece5d8', spawn: '#7fb3ff' },
 };
 
@@ -253,8 +255,9 @@ function Cafe() {
 
 export function WorldMesh({ kind, map = false }: { kind: WorldKind; map?: boolean }) {
   if (kind === 'game') return <GameWorld pal={PALETTES.game} />;
+  if (kind === 'survivors') return <><Hall /><SurvivorObjects /></>;
   if (kind === 'city') return <CityWorld map={map} />;
   return kind === 'cafe' ? <Cafe /> : <Hall />;
 }
 
-export const WORLD_BG: Record<WorldKind, string> = { room: '#2b2d31', cafe: '#1f1a17', game: '#7fb6e6', city: '#bcd6ec' };
+export const WORLD_BG: Record<WorldKind, string> = { room: '#2b2d31', cafe: '#1f1a17', game: '#7fb6e6', survivors: '#2b2d31', city: '#bcd6ec' };

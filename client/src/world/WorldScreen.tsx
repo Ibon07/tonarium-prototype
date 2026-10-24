@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { SOUNDS } from '../../../shared/sounds.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, WORLD_KINDS } from '../../../shared/worlds.ts';
-import { useStore, get, set, nameOf, sessionOf, isBroadcast, worldKindOf, serverNow } from '../store.ts';
+import { useStore, get, set, save, nameOf, sessionOf, isBroadcast, worldKindOf, serverNow } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { dropFollowers, follow, leaveSession, playSound, requestLive, setViewLive } from '../actions.ts';
 import { dropHammer, place2d } from '../items/actions.ts';
@@ -27,6 +27,8 @@ import { shareFiles, shareYouTube, youTubeId } from '../media.ts';
 import { MediaSync } from '../mediaSync.tsx';
 import { closeWindow, openWindow, setWinMode } from './windows.ts';
 import { touchOnly, usePhone } from '../phone.ts';
+import { MasterVolume } from './VolumeMenus.tsx';
+import { SurvivorPanel } from './SurvivorPanel.tsx';
 
 /** 名前はだれでも変えられ、全員に反映されてログに出る */
 function SessionRename({ current, onDone }: { current: string; onDone: () => void }) {
@@ -52,6 +54,8 @@ function WorldBadge() {
   const wsConnected = useStore((s) => s.wsConnected);
   const broadcast = useStore((s) => isBroadcast(s));
   const kind = useStore((s) => worldKindOf(s));
+  const mode = useStore((s) => s.mode);
+  const survivorWindowOpen = useStore((s) => s.windows.some((w) => w.key === 'survivors'));
   const pending = useStore((s) => !!s.worldPending && s.worldPending.sid === s.session);
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const [profile, setProfile] = useState(false);
@@ -59,6 +63,7 @@ function WorldBadge() {
     <div className="worldbadge">
       <img className="wmark" src="/brand/mark.png" alt="" />
       <span className="wname">{world?.name}</span>
+      {kind === 'survivors' && mode === '2d' && <button className="chipbtn survivor-window-button" onClick={() => openWindow('survivors')}>{survivorWindowOpen ? 'ゲーム画面' : 'ゲームを開く'}</button>}
       {broadcast && <span className="bcpill" title="ブロードキャストモード：距離に関係なく声が届きます"><Icon name="megaphone" size={12} />ブロードキャスト</span>}
       {!wsConnected && <span className="reconn">再接続中…</span>}
       <span className="vline" />
@@ -113,6 +118,7 @@ function Dock() {
     voice: s.voice, micEnabled: s.micEnabled, sharer: s.sharer, selfId: s.selfId, winMode: s.winMode,
   })));
   const [sb, setSb] = useState<DOMRect | null>(null);
+  const [vol, setVol] = useState<DOMRect | null>(null);
   const ok = voice === 'connected';
   const sharingSelf = sharer === selfId;
   return (
@@ -130,6 +136,9 @@ function Dock() {
       <button className="dk" aria-label="サウンドボード" title="サウンドボード" data-popanchor onClick={(e) => setSb(sb ? null : e.currentTarget.getBoundingClientRect())}>
         <Icon name="music" size={22} />
       </button>
+      <button className="dk" aria-label="音量" title="音量" data-popanchor onClick={(e) => setVol(vol ? null : e.currentTarget.getBoundingClientRect())}>
+        <Icon name="volume" size={22} />
+      </button>
       <span className="dsep" />
       <div className="dseg" role="radiogroup" aria-label="ウィンドウの表示">
         <button role="radio" aria-checked={winMode === 'simple'} className={winMode === 'simple' ? 'on' : ''} onClick={() => setWinMode('simple')} title="開いたものを 1 つ大きく表示し、ほかは下に並べる">
@@ -142,6 +151,7 @@ function Dock() {
       <span className="dsep" />
       <button className="dk leave" onClick={leaveSession} aria-label="切断" title="切断（セッション選択に戻る）"><Icon name="leave" size={22} /></button>
       {sb && <Soundboard anchor={sb} onClose={() => setSb(null)} />}
+      {vol && <MasterVolume anchor={vol} onClose={() => setVol(null)} />}
     </div>
   );
 }
@@ -465,9 +475,33 @@ export function WorldScreen() {
   }, [phone]);
   const dragging = useMediaInput();
   const mode = useStore((s) => s.mode);
+  const worldKind = useStore((s) => worldKindOf(s));
   const locked = useStore((s) => s.locked);
   const folded = useStore((s) => s.folded);
   const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (worldKind === 'survivors' && mode === '2d') openWindow('survivors');
+    else if (worldKind !== 'survivors') {
+      closeWindow('survivors', true);
+      closeWindow('survivor-library', true);
+    }
+  }, [worldKind, mode]);
+  useEffect(() => {
+    if (mode !== '3d') return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Tab' || isTyping(e.target)) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      set((s) => {
+        const fold = !(s.folded.left && s.folded.right);
+        const folded = { ...s.folded, left: fold, right: fold };
+        save('tonarium.folded', folded);
+        return { folded };
+      });
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mode]);
   return (
     <div ref={root} className={`world ${mode} ${locked ? 'locked' : ''} ${folded.left ? 'fl' : ''} ${folded.right ? 'fr' : ''} ${phone ? `phone pt-${phoneTab}` : ''}`}>
       {mode === '3d' && <View3D />}
@@ -475,6 +509,7 @@ export function WorldScreen() {
       <WindowLayer />
       <PortraitCanvas />
       <div className="front">
+        {worldKind === 'survivors' && mode === '3d' && <SurvivorPanel overlay />}
         <WorldBadge />
         <NearList />
         <FaceStrip />

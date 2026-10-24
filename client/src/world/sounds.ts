@@ -1,3 +1,5 @@
+import { fxVolume } from '../volume.ts';
+
 let ctx: AudioContext | null = null;
 
 function tone(c: AudioContext, out: AudioNode, t: number, f0: number, f1: number, dur: number, type: OscillatorType, vol: number) {
@@ -45,13 +47,15 @@ export function playPoke() {
   try {
     ctx ??= new AudioContext();
     const t = ctx.currentTime;
-    tone(ctx, ctx.destination, t, 700, 1100, 0.09, 'sine', 0.3);
-    tone(ctx, ctx.destination, t + 0.13, 800, 1300, 0.09, 'sine', 0.3);
+    const v = 0.3 * fxVolume();
+    tone(ctx, ctx.destination, t, 700, 1100, 0.09, 'sine', v);
+    tone(ctx, ctx.destination, t + 0.13, 800, 1300, 0.09, 'sine', v);
   } catch { /* 音が出せない環境では無視 */ }
 }
 
-export function playSynth(id: string, volume: number) {
+export function playSynth(id: string, distanceVolume: number) {
   const f = SYNTH[id];
+  const volume = distanceVolume * fxVolume();
   if (!f || volume <= 0.001) return;
   try {
     ctx ??= new AudioContext();
