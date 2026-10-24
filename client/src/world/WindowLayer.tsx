@@ -14,6 +14,7 @@ import { Icon } from './Icon.tsx';
 import { ItemMark, Viewers, itemLabel } from './common.tsx';
 import { closeWindow, moveWindow, raiseWindow, toggleMax } from './windows.ts';
 import { AvatarView } from './Portraits.tsx';
+import { PortraitEmote } from './Emotes.tsx';
 import { MediaControls, VideoHost, mediaVolume, videoEls } from '../mediaSync.tsx';
 import { YouTubePlayer, youTubeDuration } from '../youtube.tsx';
 import { send } from '../net/ws.ts';
@@ -108,7 +109,7 @@ function useResolved(key: string, compact: boolean): Resolved | null {
     return {
       kind: 'face', dark: false, title: self ? `${u.name}（あなた）` : u.name, sub: self ? `${u.mode.toUpperCase()} で参加中` : at(u.id),
       width: 480, aspect: 4 / 3, noMax: true,
-      body: <div className={`facewin ${speaking ? 'speaking' : ''}`}><AvatarView u={u} speaking={speaking} /></div>,
+      body: <div className={`facewin ${speaking ? 'speaking' : ''}`}><AvatarView u={u} speaking={speaking} comic /><PortraitEmote id={u.id} announcementOnly /></div>,
     };
   }
   const id = key.slice(key.indexOf(':') + 1);

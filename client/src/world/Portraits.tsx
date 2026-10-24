@@ -1,10 +1,12 @@
-import { Suspense, useMemo } from 'react';
+import { Suspense, useMemo, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { PerspectiveCamera, View } from '@react-three/drei';
 import * as THREE from 'three';
 import type { User } from '../../../shared/protocol.ts';
-import { colorOf } from '../store.ts';
+import { colorOf, get } from '../store.ts';
+import { useReducedMotion } from '../emotes.ts';
 import { OekakiAvatar } from '../view3d/OekakiAvatar.tsx';
+import { Emote3D } from '../view3d/Emote3D.tsx';
 import { pitchOf } from '../spatial.ts';
 
 /** 各 View は自分の枠だけ描くので、枠が動いたあとに残像が出ないよう毎フレーム全体を消す */
@@ -64,17 +66,36 @@ function RoundedBackground({ color, radius }: { color: THREE.Color; radius: numb
 }
 
 /** 顔のタイルに置く。胸から上をアバターの正面（-Z 側）から写す */
-export function AvatarView({ u, speaking, small = false }: { u: User; speaking: boolean; small?: boolean }) {
+function PortraitCamera({ id, small }: { id: string; small: boolean }) {
+  const camera = useRef<THREE.PerspectiveCamera>(null);
+  const target = useRef(small ? 1.02 : 0.95);
+  const reduced = useReducedMotion();
+  useFrame((_, dt) => {
+    const c = camera.current;
+    if (!c) return;
+    const emote = get().emotes[id];
+    const active = !!emote && !reduced;
+    const fallen = active && emote.id === 'fall';
+    const k = Math.min(1, dt * 12);
+    // Include the feet, raised hands and a sideways fall inside the call tile.
+    c.position.z += ((active ? emote.id === 'hop' ? -3.4 : -2.9 : small ? -1 : -1.25) - c.position.z) * k;
+    c.position.x += ((fallen ? 0.45 : 0) - c.position.x) * k;
+    c.position.y += ((active ? fallen ? 0.3 : 0.8 : 1.05) - c.position.y) * k;
+    target.current += ((active ? fallen ? 0.25 : 0.75 : small ? 1.02 : 0.95) - target.current) * k;
+    c.lookAt(c.position.x, target.current, 0);
+  });
+  return <PerspectiveCamera ref={camera} makeDefault fov={30} position={[0, 1.05, small ? -1 : -1.25]} />;
+}
+
+export function AvatarView({ u, speaking, small = false, comic = false }: { u: User; speaking: boolean; small?: boolean; comic?: boolean }) {
   const bg = useMemo(() => new THREE.Color(colorOf(u.id)).lerp(new THREE.Color('#ffffff'), 0.8), [u.id]);
   return (
     <View className="avatarview" index={2}>
       <RoundedBackground color={bg} radius={small ? 10 : 14} />
-      <PerspectiveCamera
-        makeDefault fov={30} position={[0, 1.05, small ? -1.0 : -1.25]}
-        onUpdate={(c) => c.lookAt(0, small ? 1.02 : 0.95, 0)}
-      />
+      <PortraitCamera id={u.id} small={small} />
+      {comic && <Emote3D id={u.id} portrait />}
       <Suspense fallback={null}>
-        <OekakiAvatar name={u.name} version={u.avatar} speaking={speaking} look={() => pitchOf(u.id)} />
+        <OekakiAvatar userId={u.id} name={u.name} version={u.avatar} speaking={speaking} look={() => pitchOf(u.id)} />
       </Suspense>
     </View>
   );

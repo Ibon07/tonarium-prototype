@@ -5,9 +5,14 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { DEFAULT_PARAMS, sanitizeParams, type AvatarParams } from '../../../shared/avatar.ts';
 import { avatarParamsUrl, avatarTextureUrl } from '../avatar.ts';
+import { emotePose } from '../../../shared/emotes.ts';
+import { get } from '../store.ts';
+import { useReducedMotion } from '../emotes.ts';
 
 const MODEL = '/oekaki/avatar.glb';
 const X_AXIS = new THREE.Vector3(1, 0, 0);
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
+const handQ = new THREE.Quaternion();
 const tiltQ = new THREE.Quaternion();
 useGLTF.preload(MODEL);
 
@@ -43,7 +48,7 @@ function baseAnimation(p: AvatarParams) {
 
 /** モデルは +Z 向きなので、こちらの「前 = -Z」に合わせて回してある */
 /** look は顔の上下の向き（ラジアン、上向きが正）を返す */
-export function OekakiAvatar({ name, version, speaking, look }: { name: string; version: string | null; speaking: boolean; look?: () => number }) {
+export function OekakiAvatar({ name, version, speaking, look, userId }: { name: string; version: string | null; speaking: boolean; look?: () => number; userId?: string }) {
   const { scene, animations } = useGLTF(MODEL);
   const clone = useMemo(() => scene.clone(), [scene]);
   const { nodes } = useGraph(clone);
@@ -52,6 +57,10 @@ export function OekakiAvatar({ name, version, speaking, look }: { name: string; 
   const mixer = useMemo(() => new THREE.AnimationMixer(clone), [clone]);
   const face = useRef<THREE.Texture | null>(null);
   const blink = useRef(0);
+  const motion = useRef<THREE.Group>(null);
+  const reduced = useReducedMotion();
+  // Restore the preceding mixer pose before the next tick, including untracked axes.
+  const hands = useMemo(() => [nodes.LeftHand, nodes.RightHand].map((o) => o ? { o, q: o.quaternion.clone(), p: o.position.clone() } : null), [nodes]);
 
   useEffect(() => {
     let alive = true;
@@ -99,10 +108,31 @@ export function OekakiAvatar({ name, version, speaking, look }: { name: string; 
   // 顔の板はもともと回転が付いているので、その上に傾きを掛ける
   const faceBase = useMemo(() => [nodes.Head_Front, nodes.Head_Back].filter(Boolean).map((o) => ({ o, q: o.quaternion.clone() })), [nodes]);
   useFrame((_, dt) => {
+    for (const h of hands) if (h) { h.o.quaternion.copy(h.q); h.o.position.copy(h.p); }
     mixer.update(dt);
+    for (const h of hands) if (h) { h.q.copy(h.o.quaternion); h.p.copy(h.o.position); }
+    const emote = userId ? get().emotes[userId] : undefined;
+    const pose = emotePose(emote?.id ?? 'wave', emote && !reduced ? performance.now() - emote.started : -1);
+    if (motion.current) {
+      motion.current.position.y = pose.y;
+      motion.current.rotation.set(pose.rx, 0, pose.rz);
+      motion.current.scale.set(pose.sx, pose.sy, 1);
+    }
+    hands.forEach((h, i) => {
+      if (!h) return;
+      const angle = i === 0 ? pose.left : pose.right;
+      const lift = i === 0 ? pose.liftLeft : pose.liftRight;
+      if (lift > 0) {
+        // Hands in the source model have a twisted idle pose. Face their palms
+        // forward while lifting them beside the head so the wave is readable.
+        h.o.quaternion.slerp(handQ.setFromAxisAngle(Z_AXIS, angle), pose.hands);
+        h.o.position.x += (i === 0 ? 13 : -13) * pose.hands;
+      } else h.o.rotateZ(angle);
+      h.o.position.y += lift;
+    });
     // Head は体ごとの親でアニメーションも付いているので、顔の板だけを傾ける。モデルは +Z 向きなので上を向くのは -X 回転
     tilt.current += ((look?.() ?? 0) - tilt.current) * Math.min(1, dt * 10);
-    tiltQ.setFromAxisAngle(X_AXIS, -Math.max(-0.7, Math.min(0.7, tilt.current * 0.8)));
+    tiltQ.setFromAxisAngle(X_AXIS, pose.bow - Math.max(-0.7, Math.min(0.7, tilt.current * 0.8)));
     for (const f of faceBase) f.o.quaternion.copy(tiltQ).multiply(f.q);
     const f = face.current;
     if (!f) return;
@@ -113,5 +143,5 @@ export function OekakiAvatar({ name, version, speaking, look }: { name: string; 
     f.offset.x = mouth ? FACE.mouthOpen : blink.current > 0 ? FACE.eyesClosed : FACE.normal;
   });
 
-  return <primitive object={clone} scale={0.012} rotation-y={Math.PI} />;
+  return <group ref={motion}><primitive object={clone} scale={0.012} rotation-y={Math.PI} /></group>;
 }
