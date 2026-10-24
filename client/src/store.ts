@@ -94,6 +94,8 @@ interface State {
   lightweight: boolean;
   /** 2D の背景に出すマップ（手元に保存）。マップを入れるべきか試すための設定 */
   mapMode: 'none' | '2d' | '3d';
+  /** 声の湯気：会話のあった場所の熱をマップに残す（手元に保存） */
+  voiceHeat: boolean;
   /** マップで選んだ目的地へ 2D の自分が歩いている途中 */
   walk: Walk | null;
   /** 動画・YouTube ごとの自分だけの音量（0〜1）。無ければ既定の半分 */
@@ -247,6 +249,7 @@ export const useStore = create<State>(() => ({
   loadScale: load('tonarium.loadScale', 1),
   lightweight: load('tonarium.lightweight', false),
   mapMode: load('tonarium.mapMode', 'none'),
+  voiceHeat: load('tonarium.voiceHeat', true),
   walk: null,
   volumes: {},
   audioVol: load('tonarium.audioVol', { voice: 1, fx: 1, media: 1 }),

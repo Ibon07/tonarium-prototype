@@ -3,7 +3,7 @@ import { iconUrl, pickIcon } from './icon.ts';
 import { avatarTextureUrl, uploadAvatarImage, uploadAvatarManifest } from './avatar.ts';
 import { send } from './net/ws.ts';
 import { useStore } from './store.ts';
-import { setLightweight, setLoadScale, setMapMode } from './actions.ts';
+import { setLightweight, setLoadScale, setMapMode, setVoiceHeat } from './actions.ts';
 
 const LOAD_SCALES = [0, 0.5, 1, 2, 3];
 
@@ -19,6 +19,7 @@ export function ProfileDialog({ name, onClose }: { name: string; onClose: () => 
   const loadScale = useStore((s) => s.loadScale);
   const lightweight = useStore((s) => s.lightweight);
   const mapMode = useStore((s) => s.mapMode);
+  const voiceHeat = useStore((s) => s.voiceHeat);
   useEffect(() => {
     let alive = true;
     void fetch(`/profile?name=${encodeURIComponent(n)}`).then((r) => r.json()).then((p: { bio: string }) => { if (alive) setBio(p.bio); });
@@ -92,6 +93,11 @@ export function ProfileDialog({ name, onClose }: { name: string; onClose: () => 
             ))}
           </div>
           <div className="sub">2D で参加しているときの背景に出します。クリックした場所へ移動、ホイールで拡大縮小、ホイールを押しながらドラッグで動かす、スペースで元に戻す。3D マップは右ドラッグで角度を変えられます。この端末にだけ保存されます</div>
+          <label className="checkrow">
+            <input type="checkbox" checked={voiceHeat} onChange={(e) => setVoiceHeat(e.target.checked)} />
+            声の湯気（会話のあった場所の熱をマップに残す）
+          </label>
+          <div className="sub">話した場所が温かく光り、会話が終わっても数分でゆっくり冷めていきます。会話の内容は残りません</div>
         </section>
         {message && <div className="msgline">{message}</div>}
         <div className="row end"><button onClick={onClose}>閉じる</button></div>
