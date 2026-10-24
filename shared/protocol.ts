@@ -309,6 +309,7 @@ export type RoomClientMsg =
   | { t: 'viewing'; keys: string[] }
   | { t: 'poke'; to: string }
   | { t: 'sound'; id: string }
+  | { t: 'emote'; id: import('./emotes.ts').EmoteId }
   /** ついていっている相手に視点のライブを頼む */
   | { t: 'liveRequest'; to: string }
   | { t: 'viewLive'; on: boolean }
@@ -343,7 +344,7 @@ export type ClientMsg = HomeClientMsg | RoomClientMsg;
 const ROOM_CLIENT_TYPES: Record<RoomClientMsg['t'], true> = {
   peerOperation: true,
   sync: true, mode: true, status: true, follow: true, dropFollowers: true, place2d: true, displayMove: true, chat: true, avatar: true,
-  viewing: true, poke: true, sound: true, liveRequest: true, viewLive: true, itemCreate: true, attention: true, broadcast: true, world: true, sessionRename: true,
+  viewing: true, poke: true, sound: true, emote: true, liveRequest: true, viewLive: true, itemCreate: true, attention: true, broadcast: true, world: true, sessionRename: true,
   gameStart: true, gameStep: true, gameFell: true, survivorStyle: true, survivorStart: true, survivorMove: true, survivorChoose: true, survivorUpgrade: true, survivorReset: true,
   elevatorCall: true, itemRemove: true, itemMove: true, itemAction: true, hit: true,
 };
@@ -386,6 +387,7 @@ export type RoomServerMsg =
   | { t: 'hit'; sid: string; from: string; to: string }
   | { t: 'poke'; sid: string; from: string; to: string }
   | { t: 'sound'; sid: string; from: string; id: string }
+  | { t: 'emote'; sid: string; from: string; id: import('./emotes.ts').EmoteId; at: number }
   | { t: 'liveRequest'; sid: string; from: string }
   | { t: 'attention'; sid: string; from: string; key: string }
   | { t: 'broadcast'; sid: string; on: boolean }

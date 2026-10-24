@@ -21,6 +21,7 @@ import { VOICE_RANGE, clampAvatar, computePlaces, placeDistance } from '../share
 import { clampCity } from '../shared/city.ts';
 import { callElevator, elevatorOf, resetElevator } from './city.ts';
 import { SOUNDS } from '../shared/sounds.ts';
+import { EMOTES, isEmoteId } from '../shared/emotes.ts';
 import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts';
 import type { PeerOperation } from '../shared/session-events.ts';
 import { getOgp } from './ogp.ts';
@@ -146,6 +147,7 @@ const avatars = new Map<string, Map<string, AvatarState>>();
 const items = new Map<string, Map<string, Item>>();
 const broadcastMode = new Map<string, boolean>();
 const lastAttention = new Map<string, number>();
+const emoteUntil = new WeakMap<Participant, number>();
 const worldOf = new Map<string, WorldKind>();
 // アイテムはだれもいなくなっても残し、再起動しても戻す（盤面の続きをするため）
 const savedItems = readJson<Record<string, Item[]>>(ITEMS_FILE, {});
@@ -474,6 +476,7 @@ const survivorDeps: SurvivorDeps = {
 setInterval(() => tickSurvivors(Date.now(), survivorDeps), SURVIVOR_TICK_MS);
 
 function leaveSession(u: Participant) {
+  emoteUntil.delete(u);
   revokeUserSync(u.id);
   const sid = u.session;
   if (!sid) return;
@@ -747,6 +750,14 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
       me.viewLive = on;
       sendPresence(sid);
       event(sid, on ? `${me.name} が視点のライブを始めました（ついてきている人向け）` : `${me.name} が視点のライブを止めました`);
+      return;
+    }
+    case 'emote': {
+      if (!isEmoteId(msg.id)) return;
+      const at = Date.now();
+      if (at < (emoteUntil.get(me) ?? 0)) return;
+      emoteUntil.set(me, at + EMOTES[msg.id].duration);
+      roomSend(sid, { t: 'emote', sid, from: me.id, id: msg.id, at });
       return;
     }
     case 'sound': {

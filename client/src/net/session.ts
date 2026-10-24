@@ -227,7 +227,7 @@ export async function configureSessionSync(id: string, next: SyncConfig) {
 export function roomSend(msg: RoomClientMsg) {
   if (!get().session) return;
   if (!ready && msg.t !== 'sync') {
-    if (['avatar', 'mode', 'status', 'viewing'].includes(msg.t)) return;
+    if (['avatar', 'mode', 'status', 'viewing', 'emote'].includes(msg.t)) return;
     if (!requestId) { showToast('接続が完了してから、もう一度操作してください'); return; }
     if (pending.length < 128 && pack(pending).length + pack(msg).length < 2 * 1024 * 1024) pending.push(msg);
     else showToast('接続が完了してから、もう一度操作してください');
