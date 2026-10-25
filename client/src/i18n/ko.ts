@@ -1,4 +1,7 @@
 export default {
+  "doubleJumpSetting": "이단 점프",
+  "leanSetting": "좌우 기울이기 (Q / E)",
+  "leanControls": " · Q / E: 좌우 기울이기",
   "chatOriginal": "원문:",
   "chatSourceLanguage": "발화 언어: {0}",
   "chatLanguageUnknown": "알 수 없음",

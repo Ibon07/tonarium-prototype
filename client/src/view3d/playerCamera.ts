@@ -8,6 +8,7 @@ export class PlayerCamera {
   actualDistance = 0;
   readonly avatarPosition = new THREE.Vector3();
   yaw = 0;
+  lean = 0;
   private readonly direction = new THREE.Vector3();
   private readonly ray = new THREE.Raycaster();
   private readonly obstacles: THREE.Mesh[] = [];

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CAMERA_DISTANCE, PlayerCamera } from './playerCamera.ts';
 import { aimAt } from './interact.ts';
+import { LEAN_ANGLE } from './movementAbilities.ts';
 
 const close = (a: number, b: number) => assert.ok(Math.abs(a - b) < 1e-6, `${a} != ${b}`);
 function setup() {
@@ -19,6 +20,31 @@ function wall(scene: THREE.Scene, z: number) {
   scene.add(mesh);
   return mesh;
 }
+
+test('lean preserves player position, view direction and camera distance in both views', () => {
+  const { rig, camera, scene, anchor } = setup();
+  const original = anchor.clone();
+  for (const thirdPerson of [false, true]) {
+    rig.thirdPerson = thirdPerson;
+    for (const yaw of [0, Math.PI / 2, -1]) {
+      for (const pitch of [-1.4, 0, 1.4]) {
+        camera.rotation.set(pitch, yaw, 0);
+        rig.place(camera, scene, anchor);
+        const position = camera.position.clone();
+        const direction = camera.getWorldDirection(new THREE.Vector3());
+        for (const angle of [LEAN_ANGLE, -LEAN_ANGLE, 0]) {
+          rig.lean = angle;
+          camera.rotation.set(pitch, yaw, rig.lean);
+          rig.place(camera, scene, anchor);
+          close(anchor.distanceTo(original), 0);
+          close(camera.position.distanceTo(position), 0);
+          close(camera.getWorldDirection(new THREE.Vector3()).distanceTo(direction), 0);
+          close(camera.rotation.z, angle);
+        }
+      }
+    }
+  }
+});
 
 test('starts in first person; T toggles once per press and F5 keeps its browser default', () => {
   const { rig } = setup();

@@ -163,6 +163,8 @@ interface State extends AdSlice {
   swings: Record<string, number>;
   hitFx: { key: number; from: string; to: string }[];
   movementMode: MovementMode;
+  doubleJump: boolean;
+  lean: boolean;
   locked: boolean;
   aimHint: string | null;
 
@@ -289,6 +291,8 @@ export const useStore = create<State>((set, get) => ({
   swings: {},
   hitFx: [],
   movementMode: 'walk',
+  doubleJump: load('tonarium.doubleJump', false),
+  lean: load('tonarium.lean', true),
   locked: false,
   aimHint: null,
   selfAvatar: spawnPoint(),

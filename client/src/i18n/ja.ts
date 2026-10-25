@@ -1,4 +1,7 @@
 export default {
+  "doubleJumpSetting": "二段ジャンプ",
+  "leanSetting": "左右リーン（Q / E）",
+  "leanControls": " ・ Q / E：左右リーン",
   "chatOriginal": "原文：",
   "chatSourceLanguage": "発言言語：{0}",
   "chatLanguageUnknown": "不明",
