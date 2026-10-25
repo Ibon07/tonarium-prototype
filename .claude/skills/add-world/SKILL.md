@@ -1,6 +1,6 @@
 ---
 name: add-world
-description: Tonarium に新しいワールド（セッションが読み込む 3D 空間の種類。今はホールとカフェ）を追加する、または既存ワールドの家具や見た目を変えるときの手順と、触るファイルの一覧。
+description: Tonarium に新しいワールド（セッションが読み込む 3D 空間の種類。現行はホール・カフェ・ゲーム・サバイバーズ・街・ガーデン・星あかりのラウンジ・AD 研究所の8種）を追加する、または既存ワールドの家具や見た目を変えるときの手順と、触るファイルの一覧。
 ---
 
 # ワールドを追加する
@@ -27,8 +27,11 @@ description: Tonarium に新しいワールド（セッションが読み込む 
    - `PALETTES` に床・壁・スポーンエリアの色、`WORLD_BG` に背景色を足す
    - 家具などの中身をコンポーネントで書き（`Cafe` を参考に、`Box`・`Cyl` を使う）、`WorldMesh` の分岐に足す。床と壁は `Shell` が描く
    - 光源もワールドごとに置く（`Hall` と `Cafe` の先頭を参照）。照準の当たり判定が要らない飾りは `userData={{ noRay: true }}`
-3. `sessions.json`：あるセッションの最初のワールドにするなら `"world": "<種類>"`
-4. ドキュメント：`docs/3d.md` の「ワールド」の節と、README の「セッション構成の変更」の `world` の候補を更新する
+3. `client/src/home/SessionCard.tsx` と `client/src/home/pages.tsx`（必須）
+   - `WORLD_TINT`（SessionCard）と `WORLD_FACE`（pages）はどちらも `Record<WorldKind, string>` で、足さないと型チェックが落ちる
+   - `Home.tsx` と `messages.tsx` にも同名の色テーブルがあるが、そちらは `Record<string>` で型上は必須ではない（見た目を揃えるなら任意で足す）
+4. `sessions.json`：あるセッションの最初のワールドにするなら `"world": "<種類>"`
+5. ドキュメント：`docs/3d.md` の「ワールド」の節と、README の「セッション構成の変更」の `world` の候補を更新する
 
 ## 確認
 
