@@ -2,6 +2,7 @@ import { sourceText as uiSource } from '../i18n/core.ts';
 import { t as tr, systemText } from '../i18n/index.ts';
 import { contentAvailable, productFor } from '../../../shared/market.ts';
 import { MOVEMENT_MODES } from '../view3d/movement.ts';
+import { KeyHelp } from '../view3d/KeyHelp.tsx';
 import { useOwnedContent } from '../market/store.ts';
 import { OriginBadge } from '../market/OriginBadge.tsx';
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
@@ -561,7 +562,7 @@ export function WorldScreen() {
         <NearList />
         <FaceStrip />
         <NoticeLog />
-        <StatusChips />
+        {mode === '3d' ? <div className="view3d-hud"><KeyHelp /><StatusChips /></div> : <StatusChips />}
         <Dock />
         {phone && <PhoneTabs />}
       </div>
