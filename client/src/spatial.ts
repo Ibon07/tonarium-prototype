@@ -1,18 +1,17 @@
 import { useSyncExternalStore } from 'react';
-import { VOICE_RANGE, computePlaces, placeDistance, type Place } from '../../shared/places.ts';
+import { VOICE_RANGE, placeDistance, type Place } from '../../shared/places.ts';
 import { formatDistance, nearbyUsers, projectProximity, stepTrend, type ListedItem, type ListedPlayer, type TrendState } from './nearby.ts';
 import { useStore, get, isBroadcast } from './store.ts';
 import { peerGain } from './volume.ts';
+import { placesFromInputs } from './placesMemo.ts';
 
 export { formatDistance };
 
 export type { Place };
 
-/** 自分の 3D 位置と、マップで歩いている途中の 2D 位置は、サーバー経由より手元の値が新しい */
+/** 自分の 3D 位置と、マップで歩いている途中の 2D 位置は、サーバー経由より手元の値が新しい。結果は入力が変わるまで共有される（placesMemo） */
 export function placesOf(s = get()): Map<string, Place> {
-  const out = computePlaces(s.participants, (id) => (id === s.selfId ? (s.mode === '3d' ? s.selfAvatar : undefined) : s.avatars[id]));
-  if (s.walk && s.mode === '2d' && out.has(s.selfId)) out.set(s.selfId, { ...s.walk.at, small: false });
-  return out;
+  return placesFromInputs({ participants: s.participants, avatars: s.avatars, selfId: s.selfId, selfAvatar: s.selfAvatar, mode: s.mode, walk: s.walk });
 }
 
 /** 3D の人の顔の上下。自分は手元の値が新しい */
@@ -163,7 +162,24 @@ export function volumeAt(x: number, z: number) {
   return me ? falloff(Math.hypot(x - me.x, z - me.z)) : 0;
 }
 
-const blockedIds = (s = get()) => new Set(s.users.filter((u) => s.blocked.includes(u.name)).map((u) => u.id));
+type StoreState = ReturnType<typeof get>;
+
+// 音量更新（100ms 間隔）のたびに作り直さないよう、users / blocked の参照が変わった時だけ再構築する
+let blockedCache: { users: StoreState['users']; blocked: StoreState['blocked']; set: Set<string> } | null = null;
+const blockedIds = (s = get()) => {
+  if (blockedCache && blockedCache.users === s.users && blockedCache.blocked === s.blocked) return blockedCache.set;
+  const set = new Set(s.users.filter((u) => s.blocked.includes(u.name)).map((u) => u.id));
+  blockedCache = { users: s.users, blocked: s.blocked, set };
+  return set;
+};
+
+let namesCache: { users: StoreState['users']; map: Map<string, string> } | null = null;
+const namesOf = (s = get()) => {
+  if (namesCache && namesCache.users === s.users) return namesCache.map;
+  const map = new Map(s.users.map((u) => [u.id, u.name]));
+  namesCache = { users: s.users, map };
+  return map;
+};
 
 let ctx: AudioContext | null = null;
 const voices = new Map<string, { gain: GainNode; pan: StereoPannerNode; source: MediaStreamAudioSourceNode }>();
@@ -207,7 +223,7 @@ function update() {
   const directional = s.mode === '3d' || !!(s.participants.find((p) => p.id === s.selfId)?.follow);
   const blocked = blockedIds(s);
   const bc = isBroadcast(s);
-  const names = new Map(s.users.map((u) => [u.id, u.name]));
+  const names = namesOf(s);
   for (const [id, v] of voices) {
     const p = places.get(id);
     let g = 0;
