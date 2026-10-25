@@ -1,7 +1,10 @@
+import { sourceText as uiSource } from '../i18n/core.ts';
+import { t as tr, localized } from '../i18n/index.ts';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ChatMessage } from '../../../shared/protocol.ts';
-import { ITEM_INFO, type Item } from '../../../shared/items.ts';
+import { ITEM_INFO } from '../i18n/static.ts';
+import { type Item } from '../../../shared/items.ts';
 import { NEAR_RANGE, VOICE_RANGE } from '../../../shared/places.ts';
 import { bandOf, type Band, type ListedPlayer } from '../nearby.ts';
 import { useStore, set, colorOf, heldHammer } from '../store.ts';
@@ -29,15 +32,15 @@ export function ItemMark({ item, size = 32, by }: { item: Item; size?: number; b
   );
 }
 
-export const Badge3D = () => <span className="b3d" title="3D モードで参加中">3D</span>;
+export const Badge3D = () => <span className="b3d" title={tr("ui552")}>3D</span>;
 
 export function Viewers({ keyName, dark = false }: { keyName: string; dark?: boolean }) {
   const viewers = useStore((s) => s.participants).filter((u) => u.viewing.includes(keyName));
   if (!viewers.length) return null;
   const shown = viewers.slice(0, 3);
   return (
-    <span className={`viewers ${dark ? 'dark' : ''}`} title={`閲覧中：${viewers.map((v) => v.name).join('、')}`} aria-label={`閲覧中 ${viewers.length}人`}>
-      <span className="vlabel">閲覧中</span>
+    <span className={`viewers ${dark ? 'dark' : ''}`} title={tr("ui553", viewers.map((v) => v.name).join('、'))} aria-label={tr("ui554", viewers.length)}>
+      <span className="vlabel">{tr("ui555")}</span>
       {shown.map((v) => <Face key={v.id} id={v.id} name={v.name} size={22} />)}
       {viewers.length > 3 && <span className="vmore">+{viewers.length - 3}</span>}
     </span>
@@ -46,11 +49,11 @@ export function Viewers({ keyName, dark = false }: { keyName: string; dark?: boo
 
 export type { Band };
 export { bandOf };
-export const BANDS: { band: Band; label: string; range: string; dot: string }[] = [
-  { band: 'near', label: 'すぐそば', range: `〜${NEAR_RANGE}m`, dot: '#2E9A64' },
-  { band: 'mid', label: '声が届く', range: `〜${VOICE_RANGE}m`, dot: '#D9A02B' },
-  { band: 'far', label: 'とおく', range: `${VOICE_RANGE}m〜`, dot: '#9A98A2' },
-];
+export const BANDS: { band: Band; label: string; range: string; dot: string }[] = localized([
+  { band: 'near', label: uiSource('ui556'), range: `〜${NEAR_RANGE}m`, dot: '#2E9A64' },
+  { band: 'mid', label: uiSource('ui557'), range: `〜${VOICE_RANGE}m`, dot: '#D9A02B' },
+  { band: 'far', label: uiSource('ui558'), range: `${VOICE_RANGE}m〜`, dot: '#9A98A2' },
+]);
 
 export type PlayerEntry = ListedPlayer;
 
@@ -77,7 +80,7 @@ export function windowKeyOf(item: Item, camFeeds: Record<string, number>) {
 }
 
 export const itemLabel = (item: Item) =>
-  item.kind === 'note' ? (item.text.split('\n')[0].slice(0, 16) || '付箋（空）')
+  item.kind === 'note' ? (item.text.split('\n')[0].slice(0, 16) || tr("ui559"))
     : item.kind === 'youtube' && item.title ? item.title.slice(0, 24)
     : ITEM_INFO[item.kind].name;
 
@@ -109,7 +112,7 @@ export function Lightbox() {
   return (
     <div className="lightbox" onClick={() => set({ lightbox: null })}>
       <img src={src} alt="" />
-      <a className="dl" href={src} download="tonarium.jpg" onClick={(e) => e.stopPropagation()}>保存</a>
+      <a className="dl" href={src} download="tonarium.jpg" onClick={(e) => e.stopPropagation()}>{tr("ui560")}</a>
     </div>
   );
 }

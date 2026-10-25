@@ -1,7 +1,9 @@
+import { t as tr } from '../i18n/index.ts';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
-import { ITEM_INFO, NOTE_COLORS, type Item } from '../../../shared/items.ts';
+import { ITEM_INFO } from '../i18n/static.ts';
+import { NOTE_COLORS, type Item } from '../../../shared/items.ts';
 import { useStore, get, nameOf, type Win } from '../store.ts';
 import { useDistanceLabel } from '../spatial.ts';
 import { PANELS } from '../items/panels.ts';
@@ -55,16 +57,16 @@ function NoteBody({ note }: { note: Item & { kind: 'note' } }) {
   return (
     <div className="notebody" style={{ background: note.color }}>
       <textarea
-        value={note.text} placeholder="付箋に書く" aria-label="付箋の内容"
+        value={note.text} placeholder={tr("ui827")} aria-label={tr("ui537")}
         onFocus={() => selectNote(note.id)} onBlur={() => selectNote(null)}
         onChange={(e) => editNote(note.id, { text: e.target.value })}
       />
       <div className="notefoot">
         {NOTE_COLORS.map((c) => (
-          <button key={c} className="swatch" style={{ background: c }} aria-label="色を変える" onClick={() => editNote(note.id, { color: c })} />
+          <button key={c} className="swatch" style={{ background: c }} aria-label={tr("ui828")} onClick={() => editNote(note.id, { color: c })} />
         ))}
         <span className="spacer" />
-        <span className="sub">{lockedByOther ? `${nameOf(note.editingBy)} が編集中` : `更新: ${nameOf(note.updatedBy)}`}</span>
+        <span className="sub">{lockedByOther ? tr("ui829", nameOf(note.editingBy)) : tr("ui830", nameOf(note.updatedBy))}</span>
       </div>
     </div>
   );
@@ -82,25 +84,25 @@ function useResolved(key: string, compact: boolean): Resolved | null {
     survivor: s.survivors[s.session ?? ''],
     speaking: key.startsWith('face:') ? !!s.speaking[key.slice(5)] : false,
   })));
-  const name = (id: string | null) => (id ? users.find((p) => p.id === id)?.name ?? '（退出済み）' : '');
+  const name = (id: string | null) => (id ? users.find((p) => p.id === id)?.name ?? tr("ui74") : '');
   const at = (id: string) => <UserDist id={id} />;
-  if (key === 'survivors') return { kind: 'survivor', dark: true, title: '宵闇サバイバーズ', sub: survivor?.phase === 'running' || survivor?.phase === 'boss' ? '協力サバイバル' : '10分間のサバイバル', width: 680, aspect: 1.28, noClose: true, body: <SurvivorPanel /> };
-  if (key === 'antimatter') return { kind: 'survivor', dark: true, title: 'AD 研究所', sub: '反物質次元（進行はプレイヤーごと）', width: 720, aspect: 1.2, body: <AntimatterWindowBody /> };
-  if (key === 'antimatter-space') return { kind: 'survivor', dark: true, title: 'AD 研究所 — 空間パネル', sub: '3D の塔・コアから開いた操作パネル', width: 520, body: <AntimatterSpaceWindowBody /> };
-  if (key === 'survivor-library') return { kind: 'survivor', dark: true, title: '装備図鑑・実績', sub: '発見した装備と記録', width: 620, aspect: 1.05, body: <SurvivorLibrary /> };
+  if (key === 'survivors') return { kind: 'survivor', dark: true, title: tr("ui535"), sub: survivor?.phase === 'running' || survivor?.phase === 'boss' ? tr("ui831") : tr("ui832"), width: 680, aspect: 1.28, noClose: true, body: <SurvivorPanel /> };
+  if (key === 'survivor-library') return { kind: 'survivor', dark: true, title: tr("ui833"), sub: tr("ui834"), width: 620, aspect: 1.05, body: <SurvivorLibrary /> };
+  if (key === 'antimatter') return { kind: 'survivor', dark: true, title: tr('mergeAdLab'), sub: tr('mergeAdProgress'), width: 720, aspect: 1.2, body: <AntimatterWindowBody /> };
+  if (key === 'antimatter-space') return { kind: 'survivor', dark: true, title: tr('mergeAdSpace'), sub: tr('mergeAdSpaceHint'), width: 520, body: <AntimatterSpaceWindowBody /> };
   if (key === 'share') {
     if (!sharer) return null;
-    return { kind: 'video', dark: true, title: `${name(sharer)} の画面共有`, sub: at(sharer), body: <ShareVideoHost className="videohost" />, width: 780, aspect: 16 / 9 };
+    return { kind: 'video', dark: true, title: tr("ui835", name(sharer)), sub: at(sharer), body: <ShareVideoHost className="videohost" />, width: 780, aspect: 16 / 9 };
   }
   if (key.startsWith('view:')) {
     const uid = key.slice(5);
     if (!camFeeds[key]) return null;
     return {
-      kind: 'video', dark: true, title: `${name(uid)} の視点`, sub: 'ついていく中', width: 480, aspect: 16 / 9,
+      kind: 'video', dark: true, title: tr("ui836", name(uid)), sub: tr("ui837"), width: 480, aspect: 16 / 9,
       body: (
         <>
           <CamVideoHost id={key} />
-          <button className="onvideo" onClick={() => { follow(null); closeWindow(key); }}>ついていくのをやめる</button>
+          <button className="onvideo" onClick={() => { follow(null); closeWindow(key); }}>{tr("ui612")}</button>
         </>
       ),
     };
@@ -110,7 +112,7 @@ function useResolved(key: string, compact: boolean): Resolved | null {
     if (!u) return null;
     const self = u.id === selfId;
     return {
-      kind: 'face', dark: false, title: self ? `${u.name}（あなた）` : u.name, sub: self ? `${u.mode.toUpperCase()} で参加中` : at(u.id),
+      kind: 'face', dark: false, title: self ? tr("ui838", u.name) : u.name, sub: self ? tr("ui839", u.mode.toUpperCase()) : at(u.id),
       width: 480, aspect: 4 / 3, noMax: true,
       body: <div className={`facewin ${speaking ? 'speaking' : ''}`}><AvatarView u={u} speaking={speaking} comic /><PortraitEmote id={u.id} announcementOnly /></div>,
     };
@@ -118,20 +120,20 @@ function useResolved(key: string, compact: boolean): Resolved | null {
   const id = key.slice(key.indexOf(':') + 1);
   const item = items[id];
   if (!item) return null;
-  const sub = <>{item.createdBy === selfId ? 'あなた' : name(item.createdBy)} が出した · <ItemDist id={item.id} /></>;
+  const sub = <>{item.createdBy === selfId ? tr("ui84") : name(item.createdBy)} {tr("ui840")}<ItemDist id={item.id} /></>;
   if (key.startsWith('cam:')) {
     if (item.kind !== 'camera' || !item.live || !camFeeds[id]) return null;
     return {
-      kind: 'video', dark: true, item, title: `${ITEM_INFO.camera.name} — ${name(item.operator)} のライブ`, sub, width: 480, aspect: 16 / 9,
+      kind: 'video', dark: true, item, title: tr("ui841", ITEM_INFO.camera.name, name(item.operator)), sub, width: 480, aspect: 16 / 9,
       body: <><CamVideoHost id={id} /><span className="onlive"><i />LIVE</span></>,
     };
   }
   if (item.kind === 'image') {
-    return { kind: 'media', dark: true, item, title: '画像', sub, width: 560, aspect: item.w / item.h, body: <img className="mediaimg" src={item.url} alt="" /> };
+    return { kind: 'media', dark: true, item, title: tr("ui31"), sub, width: 560, aspect: item.w / item.h, body: <img className="mediaimg" src={item.url} alt="" /> };
   }
   if (item.kind === 'video') {
     return {
-      kind: 'media', dark: true, item, title: '動画', sub, width: 560, aspect: item.w / item.h,
+      kind: 'media', dark: true, item, title: tr("ui30"), sub, width: 560, aspect: item.w / item.h,
       body: <><VideoHost id={item.id} /><MediaControls item={item} duration={() => videoEls.get(item.id)?.duration ?? NaN} /></>,
     };
   }
@@ -213,17 +215,17 @@ function WindowFrame({ win, region, simple, z, compact = false }: {
   const frame = (
     <section
       className={`win ${r.dark ? 'dark' : ''} k-${r.kind} ${compact ? 'compact' : ''}`} style={style} aria-label={r.title}
-      title={compact ? 'クリックで大きく表示' : undefined} onPointerDown={() => raiseWindow(win.key)}
+      title={compact ? tr("ui842") : undefined} onPointerDown={() => raiseWindow(win.key)}
     >
       <div
-        className={`winbar ${simple || max ? '' : 'draggable'}`} title={simple || max ? undefined : 'ドラッグで移動'}
+        className={`winbar ${simple || max ? '' : 'draggable'}`} title={simple || max ? undefined : tr("ui843")}
         onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
       >
         {r.item ? <ItemMark item={r.item} size={compact ? 18 : 26} by={compact ? undefined : createdBy} /> : <span className="livedot" />}
         <span className="wtitle"><b>{r.title}</b><span>{r.sub}</span></span>
         <span className="spacer" />
         {compact
-          ? !r.noClose && <button className="ib wbtn" onClick={(e) => { e.stopPropagation(); closeWindow(win.key); }} aria-label="消す"><Icon name="close" size={12} /></button>
+          ? !r.noClose && <button className="ib wbtn" onClick={(e) => { e.stopPropagation(); closeWindow(win.key); }} aria-label={tr("ui182")}><Icon name="close" size={12} /></button>
           : <WinButtons win={win} r={r} max={max} />}
       </div>
       <div className="winbody">{r.body}</div>
@@ -236,7 +238,7 @@ function AttentionButton({ keyName }: { keyName: string }) {
   const [cool, setCool] = useState(false);
   return (
     <button
-      className="ib wbtn" disabled={cool} title="注目を集める（ほかの人のリストでしばらく光る）" aria-label="注目を集める"
+      className="ib wbtn" disabled={cool} title={tr("ui844")} aria-label={tr("ui845")}
       onClick={() => { send({ t: 'attention', key: keyName }); setCool(true); setTimeout(() => setCool(false), 3000); }}
     ><Icon name="sparkle" size={15} /></button>
   );
@@ -248,10 +250,10 @@ function WinButtons({ win, r, max }: { win: Win; r: Resolved; max: boolean }) {
         <Viewers keyName={win.key} dark={r.dark} />
         {r.item && /^(item|cam):/.test(win.key) && <AttentionButton keyName={win.key} />}
         {r.item && r.kind !== 'video' && (
-          <button className="ib wbtn" aria-label="しまう" title="アイテムをしまう" onClick={() => removeItem(r.item!.id)}><Icon name="trash" size={14} /></button>
+          <button className="ib wbtn" aria-label={tr("ui618")} title={tr("ui846")} onClick={() => removeItem(r.item!.id)}><Icon name="trash" size={14} /></button>
         )}
-        {!r.noMax && <button className="ib wbtn" onClick={() => toggleMax(win.key)} aria-label={max ? '元のサイズに戻す' : '拡大（画面全体に表示）'}><Icon name="maximize" size={14} /></button>}
-        {!r.noClose && <button className="ib wbtn" onClick={() => closeWindow(win.key)} aria-label="消す"><Icon name="close" size={14} /></button>}
+        {!r.noMax && <button className="ib wbtn" onClick={() => toggleMax(win.key)} aria-label={max ? tr("ui847") : tr("ui848")}><Icon name="maximize" size={14} /></button>}
+        {!r.noClose && <button className="ib wbtn" onClick={() => closeWindow(win.key)} aria-label={tr("ui182")}><Icon name="close" size={14} /></button>}
     </>
   );
 }

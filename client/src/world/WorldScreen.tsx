@@ -1,3 +1,5 @@
+import { sourceText as uiSource } from '../i18n/core.ts';
+import { t as tr, systemText } from '../i18n/index.ts';
 import { contentAvailable, productFor } from '../../../shared/market.ts';
 import { MOVEMENT_MODES } from '../view3d/movement.ts';
 import { useOwnedContent } from '../market/store.ts';
@@ -5,8 +7,9 @@ import { OriginBadge } from '../market/OriginBadge.tsx';
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
-import { SOUNDS } from '../../../shared/sounds.ts';
-import { WORLDS, WORLD_COUNTDOWN_MS } from '../../../shared/worlds.ts';
+import { SOUNDS } from '../i18n/static.ts';
+import { WORLDS } from '../i18n/static.ts';
+import { WORLD_COUNTDOWN_MS } from '../../../shared/worlds.ts';
 import { useStore, get, set, save, nameOf, sessionOf, isBroadcast, worldKindOf, serverNow } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { dropFollowers, follow, leaveSession, playSound, requestLive, setViewLive } from '../actions.ts';
@@ -51,8 +54,8 @@ function SessionRename({ current, onDone }: { current: string; onDone: () => voi
   };
   return (
     <form className="renamerow" onSubmit={submit}>
-      <input aria-label="セッション名" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
-      <button className="renamebtn" type="submit" disabled={!v || v === current}>変更</button>
+      <input aria-label={tr("ui102")} value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+      <button className="renamebtn" type="submit" disabled={!v || v === current}>{tr("ui849")}</button>
     </form>
   );
 }
@@ -75,42 +78,42 @@ function WorldBadge() {
     <div className="worldbadge">
       <img className="wmark" src="/brand/mark.png" alt="" />
       <span className="wname">{world?.name}</span>
-      {kind === 'survivors' && mode === '2d' && <button className="chipbtn survivor-window-button" onClick={() => openWindow('survivors')}>{survivorWindowOpen ? 'ゲーム画面' : 'ゲームを開く'}</button>}
-      {kind === 'antimatter' && mode === '2d' && <button className="chipbtn" onClick={() => openWindow('antimatter')}>{antimatterWindowOpen ? 'AD 研究所' : 'AD を開く'}</button>}
-      {broadcast && <span className="bcpill" title="ブロードキャストモード：距離に関係なく声が届きます"><Icon name="megaphone" size={12} />ブロードキャスト</span>}
-      {!wsConnected && <span className="reconn">再接続中…</span>}
+      {kind === 'survivors' && mode === '2d' && <button className="chipbtn survivor-window-button" onClick={() => openWindow('survivors')}>{survivorWindowOpen ? tr("ui850") : tr("ui851")}</button>}
+      {broadcast && <span className="bcpill" title={tr("ui852")}><Icon name="megaphone" size={12} />{tr("ui853")}</span>}
+      {!wsConnected && <span className="reconn">{tr("ui854")}</span>}
+      {kind === 'antimatter' && mode === '2d' && <button className="chipbtn" onClick={() => openWindow('antimatter')}>{antimatterWindowOpen ? tr('mergeAdLab') : tr('mergeOpenAd')}</button>}
       <span className="vline" />
       <button
-        className="ib" aria-label="設定" title="設定" data-popanchor
+        className="ib" aria-label={tr("ui855")} title={tr("ui855")} data-popanchor
         onClick={(e) => setMenu(menu ? null : e.currentTarget.getBoundingClientRect())}
       ><Icon name="settings" size={18} /></button>
       {menu && (
         <Popover anchor={menu} side="down" onClose={() => setMenu(null)} className="settings">
-          <span className="menutitle">セッションの設定</span>
+          <span className="menutitle">{tr("ui856")}</span>
           <SessionRename current={world?.name ?? ''} onDone={() => setMenu(null)} />
           <span className="menusep" />
           <label className="switchrow">
-            <span><b>ブロードキャストモード</b><span className="sub wrap">距離に関係なく全員の声が聞こえ、声の範囲のチャットも全員に届く（全員に反映）</span></span>
+            <span><b>{tr("ui857")}</b><span className="sub wrap">{tr("ui858")}</span></span>
             <input type="checkbox" role="switch" checked={broadcast} onChange={(e) => send({ t: 'broadcast', on: e.target.checked })} />
           </label>
           <span className="menusep" />
           {mode === '3d' && <>
-            <span className="menutitle">移動方法（自分のみ）</span>
-            <div className="worldpick" role="radiogroup" aria-label="移動方法">
+            <span className="menutitle">{tr('mergeMovementSettings')}</span>
+            <div className="worldpick" role="radiogroup" aria-label={tr('mergeMovementLabel')}>
               {(Object.keys(MOVEMENT_MODES) as (keyof typeof MOVEMENT_MODES)[]).map((value) => (
                 <button key={value} role="radio" aria-checked={movementMode === value} className={`ib wpick ${movementMode === value ? 'on' : ''}`} onClick={() => set({ movementMode: value })}>
-                  {MOVEMENT_MODES[value]}
+                  {tr(MOVEMENT_MODES[value])}
                 </button>
               ))}
             </div>
-            <span className="sub wrap">フライ・ノークリップ: Space で上昇、Shift で下降</span>
+            <span className="sub wrap">{tr('mergeFlightHint')}</span>
             <span className="menusep" />
           </>}
-          <span className="menutitle">ワールド（全員に反映）</span>
-          <button className="ib menuitem" disabled={pending} onClick={() => { setMenu(null); setSelectWorld(true); }}><Icon name="globe" />ワールド変更</button>
+          <span className="menutitle">{tr('ui859')}</span>
+          <button className="ib menuitem" disabled={pending} onClick={() => { setMenu(null); setSelectWorld(true); }}><Icon name="globe" />{tr('mergeChangeWorld')}</button>
           <span className="menusep" />
-          <button className="ib menuitem" onClick={() => { setProfile(true); setMenu(null); }}><Icon name="user" />プロフィールを編集</button>
-          <button className="ib menuitem" onClick={() => { setMenu(null); leaveSession(); }}><Icon name="leave" />セッションを移動</button>
+          <button className="ib menuitem" onClick={() => { setProfile(true); setMenu(null); }}><Icon name="user" />{tr("ui860")}</button>
+          <button className="ib menuitem" onClick={() => { setMenu(null); leaveSession(); }}><Icon name="leave" />{tr("ui861")}</button>
         </Popover>
       )}
       {profile && createPortal(<ProfileDialog name={selfName} onClose={() => setProfile(false)} />, document.body)}
@@ -123,7 +126,7 @@ function Soundboard({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
   const owned = useOwnedContent();
   return (
     <Popover anchor={anchor} side="up" onClose={onClose} className="soundboard">
-      <span className="menutitle">サウンドボード（近くの人に聞こえます）</span>
+      <span className="menutitle">{tr("ui862")}</span>
       <div className="sgrid">
         {SOUNDS.filter((x) => contentAvailable(owned, 'sounds', x.id)).map((x) => <div key={x.id} className="market-entry"><button className="ib sbtn" onClick={() => { unlockEmoteAudio(); playSound(x.id); }}>{x.name}</button><OriginBadge productId={productFor('sounds', x.id)?.id} onOpen={onClose} /></div>)}
       </div>
@@ -140,35 +143,33 @@ function Dock() {
   const ok = voice === 'connected';
   const sharingSelf = sharer === selfId;
   return (
-    <div role="toolbar" aria-label="セッション操作" className="dock">
-      <button className={`dk ${micEnabled ? '' : 'muted'}`} onClick={() => void toggleMic()} aria-label={micEnabled ? 'マイクをミュート' : 'マイクのミュートを解除'} title={micEnabled ? 'ミュート' : 'ミュート解除'}>
+    <div role="toolbar" aria-label={tr("ui863")} className="dock">
+      <button className={`dk ${micEnabled ? '' : 'muted'}`} onClick={() => void toggleMic()} aria-label={micEnabled ? tr("ui864") : tr("ui865")} title={micEnabled ? tr("ui601") : tr("ui36")}>
         <Icon name={micEnabled ? 'mic' : 'micOff'} size={22} />
       </button>
       {/* スマホのブラウザは画面共有できない */}
       {!touchOnly && (
         <button
           className={`dk ${sharingSelf ? 'active' : ''}`} disabled={!ok || (!!sharer && !sharingSelf)} onClick={() => void toggleShare()}
-          aria-label={sharingSelf ? '画面共有を停止' : '画面共有'} title={sharingSelf ? '画面共有を停止' : !ok ? '通話に接続すると使えます' : sharer ? `${nameOf(sharer)} が共有中` : '画面共有'}
+          aria-label={sharingSelf ? tr("ui866") : tr("ui318")} title={sharingSelf ? tr("ui866") : !ok ? tr("ui867") : sharer ? tr("ui868", nameOf(sharer)) : tr("ui318")}
         ><Icon name="screen" size={22} /></button>
       )}
-      <button className="dk" aria-label="サウンドボード" title="サウンドボード" data-popanchor onClick={(e) => setSb(sb ? null : e.currentTarget.getBoundingClientRect())}>
+      <button className="dk" aria-label={tr("ui224")} title={tr("ui224")} data-popanchor onClick={(e) => setSb(sb ? null : e.currentTarget.getBoundingClientRect())}>
         <Icon name="music" size={22} />
       </button>
       <EmoteDockButton />
-      <button className="dk" aria-label="音量" title="音量" data-popanchor onClick={(e) => setVol(vol ? null : e.currentTarget.getBoundingClientRect())}>
+      <button className="dk" aria-label={tr("ui824")} title={tr("ui824")} data-popanchor onClick={(e) => setVol(vol ? null : e.currentTarget.getBoundingClientRect())}>
         <Icon name="volume" size={22} />
       </button>
       <span className="dsep" />
-      <div className="dseg" role="radiogroup" aria-label="ウィンドウの表示">
-        <button role="radio" aria-checked={winMode === 'simple'} className={winMode === 'simple' ? 'on' : ''} onClick={() => setWinMode('simple')} title="開いたものを 1 つ大きく表示し、ほかは下に並べる">
-          <Icon name="window" size={15} />カンタン
-        </button>
-        <button role="radio" aria-checked={winMode === 'free'} className={winMode === 'free' ? 'on' : ''} onClick={() => setWinMode('free')} title="ウィンドウを重ねて表示し、ドラッグで動かす">
-          <Icon name="layers" size={15} />フリー
-        </button>
+      <div className="dseg" role="radiogroup" aria-label={tr("ui869")}>
+        <button role="radio" aria-checked={winMode === 'simple'} className={winMode === 'simple' ? 'on' : ''} onClick={() => setWinMode('simple')} title={tr("ui870")}>
+          <Icon name="window" size={15} />{tr("ui871")}</button>
+        <button role="radio" aria-checked={winMode === 'free'} className={winMode === 'free' ? 'on' : ''} onClick={() => setWinMode('free')} title={tr("ui872")}>
+          <Icon name="layers" size={15} />{tr("ui873")}</button>
       </div>
       <span className="dsep" />
-      <button className="dk leave" onClick={leaveSession} aria-label="切断" title="切断（セッション選択に戻る）"><Icon name="leave" size={22} /></button>
+      <button className="dk leave" onClick={leaveSession} aria-label={tr("ui874")} title={tr("ui875")}><Icon name="leave" size={22} /></button>
       {sb && <Soundboard anchor={sb} onClose={() => setSb(null)} />}
       {vol && <MasterVolume anchor={vol} onClose={() => setVol(null)} />}
     </div>
@@ -198,26 +199,26 @@ function StatusChips() {
   const followers = s.participants.filter((p) => p.follow === s.selfId);
   const placedSelf = me?.mode === '2d' && !!me.pos && !me.follow;
   const chips: React.ReactNode[] = [];
-  if (s.sync === 'connecting') chips.push(<span key="sync">セッションを同期中…</span>);
-  if (s.sync === 'unavailable') chips.push(<span key="sync" title={s.syncError ?? ''}>同期に再接続しています{ s.syncError ? `（${s.syncError}）` : ''}</span>);
-  if (s.sync === 'connected') chips.push(<span key="sync" title={`kokosync · ${s.syncTransport ?? ''} · 中継サーバーとのRTT（P2PのRTTは相手別表示）`}>同期 {s.syncRtt === null ? '接続済み' : `${s.syncRtt} ms`}{s.syncTransport === 'websocket' ? ' · 互換接続' : ''}</span>);
+  if (s.sync === 'connecting') chips.push(<span key="sync">{tr("ui876")}</span>);
+  if (s.sync === 'unavailable') chips.push(<span key="sync" title={s.syncError ? systemText(s.syncError) : ''}>{tr("ui877")}{ s.syncError ? `（${systemText(s.syncError)}）` : ''}</span>);
+  if (s.sync === 'connected') chips.push(<span key="sync" title={tr("ui878", s.syncTransport ?? '')}>{tr("ui879")}{s.syncRtt === null ? tr("ui880") : `${s.syncRtt} ms`}{s.syncTransport === 'websocket' ? tr("ui881") : ''}</span>);
   if (s.sync === 'connected' && s.syncRoutes.length) {
     const direct = s.syncRoutes.filter((r) => r.route === 'direct').length;
-    const detail = s.syncRoutes.map((r) => `${s.users.find((u) => u.id === r.user)?.name ?? r.user}: ${r.route === 'direct' ? 'P2P' : '中継'} · ${r.reason}${r.rttMs === null ? '' : ` · ${Math.round(r.rttMs)} ms`} · P2P送/受 ${r.sentDirect}/${r.receivedDirect} · 中継送/受 ${r.sentRelay}/${r.receivedRelay}`).join('\n');
-    chips.push(<span key="routes" title={detail}>位置同期 P2P {direct}人 · 中継 {s.syncRoutes.length - direct}人</span>);
+    const detail = s.syncRoutes.map((r) => tr("ui882", s.users.find((u) => u.id === r.user)?.name ?? r.user, r.route === 'direct' ? 'P2P' : tr("ui883"), r.reason, r.rttMs === null ? '' : ` · ${Math.round(r.rttMs)} ms`, r.sentDirect, r.receivedDirect, r.sentRelay, r.receivedRelay)).join('\n');
+    chips.push(<span key="routes" title={detail}>{tr("ui884")}{direct}{tr("ui885")}{s.syncRoutes.length - direct}{tr("ui125")}</span>);
   }
-  if (s.voice === 'connecting') chips.push(<span key="v">通話に接続中…</span>);
-  if (s.voice === 'unavailable') chips.push(<span key="v" title={s.voiceError ?? ''}>通話・映像に接続できません{ s.voiceError ? `（${s.voiceError}）` : ''}</span>);
-  if (s.mode === '2d' && hammer) chips.push(<span key="h">ピコピコハンマーを持っています · 人をクリックで叩く<button className="chipbtn" onClick={dropHammer}>手放す</button></span>);
-  if (placedSelf) chips.push(<span key="p"><Icon name="pin" size={14} />3D 空間の中にいます<button className="chipbtn" onClick={() => place2d(s.selfId, null)}>スポーンに戻る</button></span>);
+  if (s.voice === 'connecting') chips.push(<span key="v">{tr("ui886")}</span>);
+  if (s.voice === 'unavailable') chips.push(<span key="v" title={s.voiceError ? systemText(s.voiceError) : ''}>{tr("ui887")}{ s.voiceError ? `（${systemText(s.voiceError)}）` : ''}</span>);
+  if (s.mode === '2d' && hammer) chips.push(<span key="h">{tr("ui888")}<button className="chipbtn" onClick={dropHammer}>{tr("ui615")}</button></span>);
+  if (placedSelf) chips.push(<span key="p"><Icon name="pin" size={14} />{tr("ui889")}<button className="chipbtn" onClick={() => place2d(s.selfId, null)}>{tr("ui890")}</button></span>);
   if (followers.length) {
     chips.push(
       <span key="f">
-        {followers.map((f) => f.name).join('、')} がついてきています{me?.viewLive && ' · 視点をライブ中'}
+        {followers.map((f) => f.name).join('、')} {tr("ui891")}{me?.viewLive && tr("ui892")}
         {me?.viewLive
-          ? <button className="chipbtn" onClick={() => setViewLive(false)}>ライブを止める</button>
-          : s.mode === '3d' && <button className="chipbtn" onClick={() => setViewLive(true)}>視点をライブ</button>}
-        <button className="chipbtn" onClick={dropFollowers}>解除</button>
+          ? <button className="chipbtn" onClick={() => setViewLive(false)}>{tr("ui893")}</button>
+          : s.mode === '3d' && <button className="chipbtn" onClick={() => setViewLive(true)}>{tr("ui894")}</button>}
+        <button className="chipbtn" onClick={dropFollowers}>{tr("ui895")}</button>
       </span>,
     );
   }
@@ -227,12 +228,11 @@ function StatusChips() {
     const feed = target.viewLive && !!s.camFeeds[key];
     chips.push(
       <span key="t">
-        <Icon name="follow" size={14} />{target.name} についていっています
-        {feed
-          ? <button className="chipbtn" onClick={() => openWindow(key)}>ライブを見る</button>
-          : target.viewLive ? <span className="sub light">ライブ接続中…</span>
-          : <button className="chipbtn" disabled={s.liveRequested === target.id} onClick={() => requestLive(target.id)}>{s.liveRequested === target.id ? 'リクエスト済み' : 'ライブをリクエスト'}</button>}
-        <button className="chipbtn" onClick={() => follow(null)}>やめる</button>
+        <Icon name="follow" size={14} />{target.name} {tr("ui896")}{feed
+          ? <button className="chipbtn" onClick={() => openWindow(key)}>{tr("ui616")}</button>
+          : target.viewLive ? <span className="sub light">{tr("ui897")}</span>
+          : <button className="chipbtn" disabled={s.liveRequested === target.id} onClick={() => requestLive(target.id)}>{s.liveRequested === target.id ? tr("ui898") : tr("ui899")}</button>}
+        <button className="chipbtn" onClick={() => follow(null)}>{tr("ui109")}</button>
       </span>,
     );
   }
@@ -247,7 +247,7 @@ function View3DFallback() {
     <div className="switchload to3d" role="status" aria-live="polite">
       <div className="slbox">
         <HoppingMascots to="3d" />
-        <b>{world?.name ?? ''} の 3D 空間に入っています…</b>
+        <b>{world?.name ?? ''} {tr("ui900")}</b>
       </div>
     </div>
   );
@@ -262,7 +262,7 @@ function SwitchLoading() {
     <div className={`switchload ${to3d ? 'to3d' : 'to2d'}`} role="status" aria-live="polite">
       <div className="slbox">
         <HoppingMascots to={switching.to} />
-        <b>{to3d ? `${world?.name ?? ''} の 3D 空間に入っています…` : '2D に切り替えています…'}</b>
+        <b>{to3d ? tr("ui901", world?.name ?? '') : tr("ui902")}</b>
         <div className="slbar"><span style={{ animationDuration: `${switching.dur}ms` }} /></div>
       </div>
     </div>
@@ -277,16 +277,16 @@ function ConfirmWorld() {
   const ok = () => { send({ t: 'world', world, clearItems: clear }); cancel(); };
   return (
     <div className="modalbg light" onClick={cancel}>
-      <div role="alertdialog" aria-modal="true" aria-label="ワールドの切り替えの確認" className="confirm" onClick={(e) => e.stopPropagation()}>
-        <h2>ワールドを「{WORLDS[world].name}」に切り替えますか？</h2>
-        <span className="sub wrap">このセッションの全員の画面が {WORLD_COUNTDOWN_MS / 1000} 秒後に切り替わり、全員がスポーン地点に戻ります。</span>
+      <div role="alertdialog" aria-modal="true" aria-label={tr("ui903")} className="confirm" onClick={(e) => e.stopPropagation()}>
+        <h2>{tr("ui904")}{WORLDS[world].name}{tr("ui905")}</h2>
+        <span className="sub wrap">{tr("ui906")}{WORLD_COUNTDOWN_MS / 1000} {tr("ui907")}</span>
         <label className="checkrow">
           <input type="checkbox" checked={clear} onChange={(e) => setClear(e.target.checked)} />
-          <span>置いてあるアイテムをすべて片付ける</span>
+          <span>{tr("ui908")}</span>
         </label>
         <div className="row end">
-          <button onClick={cancel}>キャンセル</button>
-          <button className="dark" autoFocus onClick={ok}>切り替える</button>
+          <button onClick={cancel}>{tr("ui338")}</button>
+          <button className="dark" autoFocus onClick={ok}>{tr("ui909")}</button>
         </div>
       </div>
     </div>
@@ -308,7 +308,7 @@ function WorldCountdown() {
     <div className="worldcount" role="status" aria-live="assertive">
       <b className="wcnum" key={left}>{left}</b>
       <span>
-        ワールドが「{WORLDS[p.world].name}」に切り替わります<span className="sub">（{nameOf(p.by)} が切り替え{p.clearItems ? '・アイテムは片付けられます' : ''}）</span>
+        {tr("ui910")}{WORLDS[p.world].name}{tr("ui911")}<span className="sub">（{nameOf(p.by)} {tr("ui912")}{p.clearItems ? tr("ui913") : ''}）</span>
       </span>
     </div>
   );
@@ -326,7 +326,7 @@ function WorldLoading() {
     <div className="switchload to3d" role="status" aria-live="polite">
       <div className="slbox">
         <HoppingMascots to="3d" />
-        <b>「{WORLDS[loading.world].name}」を読み込んでいます…</b>
+        <b>「{WORLDS[loading.world].name}{tr("ui914")}</b>
         <div className="slbar"><span style={{ animationDuration: `${loading.dur}ms` }} /></div>
       </div>
     </div>
@@ -340,19 +340,19 @@ function ConfirmClose() {
   if (!key) return null;
   const id = key.slice(key.indexOf(':') + 1);
   const it = items[id];
-  const title = key === 'share' ? `${nameOf(sharer)} の画面共有`
-    : key.startsWith('cam:') ? 'カメラのライブ'
-    : key.startsWith('view:') ? `${nameOf(id)} の視点`
-    : it ? itemLabel(it) : 'ウィンドウ';
+  const title = key === 'share' ? tr("ui835", nameOf(sharer))
+    : key.startsWith('cam:') ? tr("ui915")
+    : key.startsWith('view:') ? tr("ui836", nameOf(id))
+    : it ? itemLabel(it) : tr("ui916");
   const cancel = () => set({ confirmClose: null });
   return (
     <div className="modalbg light" onClick={cancel}>
-      <div role="alertdialog" aria-modal="true" aria-label="ウィンドウを閉じる確認" className="confirm" onClick={(e) => e.stopPropagation()}>
-        <h2>{title} を閉じますか？</h2>
-        <span className="sub wrap">リストからいつでも開き直せます。</span>
+      <div role="alertdialog" aria-modal="true" aria-label={tr("ui917")} className="confirm" onClick={(e) => e.stopPropagation()}>
+        <h2>{title} {tr("ui918")}</h2>
+        <span className="sub wrap">{tr("ui919")}</span>
         <div className="row end">
-          <button onClick={cancel}>キャンセル</button>
-          <button className="dark" autoFocus onClick={() => closeWindow(key)}>閉じる</button>
+          <button onClick={cancel}>{tr("ui338")}</button>
+          <button className="dark" autoFocus onClick={() => closeWindow(key)}>{tr("ui73")}</button>
         </div>
       </div>
     </div>
@@ -379,7 +379,7 @@ function HitFxLayer({ root }: { root: React.RefObject<HTMLDivElement | null> }) 
               style={{ '--dx': `${from.x - to.x}px`, '--dy': `${from.y - to.y}px` } as React.CSSProperties}
               onAnimationEnd={() => consumeHitFx(f.key)}
             >🔨</div>
-            <div className="pico">ピコッ!</div>
+            <div className="pico">{tr("ui542")}</div>
           </div>
         );
       })}
@@ -445,8 +445,8 @@ function DropHint() {
     <div className="drophint" aria-hidden="true">
       <div>
         <Icon name="image" size={36} stroke={1.6} />
-        <b>{mode === '3d' ? 'ドロップすると目の前にアイテムとして置きます' : 'ドロップするとチャットに投稿します'}</b>
-        <span>画像 10MB・動画（MP4/WebM）50MB まで。YouTube のリンクも OK</span>
+        <b>{mode === '3d' ? tr("ui920") : tr("ui921")}</b>
+        <span>{tr("ui922")}</span>
       </div>
     </div>
   );
@@ -461,7 +461,7 @@ export function Toast() {
     return () => clearTimeout(t);
   }, [toast]);
   if (!toast || Date.now() - toast.at > 4000) return null;
-  return <div className="toast" role="status">{toast.text}</div>;
+  return <div className="toast" role="status">{systemText(toast.text)}</div>;
 }
 
 /** 頼んだ視点のライブが届いたら開く */
@@ -476,9 +476,9 @@ function useOpenRequestedLive() {
 }
 
 const PHONE_TABS = [
-  { id: 'screen', name: '画面', icon: 'window' },
-  { id: 'list', name: 'プレイヤー', icon: 'people' },
-  { id: 'log', name: '通知・ログ', icon: 'chat' },
+  { id: 'screen', name: uiSource('ui923'), icon: 'window' },
+  { id: 'list', name: uiSource('ui626'), icon: 'people' },
+  { id: 'log', name: uiSource('ui659'), icon: 'chat' },
 ] as const;
 
 /** スマホ幅では前面のパネルを全面に 1 つずつ出し、下のタブで切り替える */
@@ -486,7 +486,7 @@ function PhoneTabs() {
   const tab = useStore((s) => s.phoneTab);
   const unread = useStore((s) => s.notices.filter((n) => n.unread).length);
   return (
-    <nav className="phonetabs" aria-label="表示の切り替え">
+    <nav className="phonetabs" aria-label={tr("ui924")}>
       {PHONE_TABS.map((t) => (
         <button key={t.id} className={`ib ${tab === t.id ? 'on' : ''}`} aria-pressed={tab === t.id} onClick={() => set({ phoneTab: t.id })}>
           <Icon name={t.icon} size={20} />{t.name}

@@ -1,3 +1,4 @@
+import { t as tr, systemText, getLanguage } from '../i18n/index.ts';
 import { HammerModel, ChessModel, NoteModel, PanelModel } from './itemModels.tsx';
 export { HammerModel } from './itemModels.tsx';
 import { chessView } from '../../../shared/chess.ts';
@@ -5,7 +6,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Html } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { ITEM_INFO, clockTime, type Item } from '../../../shared/items.ts';
+import { ITEM_INFO } from '../i18n/static.ts';
+import { clockTime, type Item } from '../../../shared/items.ts';
 import { useStore, get, nameOf, serverNow } from '../store.ts';
 import { videoEls, mediaVolume } from '../mediaSync.tsx';
 import { YouTubePlayer, youTubeDuration } from '../youtube.tsx';
@@ -74,16 +76,16 @@ function Note3D({ item }: { item: Item & { kind: 'note' } }) {
   useEffect(() => {
     const other = item.editingBy && item.editingBy !== selfId;
     drawText(canvas, [
-      { text: item.text || '（空の付箋）', color: item.text ? '#1c1917' : '#78716c', size: 64 },
-      ...(other ? [{ text: `✏ ${nameOf(item.editingBy)} が編集中`, size: 36, color: '#b91c1c' }] : []),
+      { text: item.text || tr("ui445"), color: item.text ? '#1c1917' : '#78716c', size: 64 },
+      ...(other ? [{ text: tr("ui512", nameOf(item.editingBy)), size: 36, color: '#b91c1c' }] : []),
     ], { bg: item.color });
     tex.needsUpdate = true;
-  }, [item.text, item.color, item.editingBy, participants, selfId, canvas, tex]);
+  }, [item.text, item.color, item.editingBy, participants, selfId, canvas, tex, getLanguage()]);
   const ref = useRef<THREE.Group>(null);
   useFollow(ref, item.id, item.x, item.z, item.ry);
   const data: Interactable = {
     ...removable(item),
-    hint: 'クリック: 編集',
+    hint: tr("ui513"),
     // 文字を打てるようにマウスのロックを外す
     use: () => { selectNote(item.id); document.exitPointerLock(); },
   };
@@ -100,7 +102,7 @@ function Hammer3D({ item }: { item: Item & { kind: 'hammer' } }) {
   if (item.holder) return null;
   const data: Interactable = {
     ...removable(item),
-    hint: 'クリック: ハンマーを拾う',
+    hint: tr("ui514"),
     use: () => itemAction(item.id, { a: 'pick' }),
   };
   return (
@@ -130,7 +132,7 @@ function Chess3D({ item }: { item: Item & { kind: 'chess' | 'chessAi' } }) {
     const it = get().items[item.id];
     if (it) chessSelect(it, get().itemUi[item.id] ?? {}, i);
   };
-  const sqData = (i: number): Interactable => ({ use: pick(i), hint: view.over ? view.status : `${view.status} · クリック: 駒を選ぶ / 動かす` });
+  const sqData = (i: number): Interactable => ({ use: pick(i), hint: view.over ? systemText(view.status) : tr("ui515", systemText(view.status)) });
   return <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry}>
     <ChessModel item={item} ui={ui} tableData={{ ...removable(item), hint: ITEM_INFO[item.kind].name }} sqData={sqData} actions={<>
       {promoting ? PROMOTIONS.map(([promotion, label], index) => (
@@ -138,13 +140,13 @@ function Chess3D({ item }: { item: Item & { kind: 'chess' | 'chessAi' } }) {
           userData={{ use: () => {
             const it = get().items[item.id];
             if (it) chessPromote(it, get().itemUi[item.id] ?? {}, promotion);
-          }, hint: `${label}に昇格` } satisfies Interactable}>
+          }, hint: tr("ui516", label) } satisfies Interactable}>
           <mesh><boxGeometry args={[0.43, 0.08, 0.25]} /><meshStandardMaterial color="#476b8c" /></mesh>
           <Label text={label} position={[0, 0.14, 0]} height={0.07} />
         </group>
-      )) : <group position={[0, TABLE_Y, 1.12]} userData={{ use: reset, hint: ui?.resetConfirm ? 'もう一度クリックして初期化' : '新しい対局を始める' } satisfies Interactable}>
+      )) : <group position={[0, TABLE_Y, 1.12]} userData={{ use: reset, hint: ui?.resetConfirm ? tr("ui517") : tr("ui518") } satisfies Interactable}>
         <mesh><boxGeometry args={[0.8, 0.08, 0.25]} /><meshStandardMaterial color="#476b8c" /></mesh>
-        <Label text={ui?.resetConfirm ? '初期化する？ クリックで確定' : '新しい対局'} position={[0, 0.14, 0]} height={0.08} />
+        <Label text={ui?.resetConfirm ? tr("ui519") : tr("ui353")} position={[0, 0.14, 0]} height={0.08} />
       </group>}</>} />
   </group>;
 }
@@ -166,7 +168,7 @@ function CompatPanel3D({ item }: { item: Item }) {
   useEffect(() => {
     drawPanel(canvas, item, ui ?? {});
     tex.needsUpdate = true;
-  }, [item, ui, canvas, tex]);
+  }, [item, ui, canvas, tex, getLanguage()]);
   const w = (PANEL_H * panel.w) / panel.h;
   const at = (hit: THREE.Intersection) => [hit.uv!.x * panel.w, (1 - hit.uv!.y) * panel.h] as const;
   const latest = () => [get().items[item.id] ?? item, get().itemUi[item.id] ?? {}] as const;
@@ -174,14 +176,14 @@ function CompatPanel3D({ item }: { item: Item }) {
     ...removable(item),
     ...(panel.drag
       ? {
-        hint: 'クリックしたまま照準を動かす: 描く',
+        hint: tr("ui520"),
         drag: (phase, hit) => {
           if (hit?.uv) panel.drag!(phase, ...at(hit), ...latest());
           else if (phase === 'end') panel.drag!('end', 0, 0, ...latest());
         },
       } satisfies Interactable
       : {
-        hint: 'クリック: 照準の位置を押す',
+        hint: tr("ui521"),
         use: (hit) => { if (hit.uv) panel.click(...at(hit), ...latest()); },
       } satisfies Interactable),
   };
@@ -205,7 +207,7 @@ function boardSize(w: number, h: number): [number, number] {
 type ClockItem = Item & { kind: 'video' | 'youtube' };
 const playToggle = (item: ClockItem): Interactable => ({
   ...removable(item),
-  hint: 'クリック: 再生／一時停止（みんな）',
+  hint: tr("ui522"),
   use: () => {
     const it = get().items[item.id];
     if (it?.kind !== 'video' && it?.kind !== 'youtube') return;
@@ -274,7 +276,7 @@ function Video3D({ item }: { item: Item & { kind: 'video' } }) {
   useEffect(() => () => tex?.dispose(), [tex]);
   const [w, h] = boardSize(item.w, item.h);
   return (
-    <Board item={item} w={w} h={h} data={playToggle(item)} label={item.clock.playing ? '▶ 動画' : '❚❚ 動画（クリックで再生）'}>
+    <Board item={item} w={w} h={h} data={playToggle(item)} label={item.clock.playing ? tr("ui523") : tr("ui524")}>
       {/* 同じ種類の要素だと R3F はマテリアルを使い回し、仮の暗い color が残って映像が真っ黒になるので key で作り直す */}
       {tex ? <meshBasicMaterial key="video" map={tex} toneMapped={false} /> : <meshBasicMaterial key="empty" color="#111" />}
     </Board>

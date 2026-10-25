@@ -1,9 +1,12 @@
+import { t } from './i18n/core.ts';
 import { create } from 'zustand';
+import type { UiMessage } from './i18n/index.ts';
 import type { MovementMode } from './view3d/movement.ts';
 import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, SessionInfo, User } from '../../shared/protocol.ts';
 import { SPAWN } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
-import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
+import { WORLDS } from './i18n/static.ts';
+import { type WorldKind } from '../../shared/worlds.ts';
 import type { DieSides } from '../../shared/dice.ts';
 import { newGame, type GameState } from '../../shared/game.ts';
 import { NEW_ELEVATOR, type ElevatorState } from '../../shared/city.ts';
@@ -142,7 +145,7 @@ interface State extends AdSlice {
   elevators: Record<string, ElevatorState>;
   /** 注目を集めているアイテム ID → 光らせる期限（performance.now） */
   attention: Record<string, number>;
-  toast: { text: string; at: number } | null;
+  toast: { text: string | UiMessage; at: number } | null;
   /** 開く前に確認している外部 URL */
   openUrl: string | null;
   /** プロフィールを開いている相手 */
@@ -173,7 +176,7 @@ interface State extends AdSlice {
   syncStats: Record<string, unknown> | null;
   syncRoutes: PositionRoute[];
   syncPeerDelivery: boolean;
-  voiceError: string | null;
+  voiceError: string | UiMessage | null;
   /** 希望設定。未接続中も切り替えられ、参加時に適用する */
   micEnabled: boolean;
   speaking: Record<string, boolean>;
@@ -309,7 +312,7 @@ export const useStore = create<State>((set, get) => ({
   flashAt: 0,
 }));
 
-export interface ItemUi { sel?: number; chessRevision?: number; promotionTo?: number; chessMessage?: string; resetConfirm?: boolean; color?: string; size?: number; erase?: boolean }
+export interface ItemUi { sel?: number; chessRevision?: number; promotionTo?: number; chessMessage?: string | UiMessage; resetConfirm?: boolean; color?: string; size?: number; erase?: boolean }
 
 export const set = useStore.setState;
 export const get = useStore.getState;
@@ -333,7 +336,7 @@ export function dropSession(sid: string | null) {
 
 export function nameOf(id: string | null) {
   if (!id) return '';
-  return get().users.find((p) => p.id === id)?.name ?? '（退出済み）';
+  return get().users.find((p) => p.id === id)?.name ?? t('ui74');
 }
 
 export function sessionOf(id: string | null) {
@@ -362,7 +365,7 @@ const NO_GAME = newGame();
 export const gameOfSession = (s = get()) => (s.session && s.games[s.session]) || NO_GAME;
 export const elevatorOfSession = (s = get()) => (s.session && s.elevators[s.session]) || NEW_ELEVATOR;
 
-export function showToast(text: string) {
+export function showToast(text: string | UiMessage) {
   set({ toast: { text, at: Date.now() } });
 }
 
