@@ -1661,7 +1661,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
   // AD の保存・ランキング。Tonarium にアカウント認証は無く、URL の playerId をキーとしてそのまま受け入れる。
-  // Workers 版にあった他人セーブの 403 保護はここでは成立しない（docs/3d.md 参照）。
+  // Workers 版にあった他人セーブの 403 保護はここでは成立しない（docs/items.md の「AD ポータルと研究所パネル」参照）。
   const adSaveMatch = /^\/api\/save\/([^/]+)$/.exec(url.pathname);
   if (adSaveMatch) {
     let playerId: string;
