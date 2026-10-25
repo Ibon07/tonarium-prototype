@@ -4,7 +4,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { jumpHeight, spawnSlot, type Participant } from '../../../shared/protocol.ts';
 import { NOTE_COLORS } from '../../../shared/items.ts';
-import { useStore, get, colorOf, nameOf, heldHammer, heldCamera, worldKindOf, serverNow } from '../store.ts';
+import { useStore, get, colorOf, nameOf, heldCamera, worldKindOf, serverNow } from '../store.ts';
 import { carPose, fromCarLocal } from '../../../shared/city.ts';
 import { selectNote } from '../actions.ts';
 import { pitchOf, placesOf } from '../spatial.ts';
@@ -16,7 +16,6 @@ import { DEFAULT_EYE_HEIGHT } from '../../../shared/avatar.ts';
 import { EyeHeightContext, useEyeHeight } from './eyeHeight.ts';
 import { PlayerCamera } from './playerCamera.ts';
 import { Player } from './Player.tsx';
-import { MOVEMENT_MODES } from './movement.ts';
 import { AttentionGlow, HammerModel, Item3D } from './items3d.tsx';
 import { Label } from './Label.tsx';
 import { OekakiAvatar } from './OekakiAvatar.tsx';
@@ -265,15 +264,8 @@ function Viewfinder() {
 }
 
 function Crosshair() {
-  const movementMode = useStore((s) => s.movementMode);
   const locked = useStore((s) => s.locked);
-  const survivorWorld = useStore((s) => worldKindOf(s) === 'survivors');
-  const survivorActive = useStore((s) => {
-    const phase = s.survivors[s.session ?? '']?.phase;
-    return worldKindOf(s) === 'survivors' && (phase === 'running' || phase === 'boss');
-  });
   const hint = useStore((s) => s.aimHint);
-  const holding = useStore((s) => !!heldHammer(s) || !!heldCamera(s));
   const hitMe = useStore((s) => s.hits[s.selfId]);
   const [, tick] = useState(0);
   useEffect(() => {
@@ -286,14 +278,6 @@ function Crosshair() {
       {locked && <div className={`crosshair ${hint ? 'on' : ''}`} />}
       {locked && hint && <div className="aimhint">{hint}</div>}
       {recentlyHit(get().selfId) && <div className="hitme">{tr("ui542")}</div>}
-      <div className="keyhelp">
-        <span>{tr('mergeMovement', tr(MOVEMENT_MODES[movementMode]))} ・ {movementMode !== 'walk' && tr('mergeFlightControls')}{tr('mergeSettingsHint')} ・ {tr('cameraViewControls')}</span><br />
-        {survivorWorld && survivorActive && movementMode === 'walk'
-          ? <>{tr('ui543')}</>
-          : locked
-            ? <>{tr('mergeMoveControls')}{movementMode === 'walk' && tr('mergeJumpControls')}{tr('mergeMouseControls')}{holding && tr('ui545')} {tr('ui546')}</>
-            : <>{tr('ui547')}</>}
-      </div>
     </>
   );
 }

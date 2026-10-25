@@ -799,8 +799,20 @@ img.av { object-fit: cover; display: block; }
 .crosshair { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px #0008; pointer-events: none; }
 .crosshair.on { width: 14px; height: 14px; margin: -7px 0 0 -7px; background: transparent; box-shadow: 0 0 0 3px #fde047, 0 0 0 5px #0008; }
 .aimhint { position: absolute; left: 50%; top: calc(50% + 22px); transform: translateX(-50%); white-space: nowrap; background: rgba(20, 20, 24, .75); color: #fff; padding: 4px 10px; border-radius: 8px; font-size: 13px; pointer-events: none; }
-.keyhelp { position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%); white-space: nowrap; max-width: 60%; overflow: hidden; text-overflow: ellipsis; background: rgba(20, 20, 24, .66); color: #fff; padding: 4px 12px; border-radius: 8px; font-size: 12px; pointer-events: none; z-index: 2; }
-.view3d:not(.locked) .keyhelp { font-size: 15px; padding: 8px 16px; bottom: 50%; }
+.view3d-hud { position: absolute; left: 50%; bottom: 102px; transform: translateX(-50%); width: min(960px, calc(100% - 32px)); max-height: calc(100% - 114px); display: flex; flex-direction: column; align-items: center; gap: 8px; overflow-y: auto; pointer-events: none; }
+.world.locked .front .view3d-hud { opacity: 1; }
+.view3d-hud .statuschips { position: static; transform: none; width: 100%; flex-flow: row wrap; justify-content: center; flex: none; }
+.view3d-hud .schip { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.view3d-hud .schip > span { min-width: 0; flex-wrap: wrap; }
+.view3d-hud .schip .chipbtn { flex: none; }
+.keyhelp { flex: none; max-width: 100%; white-space: normal; overflow-wrap: anywhere; background: rgba(20, 20, 24, .66); color: #fff; padding: 4px 12px; border-radius: 8px; font-size: 12px; pointer-events: none; }
+.world:not(.locked) .keyhelp { font-size: 15px; padding: 8px 16px; }
+@media (max-height: 480px) {
+  .view3d-hud { gap: 6px; }
+  .world:not(.locked) .keyhelp { font-size: 12px; padding: 4px 12px; }
+  .view3d-hud .statuschips { gap: 4px; }
+  .view3d-hud .schip { padding-top: 3px; padding-bottom: 3px; }
+}
 .hitme { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); font-size: 64px; font-weight: 900; color: #fde047; text-shadow: 0 3px 0 #000, 0 0 16px #f59e0b; pointer-events: none; animation: pico .7s forwards; }
 .noteeditor { position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%); z-index: 4; background: var(--paper); border-radius: 14px; padding: 12px; box-shadow: var(--pop); display: flex; flex-direction: column; gap: 8px; width: min(480px, 90%); }
 .noteeditor textarea { height: 72px; resize: none; color: #1c1917; border: 0; }
@@ -1296,6 +1308,8 @@ img.av { object-fit: cover; display: block; }
   .world.phone .dk { flex-shrink: 0; }
   .world.phone .nearlist, .world.phone .noticelog, .world.phone .facegrid, .world.phone .winregion { bottom: calc(130px + env(safe-area-inset-bottom)); }
   .world.phone .statuschips { bottom: calc(128px + env(safe-area-inset-bottom)); width: calc(100% - 16px); }
+  .world.phone .view3d-hud { bottom: calc(128px + env(safe-area-inset-bottom)); max-height: calc(100% - 140px - env(safe-area-inset-bottom)); width: calc(100% - 16px); }
+  .world.phone .view3d-hud .statuschips { width: 100%; }
   .world.phone .phonetabs { position: absolute; left: 0; right: 0; bottom: 0; display: flex; padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); background: var(--paper); box-shadow: 0 -2px 12px rgba(60, 40, 10, .1); }
   .phonetabs button { position: relative; flex: 1; height: 52px; flex-direction: column; gap: 2px; padding: 0; font-size: 11px; color: var(--muted2); }
   .phonetabs button.on { color: var(--accent); font-weight: 700; }
@@ -1322,7 +1336,8 @@ img.av { object-fit: cover; display: block; }
   .world.phone .winregion { left: calc(176px + var(--phone-left)); right: calc(88px + var(--phone-right)); top: 62px; bottom: calc(64px + var(--phone-bottom)); }
   .world.phone .winstrip { height: 60px; }
   .world.phone .winstrip .win.compact { height: 56px !important; width: 120px !important; }
-  .world.phone .statuschips { left: var(--phone-left); bottom: calc(64px + var(--phone-bottom)); width: 160px; max-height: 50px; overflow-y: auto; transform: none; pointer-events: auto !important; }
+  .world.phone .front > .statuschips { left: var(--phone-left); bottom: calc(64px + var(--phone-bottom)); width: 160px; max-height: 50px; overflow-y: auto; transform: none; pointer-events: auto !important; }
+  .world.phone .view3d-hud { left: var(--phone-left); right: calc(88px + var(--phone-right)); bottom: calc(64px + var(--phone-bottom)); width: auto; max-height: calc(100% - 76px - var(--phone-bottom)); transform: none; }
   .world.phone .schip { max-width: 100%; flex-shrink: 0; }
   .world.phone .schip > span { flex-wrap: wrap; white-space: normal; }
 }
