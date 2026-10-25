@@ -34,6 +34,7 @@ import {
 import { safeStorage } from './storage.ts';
 import { linkTonariumProfile } from './link.ts';
 import { AdApiClient, type LeaderboardEntry } from './api.ts';
+import { emitAdFeedback, type AdFeedbackKind } from './feedback.ts';
 
 export interface AdStartOptions {
   /** 任意の上書き。未指定なら同一オリジン（Tonarium サーバー内の /api/*）を使い、Workers などの外部 API は必須ではない */
@@ -128,6 +129,32 @@ export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
     timers = [];
   }
 
+  async function saveServerNow(manual: boolean): Promise<boolean> {
+    const { adProfile, adGame } = get();
+    if (!api || !adProfile || !adGame) return false;
+    try {
+      await api.save(adProfile.id, JSON.parse(serialize(adGame)) as Record<string, unknown>);
+      set({ adServer: 'connected', adLastServerSaveAt: Date.now() });
+      if (manual) emitAdFeedback({ kind: 'save' });
+      return true;
+    } catch {
+      set({ adServer: 'error' });
+      if (manual) emitAdFeedback({ kind: 'error' });
+      return false;
+    }
+  }
+
+  function manualAction<T>(kind: AdFeedbackKind, action: () => T): T {
+    try {
+      const result = action();
+      emitAdFeedback({ kind });
+      return result;
+    } catch (error) {
+      emitAdFeedback({ kind: 'error' });
+      throw error;
+    }
+  }
+
   const slice: AdSlice = {
     adProfile: null,
     adGame: null,
@@ -162,7 +189,7 @@ export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
         }, 100),
         window.setInterval(() => { saveLocalNow(); }, 1000),
         // サーバー保存は常に有効（既定は同一オリジンの Tonarium サーバー）。localStorage はフォールバックとして残る
-        window.setInterval(() => { void slice.adSaveServer(); }, 30000),
+        window.setInterval(() => { void saveServerNow(false); }, 30000),
       ];
     },
 
@@ -184,44 +211,73 @@ export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
       const game = get().adGame;
       if (!game) return false;
       const ok = buyDimension(game, tier);
-      if (ok) set({ adVersion: get().adVersion + 1 });
+      if (ok) {
+        set({ adVersion: get().adVersion + 1 });
+        emitAdFeedback({ kind: 'purchase', tier, count: 1 });
+      }
       return ok;
     },
 
     adBuyDimensionMax(tier) {
       const game = get().adGame;
       if (!game) return;
-      buyMaxDimension(game, tier);
-      set({ adVersion: get().adVersion + 1 });
+      const count = buyMaxDimension(game, tier);
+      if (count > 0) {
+        set({ adVersion: get().adVersion + 1 });
+        emitAdFeedback({ kind: 'purchase', tier, count });
+      }
     },
 
     adBuyMax() {
       const game = get().adGame;
       if (!game) return;
+      const before = game.dimensions.map((dim) => dim.bought);
+      const tickspeedBefore = game.tickspeedBought;
       buyMax(game);
-      set({ adVersion: get().adVersion + 1 });
+      let changed = false;
+      game.dimensions.forEach((dim, index) => {
+        const count = dim.bought - before[index];
+        if (count <= 0) return;
+        changed = true;
+        emitAdFeedback({ kind: 'purchase', tier: index + 1, count });
+      });
+      const count = game.tickspeedBought - tickspeedBefore;
+      if (count > 0) {
+        changed = true;
+        emitAdFeedback({ kind: 'tickspeed', count });
+      }
+      if (changed) set({ adVersion: get().adVersion + 1 });
     },
 
     adBuyTickspeed() {
       const game = get().adGame;
       if (!game) return false;
       const ok = buyTickspeed(game);
-      if (ok) set({ adVersion: get().adVersion + 1 });
+      if (ok) {
+        set({ adVersion: get().adVersion + 1 });
+        emitAdFeedback({ kind: 'tickspeed', count: 1 });
+      }
       return ok;
     },
 
     adBuyMaxTickspeed() {
       const game = get().adGame;
       if (!game) return;
-      buyMaxTickspeed(game);
-      set({ adVersion: get().adVersion + 1 });
+      const count = buyMaxTickspeed(game);
+      if (count > 0) {
+        set({ adVersion: get().adVersion + 1 });
+        emitAdFeedback({ kind: 'tickspeed', count });
+      }
     },
 
     adBoost() {
       const game = get().adGame;
       if (!game) return false;
       const ok = dimensionalBoost(game);
-      if (ok) set({ adVersion: get().adVersion + 1 });
+      if (ok) {
+        set({ adVersion: get().adVersion + 1 });
+        emitAdFeedback({ kind: 'boost' });
+      }
       return ok;
     },
 
@@ -229,7 +285,10 @@ export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
       const game = get().adGame;
       if (!game) return false;
       const ok = antimatterGalaxy(game);
-      if (ok) set({ adVersion: get().adVersion + 1 });
+      if (ok) {
+        set({ adVersion: get().adVersion + 1 });
+        emitAdFeedback({ kind: 'galaxy' });
+      }
       return ok;
     },
 
@@ -237,43 +296,44 @@ export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
       const game = get().adGame;
       if (!game) return false;
       const ok = sacrifice(game);
-      if (ok) set({ adVersion: get().adVersion + 1 });
+      if (ok) {
+        set({ adVersion: get().adVersion + 1 });
+        emitAdFeedback({ kind: 'sacrifice' });
+      }
       return ok;
     },
 
     adPrestige() {
       const game = get().adGame;
       if (!game) return false;
-      const ok = prestigeInfinity(game);
-      if (ok) set({ adVersion: get().adVersion + 1 });
+      const ok = Boolean(prestigeInfinity(game));
+      if (ok) {
+        set({ adVersion: get().adVersion + 1 });
+        emitAdFeedback({ kind: 'crunch' });
+      }
       return ok;
     },
 
     adCreateProfile(name) {
-      const profile = createProfile(storage, name);
-      slice.adSwitchProfile(profile.id);
-      return profile;
+      return manualAction('profile', () => {
+        const profile = createProfile(storage, name);
+        loadProfileGame(switchProfile(storage, profile.id));
+        return profile;
+      });
     },
 
     adSwitchProfile(userId) {
-      loadProfileGame(switchProfile(storage, userId));
+      manualAction('profile', () => { loadProfileGame(switchProfile(storage, userId)); });
     },
 
     adSaveLocal() {
-      return saveLocalNow();
+      const ok = saveLocalNow();
+      emitAdFeedback({ kind: ok ? 'save' : 'error' });
+      return ok;
     },
 
     async adSaveServer() {
-      const { adProfile, adGame } = get();
-      if (!api || !adProfile || !adGame) return false;
-      try {
-        await api.save(adProfile.id, JSON.parse(serialize(adGame)) as Record<string, unknown>);
-        set({ adServer: 'connected', adLastServerSaveAt: Date.now() });
-        return true;
-      } catch {
-        set({ adServer: 'error' });
-        return false;
-      }
+      return saveServerNow(true);
     },
 
     async adLoadServer() {
@@ -281,14 +341,19 @@ export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
       if (!api || !adProfile) return false;
       try {
         const save = await api.load(adProfile.id);
-        if (!save) return false;
+        if (!save) {
+          emitAdFeedback({ kind: 'error' });
+          return false;
+        }
         const game = deserialize(save);
         const offline = offlineProgress(game, Date.now());
         set({ adGame: game, adOffline: offline, adVersion: get().adVersion + 1, adServer: 'connected' });
         saveLocalNow();
+        emitAdFeedback({ kind: 'load' });
         return true;
       } catch {
         set({ adServer: 'error' });
+        emitAdFeedback({ kind: 'error' });
         return false;
       }
     },
@@ -306,9 +371,11 @@ export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
         });
         const entries = await api.leaderboard();
         set({ adLeaderboard: entries });
+        emitAdFeedback({ kind: 'submit' });
         return true;
       } catch {
         set({ adServer: 'error' });
+        emitAdFeedback({ kind: 'error' });
         return false;
       }
     },
@@ -316,16 +383,19 @@ export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
     adExport() {
       const { adProfile, adGame } = get();
       if (!adProfile || !adGame) return null;
-      return buildExportBundle(adProfile, JSON.parse(serialize(adGame)) as Record<string, unknown>);
+      return manualAction('export', () =>
+        buildExportBundle(adProfile, JSON.parse(serialize(adGame)) as Record<string, unknown>));
     },
 
     adImport(bundle) {
-      const current = get().adProfile;
-      if (current) switchProfile(storage, current.id);
-      // importBundleInto は保存済みアクティブ配下へ書くため、先に現プロフィールをアクティブ化しておく
-      const result = importBundleInto(storage, bundle);
-      loadProfileGame(result.profile);
-      return result.profile;
+      return manualAction('import', () => {
+        const current = get().adProfile;
+        if (current) switchProfile(storage, current.id);
+        // importBundleInto は保存済みアクティブ配下へ書くため、先に現プロフィールをアクティブ化しておく
+        const result = importBundleInto(storage, bundle);
+        loadProfileGame(result.profile);
+        return result.profile;
+      });
     },
   };
 

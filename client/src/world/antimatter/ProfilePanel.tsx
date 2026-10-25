@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { AntimatterSlice } from './types.ts';
 import { s } from './styles.ts';
+import { emitAdFeedback } from '../../ad/feedback.ts';
 
 export function ProfilePanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: string) => void }) {
   const [newName, setNewName] = useState('');
@@ -38,6 +39,7 @@ export function ProfilePanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg
   const onImport = () => {
     const text = exportText.trim();
     if (!text) {
+      emitAdFeedback({ kind: 'error' });
       notice('インポートする JSON をテキストエリアに貼り付けてください');
       return;
     }
@@ -48,9 +50,29 @@ export function ProfilePanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg
   const onReset = () => {
     if (!window.confirm('本当にリセットしますか？すべての進行状況が消え、元に戻せません。')) return;
     if (!window.confirm('最終確認: 本当に最初からやり直しますか？')) return;
-    ad.resetGame();
-    setExportText('');
-    notice('リセットしました。新しいゲームを開始します');
+    try {
+      ad.resetGame();
+      setExportText('');
+      notice('リセットしました。新しいゲームを開始します');
+    } catch {
+      notice('リセットできませんでした');
+    }
+  };
+
+  const onCreate = () => {
+    const name = newName.trim();
+    if (!name) {
+      emitAdFeedback({ kind: 'error' });
+      notice('新しいプロフィールの名前を入力してください');
+      return;
+    }
+    try {
+      ad.createProfile(name);
+      setNewName('');
+      notice(`プロフィール「${name}」を作成して切り替えました`);
+    } catch {
+      notice('プロフィールを作成できませんでした');
+    }
   };
 
   return (
@@ -61,12 +83,16 @@ export function ProfilePanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <select
             style={s.input} value={active?.id ?? ''} aria-label="プロフィール"
-            onChange={(e) => { if (e.target.value) ad.switchProfile(e.target.value); }}
+            onChange={(e) => {
+              if (!e.target.value) return;
+              try { ad.switchProfile(e.target.value); }
+              catch { notice('プロフィールを切り替えられませんでした'); }
+            }}
           >
             {ad.profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
           <input style={s.input} value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="新しいプロフィール名" aria-label="新しいプロフィール名" />
-          <button style={s.btn} onClick={() => { const name = newName.trim(); if (!name) { notice('新しいプロフィールの名前を入力してください'); return; } ad.createProfile(name); setNewName(''); notice(`プロフィール「${name}」を作成して切り替えました`); }}>作成して切り替え</button>
+          <button style={s.btn} onClick={onCreate}>作成して切り替え</button>
           {active && ad.profiles.length > 1 && (
             <button style={s.btnDanger} onClick={() => { if (window.confirm(`プロフィール「${active.name}」を削除しますか？`)) ad.deleteProfile(active.id); }}>現在のプロフィールを削除</button>
           )}

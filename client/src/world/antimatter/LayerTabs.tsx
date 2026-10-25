@@ -6,6 +6,7 @@ import {
 } from './layersData.ts';
 import { s } from './styles.ts';
 import { LabBanner, type LabArtKind } from './LabArt.tsx';
+import { emitAdFeedback } from '../../ad/feedback.ts';
 
 function MockButton({ children }: { children: React.ReactNode }) {
   return <button style={s.btn} disabled>{children}</button>;
@@ -101,7 +102,7 @@ export function LayerTabs({ ad }: { ad: AntimatterSlice }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={s.tabs}>
         {tabs.map((t) => (
-          <button key={t.id} style={t.id === layerId ? s.tabActive : s.tab} onClick={() => setLayerId(t.id)}>
+          <button key={t.id} style={t.id === layerId ? s.tabActive : s.tab} onClick={() => { if (t.id !== layerId) { setLayerId(t.id); emitAdFeedback({ kind: 'navigate' }); } }}>
             {t.nameJa}<span style={t.status === 'mock' ? s.badgeMock : s.badge}>{t.badge}</span>{!t.unlocked && t.id !== 'dimensions' ? ' 🔒' : ''}
           </button>
         ))}

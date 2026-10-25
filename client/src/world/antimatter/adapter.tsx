@@ -10,6 +10,7 @@ import { safeStorage } from '../../ad/storage.ts';
 import type { AdSlice } from '../../ad/slice.ts';
 import type { AntimatterSlice, DerivedSnapshot, OfflineNotice } from './types.ts';
 import { AntimatterPanel } from './AntimatterPanel.tsx';
+import { emitAdFeedback } from '../../ad/feedback.ts';
 
 // d.mts の型が実エンジンとずれている箇所だけ、実行時の形に寄せて使う。
 const galaxyRequirement = getGalaxyRequirement as unknown as (s: GameState) => { tier: number; amount: number };
@@ -100,12 +101,21 @@ export function adaptAdSlice(slice: AdSlice, options: AdaptOptions = {}): Antima
     switchProfile: (userId) => slice.adSwitchProfile(userId),
     createProfile: (name) => { void slice.adCreateProfile(name); },
     deleteProfile: (userId) => {
+      let switching = false;
       try {
-        const rest = listProfiles(storage).filter((p) => p.id !== userId);
-        if (slice.adProfile?.id === userId && rest[0]) slice.adSwitchProfile(rest[0].id);
+        const profiles = listProfiles(storage);
+        const rest = profiles.filter((p) => p.id !== userId);
+        if (rest.length === profiles.length) return;
+        const wasActive = slice.adProfile?.id === userId;
+        if (wasActive && !rest[0]) { emitAdFeedback({ kind: 'error' }); return; }
         deleteProfile(storage, userId);
-        if (slice.adProfile?.id === userId && !rest[0]) slice.adSwitchProfile(userId);
+        if (wasActive && rest[0]) {
+          switching = true;
+          slice.adSwitchProfile(rest[0].id);
+        }
+        if (!wasActive) emitAdFeedback({ kind: 'profile' });
       } catch {
+        if (!switching) emitAdFeedback({ kind: 'error' });
         // 削除に失敗してもパネル側は続行する
       }
     },
@@ -113,7 +123,10 @@ export function adaptAdSlice(slice: AdSlice, options: AdaptOptions = {}): Antima
       // スライスにリセットが無いため、保存を消して同プロフィールを再読込する。
       // 再読込はセーブ無しで新規ゲームを作る。
       if (!slice.adProfile) return;
-      try { storage.removeItem(saveKeyFor(slice.adProfile.id)); } catch { /* 続行 */ }
+      try { storage.removeItem(saveKeyFor(slice.adProfile.id)); } catch (error) {
+        emitAdFeedback({ kind: 'error' });
+        throw error;
+      }
       slice.adSwitchProfile(slice.adProfile.id);
     },
     exportBundle: () => {
@@ -121,22 +134,35 @@ export function adaptAdSlice(slice: AdSlice, options: AdaptOptions = {}): Antima
       return bundle ? JSON.stringify(bundle, null, 2) : '';
     },
     importBundle: (text) => {
+      let bundle;
       try {
-        const bundle = parseImportBundle(text);
+        bundle = parseImportBundle(text);
+      } catch {
+        emitAdFeedback({ kind: 'error' });
+        return { ok: false, message: 'インポートに失敗しました: v2 バンドルの形式ではありません' };
+      }
+      try {
         const profile = slice.adImport(bundle);
         return { ok: true, message: `v2 バンドルをインポートしました（現在のユーザー「${profile.name}」）` };
       } catch {
         return { ok: false, message: 'インポートに失敗しました: v2 バンドルの形式ではありません' };
       }
     },
-    dismissOffline: () => { if (slice.adOffline) dismissedOffline.add(offlineKey(slice.adOffline)); },
+    dismissOffline: () => {
+      if (slice.adOffline) {
+        dismissedOffline.add(offlineKey(slice.adOffline));
+        emitAdFeedback({ kind: 'navigate' });
+      }
+    },
     saveToServer: async () => { await slice.adSaveServer(); },
     loadFromServer: async () => { await slice.adLoadServer(); },
     refreshLeaderboard: async () => {
       // スライスに読込専用アクションが無いため、ここでは更新できない。
       // ランキングは adSubmitScore 時に更新される。adRefreshLeaderboard の追加が要る。
+      emitAdFeedback({ kind: 'error' });
+      throw new Error('Ranking refresh is not available');
     },
-    submitScore: async () => { await slice.adSubmitScore(); },
+    submitScore: async () => { if (!await slice.adSubmitScore()) throw new Error('Score submission failed'); },
   };
 }
 

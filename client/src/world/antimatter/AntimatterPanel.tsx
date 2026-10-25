@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { AntimatterPanelProps } from './types.ts';
 import { formatDurationMs, formatNumber } from './format.ts';
@@ -10,6 +10,8 @@ import { ProfilePanel } from './ProfilePanel.tsx';
 import { LayerTabs } from './LayerTabs.tsx';
 import './antimatter-panel.css';
 import { LabBanner } from './LabArt.tsx';
+import { emitAdFeedback } from '../../ad/feedback.ts';
+import { AdPurchaseParticles } from './AdPurchaseParticles.tsx';
 
 type TabId = 'dimensions' | 'actions' | 'stats' | 'profiles' | 'layers';
 
@@ -22,6 +24,7 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 export function AntimatterPanel({ ad }: AntimatterPanelProps) {
+  const root = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<TabId>('dimensions');
   const [notice, setNotice] = useState<string | null>(null);
   const showNotice = (msg: string) => setNotice(msg);
@@ -37,8 +40,8 @@ export function AntimatterPanel({ ad }: AntimatterPanelProps) {
   const offlineGained = offline && (offline.antimatterGained.mantissa ?? 0) !== 0 && offline.elapsedMs >= 5000;
 
   return (
-    <div className="ad-lab-panel" style={s.root} role="region" aria-label="AD 研究所" tabIndex={0}>
-      <LabBanner kind="reactor" eyebrow="ANTIMATTER LAB" title="回せ、次元リアクター！" description="次元を買って反物質を増産。10個ごとに倍率アップ、Boost で次の次元へ！" />
+    <div ref={root} className="ad-lab-panel" style={s.root} role="region" aria-label="AD 研究所" tabIndex={0}>
+      <div data-ad-core><LabBanner kind="reactor" eyebrow="ANTIMATTER LAB" title="回せ、次元リアクター！" description="次元を買って反物質を増産。10個ごとに倍率アップ、Boost で次の次元へ！" /></div>
       <div style={s.header}>
         <span className="ad-resource-label">ANTIMATTER / 反物質</span>
         <span className="ad-resource-value" style={s.big}>{formatNumber(game.antimatter)}</span>
@@ -50,7 +53,11 @@ export function AntimatterPanel({ ad }: AntimatterPanelProps) {
       </div>
       <div style={s.tabs} aria-label="研究メニュー">
         {TABS.map((t) => (
-          <button key={t.id} aria-pressed={t.id === tab} style={t.id === tab ? s.tabActive : s.tab} onClick={() => setTab(t.id)}>{t.label}</button>
+          <button key={t.id} aria-pressed={t.id === tab} style={t.id === tab ? s.tabActive : s.tab} onClick={() => {
+            if (t.id === tab) return;
+            setTab(t.id);
+            emitAdFeedback({ kind: 'navigate' });
+          }}>{t.label}</button>
         ))}
       </div>
       {notice && <div style={s.notice}>{notice}</div>}
@@ -59,6 +66,7 @@ export function AntimatterPanel({ ad }: AntimatterPanelProps) {
       {tab === 'stats' && <StatsPanel ad={ad} notice={showNotice} />}
       {tab === 'profiles' && <ProfilePanel ad={ad} notice={showNotice} />}
       {tab === 'layers' && <LayerTabs ad={ad} />}
+      <AdPurchaseParticles root={root} />
       {offlineGained && createPortal(
         <div style={s.modal} onClick={() => ad.dismissOffline()}>
           <div style={s.modalBox} onClick={(e) => e.stopPropagation()}>

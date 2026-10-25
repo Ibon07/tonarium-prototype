@@ -64,8 +64,8 @@ export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: 
         )}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
           <input style={s.input} value={scoreName} onChange={(e) => setScoreName(e.target.value)} placeholder="ランキング表示名（空ならプロフィール名）" aria-label="ランキング表示名" />
-          <button style={s.btn} onClick={() => { void ad.submitScore(scoreName.trim() || ad.activeProfile?.name || '').then(() => notice('スコアを送信しました')); }}>スコアを送信</button>
-          <button style={s.btn} onClick={() => { void ad.refreshLeaderboard(); }}>ランキングを更新</button>
+          <button style={s.btn} onClick={() => { void ad.submitScore(scoreName.trim() || ad.activeProfile?.name || '').then(() => notice('スコアを送信しました')).catch(() => notice('スコアを送信できませんでした')); }}>スコアを送信</button>
+          <button style={s.btn} onClick={() => { void ad.refreshLeaderboard().catch(() => notice('ランキングの個別更新はまだ利用できません。スコア送信時に更新されます')); }}>ランキングを更新</button>
         </div>
       </div>
     </div>

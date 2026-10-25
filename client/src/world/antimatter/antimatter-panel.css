@@ -1,7 +1,14 @@
 .ad-lab-panel {
+  position: relative;
   container-type: inline-size;
   background-image: radial-gradient(ellipse at 0 0, #352563 0, transparent 55%), radial-gradient(ellipse at 100% 60%, #103943 0, transparent 65%) !important;
   scrollbar-color: #a190f9 #181a36;
+}
+.ad-feedback-burst { position: absolute; width: 104px; height: 104px; margin: -52px 0 0 -52px; overflow: hidden; pointer-events: none; z-index: 2; contain: strict; }
+.ad-feedback-burst > i { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: currentColor; box-shadow: 0 0 5px currentColor; animation: ad-purchase-spark .65s ease-out forwards; }
+@keyframes ad-purchase-spark {
+  from { opacity: 1; transform: translate(0, 0) scale(1.2); }
+  to { opacity: 0; transform: translate(var(--ad-spark-x), var(--ad-spark-y)) scale(.3); }
 }
 /* The window body clips overflow; this panel owns the bounded scroll area. */
 .ad-lab-panel > * { flex-shrink: 0; min-width: 0; }
@@ -35,5 +42,6 @@
   .ad-dimension-buy { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .ad-feedback-burst { display: none; }
   .ad-lab-panel *, .ad-lab-panel *::before, .ad-lab-panel *::after { animation: none !important; transition: none !important; }
 }

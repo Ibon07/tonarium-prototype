@@ -7,6 +7,7 @@ import { AntimatterLab } from './antimatterLab.tsx';
 import { buildAdLabSnapshot } from '../ad/labView.ts';
 import { createNewGame } from '../ad/engine.mjs';
 import { openWindow } from '../world/windows.ts';
+import { emitAdFeedback } from '../ad/feedback.ts';
 import type { AdLabSnapshot, AdPanelTarget } from '../../../shared/antimatterLayout.ts';
 
 export function AntimatterWorld() {
@@ -24,6 +25,7 @@ export function AntimatterWorld() {
   const onOpenPanel = (target: AdPanelTarget) => {
     useStore.setState({ adSpaceTarget: target });
     openWindow('antimatter-space');
+    emitAdFeedback({ kind: 'navigate' });
   };
   return <AntimatterLab snapshot={snapshot} isOwn onOpenPanel={onOpenPanel} />;
 }

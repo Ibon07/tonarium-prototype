@@ -8,12 +8,15 @@ import * as THREE from 'three';
 import {
   ANTIMATTER_ALTAR, ANTIMATTER_CORE, ANTIMATTER_EXHIBITS, ANTIMATTER_PALETTE, ANTIMATTER_PORTAL,
   ANTIMATTER_TOWERS, DIMENSION_TARGETS, clampLog, lodForDistance, particleCountFromLog,
-  ringSpeedFromBought, streamOpacityFromLog, towerHeightFromLog, towerRadiusFromLog,
+  ringSpeedFromBought, streamOpacityFromLog, towerHeightFromLog,
   type AdDioramaView, type AdLabSnapshot, type AdLod, type AdPanelTarget,
 } from '../../../shared/antimatterLayout.ts';
 import { Box, Cyl, SpawnArea } from './parts3d.tsx';
 import { Label } from './Label.tsx';
 import { PanelBoard } from './antimatterPanels.tsx';
+import { AntimatterReadout } from './AntimatterReadout.tsx';
+import { AdPurchaseParticles3D } from './AdPurchaseParticles3D.tsx';
+import { DimensionReactor3D } from './DimensionReactor3D.tsx';
 
 export type Origin = [number, number];
 
@@ -124,28 +127,20 @@ function FlowStrip({ from, to, opacity }: { from: { x: number; z: number }; to: 
   );
 }
 
-function DimensionTower({ tier, x, z, view, interactable, onOpen }: {
+function DimensionTower({ tier, x, z, view, interactable, onOpen, detail }: {
   tier: number; x: number; z: number;
   view: AdLabSnapshot['dimensions'][number];
-  interactable: boolean; onOpen: OpenPanel;
+  interactable: boolean; onOpen: OpenPanel; detail: 'full' | 'simple';
 }) {
   const target = DIMENSION_TARGETS[tier - 1];
   const h = view.locked ? 0.5 : towerHeightFromLog(view.amountLog10);
-  const r = view.locked ? 0.32 : towerRadiusFromLog(view.amountLog10);
   const groupProps = interactable
     ? { userData: { hint: `第${tier}次元（クリックでパネル）`, use: () => onOpen(target) } }
     : { userData: { noRay: true } };
   return (
     <group position={[x, 0, z]} {...groupProps}>
-      <Cyl p={[0, 0.12, 0]} r={r + 0.22} r2={r + 0.3} h={0.24} color="#3a3f66" />
-      <Cyl p={[0, h / 2 + 0.24, 0]} r={r} h={h} color={view.locked ? '#555866' : '#4f7dff'} />
-      {!view.locked && (
-        <mesh position-y={h + 0.55}>
-          <sphereGeometry args={[0.28, 16, 12]} />
-          <meshStandardMaterial color="#bfe6ff" emissive="#4f7dff" emissiveIntensity={0.9} roughness={0.3} />
-        </mesh>
-      )}
-      <Label text={view.locked ? `🔒 第${tier}次元` : `第${tier}次元`} position={[0, h + 1.1, 0]} height={0.22} bg="rgba(20,24,48,.92)" />
+      <DimensionReactor3D tier={tier} amountLog10={view.amountLog10} productionLog10={view.productionLog10} bought={view.bought} locked={view.locked} detail={detail} />
+      <Label text={view.locked ? `🔒 第${tier}次元` : `第${tier}次元`} position={[0, h + 1.4, 0]} height={0.22} bg="rgba(20,24,48,.92)" />
       {/* 流れの帯は同列の隣塔だけに引く。列をまたぐと研究所を斜めに横切ってしまうため */}
       {!view.locked && tier !== 1 && tier !== 5 && <FlowStrip from={{ x, z }} to={ANTIMATTER_TOWERS[tier - 2]} opacity={streamOpacityFromLog(view.productionLog10)} />}
     </group>
@@ -196,6 +191,7 @@ export function AntimatterLab({ origin = [0, 0], snapshot, isOwn, onOpenPanel }:
   return (
     <group position={[origin[0], 0, origin[1]]}>
       <LabShell origin={origin} />
+      {isOwn && <AdPurchaseParticles3D snapshot={snapshot} />}
       <group position={[ANTIMATTER_CORE.x, 0, ANTIMATTER_CORE.z]} userData={{ hint: '反物質コア（クリックでパネル）', use: () => open('core') }}>
         {full && <CoreFountain log10={snapshot.antimatterLog10} bought={snapshot.tickspeedBought} />}
         {!full && (
@@ -205,13 +201,11 @@ export function AntimatterLab({ origin = [0, 0], snapshot, isOwn, onOpenPanel }:
           </mesh>
         )}
         <Label text="反物質コア" position={[0, 2.6, 0]} height={0.24} bg="rgba(20,24,48,.92)" />
-        {full && isOwn && (
-          <PanelBoard position={[0, 3.6, 0]} hint="反物質コア（クリックでパネル）" onOpen={() => open('core')} lines={['反物質', snapshot.antimatterText, `${snapshot.perSecondText} / 秒`, 'クリックで操作パネル']} />
-        )}
+        <AntimatterReadout snapshot={snapshot} onOpen={isOwn ? () => open('core') : undefined} />
       </group>
       {ANTIMATTER_TOWERS.map((t) => (
         <group key={t.tier} position={[0, 0, 0]}>
-          <DimensionTower tier={t.tier} x={t.x} z={t.z} view={snapshot.dimensions[t.tier - 1]} interactable={isOwn} onOpen={open} />
+          <DimensionTower tier={t.tier} x={t.x} z={t.z} view={snapshot.dimensions[t.tier - 1]} interactable={isOwn} onOpen={open} detail={full ? 'full' : 'simple'} />
           {full && isOwn && !snapshot.dimensions[t.tier - 1].locked && (
             <PanelBoard
               hint={`第${t.tier}次元（クリックでパネル）`} onOpen={() => open(DIMENSION_TARGETS[t.tier - 1])}

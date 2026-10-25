@@ -7,6 +7,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { ANTIMATTER_EXHIBITS, type AdLabSnapshot, type AdPanelTarget } from '../../../shared/antimatterLayout.ts';
 import { drawText, makeCanvasTexture } from './textTexture.ts';
+import { emitAdFeedback } from '../ad/feedback.ts';
 
 /** 親が engine へ結ぶ操作口。3D 側は数値計算もセーブもしない */
 export interface AdActions {
@@ -85,7 +86,7 @@ function Foot({ onClose }: { onClose?: () => void }) {
   return (
     <p style={{ color: '#9aa3c7', fontSize: 12 }}>
       閉じたらキャンバスをクリックすると 3D 操作に戻ります。
-      {onClose && <Btn label="閉じて3Dへ戻る" onClick={onClose} />}
+      {onClose && <Btn label="閉じて3Dへ戻る" onClick={() => { onClose(); emitAdFeedback({ kind: 'navigate' }); }} />}
     </p>
   );
 }
