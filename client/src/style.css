@@ -1048,6 +1048,8 @@ img.av { object-fit: cover; display: block; }
 .hbadge.red { background: var(--danger); color: #fff; }
 .hnavbtn.on .hbadge.red { background: var(--danger); }
 .gmark { position: relative; }
+.gmark img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.gmark > .gmark { width: 100%; height: 100%; border-radius: inherit; }
 .gmark.on { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ink2); }
 .gmark.big { width: 48px; height: 48px; font-size: 20px; border-radius: 14px; }
 .gmark.tiny { width: 26px; height: 26px; font-size: 12px; border-radius: 8px; }

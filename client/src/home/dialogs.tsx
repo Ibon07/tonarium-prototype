@@ -7,7 +7,9 @@ import type { Group, Visibility } from '../../../shared/protocol.ts';
 import { VISIBILITY_INFO, isGroupVisibility } from '../../../shared/protocol.ts';
 import { GROUP_COLORS } from '../../../shared/home.ts';
 import { WORLDS, WORLD_KINDS, type WorldKind } from '../../../shared/worlds.ts';
-import { createEvent, createGroup, createSession, invite } from '../actions.ts';
+import { createEvent, createGroup, createSession, invite, updateGroup } from '../actions.ts';
+import { pickGroupImage } from '../icon.ts';
+import { GroupAvatar } from './GroupAvatar.tsx';
 import { Face } from '../world/common.tsx';
 import { useMyGroups, useOnlineFriends } from './common.tsx';
 
@@ -19,6 +21,40 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
         {children}
       </div>
     </div>
+  );
+}
+
+export function GroupSettingsDialog({ group: g, onClose }: { group: Group; onClose: () => void }) {
+  const selfName = useStore((s) => s.selfName);
+  const [name, setName] = useState(g.name);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState(false);
+  const owner = g.owner === selfName;
+  const editors = g.editors ?? [];
+  const upload = async () => {
+    setUploading(true);
+    setError(false);
+    const ok = await pickGroupImage(g.id, selfName);
+    setUploading(false);
+    setError(!ok);
+  };
+  return (
+    <Modal title="グループ設定" onClose={onClose}>
+      <label className="hfield">グループ名<input autoFocus value={name} maxLength={40} onChange={(e) => setName(e.target.value)} /></label>
+      <div className="hfield">グループ画像
+        <div className="row"><GroupAvatar group={g} size="big" /><button disabled={uploading} onClick={upload}>{uploading ? '画像を選択・送信中…' : '端末から画像を選ぶ'}</button></div>
+        <span className="sub">画像は選択後すぐに保存されます</span>
+        {error && <span role="status">画像は変更されませんでした。もう一度選んでください。</span>}
+      </div>
+      {owner && <div className="hfield">編集者
+        <select aria-label="編集者を追加" value="" onChange={(e) => { if (e.target.value) updateGroup(g.id, { editors: [...editors, e.target.value] }); }}>
+          <option value="">メンバーから追加</option>
+          {g.members.filter((n) => n !== g.owner && !editors.includes(n)).map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        {editors.map((n) => <div className="row" key={n}><span>{n}</span><button aria-label={`${n} を編集者から外す`} onClick={() => updateGroup(g.id, { editors: editors.filter((x) => x !== n) })}>×</button></div>)}
+      </div>}
+      <div className="row end"><button onClick={onClose}>閉じる</button><button className="primary" disabled={!name.trim()} onClick={() => { updateGroup(g.id, { name }); onClose(); }}>名前を保存</button></div>
+    </Modal>
   );
 }
 

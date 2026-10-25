@@ -32,6 +32,7 @@ export default defineConfig(({ mode }) => {
         '/sync': { target: `http://${api}`, ws: true },
         '/token': `http://${api}`,
         '/icon': `http://${api}`,
+        '/group-image': `http://${api}`,
         '/avatar': `http://${api}`,
         '/profile': `http://${api}`,
         '/report': `http://${api}`,

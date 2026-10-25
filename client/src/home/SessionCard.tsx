@@ -6,6 +6,7 @@ import { deleteSession, joinSession } from '../actions.ts';
 import { Face } from '../world/common.tsx';
 import { Icon } from '../world/Icon.tsx';
 import { Chip, ModeIcon, timeLabel, uniqueByName } from './common.tsx';
+import { GroupAvatar } from './GroupAvatar.tsx';
 
 const WORLD_TINT: Record<WorldKind, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', survivors: '#F2D5E2', city: '#D7EAD3', garden: '#DDEBCF', starlounge: '#DBE1F4' };
 const WORLD_PLACEHOLDER = Object.fromEntries(Object.entries(WORLD_TINT).map(([kind, tint]) => [kind,
@@ -48,7 +49,7 @@ export function SessionCard({ s, showDelete }: { s: SessionDef; showDelete?: boo
       <div className="scbody">
         <div className="sctitle">
           <h3 title={s.topic}>{s.name}</h3>
-          <Chip kind={vis}><Icon name={VIS_ICON[vis]} size={11} />{(vis === 'group' || vis === 'groupPlus') && group ? `${group.name}${vis === 'groupPlus' ? '＋' : ''}` : VISIBILITY_INFO[vis].name}</Chip>
+          <Chip kind={vis}>{(vis === 'group' || vis === 'groupPlus') && group ? <GroupAvatar group={group} size="tiny" /> : <Icon name={VIS_ICON[vis]} size={11} />}{(vis === 'group' || vis === 'groupPlus') && group ? `${group.name}${vis === 'groupPlus' ? '＋' : ''}` : VISIBILITY_INFO[vis].name}</Chip>
         </div>
         <span className="sub">{s.topic || `ワールド：${WORLDS[world].name}`}</span>
         {invitedByOwner && <span className="scinvited">{s.owner} から招待されています</span>}
