@@ -12,7 +12,7 @@ import { importKey, open, PACKET_TOPIC, receiveBlob, seal, sendPacket, unpack, t
 import { POSITION_TOPIC, SessionPositions } from '../shared/session-position.ts';
 import { SessionEvents, EVENT_TOPIC, EVENT_BULK_TOPIC, RECOVERY_TOPIC } from '../shared/session-events.ts';
 import { applyItemAction, isDeltaAction, type Item } from '../shared/items.ts';
-import type { RoomClientMsg } from '../shared/protocol.ts';
+import { COMPAT_VERSION, type RoomClientMsg } from '../shared/protocol.ts';
 import { EMOTES } from '../shared/emotes.ts';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,7 +51,7 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
     if (!previous) await new Promise<void>((resolve, reject) => { home.once('open', resolve); home.once('error', reject); });
     const id = previous?.id ?? crypto.randomUUID();
     if (!previous) {
-      home.send(JSON.stringify({ t: 'hello', id, name }));
+      home.send(JSON.stringify({ t: 'hello', id, name, compat: COMPAT_VERSION }));
       home.send(JSON.stringify({ t: 'join', sid }));
     }
     const requestId = crypto.randomUUID();

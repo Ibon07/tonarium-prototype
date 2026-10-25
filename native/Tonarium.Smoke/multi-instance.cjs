@@ -55,7 +55,7 @@ async function stop(child) {
     if (message.t === 'users') users = message.list;
   });
   await new Promise((resolve, reject) => { observer.once('open', resolve); observer.once('error', reject); });
-  observer.send(JSON.stringify({ t: 'hello', id: randomUUID(), name: `複数起動の確認 ${suffix}` }));
+  observer.send(JSON.stringify({ t: 'hello', id: randomUUID(), name: `複数起動の確認 ${suffix}`, compat: 1 }));
   await until(() => users.some(u => u.id === a.selfId) && users.some(u => u.id === b.selfId), 'both native windows stay connected with distinct IDs');
   await delay(2000);
   if (!users.some(u => u.id === a.selfId) || !users.some(u => u.id === b.selfId)) throw new Error('One instance displaced the other');

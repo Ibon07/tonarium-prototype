@@ -16,6 +16,20 @@ export function UpdateBanner() {
   );
 }
 
+/** 互換性バージョンがサーバーと違うと通信の約束事が食い違うので、更新するまで全面で止める */
+export function CompatOverlay() {
+  return (
+    <div className="maintenance" role="alert">
+      <div className="maintcard">
+        <img src="/brand/mark.png" alt="" />
+        <h2>バージョンが変わりました</h2>
+        <p>アプリの互換性バージョンが変わったため、この画面のままでは通信できません。再読み込みして最新版に更新してください。</p>
+        <button className="updatego" onClick={() => location.reload()}>再読み込みする</button>
+      </div>
+    </div>
+  );
+}
+
 /** 切れてすぐの再接続では出さない */
 const GRACE_MS = 5000;
 const CHECK_MS = 3000;

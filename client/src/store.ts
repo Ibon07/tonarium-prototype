@@ -28,6 +28,8 @@ interface State {
   wsConnected: boolean;
   /** つなぎ直した先のサーバーが、このページと違う版の画面を出している */
   updateVersion: string | null;
+  /** 互換性バージョンがサーバーと合わず、接続を断たれた。更新するまで全面表示で止める */
+  incompatible: boolean;
 
   guild: GuildConfig;
   groups: Group[];
@@ -198,6 +200,7 @@ export const useStore = create<State>(() => ({
   joined: false,
   wsConnected: false,
   updateVersion: null,
+  incompatible: false,
   guild: { name: 'Tonarium', sessions: [] },
   groups: [],
   events: [],

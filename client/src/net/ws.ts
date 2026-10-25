@@ -1,4 +1,4 @@
-import { isRoomClientMsg, type ClientMsg, type ServerMsg, type SessionInfo, type SessionSnapshot } from '../../../shared/protocol.ts';
+import { COMPAT_VERSION, isRoomClientMsg, type ClientMsg, type ServerMsg, type SessionInfo, type SessionSnapshot } from '../../../shared/protocol.ts';
 import type { SurvivorState } from '../../../shared/survivor.ts';
 import { applyAvatars } from '../sessionView.ts';
 import { get, recompute, set, spawnPoint } from '../store.ts';
@@ -32,7 +32,7 @@ export function connectWs() {
     retry = 0;
     set({ wsConnected: true });
     const s = get();
-    send({ t: 'hello', id: s.selfId, name: s.selfName });
+    send({ t: 'hello', id: s.selfId, name: s.selfName, compat: COMPAT_VERSION });
     if (s.session) {
       send({ t: 'join', sid: s.session });
       // ホームの再接続後は、参加資格と部屋の状態も取り直す。
@@ -46,7 +46,8 @@ export function connectWs() {
     stopSessionSync(true);
     set({ wsConnected: false });
     if (get().session) set({ sync: 'unavailable', syncError: 'ホームとの接続を待っています' });
-    setTimeout(connectWs, Math.min(5000, 500 * 2 ** retry++));
+    // 互換性バージョン違いで断たれた場合はつなぎ直しても結果が同じなので、再接続しない
+    if (!get().incompatible) setTimeout(connectWs, Math.min(5000, 500 * 2 ** retry++));
   };
 }
 
@@ -114,6 +115,9 @@ export function applySessionSnapshot(snap: SessionSnapshot) {
 
 export function onMessage(msg: ServerMsg) {
   switch (msg.t) {
+    case 'incompatible':
+      set({ incompatible: true });
+      return;
     case 'syncConfig': void configureSessionSync(msg.requestId, msg.config); return;
     case 'syncError': syncError(msg.requestId, msg.error); return;
     case 'syncReset': resetSessionSync(msg.sid); return;
@@ -150,6 +154,12 @@ export function onMessage(msg: ServerMsg) {
         if (item.kind === 'note' && cur?.kind === 'note' && s.selectedNote === item.id && item.updatedBy === s.selfId)
           item = { ...item, text: cur.text };
         return { itemsBy: { ...s.itemsBy, [msg.sid]: { ...s.itemsBy[msg.sid], [item.id]: item } } };
+      });
+      break;
+    case 'itemMove':
+      set((s) => {
+        const cur = s.itemsBy[msg.sid]?.[msg.id];
+        return cur ? { itemsBy: { ...s.itemsBy, [msg.sid]: { ...s.itemsBy[msg.sid], [msg.id]: { ...cur, x: msg.x, z: msg.z, ry: msg.ry } } } } : {};
       });
       break;
     case 'itemRemove':

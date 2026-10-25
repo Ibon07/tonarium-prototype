@@ -107,7 +107,8 @@ public sealed class TonariumClient : IAsyncDisposable
                 var endpoint = new UriBuilder(State.ServerUrl) { Scheme = State.ServerUrl.StartsWith("https:", StringComparison.Ordinal) ? "wss" : "ws", Path = "/ws" };
                 await socket.ConnectAsync(endpoint.Uri, ct);
                 await UiAsync(() => { State.Connected = true; State.ConnectionStatus = "接続済み"; });
-                await SendHomeAsync(new JsonObject { ["t"] = "hello", ["id"] = State.SelfId, ["name"] = State.Name }, ct);
+                // compat は shared/protocol.ts の COMPAT_VERSION と一致させる。合わないとサーバーが接続を断つ
+                await SendHomeAsync(new JsonObject { ["t"] = "hello", ["id"] = State.SelfId, ["name"] = State.Name, ["compat"] = 1 }, ct);
                 if (State.SessionId is { } sid)
                 {
                     await SendHomeAsync(new JsonObject { ["t"] = "join", ["sid"] = sid }, ct);
@@ -699,6 +700,12 @@ public sealed class TonariumClient : IAsyncDisposable
             case "avatarRemove": State.Avatars.Remove(Text(message, "id")); break;
             case "item":
                 var item = Object(message, "item"); State.Items[Text(item, "id")] = item; break;
+            case "itemMove":
+                if (State.Items[Text(message, "id")] is JsonObject moved)
+                {
+                    moved["x"] = message["x"]?.DeepClone(); moved["z"] = message["z"]?.DeepClone(); moved["ry"] = message["ry"]?.DeepClone();
+                }
+                break;
             case "itemRemove": State.Items.Remove(Text(message, "id")); break;
             case "itemAction": ApplyItemDelta(Text(message, "id"), Object(message, "action"), Text(message, "by")); break;
             case "chat": Upsert(State.Chats, Object(message, "m"), 500); break;
