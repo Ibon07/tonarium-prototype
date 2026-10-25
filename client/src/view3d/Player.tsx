@@ -10,7 +10,7 @@ import { SURVIVOR_STYLES } from '../i18n/static.ts';
 import { get, set, useStore, heldHammer, heldCamera, nameOf, solidsOf, worldKindOf, gameOfSession, elevatorOfSession, serverNow, spawnPoint } from '../store.ts';
 import { CAR, CITY_HALF, CITY_SURFACES, SHAFT_RECT, clampCity, elevatorY, type Surface } from '../../../shared/city.ts';
 import { STEP_UP, carPose, cityGround, citySolids, keepInCar, toCarLocal } from './cityPhysics.ts';
-import { pushOut } from '../../../shared/worlds.ts';
+import { pushOut, type Solid } from '../../../shared/worlds.ts';
 import { send } from '../net/ws.ts';
 import { selectNote } from '../actions.ts';
 import { dropCamera, dropHammer, hit, moveItem, place2d, toggleLive, itemAction } from '../items/actions.ts';
@@ -107,6 +107,14 @@ export function Player({ rig }: { rig: PlayerCamera }) {
   const hammerRef = useRef<THREE.Group>(null);
   const cameraRef = useRef<THREE.Group>(null);
   const dragging = useRef<{ data: Interactable; obj: THREE.Object3D; hit: THREE.Intersection | null } | null>(null);
+  // 毎フレームの当たり判定用配列の再利用 (#205)。材料が変わらない間は前フレームの配列・面オブジェクトをそのまま使う。
+  // 材料は items の参照＋運搬中の id（台）、元配列と台の組（solids）、かごの高さ（街の面）、板の消え具合（ゲームの面）で全て決まる。
+  const collCache = useRef<{
+    padsItems: Store['items'] | null; padsCarrying: string | undefined; pads: JumpPad[]; padSolids: Solid[];
+    solidsBase: Solid[] | null; solidsPads: Solid[] | null; solids: Solid[];
+    cityY: number | null; citySurfaces: Surface[];
+    goneFlags: Uint8Array; goneScratch: Uint8Array; tileSurfaces: Surface[] | null;
+  }>({ padsItems: null, padsCarrying: undefined, pads: [], padSolids: [], solidsBase: null, solidsPads: null, solids: [], cityY: null, citySurfaces: [], goneFlags: new Uint8Array(TILE_COUNT), goneScratch: new Uint8Array(TILE_COUNT), tileSurfaces: null });
 
   useEffect(() => {
     if (survivorActive && document.pointerLockElement === gl.domElement) document.exitPointerLock();
@@ -335,8 +343,23 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       set({ teleport: null });
     }
     const city = worldKindOf(s) === 'city';
-    const pads = Object.values(s.items).filter((item): item is JumpPad => item.kind === 'jumpPad' && item.id !== carrying.current?.id);
-    const padSolids = pads.map(jumpPadSolid);
+    const cc = collCache.current;
+    if (cc.padsItems !== s.items || cc.padsCarrying !== carrying.current?.id) {
+      cc.padsItems = s.items;
+      cc.padsCarrying = carrying.current?.id;
+      cc.pads = Object.values(s.items).filter((item): item is JumpPad => item.kind === 'jumpPad' && item.id !== carrying.current?.id);
+      cc.padSolids = cc.pads.map(jumpPadSolid);
+    }
+    const pads = cc.pads;
+    const padSolids = cc.padSolids;
+    const solidsWithPads = (base: Solid[]): Solid[] => {
+      if (cc.solidsBase !== base || cc.solidsPads !== padSolids) {
+        cc.solidsBase = base;
+        cc.solidsPads = padSolids;
+        cc.solids = [...base, ...padSolids];
+      }
+      return cc.solids;
+    };
     const now0 = serverNow();
     const bike = !tp && !survivorPlaying(s) ? riddenBike() : undefined;
     if (!bike) {
@@ -351,7 +374,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       const d = driving.current;
       const k = keys.current;
       const [sx, sy] = immersive ? xr.move : [0, 0];
-      const solids = [...(city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s)), ...padSolids];
+      const solids = solidsWithPads(city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s));
       d.state = moveBike(d.state, {
         throttle: k.KeyW || k.ArrowUp ? 1 : Math.max(0, -sy), brake: k.KeyS || k.ArrowDown ? 1 : Math.max(0, sy),
         steering: (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0) + sx,
@@ -392,13 +415,35 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       aim.current = null;
     }
     const mode = s.movementMode;
-    const solids = [...(city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s)), ...padSolids];
-    const surfaces: Surface[] = city ? [...CITY_SURFACES, { ...SHAFT_RECT, ya: elevatorY(elevatorOfSession(s), now0), yb: elevatorY(elevatorOfSession(s), now0) }] : [];
-    if (worldKindOf(s) === 'game') {
-      for (let i = 0; i < TILE_COUNT; i++) if (!tileGone(g, i, now0)) {
-        const t = tileCenter(i);
-        surfaces.push({ x0: t.x - TILE / 2, x1: t.x + TILE / 2, z0: t.z - TILE / 2, z1: t.z + TILE / 2, ya: t.y, yb: t.y });
+    const solids = solidsWithPads(city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s));
+    let surfaces: Surface[];
+    if (city) {
+      const y = elevatorY(elevatorOfSession(s), now0);
+      if (cc.cityY !== y) {
+        cc.cityY = y;
+        cc.citySurfaces = [...CITY_SURFACES, { ...SHAFT_RECT, ya: y, yb: y }];
       }
+      surfaces = cc.citySurfaces;
+    } else if (worldKindOf(s) === 'game') {
+      // 板の消え具合（時刻で変わる）が前フレームと同じなら面オブジェクト群を使い回す
+      let same = cc.tileSurfaces !== null;
+      for (let i = 0; i < TILE_COUNT; i++) {
+        const gone = tileGone(g, i, now0) ? 1 : 0;
+        cc.goneScratch[i] = gone;
+        if (gone !== cc.goneFlags[i]) same = false;
+      }
+      if (!same) {
+        const out: Surface[] = [];
+        for (let i = 0; i < TILE_COUNT; i++) if (!cc.goneScratch[i]) {
+          const t = tileCenter(i);
+          out.push({ x0: t.x - TILE / 2, x1: t.x + TILE / 2, z0: t.z - TILE / 2, z1: t.z + TILE / 2, ya: t.y, yb: t.y });
+        }
+        cc.goneFlags.set(cc.goneScratch);
+        cc.tileSurfaces = out;
+      }
+      surfaces = cc.tileSurfaces!;
+    } else {
+      surfaces = [];
     }
     const valid = (p: { x: number; y: number; z: number }) => {
       const bounds = clampTo(worldKindOf(s) === 'game' && inArena(p.x, p.z), city);
