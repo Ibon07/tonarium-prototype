@@ -116,6 +116,7 @@ function InitialCanvas({ item }: { item: Item & { kind: 'canvas' } }) {
 
 function InitialModel({ item }: { item: Item }) {
   switch (item.kind) {
+    case 'telephone': return <><mesh position-y={0.5}><boxGeometry args={[1.4, 1, 0.25]} /><meshStandardMaterial color="#f6e4ec" /></mesh><Label text="お絵描き伝言" position={[0, 1.2, 0]} height={0.18} /></>;
     case 'bike': return <BikeModel />;
     case 'note': return <InitialNote item={item} />;
     case 'hammer': return <HammerModel position={[0, 0.12, 0.3]} rotation-x={-Math.PI / 2} />;

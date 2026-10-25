@@ -32,6 +32,7 @@
     "test:market": "tsx --test shared/market.test.ts server/market.test.ts",
     "test:worlds": "tsx --test shared/worlds.test.ts",
     "test:items": "tsx --test shared/items.test.ts",
+    "test:telephone": "tsx --test server/telephone.test.ts",
     "test:bike": "tsx --test shared/vehicle.test.ts client/src/view3d/bikePhysics.test.ts",
     "test:survivor": "tsx --test shared/survivor.test.ts"
   },

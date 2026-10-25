@@ -1372,3 +1372,12 @@ img.av { object-fit: cover; display: block; }
 .translated-text, .translation-body { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .translation-original, .translation-meta { display: block; font-size: 0.78em; line-height: 1.5; opacity: 0.72; }
 .translation-original { margin-top: 4px; }
+.telephone-body { padding: 16px; max-height: min(72vh, 850px); overflow: auto; color: #29242b; background: #fff8fb; }
+.telephone-body p { margin: 8px 0; overflow-wrap: anywhere; }
+.telephone-body section { margin: 12px 0; }
+.telephone-body textarea { width: 100%; min-height: 90px; box-sizing: border-box; }
+.telephone-body small { display: block; margin-top: 8px; }
+.telephone-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+.telephone-controls button, .telephone-controls select { min-height: 32px; }
+.telephone-picture { display: block; width: 100%; aspect-ratio: 620 / 450; background: white; border: 1px solid #d8cbd1; touch-action: none; user-select: none; }
+.telephone-text { padding: 12px; white-space: pre-wrap; background: white; border: 1px solid #d8cbd1; }
