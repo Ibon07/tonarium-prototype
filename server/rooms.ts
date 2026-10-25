@@ -18,7 +18,9 @@ interface Grant {
   sendSeq: number; received: number; positions: number;
   queued: number; output: Promise<void>; input: Promise<void>; reset(): void; sockets: Set<WebSocket>;
   recoveries: Map<string, { source: string; bytes: Uint8Array; at: number }>;
+  recoveryBytes: number;
 }
+interface SendCommit { id: string; source: string; bytes: Uint8Array }
 interface SessionRoom {
   client: KokosyncClient; room: string; peer: string; grants: Map<string, Grant>;
   blobQueue: Promise<void>; closed: boolean; latestSequence: number;
@@ -50,6 +52,7 @@ function invalidate(g: Grant, notify = false) {
   for (const ws of g.sockets) ws.close(1000, 'Session ended');
   g.sockets.clear();
   g.recoveries.clear();
+  g.recoveryBytes = 0;
   publishPeers(rooms.get(g.config.sid));
   if (notify) g.reset();
 }
@@ -142,7 +145,7 @@ export async function createSyncGrant(sid: string, user: string, owner: WebSocke
   const config = { sid, room: r.room, peer: crypto.randomUUID(), server: r.peer, token, key: raw, slot, positionKey,
     peerDelivery: peerDelivery && !!r.client.capabilities.peerDelivery };
   const g: Grant = { config, user, owner, key, positionKey: importedPositionKey, reset, active: false, revoked: false,
-    sendSeq: 0, received: 0, positions: 0, queued: 0, output: Promise.resolve(), input: Promise.resolve(), sockets: new Set(), recoveries: new Map() };
+    sendSeq: 0, received: 0, positions: 0, queued: 0, output: Promise.resolve(), input: Promise.resolve(), sockets: new Set(), recoveries: new Map(), recoveryBytes: 0 };
   if (owner.readyState !== WebSocket.OPEN || r.closed || !current()) throw new Error('セッション接続が閉じました');
   revokeSync(owner);
   for (const [key, old] of r.grants) if (old.revoked) r.grants.delete(key);
@@ -160,23 +163,25 @@ function publishPeers(r: SessionRoom | undefined) {
   for (const g of active) if (g.positionKey || g.config.peerDelivery) queue(r, g, bytes);
 }
 
-function queue(r: SessionRoom, g: Grant, bytes: Uint8Array, operation?: SessionRoom['operation']) {
+function queue(r: SessionRoom, g: Grant, bytes: Uint8Array, commit?: Promise<SendCommit | undefined>) {
   if (g.revoked || !g.active) return;
   if (g.queued + bytes.length > MAX_PACKET * 2) { invalidate(g, true); return; }
   g.queued += bytes.length;
   g.output = g.output.then(async () => {
     if (g.revoked) return;
     let wireBytes = bytes;
-    if (g.config.peerDelivery && operation && await eventHash(unpack(bytes)) === operation.event.hash) {
-      const { event, source } = operation;
-      const id = `${source}:${event.id}`;
-      g.recoveries.set(id, { source, bytes, at: Date.now() });
-      let size = [...g.recoveries.values()].reduce((sum, entry) => sum + entry.bytes.length, 0);
+    // commit 判定は宛先によらないため、roomSend で一度だけ計算した結果を使い回す。
+    const matched = commit && g.config.peerDelivery ? await commit : undefined;
+    if (matched) {
+      const old = g.recoveries.get(matched.id);
+      if (old) g.recoveryBytes -= old.bytes.length;
+      g.recoveries.set(matched.id, { source: matched.source, bytes, at: Date.now() });
+      g.recoveryBytes += bytes.length;
       for (const [key, entry] of g.recoveries) {
-        if (size <= MAX_PACKET && g.recoveries.size <= 128 && Date.now() - entry.at < 60_000) break;
-        g.recoveries.delete(key); size -= entry.bytes.length;
+        if (g.recoveryBytes <= MAX_PACKET && g.recoveries.size <= 128 && Date.now() - entry.at < 60_000) break;
+        g.recoveries.delete(key); g.recoveryBytes -= entry.bytes.length;
       }
-      wireBytes = pack({ kind: 'peerCommit', id: event.id, hash: event.hash, key: event.key, source });
+      wireBytes = matched.bytes;
     }
     const packet = await sealBytes(g.key, g.config.token, 'server', ++g.sendSeq, wireBytes);
     if (wireBytes.length > 48 * 1024) {
@@ -191,20 +196,33 @@ function queue(r: SessionRoom, g: Grant, bytes: Uint8Array, operation?: SessionR
 export function roomSend(sid: string, msg: RoomServerMsg, to?: string[], legacyPositionsOnly = false) {
   const r = rooms.get(sid);
   if (!r) return;
-  const recipients = [...r.grants.values()].filter((g) => !g.revoked && g.active && (!to || to.includes(g.user)) &&
+  const toSet = to ? new Set(to) : undefined;
+  const recipients = [...r.grants.values()].filter((g) => !g.revoked && g.active && (!toSet || toSet.has(g.user)) &&
     (!legacyPositionsOnly || !g.positionKey));
   if (msg.t === 'avatar') {
     const source = [...r.grants.values()].find((g) => !g.revoked && g.user === msg.id);
     if (!source) return;
+    // 平文の pack は宛先によらないため一度だけ行い、受信者ごとの処理は各自の鍵での暗号化だけにする。
+    const bytes = pack(msg);
     for (const g of recipients) {
       const seq = ++r.latestSequence;
-      void seal(g.key, g.config.token, 'server-position', seq, msg).then((packet) => {
+      void sealBytes(g.key, g.config.token, 'server-position', seq, bytes).then((packet) => {
         if (!g.revoked) r.client.latest(`${PACKET_TOPIC}:${g.config.slot}:${source.config.slot}`, packet as unknown as Value, BigInt(seq));
       }).catch(() => {});
     }
   } else {
     const bytes = pack({ kind: 'message', message: msg });
-    for (const g of recipients) queue(r, g, bytes, r.operation);
+    const operation = r.operation;
+    let commit: Promise<SendCommit | undefined> | undefined;
+    if (operation && recipients.some((g) => g.config.peerDelivery)) {
+      const { event, source } = operation;
+      commit = eventHash(unpack(bytes)).then((hash) => hash === event.hash
+        ? { id: `${source}:${event.id}`, source, bytes: pack({ kind: 'peerCommit', id: event.id, hash: event.hash, key: event.key, source }) }
+        : undefined);
+      // 宛先全員が失効して誰も結果を待たない場合に、未処理の rejection にしない。
+      void commit.catch(() => {});
+    }
+    for (const g of recipients) queue(r, g, bytes, commit);
   }
 }
 export function roomSendSnapshot(sid: string, id: string, snapshot: SessionSnapshot) {
