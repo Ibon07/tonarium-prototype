@@ -8,6 +8,8 @@ import { ActionBar } from './ActionBar.tsx';
 import { StatsPanel } from './StatsPanel.tsx';
 import { ProfilePanel } from './ProfilePanel.tsx';
 import { LayerTabs } from './LayerTabs.tsx';
+import './antimatter-panel.css';
+import { LabBanner } from './LabArt.tsx';
 
 type TabId = 'dimensions' | 'actions' | 'stats' | 'profiles' | 'layers';
 
@@ -35,19 +37,20 @@ export function AntimatterPanel({ ad }: AntimatterPanelProps) {
   const offlineGained = offline && (offline.antimatterGained.mantissa ?? 0) !== 0 && offline.elapsedMs >= 5000;
 
   return (
-    <div style={s.root}>
+    <div className="ad-lab-panel" style={s.root} role="region" aria-label="AD 研究所" tabIndex={0}>
+      <LabBanner kind="reactor" eyebrow="ANTIMATTER LAB" title="回せ、次元リアクター！" description="次元を買って反物質を増産。10個ごとに倍率アップ、Boost で次の次元へ！" />
       <div style={s.header}>
-        <span style={s.muted}>反物質</span>
-        <span style={s.big}>{formatNumber(game.antimatter)}</span>
+        <span className="ad-resource-label">ANTIMATTER / 反物質</span>
+        <span className="ad-resource-value" style={s.big}>{formatNumber(game.antimatter)}</span>
         <span style={s.muted}>{formatNumber(derived.antimatterPerSecond)} /秒</span>
         <span style={s.muted}>IP: {formatNumber(game.infinityPoints)}</span>
         <span style={s.muted}>Boost: {game.dimensionalBoosts} · 銀河: {game.galaxies}</span>
         <span style={{ flex: 1 }} />
         {ad.activeProfile && <span style={s.muted}>{ad.activeProfile.name}</span>}
       </div>
-      <div style={s.tabs}>
+      <div style={s.tabs} aria-label="研究メニュー">
         {TABS.map((t) => (
-          <button key={t.id} style={t.id === tab ? s.tabActive : s.tab} onClick={() => setTab(t.id)}>{t.label}</button>
+          <button key={t.id} aria-pressed={t.id === tab} style={t.id === tab ? s.tabActive : s.tab} onClick={() => setTab(t.id)}>{t.label}</button>
         ))}
       </div>
       {notice && <div style={s.notice}>{notice}</div>}

@@ -5,6 +5,7 @@ import {
   INFINITY_DIMENSIONS, INFINITY_UPGRADES, REALITY_UPGRADES, TIME_DIMENSIONS, TIME_STUDIES,
 } from './layersData.ts';
 import { s } from './styles.ts';
+import { LabBanner, type LabArtKind } from './LabArt.tsx';
 
 function MockButton({ children }: { children: React.ReactNode }) {
   return <button style={s.btn} disabled>{children}</button>;
@@ -95,6 +96,7 @@ export function LayerTabs({ ad }: { ad: AntimatterSlice }) {
   const tabs = getLayerTabs(ad.game.infinities);
   const [layerId, setLayerId] = useState('dimensions');
   const tab = tabs.find((t) => t.id === layerId) ?? tabs[0];
+  const layerArt: Record<string, LabArtKind> = { dimensions: 'reactor', infinity: 'singularity', eternity: 'galaxy', reality: 'explorer', celestials: 'galaxy' };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={s.tabs}>
@@ -104,10 +106,7 @@ export function LayerTabs({ ad }: { ad: AntimatterSlice }) {
           </button>
         ))}
       </div>
-      <div>
-        <h3 style={s.sectionTitle}>{tab.nameJa} <span style={s.muted}>{tab.nameEn}</span></h3>
-        <p style={s.muted}>{tab.tagline} · 通貨: {tab.currencyName}</p>
-      </div>
+      <LabBanner kind={layerArt[tab.id] ?? 'galaxy'} eyebrow={tab.nameEn.toUpperCase()} title={tab.nameJa} description={`${tab.tagline} · 通貨: ${tab.currencyName}`} />
       <LayerBody layerId={tab.id} ad={ad} />
     </div>
   );

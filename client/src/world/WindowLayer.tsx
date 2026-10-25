@@ -180,14 +180,25 @@ function WindowFrame({ win, region, simple, z, compact = false }: {
     } else width = Math.min(region.w, 420);
   } else if (r.aspect && r.kind !== 'panel') height = width / r.aspect + BAR;
 
+  // AD は長い操作パネルなので、フリー配置でも画面内に収めて本文をスクロールできるようにする。
+  const boundedAD = !simple && !max && (win.key === 'antimatter' || r.item?.kind === 'antimatter');
+  let left = win.x;
+  let top = win.y;
+  if (boundedAD) {
+    width = Math.min(width, Math.max(1, region.w - 16));
+    height = Math.min(height ?? region.h, Math.max(BAR, region.h - 16));
+    left = Math.max(8, Math.min(left, region.w - width - 8));
+    top = Math.max(8, Math.min(top, region.h - height - 8));
+  }
+
   const style: React.CSSProperties = max && !compact
     ? { position: 'fixed', left: 0, top: 0, width, height, zIndex: 44 }
-    : simple ? { width, height } : { position: 'absolute', left: win.x, top: win.y, width, height, zIndex: z };
+    : simple ? { width, height } : { position: 'absolute', left, top, width, height, zIndex: z };
 
   const onDown = (e: React.PointerEvent) => {
     raiseWindow(win.key);
     if (simple || max || (e.target as Element).closest('button')) return;
-    drag.current = { sx: e.clientX, sy: e.clientY, ox: win.x, oy: win.y };
+    drag.current = { sx: e.clientX, sy: e.clientY, ox: left, oy: top };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 合成イベントなど */ }
   };
   const onMove = (e: React.PointerEvent) => {
@@ -252,6 +263,12 @@ export function WindowLayer() {
   const visibleWindows = mode === '3d' ? windows.filter((w) => w.key !== 'survivors') : windows;
   const ref = useRef<HTMLDivElement>(null);
   const [region, setRegion] = useState({ w: 800, h: 500 });
+  const [viewport, setViewport] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
+  useLayoutEffect(() => {
+    const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -295,7 +312,7 @@ export function WindowLayer() {
       </div>
       {!simple && (
         <div className="winfree">
-          {visibleWindows.map((w, i) => <WindowFrame key={w.key} win={w} region={region} simple={false} z={i + 1} />)}
+          {visibleWindows.map((w, i) => <WindowFrame key={w.key} win={w} region={viewport} simple={false} z={i + 1} />)}
         </div>
       )}
     </>

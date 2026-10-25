@@ -10,6 +10,7 @@ import { dropHammer, place2d } from '../items/actions.ts';
 import { consumeHitFx } from '../items/effects.ts';
 import { toggleMic, toggleShare } from '../net/livekit.ts';
 import { View3D } from '../view3d/View3D.tsx';
+import { AntimatterHud } from '../view3d/AntimatterHud.tsx';
 import { ProfileDialog } from '../Profile.tsx';
 import { Icon } from './Icon.tsx';
 import { Popover, itemLabel } from './common.tsx';
@@ -519,12 +520,13 @@ export function WorldScreen() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [mode]);
   return (
-    <div ref={root} className={`world ${mode} ${locked ? 'locked' : ''} ${folded.left ? 'fl' : ''} ${folded.right ? 'fr' : ''} ${phone ? `phone pt-${phoneTab}` : ''}`}>
+    <div ref={root} className={`world ${mode} ${worldKind === 'antimatter' && mode === '3d' ? 'ad-world' : ''} ${locked ? 'locked' : ''} ${folded.left ? 'fl' : ''} ${folded.right ? 'fr' : ''} ${phone ? `phone pt-${phoneTab}` : ''}`}>
       {mode === '3d' && <View3D />}
       {mode === '2d' && <MapLayer />}
       <WindowLayer />
       <PortraitCanvas />
       <div className="front">
+        {worldKind === 'antimatter' && mode === '3d' && <AntimatterHud />}
         {worldKind === 'survivors' && mode === '3d' && <SurvivorPanel overlay />}
         <WorldBadge />
         <NearList />

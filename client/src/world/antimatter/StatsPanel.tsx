@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { AntimatterSlice } from './types.ts';
 import { formatDuration, formatFromLog10, formatNumber } from './format.ts';
 import { ACHIEVEMENT_DEFS, s } from './styles.ts';
+import { LabBanner } from './LabArt.tsx';
 
 export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: string) => void }) {
   const [scoreName, setScoreName] = useState('');
@@ -15,6 +16,7 @@ export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <LabBanner kind="trophy" eyebrow="YOUR LAB RECORD" title="研究成果、積み上がってる！" description={`実績 ${owned.size} 個を解除。次元を育てて、次の記録に挑もう。`} />
       <div>
         <h3 style={s.sectionTitle}>統計</h3>
         <div style={s.row}>
@@ -32,7 +34,7 @@ export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: 
         <h3 style={s.sectionTitle}>実績 <span style={s.muted}>（{owned.size}/{defs.length} 解除）</span></h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {defs.map((d) => (
-            <div key={d.id} style={{ ...s.row, opacity: owned.has(d.id) ? 1 : 0.55 }}>
+            <div key={d.id} style={{ ...s.row, opacity: owned.has(d.id) ? 1 : 0.65, borderRadius: 10, padding: '10px 12px', background: owned.has(d.id) ? 'linear-gradient(110deg, #234143, #302744)' : '#182238', border: `1px solid ${owned.has(d.id) ? '#78edd95c' : '#66729333'}` }}>
               <span>{owned.has(d.id) ? '🏆' : '🔒'} <b>{d.name}</b></span>
               <span style={s.muted}>{d.desc}</span>
             </div>
