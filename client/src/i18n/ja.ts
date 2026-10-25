@@ -1,4 +1,5 @@
 export default {
+  "changelogIncludeMaintenance": "開発・保守を含める",
   "appTitle": "Tonarium（プロトタイプ）",
   "appDescription": "2D と 3D を行き来しながら、同じ場所で話したり遊んだりできるソーシャル体験のプロトタイプ",
   "monthView": "月",
