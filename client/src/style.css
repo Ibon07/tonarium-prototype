@@ -902,6 +902,10 @@ img.av { object-fit: cover; display: block; }
 .drophint > div { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 28px; border-radius: 18px; background: var(--paper); box-shadow: var(--pop); color: var(--ink); }
 .drophint span { font-size: 12px; color: var(--muted); }
 .toast { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); z-index: 47; padding: 8px 16px; border-radius: 999px; background: rgba(38, 38, 46, .9); color: #fff; font-size: 13px; box-shadow: 0 6px 20px rgba(20, 15, 5, .25); }
+.new-arrivals { position: fixed; right: 20px; bottom: 100px; z-index: 48; display: grid; gap: 8px; max-width: calc(100vw - 40px); pointer-events: auto; }
+.new-arrival { display: flex; overflow: hidden; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--pop); }
+.new-arrival button { background: transparent; color: var(--ink); border: 0; padding: 14px; text-align: left; }
+.new-arrival button:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; }
 
 /* 注目（アテンション） */
 .prow.attn { animation: attnglow 1s ease-in-out infinite; }
