@@ -15,9 +15,19 @@ export function coreParticleSpeed(log10: number): number {
   return 0.8 + Math.min(clampLog(log10), 24) * 0.24;
 }
 
+export function coreParticleRadius(log10: number): number {
+  return 2 + Math.min(clampLog(log10) / 20, 1) * 2.2;
+}
+
+export function coreParticleHeight(log10: number): number {
+  return 2.6 + Math.min(clampLog(log10) / 20, 1) * 0.5;
+}
+
 const vertexShader = `
   attribute vec4 aSeed;
   uniform float uPhase;
+  uniform float uRadius;
+  uniform float uHeight;
   uniform float uViewportHeight;
   uniform float uPixelRatio;
   varying vec3 vColor;
@@ -28,20 +38,24 @@ const vertexShader = `
     float motion = uPhase * (0.65 + aSeed.y * 0.7);
     float angle = aSeed.x * TAU + motion;
     vec3 p;
-    if (aSeed.w < 0.72) {
-      // Rising, twisted ribbons fill the full height of the fountain.
+    if (aSeed.w < 0.45) {
+      // A flared rising swirl crosses the disk without filling a narrow cylinder.
       float rise = fract(aSeed.z + motion * 0.075);
-      float radius = 0.3 + aSeed.y * 0.85;
-      radius += sin(rise * TAU * 2.0 + aSeed.x * TAU) * 0.07;
+      float radius = uRadius * (0.15 + aSeed.y * 0.5
+        + sin(rise * 3.14159265359) * 0.24);
       angle += rise * TAU * (1.4 + aSeed.w);
-      p = vec3(cos(angle) * radius, 0.25 + rise * 2.15, sin(angle) * radius);
+      p = vec3(cos(angle) * radius, 0.2 + rise * (uHeight - 0.2), sin(angle) * radius);
       vAlpha = (0.28 + aSeed.y * 0.5)
         * smoothstep(0.0, 0.08, rise) * smoothstep(0.0, 0.1, 1.0 - rise);
     } else {
-      // Inclined orbits wrap the core and cross the rising ribbons.
-      float radius = 0.65 + aSeed.z * 0.6;
+      // Four broad spiral arms share a rotation so their shape stays readable.
+      float radial = sqrt(aSeed.z);
+      float radius = uRadius * (0.12 + radial * 0.88);
+      angle = floor(aSeed.x * 4.0) * TAU / 4.0 + uPhase * 0.55
+        + radial * TAU * 0.75 + (aSeed.y - 0.5) * 0.48;
       p = vec3(cos(angle) * radius,
-        1.12 + sin(angle + aSeed.z * TAU) * (0.25 + aSeed.y * 0.65),
+        0.65 + sin(angle + radial * TAU) * radial * 0.28
+          + (aSeed.y - 0.5) * 0.3,
         sin(angle) * radius);
       vAlpha = 0.32 + aSeed.y * 0.4;
     }
@@ -66,13 +80,15 @@ const fragmentShader = `
   }
 `;
 
-/** The GPU animates a fixed seeded buffer; snapshots change only its draw range. */
+/** The GPU animates a fixed seeded buffer with smoothly growing bounds. */
 export function CoreFountain({ log10, bought }: { log10: number; bought: number }) {
   const reducedMotion = useAdReducedMotion();
   const ring = useRef<THREE.Group>(null);
   const speedRef = useRef(coreParticleSpeed(log10));
   const count = coreParticleCount(log10);
   const speed = coreParticleSpeed(log10);
+  const radius = coreParticleRadius(log10);
+  const height = coreParticleHeight(log10);
   const { geometry, material } = useMemo(() => {
     const geometry = new THREE.BufferGeometry();
     const seeds = new Float32Array(MAX_CORE_PARTICLES * 4);
@@ -87,6 +103,8 @@ export function CoreFountain({ log10, bought }: { log10: number; bought: number 
     const material = new THREE.ShaderMaterial({
       uniforms: {
         uPhase: { value: 0 },
+        uRadius: { value: 2 },
+        uHeight: { value: 2.6 },
         uViewportHeight: { value: 1080 },
         uPixelRatio: { value: 1 },
       },
@@ -104,11 +122,20 @@ export function CoreFountain({ log10, bought }: { log10: number; bought: number 
 
   useEffect(() => { geometry.setDrawRange(0, count); }, [geometry, count]);
 
+  useEffect(() => {
+    if (reducedMotion) {
+      material.uniforms.uRadius.value = radius;
+      material.uniforms.uHeight.value = height;
+    }
+  }, [material, radius, height, reducedMotion]);
+
   useFrame(({ size, gl }, delta) => {
     const dt = Math.min(delta, 0.05);
     // Integrating the smoothed speed prevents phase jumps on game snapshots.
     if (!reducedMotion) {
       speedRef.current = THREE.MathUtils.damp(speedRef.current, speed, 4, dt);
+      material.uniforms.uRadius.value = THREE.MathUtils.damp(material.uniforms.uRadius.value, radius, 4, dt);
+      material.uniforms.uHeight.value = THREE.MathUtils.damp(material.uniforms.uHeight.value, height, 4, dt);
       material.uniforms.uPhase.value += dt * speedRef.current;
       if (ring.current) ring.current.rotation.y += dt * ringSpeedFromBought(bought);
     }
@@ -131,7 +158,7 @@ export function CoreFountain({ log10, bought }: { log10: number; bought: number 
       </group>
       <points
         name="ad-core-particles" geometry={geometry} material={material} frustumCulled={false}
-        userData={{ noRay: true, particleCount: count, speed, reducedMotion }}
+        userData={{ noRay: true, particleCount: count, speed, radius, height, reducedMotion }}
       />
     </group>
   );
