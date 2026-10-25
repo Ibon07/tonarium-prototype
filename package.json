@@ -38,7 +38,7 @@
     "test:items": "tsx --test shared/items.test.ts",
     "test:telephone": "tsx --test server/telephone.test.ts",
     "test:bike": "tsx --test shared/vehicle.test.ts client/src/view3d/bikePhysics.test.ts",
-    "test:survivor": "tsx --test shared/survivor.test.ts"
+    "test:survivor": "tsx --test shared/survivor.test.ts server/survivors.test.ts"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.3",

@@ -17,7 +17,7 @@ export const survivorOf = (sid: string) => {
 };
 export const clearSurvivor = (sid: string) => {
   const rec = moveSends.get(sid);
-  if (rec?.timer) clearTimeout(rec.timer);
+  if (rec?.timer) moveClock.clearTimer(rec.timer);
   moveSends.delete(sid);
   return states.delete(sid);
 };
@@ -38,24 +38,43 @@ const MOVE_SEND_MS = 100;
 interface MoveSend { at: number; timer: ReturnType<typeof setTimeout> | null; s: SurvivorState; d: SurvivorDeps }
 const moveSends = new Map<string, MoveSend>();
 
+/** 間引きの時刻・タイマーは単体テストから差し替えられるようにしておく (本番は実時計) */
+export interface MoveSendClock {
+  now(): number;
+  setTimer(fn: () => void, ms: number): ReturnType<typeof setTimeout>;
+  clearTimer(timer: ReturnType<typeof setTimeout>): void;
+}
+const systemMoveClock: MoveSendClock = {
+  now: () => Date.now(),
+  setTimer: (fn, ms) => setTimeout(fn, ms),
+  clearTimer: (timer) => clearTimeout(timer),
+};
+let moveClock: MoveSendClock = systemMoveClock;
+/** 単体テスト用。本番コードからは呼ばない */
+export const setMoveSendClock = (clock: MoveSendClock | null) => { moveClock = clock ?? systemMoveClock; };
+
 /** 移動メッセージは頻繁に届くので、状態の反映は即時でも送信だけ 100ms に間引く。最後の位置は末尾の送信で必ず届ける */
-function sendMove(sid: string, s: SurvivorState, d: SurvivorDeps) {
+export function sendMove(sid: string, s: SurvivorState, d: SurvivorDeps) {
   let rec = moveSends.get(sid);
   if (!rec) { rec = { at: 0, timer: null, s, d }; moveSends.set(sid, rec); }
   rec.s = s; rec.d = d;
-  const wait = MOVE_SEND_MS - (Date.now() - rec.at);
+  const now = moveClock.now();
+  const wait = MOVE_SEND_MS - (now - rec.at);
   if (wait <= 0) {
-    if (rec.timer) { clearTimeout(rec.timer); rec.timer = null; }
-    rec.at = Date.now();
+    if (rec.timer) { moveClock.clearTimer(rec.timer); rec.timer = null; }
+    rec.at = now;
     send(sid, s, d);
     return;
   }
   if (rec.timer) return;
-  rec.timer = setTimeout(() => {
+  rec.timer = moveClock.setTimer(() => {
     rec.timer = null;
-    rec.at = Date.now();
-    // 状態が入れ替わっていたら、開始時の送信で足りている
-    if (states.get(sid) === rec.s) send(sid, rec.s, rec.d);
+    // 状態が入れ替わっていたら、開始時の送信で足りている。その場合は送っていないので
+    // 最終送信時刻も進めない (進めると、次のランの最初の送信が最大で間引き間隔ぶん遅れる)
+    if (states.get(sid) === rec.s) {
+      rec.at = moveClock.now();
+      send(sid, rec.s, rec.d);
+    }
   }, wait);
 }
 function positionOf(u: Participant, avatars: Map<string, AvatarState>) {
