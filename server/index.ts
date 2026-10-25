@@ -155,6 +155,9 @@ async function readBody(req: http.IncomingMessage, limit: number) {
 
 const SESSIONS_FILE = process.env.SESSIONS_FILE ?? path.join(ROOT, 'sessions.json');
 const guild = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')) as GuildConfig;
+const fixedSessionIds = new Set(guild.sessions.map((d) => d.id));
+const EMPTY_SESSION_TTL_MS = 5 * 60 * 1000;
+const emptySessionTimers = new Map<string, ReturnType<typeof setTimeout>>();
 // 画面から作ったセッション・グループ・イベント。sessions.json のセッションの後ろに並べる
 // renamed は sessions.json のセッションを画面から改名したときの名前（sessions.json は書き換えない）
 const home: { sessions: SessionDef[]; groups: Group[]; events: EventDef[]; renamed: Record<string, string> } = { sessions: [], groups: [], events: [], renamed: {} };
@@ -254,7 +257,10 @@ const saveInbox = later(() => fs.writeFileSync(MESSAGES_FILE, JSON.stringify(inb
 
 /** セッションにだれかが入ってから全員が出るまで。終わったらまとめにする */
 const visits = new Map<string, { from: number; people: Set<string>; log: Recap['log'] }>();
-for (const w of guild.sessions) registerSession(w);
+for (const w of guild.sessions) {
+  registerSession(w);
+  scheduleEmptyCheck(w.id);
+}
 // 配信のたびにフレンド全走査と全ユーザー配列化を人数分繰り返さないよう、1 回の配信で使い回す写し
 interface UserSnapshot { all: Participant[]; friendsByName: Map<string, string[]>; onlineNames: Set<string> }
 function snapshotUsers(): UserSnapshot {
@@ -611,7 +617,7 @@ function leaveSession(u: Participant) {
   u.display = null;
   event(sid, `${u.name} が退出しました`);
   if (inSession(sid).length) sendPresence(sid);
-  else { finishVisit(sid); void leaveRoom(sid); }
+  else { finishVisit(sid); void leaveRoom(sid); scheduleEmptyCheck(sid); }
 }
 
 function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string }, msg: ClientMsg) {
@@ -722,6 +728,7 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
       if (!def || sid === msg.sid || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) return;
       leaveSession(me);
       me.session = msg.sid;
+      cancelEmptyCheck(msg.sid);
       me.mode = '2d';
       const visit = visits.get(msg.sid) ?? { from: Date.now(), people: new Set<string>(), log: [] };
       visit.people.add(me.name);
@@ -1044,6 +1051,47 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
 
 const trimTo = (v: unknown, n: number) => String(v ?? '').trim().slice(0, n);
 
+function cancelEmptyCheck(sessionId: string) {
+  clearTimeout(emptySessionTimers.get(sessionId));
+  emptySessionTimers.delete(sessionId);
+}
+
+function scheduleEmptyCheck(sessionId: string) {
+  if (fixedSessionIds.has(sessionId)) return;
+  cancelEmptyCheck(sessionId);
+  emptySessionTimers.set(sessionId, setTimeout(() => {
+    emptySessionTimers.delete(sessionId);
+    const def = home.sessions.find((d) => d.id === sessionId);
+    if (!def || !sessionIds.has(sessionId) || fixedSessionIds.has(sessionId) || inSession(sessionId).length) return;
+    console.log(`session auto-delete: ${JSON.stringify({ id: sessionId, name: def.name, reason: 'empty for 5min' })}`);
+    destroyUserSession(sessionId);
+  }, EMPTY_SESSION_TTL_MS));
+}
+
+function destroyUserSession(sessionId: string) {
+  const def = home.sessions.find((d) => d.id === sessionId);
+  if (!def) return;
+  cancelEmptyCheck(sessionId);
+  home.sessions.splice(home.sessions.indexOf(def), 1);
+  guild.sessions.splice(guild.sessions.indexOf(def), 1);
+  sessionIds.delete(def.id);
+  worldOf.delete(def.id);
+  chats.delete(def.id);
+  avatars.delete(def.id);
+  items.delete(def.id);
+  markItemsDirty(def.id);
+  broadcastMode.delete(def.id);
+  worldPending.delete(def.id);
+  clearSurvivor(def.id);
+  clearGame(def.id);
+  resetElevator(def.id);
+  broadcastSessionInfo();
+  for (const ev of home.events) if (ev.session === def.id) ev.session = null;
+  saveHome();
+  broadcastSessions();
+  broadcastEvents();
+}
+
 /** ホーム画面の操作（セッション外でもできる）。扱ったら true */
 function handleHome(me: User, msg: ClientMsg): boolean {
   switch (msg.t) {
@@ -1056,6 +1104,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       home.sessions.push(def);
       guild.sessions.push(def);
       registerSession(def);
+      scheduleEmptyCheck(def.id);
       saveHome();
       broadcastSessions();
       broadcastSessionInfo();
@@ -1064,24 +1113,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
     case 'sessionDelete': {
       const def = home.sessions.find((d) => d.id === msg.id && d.owner === me.name);
       if (!def || [...users.values()].some((u) => u.session === def.id)) return true;
-      home.sessions.splice(home.sessions.indexOf(def), 1);
-      guild.sessions.splice(guild.sessions.indexOf(def), 1);
-      sessionIds.delete(def.id);
-      worldOf.delete(def.id);
-      chats.delete(def.id);
-      avatars.delete(def.id);
-      items.delete(def.id);
-      markItemsDirty(def.id);
-      broadcastMode.delete(def.id);
-      worldPending.delete(def.id);
-      clearSurvivor(def.id);
-      clearGame(def.id);
-      resetElevator(def.id);
-      broadcastSessionInfo();
-      for (const ev of home.events) if (ev.session === def.id) ev.session = null;
-      saveHome();
-      broadcastSessions();
-      broadcastEvents();
+      destroyUserSession(def.id);
       return true;
     }
     case 'groupCreate': {
