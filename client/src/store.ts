@@ -17,7 +17,7 @@ export type WinMode = 'simple' | 'free';
 export interface Win { key: string; x: number; y: number }
 /** key は attention ならウィンドウのキー、invite なら session:<id> / group:<id>、askJoin なら session:<id> */
 export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean }
-export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items';
+export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items' | 'market' | 'sounds' | 'emotes';
 /** ホームの右の欄に出すもの */
 export type SideWidget = 'now' | 'events' | 'sessions' | 'worlds' | 'items';
 
@@ -48,6 +48,8 @@ interface State {
   mode: Mode;
   /** 開いているホームのページ（最後に開いたページを覚えておき、セッション中のメニューはそこを開く） */
   homePage: HomePage;
+  marketProductId: string | null;
+  marketLikes: { counts: Record<string, number>; liked: string[] } | null;
   /** group ページで開いているグループと、グループごとに開いているチャンネル */
   homeGroup: string | null;
   homeChannel: Record<string, string>;
@@ -214,6 +216,8 @@ export const useStore = create<State>(() => ({
   mode: '2d',
   // 個別のグループは開き直せないので一覧に戻す
   homePage: ((p: HomePage) => (p === 'group' ? 'groups' : p))(load<HomePage>('tonarium.homePage', 'home')),
+  marketProductId: null,
+  marketLikes: null,
   homeGroup: null,
   homeChannel: {},
   dmWith: null,

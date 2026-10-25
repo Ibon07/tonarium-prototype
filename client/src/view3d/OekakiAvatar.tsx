@@ -5,7 +5,7 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { DEFAULT_PARAMS, sanitizeParams, type AvatarParams } from '../../../shared/avatar.ts';
 import { avatarParamsUrl, avatarTextureUrl } from '../avatar.ts';
-import { emotePose } from '../../../shared/emotes.ts';
+import { emotePose, type ActiveEmote } from '../../../shared/emotes.ts';
 import { get } from '../store.ts';
 import { useReducedMotion } from '../emotes.ts';
 
@@ -48,7 +48,7 @@ function baseAnimation(p: AvatarParams) {
 
 /** モデルは +Z 向きなので、こちらの「前 = -Z」に合わせて回してある */
 /** look は顔の上下の向き（ラジアン、上向きが正）を返す */
-export function OekakiAvatar({ name, version, speaking, look, userId }: { name: string; version: string | null; speaking: boolean; look?: () => number; userId?: string }) {
+export function OekakiAvatar({ name, version, speaking, look, userId, previewEmote }: { name: string; version: string | null; speaking: boolean; look?: () => number; userId?: string; previewEmote?: ActiveEmote | null }) {
   const { scene, animations } = useGLTF(MODEL);
   const clone = useMemo(() => scene.clone(), [scene]);
   const { nodes } = useGraph(clone);
@@ -111,7 +111,7 @@ export function OekakiAvatar({ name, version, speaking, look, userId }: { name: 
     for (const h of hands) if (h) { h.o.quaternion.copy(h.q); h.o.position.copy(h.p); }
     mixer.update(dt);
     for (const h of hands) if (h) { h.q.copy(h.o.quaternion); h.p.copy(h.o.position); }
-    const emote = userId ? get().emotes[userId] : undefined;
+    const emote = previewEmote !== undefined ? previewEmote : userId ? get().emotes[userId] : undefined;
     const pose = emotePose(emote?.id ?? 'wave', emote && !reduced ? performance.now() - emote.started : -1);
     if (motion.current) {
       motion.current.position.y = pose.y;

@@ -1,3 +1,6 @@
+import { contentAvailable, productFor } from '../../../shared/market.ts';
+import { useOwnedContent } from '../market/store.ts';
+import { OriginBadge } from '../market/OriginBadge.tsx';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { EMOTES, type EmoteId } from '../../../shared/emotes.ts';
 import { useEmote } from '../emotes.ts';
@@ -31,6 +34,7 @@ export function PortraitEmote({ id, small = false, announcementOnly = false }: {
 }
 
 function EmotePicker({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
+  const owned = useOwnedContent();
   const first = useRef<HTMLButtonElement>(null);
   const active = useStore((s) => s.emotes[s.selfId]);
   const connected = useStore((s) => s.sync === 'connected');
@@ -55,10 +59,10 @@ function EmotePicker({ anchor, onClose }: { anchor: DOMRect; onClose: () => void
       <div role="dialog" aria-label="エモートを選ぶ" onKeyDown={(e) => { if (e.key !== 'Escape') e.stopPropagation(); }}>
         <div className="emote-heading"><span><b>きもちを、動きに。</b><span className="sub">エモート</span></span><button className="ib" onClick={onClose} aria-label="エモートを閉じる"><Icon name="close" size={16} /></button></div>
         <div className="emote-grid">
-          {(Object.keys(EMOTES) as EmoteId[]).map((id, i) => <button
-            ref={i === 0 ? first : undefined} key={id} className={`emote-option ${active?.id === id ? 'playing' : ''}`}
+          {(Object.keys(EMOTES) as EmoteId[]).filter((id) => contentAvailable(owned, 'emotes', id)).map((id, i) => <div key={id} className="market-entry"><button
+            ref={i === 0 ? first : undefined} className={`emote-option ${active?.id === id ? 'playing' : ''}`}
             style={emoteStyle(id)} disabled={!connected || !!active || pending} onClick={() => choose(id)}
-          ><span className="emote-option-mark" aria-hidden="true">{EMOTES[id].mark}</span><b>{EMOTES[id].name}</b><span className="sub">{EMOTES[id].caption}</span></button>)}
+          ><span className="emote-option-mark" aria-hidden="true">{EMOTES[id].mark}</span><b>{EMOTES[id].name}</b><span className="sub">{EMOTES[id].caption}</span></button><OriginBadge productId={productFor('emotes', id)?.id} onOpen={onClose} /></div>)}
         </div>
         <p className="emote-hint" role="status">{!connected ? 'セッションへの接続を待っています…' : active ? `${EMOTES[active.id].name} を再生中…` : pending ? 'エモートを送っています…' : '動きはみんなに、効果音は近くの人に。'}</p>
       </div>

@@ -20,6 +20,7 @@ import { sanitizeParams } from '../shared/avatar.ts';
 import { VOICE_RANGE, clampAvatar, computePlaces, placeDistance } from '../shared/places.ts';
 import { clampCity } from '../shared/city.ts';
 import { callElevator, elevatorOf, resetElevator } from './city.ts';
+import { MarketLikes } from './market.ts';
 import { SOUNDS } from '../shared/sounds.ts';
 import { EMOTES, isEmoteId } from '../shared/emotes.ts';
 import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts';
@@ -70,6 +71,9 @@ function later(fn: () => void, ms = 800) {
   return trigger;
 }
 for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR]) fs.mkdirSync(d, { recursive: true });
+const MARKET_LIKES_FILE = path.join(DATA_DIR, 'market-likes.json');
+const marketLikes = new MarketLikes(readJson<unknown>(MARKET_LIKES_FILE, {}));
+const saveMarketLikes = later(() => fs.writeFileSync(MARKET_LIKES_FILE, JSON.stringify(marketLikes.serialize())));
 const survivorProfiles = nullRecord(readJson<Record<string, SurvivorProfile>>(SURVIVORS_FILE, {}));
 const saveSurvivorProfiles = later(() => fs.writeFileSync(SURVIVORS_FILE, JSON.stringify(survivorProfiles)));
 function survivorCount(value: unknown, max: number) {
@@ -652,6 +656,7 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
       watching: watchingOf(name), lastSeen, recentStatus: rec.recent,
     });
     send(ws, { t: 'survivorProfile', profile: survivorProfile(msg.id) });
+    send(ws, { t: 'marketLikes', ...marketLikes.snapshot(msg.id) });
     broadcastUsers();
     if (cameOnline) {
       // 来たら知らせる は 1 回きり
@@ -665,6 +670,13 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
   }
   const me = state.id ? users.get(state.id) : undefined;
   if (!me) return;
+  if (msg.t === 'marketLike') {
+    if (marketLikes.like(msg.product, me.id)) {
+      saveMarketLikes();
+      for (const id of sockets.keys()) sendTo([id], { t: 'marketLikes', ...marketLikes.snapshot(id) });
+    } else send(ws, { t: 'marketLikes', ...marketLikes.snapshot(me.id) });
+    return;
+  }
   if (msg.t === 'profileUpdated') {
     const icon = iconVersion(me.name);
     const avatar = avatarVersion(me.name);
@@ -1467,6 +1479,7 @@ setInterval(() => {
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => {
   // 遅延保存の保留分は落とす前に書き出す。broadcast の later は保存ではないので対象外
+  saveMarketLikes.flush();
   saveSurvivorProfiles.flush();
   flushItems();
   saveHome.flush();

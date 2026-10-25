@@ -115,6 +115,7 @@ export function applySessionSnapshot(snap: SessionSnapshot) {
 
 export function onMessage(msg: ServerMsg) {
   switch (msg.t) {
+    case 'marketLikes': set({ marketLikes: { counts: msg.counts, liked: msg.liked } }); return;
     case 'incompatible':
       set({ incompatible: true });
       return;

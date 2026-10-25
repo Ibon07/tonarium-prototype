@@ -1,3 +1,6 @@
+import { contentAvailable, productFor } from '../../../shared/market.ts';
+import { useOwnedContent } from '../market/store.ts';
+import { OriginBadge } from '../market/OriginBadge.tsx';
 import { useState } from 'react';
 import { useStore } from '../store.ts';
 import type { Group, Visibility } from '../../../shared/protocol.ts';
@@ -24,6 +27,7 @@ export function CreateSessionDialog({ world: initial = 'room', group: fixedGroup
   const myGroups = useMyGroups();
   const [name, setName] = useState('');
   const [topic, setTopic] = useState('');
+  const owned = useOwnedContent();
   const [world, setWorld] = useState<WorldKind>(initial);
   const [visibility, setVisibility] = useState<Visibility>(fixedGroup ? 'group' : 'public');
   const [group, setGroup] = useState(fixedGroup ?? myGroups[0]?.id ?? '');
@@ -40,8 +44,8 @@ export function CreateSessionDialog({ world: initial = 'room', group: fixedGroup
       <label className="hfield">トピック（任意）<input value={topic} maxLength={100} placeholder="何をする場所か" onChange={(e) => setTopic(e.target.value)} /></label>
       <div className="hfield">ワールド
         <div className="hchoices">
-          {WORLD_KINDS.map((k) => (
-            <button key={k} className={`hchoice ${world === k ? 'on' : ''}`} onClick={() => setWorld(k)}><b>{WORLDS[k].name}</b><span className="sub wrap">{WORLDS[k].desc}</span></button>
+          {WORLD_KINDS.filter((k) => contentAvailable(owned, 'worlds', k)).map((k) => (
+            <div key={k} className="market-entry"><button className={`hchoice ${world === k ? 'on' : ''}`} onClick={() => setWorld(k)}><b>{WORLDS[k].name}</b><span className="sub wrap">{WORLDS[k].desc}</span></button><OriginBadge productId={productFor('worlds', k)?.id} onOpen={onClose} /></div>
           ))}
         </div>
       </div>

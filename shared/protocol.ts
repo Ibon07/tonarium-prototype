@@ -270,6 +270,7 @@ export interface SessionSnapshot {
 
 /** WebSocket でサーバーへ送るもの（セッションの外でも使う） */
 export type HomeClientMsg =
+  | { t: 'marketLike'; product: string }
   | { t: 'hello'; id: string; name: string; compat?: number }
   | { t: 'join'; sid: string }
   | { t: 'leave' }
@@ -362,6 +363,7 @@ export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => m.t in ROOM
 
 /** WebSocket でサーバーから届くもの */
 export type HomeServerMsg =
+  | { t: 'marketLikes'; counts: Record<string, number>; liked: string[] }
   /** 互換性バージョンが合わず接続を断るときに、切断の直前に送る */
   | { t: 'incompatible'; compat: number }
   | { t: 'syncConfig'; requestId: string; config: SyncConfig }

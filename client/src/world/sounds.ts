@@ -16,7 +16,9 @@ export function playEmoteSound(id: EmoteId, distanceVolume: number) {
     if (ctx.state !== 'running') return;
     const t = ctx.currentTime;
     const out = ctx.destination;
-    if (id === 'wave') {
+    if (id === 'cheer' || id === 'bow') {
+      (id === 'cheer' ? [523, 659, 784, 1046] : [784, 659]).forEach((hz, i) => tone(ctx!, out, t + i * .16, hz, hz, .25, 'sine', volume));
+    } else if (id === 'wave') {
       [660, 880, 1046].forEach((hz, i) => tone(ctx!, out, t + i * 0.13, hz, hz * 1.02, 0.2, 'sine', volume));
     } else if (id === 'hop') {
       for (let i = 0; i < 3; i++) tone(ctx, out, t + i * 0.33, 380 + i * 70, 850 + i * 100, 0.18, 'sine', volume);
@@ -58,6 +60,8 @@ function noise(c: AudioContext, out: AudioNode, t: number, dur: number, vol: num
 }
 
 const SYNTH: Record<string, (c: AudioContext, out: AudioNode, t: number) => void> = {
+  sparkle: (c, out, t) => [660, 880, 1108, 1320, 1760].forEach((hz, i) => tone(c, out, t + i * .12, hz, hz, .4, 'sine', .16)),
+  fanfare: (c, out, t) => [523, 659, 784, 1046].forEach((hz, i) => tone(c, out, t + i * .18, hz, hz, .3, 'triangle', .2)),
   clap: (c, out, t) => { for (let i = 0; i < 8; i++) noise(c, out, t + i * 0.11 + Math.random() * 0.03, 0.06, 0.5); },
   laugh: (c, out, t) => { for (let i = 0; i < 4; i++) tone(c, out, t + i * 0.16, 420 - i * 30, 300 - i * 30, 0.12, 'sawtooth', 0.12); },
   wow: (c, out, t) => tone(c, out, t, 260, 520, 0.7, 'triangle', 0.25),
