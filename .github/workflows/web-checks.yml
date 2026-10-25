@@ -26,6 +26,11 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - name: Require a new changelog entry
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node .github/scripts/check-changelog.mjs
       - run: npm ci
       - run: npm run test:changelog
       - run: npm run check:completion
