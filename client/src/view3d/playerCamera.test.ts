@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CAMERA_DISTANCE, PlayerCamera } from './playerCamera.ts';
+import { aimAt } from './interact.ts';
 
 const close = (a: number, b: number) => assert.ok(Math.abs(a - b) < 1e-6, `${a} != ${b}`);
 function setup() {
@@ -19,21 +20,68 @@ function wall(scene: THREE.Scene, z: number) {
   return mesh;
 }
 
-test('starts in first person; F5 prevents reload including repeats and toggles once per normal press', () => {
+test('starts in first person; T toggles once per press and F5 keeps its browser default', () => {
   const { rig } = setup();
   assert.equal(rig.thirdPerson, false);
   let prevented = 0;
-  const press = (repeat = false, code = 'F5') => rig.keyDown({ code, repeat, preventDefault: () => prevented++ });
+  const press = (repeat = false, code = 'KeyT') => {
+    const event = { code, repeat, preventDefault: () => prevented++ };
+    return rig.keyDown(event);
+  };
   press();
   assert.equal(rig.thirdPerson, true);
-  press(true);
+  for (let i = 0; i < 100; i++) press(true);
   assert.equal(rig.thirdPerson, true);
   press();
   assert.equal(rig.thirdPerson, false);
-  assert.equal(prevented, 3);
+  assert.equal(prevented, 0);
+  assert.equal(press(false, 'F5'), false);
+  assert.equal(press(true, 'F5'), false);
+  assert.equal(rig.thirdPerson, false);
   assert.equal(press(false, 'KeyW'), false);
-  assert.equal(prevented, 3);
+  assert.equal(prevented, 0);
   assert.equal(new PlayerCamera().thirdPerson, false);
+});
+
+test('labels do not stop movement, look or item targeting across repeated view switches', () => {
+  const { rig, camera, scene, anchor } = setup();
+  const label = new THREE.Sprite(new THREE.SpriteMaterial());
+  label.position.set(0, 2, 0);
+  label.userData.noRay = true;
+  scene.add(label);
+  let labelRaycasts = 0;
+  label.raycast = () => { labelRaycasts++; throw new Error('camera-less sprite raycast'); };
+  const item = wall(scene, -2);
+  let uses = 0;
+  item.userData.use = () => uses++;
+
+  for (let i = 0; i < 20; i++) {
+    rig.keyDown({ code: 'KeyT', repeat: false });
+    anchor.x += 0.01;
+    camera.rotation.set(0.01 * i, 0.005 * i, 0);
+    const orientation = camera.quaternion.clone();
+    rig.place(camera, scene, anchor);
+    assert.equal(rig.thirdPerson, i % 2 === 0);
+    assert.ok(camera.quaternion.equals(orientation));
+    close(camera.position.x, anchor.x + Math.sin(camera.rotation.y) * Math.cos(camera.rotation.x) * rig.actualDistance);
+    // 照準用のレイにはカメラが設定されるため、通常の Sprite 判定を使う。
+    label.raycast = THREE.Sprite.prototype.raycast;
+    const aim = aimAt(scene, camera);
+    assert.equal(aim?.obj, item);
+    aim!.data.use!(aim!.hit);
+    label.raycast = () => { labelRaycasts++; throw new Error('camera-less sprite raycast'); };
+  }
+  assert.equal(labelRaycasts, 0);
+  assert.equal(uses, 20);
+});
+
+test('a real sprite does not throw when switching to third person', () => {
+  const { rig, camera, scene, anchor } = setup();
+  scene.add(new THREE.Sprite(new THREE.SpriteMaterial()));
+  for (let i = 0; i < 20; i++) {
+    rig.keyDown({ code: 'KeyT', repeat: false });
+    assert.doesNotThrow(() => rig.place(camera, scene, anchor));
+  }
 });
 
 test('third person stays directly behind the view at several yaw and pitch angles, with no shoulder offset', () => {
