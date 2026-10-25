@@ -68,7 +68,7 @@ function WorldBadge() {
       <img className="wmark" src="/brand/mark.png" alt="" />
       <span className="wname">{world?.name}</span>
       {kind === 'survivors' && mode === '2d' && <button className="chipbtn survivor-window-button" onClick={() => openWindow('survivors')}>{survivorWindowOpen ? 'ゲーム画面' : 'ゲームを開く'}</button>}
-      {mode === '2d' && <button className="chipbtn" onClick={() => openWindow('antimatter')}>{antimatterWindowOpen ? 'AD 研究所' : 'AD を開く'}</button>}
+      {kind === 'antimatter' && mode === '2d' && <button className="chipbtn" onClick={() => openWindow('antimatter')}>{antimatterWindowOpen ? 'AD 研究所' : 'AD を開く'}</button>}
       {broadcast && <span className="bcpill" title="ブロードキャストモード：距離に関係なく声が届きます"><Icon name="megaphone" size={12} />ブロードキャスト</span>}
       {!wsConnected && <span className="reconn">再接続中…</span>}
       <span className="vline" />
@@ -499,9 +499,9 @@ export function WorldScreen() {
       closeWindow('survivors', true);
       closeWindow('survivor-library', true);
     }
-    // AD はワールド非依存の進行のため、他ワールドへ移っても閉じない。
-    // antimatter ワールドに入ったときだけ 2D で自動で開く（閉じたあとは開き直し不要）。
+    // ワールド用パネルは研究所内だけ。アイテムから開いたパネルと進行データは維持する。
     if (worldKind === 'antimatter' && mode === '2d') openWindow('antimatter');
+    else if (worldKind !== 'antimatter') closeWindow('antimatter');
   }, [worldKind, mode]);
   useEffect(() => {
     if (mode !== '3d') return;
