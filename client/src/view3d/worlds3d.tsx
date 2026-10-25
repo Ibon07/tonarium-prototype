@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { Suspense, useMemo } from 'react';
 import * as THREE from 'three';
 import { ROOM_HALF } from '../../../shared/protocol.ts';
 import { CAFE, CAFE_TABLE_R, type WorldKind } from '../../../shared/worlds.ts';
@@ -10,6 +10,7 @@ import { CityWorld } from './city3d.tsx';
 import { SurvivorObjects } from './survivors3d.tsx';
 import { GardenWorld } from './garden3d.tsx';
 import { AntimatterWorld } from './antimatterWorld.tsx';
+import { AntimatterSky } from './AntimatterSky.tsx';
 
 const H = ROOM_HALF;
 const WALL_H = 4;
@@ -263,7 +264,7 @@ export function WorldMesh({ kind, map = false }: { kind: WorldKind; map?: boolea
   if (kind === 'city') return <CityWorld map={map} />;
   if (kind === 'garden') return <><Shell pal={PALETTES.garden} /><GardenWorld map={map} /></>;
   // AntimatterLab は床・壁・光源を自前で持つため Hall では包まない
-  if (kind === 'antimatter') return <AntimatterWorld />;
+  if (kind === 'antimatter') return <><Suspense fallback={null}><AntimatterSky /></Suspense><AntimatterWorld /></>;
   return kind === 'cafe' ? <Cafe /> : <Hall />;
 }
 

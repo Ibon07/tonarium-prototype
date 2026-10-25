@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { ANTIMATTER_CORE } from '../../../shared/antimatterLayout.ts';
 import { get, useStore, worldKindOf } from '../store.ts';
 import { fxVolume } from '../volume.ts';
-import { bigLog10, getAntimatterPerSecond } from './engine.mjs';
+import { getAntimatterPerSecond } from './engine.mjs';
 import { subscribeAdFeedback } from './feedback.ts';
 import { AdSoundPlayer } from './audio.ts';
 
@@ -11,8 +11,6 @@ export function AdAudio() {
   useEffect(() => {
     const player = new AdSoundPlayer();
     const phoneWidth = window.matchMedia('(max-width: 720px)');
-    let nextProductionAt = 0;
-    let step = 0;
 
     function sceneActive() {
       const s = get();
@@ -34,30 +32,20 @@ export function AdAudio() {
       if (panelVisible()) return 1;
       if (s.mode !== '3d' || worldKindOf(s) !== 'antimatter') return 0;
       const distance = Math.hypot(s.selfAvatar.x - ANTIMATTER_CORE.x, s.selfAvatar.z - ANTIMATTER_CORE.z);
-      return Math.max(0, Math.min(1, (12 - distance) / 8));
+      const edge = Math.max(0, Math.min(1, (24 - distance) / 4));
+      return edge / (1 + (distance / 10) ** 2);
     }
 
     function sync() {
       player.setVolume(fxVolume());
-      if (contextGain() === 0 || fxVolume() === 0) {
-        player.stopProduction();
-        nextProductionAt = 0;
-      }
-      if (!sceneActive()) player.stop();
-    }
-
-    function production() {
+      if (!sceneActive()) { player.stop(); return; }
       const gain = contextGain();
       const game = get().adGame;
-      if (!game || gain <= 0 || fxVolume() <= 0) return;
-      const rate = getAntimatterPerSecond(game);
-      if (rate.mantissa <= 0) { player.stopProduction(); nextProductionAt = 0; return; }
-      const now = performance.now();
-      if (now < nextProductionAt) return;
-      const log = bigLog10(rate);
-      // Production grows in pitch/pace gently; never emit one sound per game tick.
-      nextProductionAt = now + 2600 - 800 * Math.min(1, Math.max(0, log) / 30);
-      player.production(log, gain, step++);
+      if (!game || gain <= 0 || fxVolume() <= 0 || getAntimatterPerSecond(game).mantissa <= 0) {
+        player.stopProduction();
+        return;
+      }
+      player.production(gain);
     }
 
     const unsubscribeFeedback = subscribeAdFeedback((event) => {
@@ -68,7 +56,7 @@ export function AdAudio() {
     window.addEventListener('keydown', player.unlock, true);
     document.addEventListener('visibilitychange', sync);
     phoneWidth.addEventListener('change', sync);
-    const timer = window.setInterval(production, 250);
+    const timer = window.setInterval(sync, 250);
     sync();
     return () => {
       window.clearInterval(timer);

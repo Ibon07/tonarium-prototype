@@ -24,6 +24,8 @@ export interface AdDimensionView {
   bought: number;
   amountLog10: number;
   productionLog10: number;
+  /** log10(0) と log10(1) を区別し、生産停止中の演出を出さない。 */
+  producing: boolean;
   locked: boolean;
 }
 

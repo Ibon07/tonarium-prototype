@@ -10,19 +10,32 @@ interface Note {
 }
 
 const MAX_VOICES = 24;
+const MUSIC_URL = '/audio/ad-lab-reactor.ogg';
+const MUSIC_LEVEL = 0.4;
 
-/** A local instrument: no samples, network requests, or unbounded production loop. */
+/** Composed lab music with a bounded local instrument for operation feedback. */
 export class AdSoundPlayer {
   private context: AudioContext | null = null;
   private output: GainNode | null = null;
   private voices = new Map<OscillatorNode, GainNode>();
-  private productionVoices = new Set<OscillatorNode>();
+  private musicBuffer: AudioBuffer | null = null;
+  private musicLoad: Promise<void> | null = null;
+  private musicAbort = new AbortController();
+  private musicFailed = false;
+  private musicSource: AudioBufferSourceNode | null = null;
+  private musicGain: GainNode | null = null;
+  private musicDistanceGain = 0;
+  private musicOffset = 0;
+  private musicStartedAt = 0;
   private volume = 1;
   private disposed = false;
   private resuming = false;
   private lastAction = new Map<string, number>();
 
-  constructor(private createContext: () => AudioContext = () => new AudioContext()) {}
+  constructor(
+    private createContext: () => AudioContext = () => new AudioContext(),
+    private fetchTrack: typeof fetch = (input, init) => fetch(input, init),
+  ) {}
 
   /** Only called from a user gesture, never from the production timer. */
   unlock = () => {
@@ -36,8 +49,9 @@ export class AdSoundPlayer {
       }
       if (this.context.state === 'suspended' && !this.resuming) {
         this.resuming = true;
-        void this.context.resume().catch(() => this.stop()).finally(() => { this.resuming = false; });
+        void this.context.resume().then(() => this.syncMusic()).catch(() => this.stop()).finally(() => { this.resuming = false; });
       }
+      this.syncMusic();
     } catch { /* Sound is optional when Web Audio is unavailable. */ }
   };
 
@@ -82,14 +96,66 @@ export class AdSoundPlayer {
     this.schedule(notes);
   }
 
-  production(productionLog: number, distanceGain: number, step: number) {
-    if (this.context?.state !== 'running') return;
-    const hz = [146.83, 220, 293.66, 196][step % 4];
-    const level = (0.018 + 0.009 * Math.min(1, Math.max(0, productionLog) / 20)) * Math.max(0, Math.min(1, distanceGain));
-    this.schedule([{ hz, endHz: hz * 1.005, duration: 0.34, level }, { hz: hz * 2, delay: 0.09, duration: 0.22, level: level * 0.35 }], true);
+  /** Keep a single decoded music loop while production is audible. */
+  production(distanceGain: number) {
+    const next = Number.isFinite(distanceGain) ? Math.max(0, Math.min(1, distanceGain)) : 0;
+    if (next === 0) { this.stopProduction(); return; }
+    if (this.disposed || this.volume <= 0) return;
+    const changed = this.musicDistanceGain !== next;
+    this.musicDistanceGain = next;
+    if (changed && this.musicGain && this.context) {
+      const now = this.context.currentTime;
+      this.musicGain.gain.cancelScheduledValues(now);
+      this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, now);
+      this.musicGain.gain.linearRampToValueAtTime(next * MUSIC_LEVEL, now + 0.2);
+    }
+    this.syncMusic();
   }
 
-  private schedule(notes: Note[], production = false) {
+  private syncMusic() {
+    const c = this.context;
+    if (!c || c.state !== 'running' || !this.output || this.disposed || this.volume <= 0 || this.musicDistanceGain <= 0 || this.musicSource || this.musicFailed) return;
+    if (!this.musicBuffer) {
+      if (!this.musicLoad) {
+        // Fetch and decode only once for this context. Late completions cannot start
+        // playback after mute, leaving the lab, a hidden tab, or disposal.
+        this.musicLoad = (async () => {
+          try {
+            const response = await this.fetchTrack(MUSIC_URL, { signal: this.musicAbort.signal });
+            if (!response.ok) throw new Error(`Music request failed: ${response.status}`);
+            const data = await response.arrayBuffer();
+            if (this.disposed || c !== this.context) return;
+            const buffer = await c.decodeAudioData(data);
+            if (this.disposed || c !== this.context) return;
+            this.musicBuffer = buffer;
+            this.syncMusic();
+          } catch {
+            this.musicFailed = true;
+            this.stopProduction();
+          }
+        })();
+      }
+      return;
+    }
+    try {
+      const source = c.createBufferSource();
+      const gain = c.createGain();
+      this.musicSource = source;
+      this.musicGain = gain;
+      source.buffer = this.musicBuffer;
+      source.loop = true;
+      gain.gain.setValueAtTime(0, c.currentTime);
+      gain.gain.linearRampToValueAtTime(this.musicDistanceGain * MUSIC_LEVEL, c.currentTime + 0.35);
+      source.connect(gain).connect(this.output);
+      this.musicStartedAt = c.currentTime;
+      source.start(c.currentTime, this.musicOffset);
+    } catch {
+      this.musicFailed = true;
+      this.stopProduction();
+    }
+  }
+
+  private schedule(notes: Note[]) {
     const c = this.context;
     if (!c || !this.output || this.disposed || this.volume <= 0 || (c.state !== 'running' && !this.resuming)) return;
     try {
@@ -107,7 +173,6 @@ export class AdSoundPlayer {
         gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
         oscillator.connect(gain).connect(this.output);
         this.voices.set(oscillator, gain);
-        if (production) this.productionVoices.add(oscillator);
         oscillator.onended = () => this.disconnectVoice(oscillator);
         oscillator.start(start);
         oscillator.stop(start + duration + 0.015);
@@ -126,21 +191,33 @@ export class AdSoundPlayer {
     voice.disconnect();
     this.voices.get(voice)?.disconnect();
     this.voices.delete(voice);
-    this.productionVoices.delete(voice);
   }
 
   stopProduction() {
-    for (const voice of this.productionVoices) this.stopVoice(voice);
+    this.musicDistanceGain = 0;
+    if (this.musicSource) {
+      if (this.musicBuffer && this.context) {
+        this.musicOffset = (this.musicOffset + this.context.currentTime - this.musicStartedAt) % this.musicBuffer.duration;
+      }
+      this.musicSource.disconnect();
+      try { this.musicSource.stop(); } catch { /* A finished source may already be stopped. */ }
+    }
+    this.musicGain?.disconnect();
+    this.musicSource = null;
+    this.musicGain = null;
   }
 
   stop() {
+    this.stopProduction();
     for (const voice of this.voices.keys()) this.stopVoice(voice);
     this.lastAction.clear();
   }
 
   dispose() {
     this.disposed = true;
+    this.musicAbort.abort();
     this.stop();
+    this.musicBuffer = null;
     this.output?.disconnect();
     if (this.context) void this.context.close().catch(() => {});
     this.output = null;

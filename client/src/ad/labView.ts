@@ -33,14 +33,16 @@ export function buildAdLabSnapshot(game: GameState): AdLabSnapshot {
     perSecondText: formatNumber(getAntimatterPerSecond(game)),
     dimensions: game.dimensions.map((dim, i) => {
       const tier = i + 1;
+      const production = getDimensionProductionPerSecond(game, tier);
       return {
         tier,
         amountText: formatNumber(dim.amount),
-        productionText: formatNumber(getDimensionProductionPerSecond(game, tier)),
+        productionText: formatNumber(production),
         nextCostText: formatNumber(getDimensionCost(game, tier)),
         bought: dim.bought,
         amountLog10: log10Of(dim.amount),
-        productionLog10: log10Of(getDimensionProductionPerSecond(game, tier)),
+        productionLog10: log10Of(production),
+        producing: production.mantissa > 0,
         locked: tier > maxUnlockedTier,
       };
     }),

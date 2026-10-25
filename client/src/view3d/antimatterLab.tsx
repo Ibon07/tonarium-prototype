@@ -2,14 +2,14 @@
 // drei の Html は使わない。Label.tsx の注記どおり、3D 参加直後の分が空になり撮影にも写らないうえ、
 // ポインターロック中は DOM をマウスで直接操作できないため。代わりに、空間内は CanvasTexture の
 // ボード（撮影にも写る・遮蔽も 3D 通り）で示し、操作は照準＋クリックで前面パネルを開く方式にする。
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
   ANTIMATTER_ALTAR, ANTIMATTER_CORE, ANTIMATTER_EXHIBITS, ANTIMATTER_PALETTE, ANTIMATTER_PORTAL,
-  ANTIMATTER_TOWERS, DIMENSION_TARGETS, clampLog, lodForDistance, particleCountFromLog,
-  ringSpeedFromBought, streamOpacityFromLog, towerHeightFromLog,
-  type AdDioramaView, type AdLabSnapshot, type AdLod, type AdPanelTarget,
+  ANTIMATTER_TOWERS, DIMENSION_TARGETS, clampLog, particleCountFromLog,
+  ringSpeedFromBought, towerHeightFromLog,
+  type AdDioramaView, type AdLabSnapshot, type AdPanelTarget,
 } from '../../../shared/antimatterLayout.ts';
 import { Box, Cyl, SpawnArea } from './parts3d.tsx';
 import { Label } from './Label.tsx';
@@ -17,19 +17,9 @@ import { PanelBoard } from './antimatterPanels.tsx';
 import { AntimatterReadout } from './AntimatterReadout.tsx';
 import { AdPurchaseParticles3D } from './AdPurchaseParticles3D.tsx';
 import { DimensionReactor3D } from './DimensionReactor3D.tsx';
+import { DimensionProductionParticles } from './DimensionProductionParticles.tsx';
 
 export type Origin = [number, number];
-
-/** カメラと研究所中心の距離から詳細度を決める。変わったときだけ React を起こす */
-export function useAntimatterLod(origin: Origin): AdLod {
-  const [lod, setLod] = useState<AdLod>('full');
-  useFrame(({ camera }) => {
-    const d = Math.hypot(camera.position.x - (origin[0] + ANTIMATTER_CORE.x), camera.position.z - (origin[1] + ANTIMATTER_CORE.z));
-    const next = lodForDistance(d);
-    if (next !== lod) setLod(next);
-  });
-  return lod;
-}
 
 type OpenPanel = (target: AdPanelTarget) => void;
 
@@ -44,10 +34,7 @@ function LabShell({ origin }: { origin: Origin }) {
         <meshStandardMaterial color={pal.floor} roughness={0.85} />
       </mesh>
       <gridHelper args={[20, 20, '#3a3f66', '#2a2e4d']} position-y={0.005} userData={{ noRay: true }} />
-      <Box p={[0, 2, -10]} s={[20, 4, 0.2]} color={pal.wall} />
-      <Box p={[0, 2, 10]} s={[20, 4, 0.2]} color={pal.wall} />
-      <Box p={[-10, 2, 0]} s={[0.2, 4, 20]} color={pal.wall} />
-      <Box p={[10, 2, 0]} s={[0.2, 4, 20]} color={pal.wall} />
+      {/* 周囲は透明な境界。移動・アイテムの範囲制限は共通の clampRoom が担う。 */}
       {origin[0] === 0 && origin[1] === 0 && <SpawnArea color={pal.spawn} />}
     </group>
   );
@@ -110,23 +97,6 @@ function CoreFountain({ log10, bought }: { log10: number; bought: number }) {
   );
 }
 
-/** 塔とコアの間の生産の流れ。床上の帯で向きだけ示し、数値は帯の濃さにしない */
-function FlowStrip({ from, to, opacity }: { from: { x: number; z: number }; to: { x: number; z: number }; opacity: number }) {
-  const dx = to.x - from.x;
-  const dz = to.z - from.z;
-  const len = Math.hypot(dx, dz);
-  // 平面を寝かせてから Y 回転で向きを合わせる。オイラーで一度に回すと向きがずれるため分ける
-  const yaw = Math.atan2(-dx, -dz);
-  return (
-    <group position={[(from.x + to.x) / 2, 0.02, (from.z + to.z) / 2]} rotation-y={yaw} userData={{ noRay: true }}>
-      <mesh rotation-x={-Math.PI / 2}>
-        <planeGeometry args={[0.3, len]} />
-        <meshBasicMaterial color="#7fd8ff" transparent opacity={opacity} depthWrite={false} blending={THREE.AdditiveBlending} />
-      </mesh>
-    </group>
-  );
-}
-
 function DimensionTower({ tier, x, z, view, interactable, onOpen, detail }: {
   tier: number; x: number; z: number;
   view: AdLabSnapshot['dimensions'][number];
@@ -141,8 +111,6 @@ function DimensionTower({ tier, x, z, view, interactable, onOpen, detail }: {
     <group position={[x, 0, z]} {...groupProps}>
       <DimensionReactor3D tier={tier} amountLog10={view.amountLog10} productionLog10={view.productionLog10} bought={view.bought} locked={view.locked} detail={detail} />
       <Label text={view.locked ? `🔒 第${tier}次元` : `第${tier}次元`} position={[0, h + 1.4, 0]} height={0.22} bg="rgba(20,24,48,.92)" />
-      {/* 流れの帯は同列の隣塔だけに引く。列をまたぐと研究所を斜めに横切ってしまうため */}
-      {!view.locked && tier !== 1 && tier !== 5 && <FlowStrip from={{ x, z }} to={ANTIMATTER_TOWERS[tier - 2]} opacity={streamOpacityFromLog(view.productionLog10)} />}
     </group>
   );
 }
@@ -166,7 +134,6 @@ function ExhibitPlinth({ id, x, z, title, interactable, onOpen }: {
 export function AntimatterLab({ origin = [0, 0], snapshot, isOwn, onOpenPanel }: {
   origin?: Origin; snapshot: AdLabSnapshot; isOwn: boolean; onOpenPanel?: OpenPanel;
 }) {
-  const lod = useAntimatterLod(origin);
   const open: OpenPanel = (target) => {
     if (!isOwn) return;
     onOpenPanel?.(target);
@@ -174,39 +141,20 @@ export function AntimatterLab({ origin = [0, 0], snapshot, isOwn, onOpenPanel }:
     // 閉じたあとは既存の挙動どおりキャンバスをクリックすれば再ロックされる
     if (document.pointerLockElement) document.exitPointerLock();
   };
-  if (lod === 'silhouette') {
-    return (
-      <group position={[origin[0], 0, origin[1]]} userData={{ noRay: true }}>
-        <mesh position={[ANTIMATTER_CORE.x, 0.8, ANTIMATTER_CORE.z]}>
-          <sphereGeometry args={[0.8, 12, 8]} />
-          <meshStandardMaterial color="#24304f" roughness={0.9} />
-        </mesh>
-        {ANTIMATTER_TOWERS.map((t) => (
-          <Box key={t.tier} p={[t.x, 0.6, t.z]} s={[0.7, 1.2, 0.7]} color="#24304f" />
-        ))}
-      </group>
-    );
-  }
-  const full = lod === 'full';
   return (
     <group position={[origin[0], 0, origin[1]]}>
       <LabShell origin={origin} />
       {isOwn && <AdPurchaseParticles3D snapshot={snapshot} />}
+      {isOwn && <DimensionProductionParticles snapshot={snapshot} />}
       <group position={[ANTIMATTER_CORE.x, 0, ANTIMATTER_CORE.z]} userData={{ hint: '反物質コア（クリックでパネル）', use: () => open('core') }}>
-        {full && <CoreFountain log10={snapshot.antimatterLog10} bought={snapshot.tickspeedBought} />}
-        {!full && (
-          <mesh position-y={0.5}>
-            <sphereGeometry args={[0.55, 16, 12]} />
-            <meshStandardMaterial color="#7fd8ff" emissive="#2a6cff" emissiveIntensity={0.8} roughness={0.3} />
-          </mesh>
-        )}
+        <CoreFountain log10={snapshot.antimatterLog10} bought={snapshot.tickspeedBought} />
         <Label text="反物質コア" position={[0, 2.6, 0]} height={0.24} bg="rgba(20,24,48,.92)" />
         <AntimatterReadout snapshot={snapshot} onOpen={isOwn ? () => open('core') : undefined} />
       </group>
       {ANTIMATTER_TOWERS.map((t) => (
         <group key={t.tier} position={[0, 0, 0]}>
-          <DimensionTower tier={t.tier} x={t.x} z={t.z} view={snapshot.dimensions[t.tier - 1]} interactable={isOwn} onOpen={open} detail={full ? 'full' : 'simple'} />
-          {full && isOwn && !snapshot.dimensions[t.tier - 1].locked && (
+          <DimensionTower tier={t.tier} x={t.x} z={t.z} view={snapshot.dimensions[t.tier - 1]} interactable={isOwn} onOpen={open} detail="full" />
+          {isOwn && !snapshot.dimensions[t.tier - 1].locked && (
             <PanelBoard
               hint={`第${t.tier}次元（クリックでパネル）`} onOpen={() => open(DIMENSION_TARGETS[t.tier - 1])}
               position={[t.x, towerHeightFromLog(snapshot.dimensions[t.tier - 1].amountLog10) + 1.9, t.z]}
