@@ -7,11 +7,37 @@ import {
 import { get, set, useStore } from '../store.ts';
 import { addVoice, removeAllVoices, removeVoice } from '../spatial.ts';
 import { send } from './ws.ts';
+import { ANNOTATION_TOPIC, ShareAnnotations } from '../shareAnnotations.ts';
 
 // HMR でこのモジュールが読み直されても同じ接続を使う（別の Room が同じ ID で入ると、互いに蹴り出してつなぎ直しを繰り返す）
 const g = globalThis as unknown as { __tonariumRoom?: Room };
 export const room = (g.__tonariumRoom ??= new Room({ adaptiveStream: false, dynacast: true }));
 room.removeAllListeners();
+let annotationQueue = Promise.resolve();
+export const shareAnnotations = new ShareAnnotations((packet, to) => {
+  annotationQueue = annotationQueue.then(async () => {
+    if (shareAnnotations.snapshot().share !== packet.share || get().voice !== 'connected') return;
+    await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(packet)), {
+      reliable: true, topic: ANNOTATION_TOPIC, destinationIdentities: to ? [to] : undefined,
+    });
+  }).catch(() => { set({ voiceError: uiSource('shareDrawingError') }); });
+});
+let annotationRetry: ReturnType<typeof setInterval> | undefined;
+function receiveAnnotations(payload: Uint8Array, participant?: LkParticipant, _kind?: unknown, topic?: string) {
+  if (topic !== ANNOTATION_TOPIC || !participant || !room.remoteParticipants.has(participant.identity) || payload.byteLength > 15000) return;
+  try { shareAnnotations.receive(JSON.parse(new TextDecoder().decode(payload)), participant.identity); } catch { /* 不正なパケットは無視する */ }
+}
+function syncAnnotations(share: string | null, authority = '') {
+  if (shareAnnotations.snapshot().share === share) return;
+  room.off(RoomEvent.DataReceived, receiveAnnotations);
+  if (annotationRetry) clearInterval(annotationRetry);
+  annotationRetry = undefined;
+  shareAnnotations.setShare(share, authority, room.localParticipant.identity);
+  if (share) {
+    room.on(RoomEvent.DataReceived, receiveAnnotations);
+    annotationRetry = setInterval(() => shareAnnotations.requestHistory(), 2000);
+  }
+}
 for (const topic of ['msg', 'snapshot']) room.unregisterTextStreamHandler(topic);
 
 /** 2D パネルと 3D スクリーン (VideoTexture) で共有する唯一の <video>（二重再生を防ぐ） */
@@ -49,17 +75,24 @@ function syncParticipants() {
   const speaking: Record<string, boolean> = {};
   const micOn: Record<string, boolean> = {};
   let sharer: string | null = null;
+  let shareId: string | null = null;
+  let shareOwner = '';
   let shareHasAudio = false;
   for (const p of all) {
     speaking[p.identity] = p.isSpeaking;
     micOn[p.identity] = p.isMicrophoneEnabled;
     const pub = p.getTrackPublication(Track.Source.ScreenShare);
+    if (pub?.track) {
+      shareId = pub.trackSid;
+      shareOwner = p.identity;
+    }
     if (pub && pub.track && !pub.isMuted) {
       sharer = p.identity;
       shareHasAudio = !!p.getTrackPublication(Track.Source.ScreenShareAudio);
     }
   }
   const lp = room.localParticipant;
+  syncAnnotations(shareId, shareOwner);
   set({ speaking, micOn, sharer, shareHasAudio, micEnabled: lp.isMicrophoneEnabled });
   // 他セッションの人にも見えるようにサーバーへ伝える
   const status = { micOn: lp.isMicrophoneEnabled, sharing: lp.isScreenShareEnabled };
@@ -124,13 +157,14 @@ room
   .on(RoomEvent.TrackPublished, () => { syncViewSubscriptions(); syncParticipants(); })
   .on(RoomEvent.TrackUnpublished, syncParticipants)
   .on(RoomEvent.ParticipantConnected, syncParticipants)
-  .on(RoomEvent.ParticipantDisconnected, syncParticipants)
+  .on(RoomEvent.ParticipantDisconnected, (p) => { shareAnnotations.removeParticipant(p.identity); syncParticipants(); })
   .on(RoomEvent.ActiveSpeakersChanged, syncParticipants)
   .on(RoomEvent.Reconnecting, () => set({ voice: 'connecting' }))
   .on(RoomEvent.Reconnected, () => { set({ voice: 'connected' }); syncParticipants(); })
   .on(RoomEvent.Disconnected, (reason) => {
     // 自分で切ったのでなければ、少し待ってつなぎ直す
     if (closing) return;
+    syncAnnotations(null);
     console.warn('room disconnected', reason);
     const gen = generation;
     const sid = get().session;
@@ -149,6 +183,7 @@ async function closeRoom() {
 }
 
 function resetVoiceState() {
+  syncAnnotations(null);
   audioHost.replaceChildren();
   camHolder.replaceChildren();
   removeAllVoices();

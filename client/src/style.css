@@ -714,6 +714,15 @@ img.av { object-fit: cover; display: block; }
 .logdice .lnum { min-width: 20px; padding: 0 5px; height: 20px; border-radius: 5px; display: inline-grid; place-items: center; font-weight: 700; font-size: 12px; }
 .videohost, .videohost video { width: 100%; height: 100%; }
 .videohost video { object-fit: contain; display: block; }
+.share-annotated { position: relative; overflow: hidden; }
+.share-video-layer { width: 100%; height: 100%; }
+.share-drawing { position: absolute; pointer-events: none; overflow: hidden; }
+.share-drawing.active { pointer-events: auto; touch-action: none; cursor: crosshair; }
+.share-drawing svg { width: 100%; height: 100%; display: block; pointer-events: none; }
+.share-drawing-toggle { position: absolute; right: 12px; top: 12px; padding: 7px 12px; border-radius: 6px; background: #20232bea; color: #fff; border: 1px solid #777; }
+.share-drawing-toggle[aria-pressed="true"] { background: #375b92; border-color: #a8caff; }
+.share-cursor { position: absolute; pointer-events: none; font-size: 22px; line-height: 1; text-shadow: 0 1px 3px #000; }
+.share-cursor-name { position: absolute; left: 14px; top: 18px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; padding: 4px 6px; border-radius: 4px; background: #151820e8; border: 1px solid currentColor; }
 .onlive { position: absolute; top: 10px; left: 10px; display: flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px; background: var(--live); color: #fff; font-size: 11px; font-weight: 700; }
 .onlive i { width: 7px; height: 7px; border-radius: 50%; background: #fff; }
 .onvideo { position: absolute; right: 10px; bottom: 10px; height: 30px; font-size: 12px; color: var(--ink); }
