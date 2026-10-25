@@ -31,7 +31,7 @@ import { EMOTES, isEmoteId } from '../shared/emotes.ts';
 import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts';
 import type { PeerOperation } from '../shared/session-events.ts';
 import { getOgp } from './ogp.ts';
-import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
+import { MEDIA_DIR, mediaExists, pipeFile, saveMedia, serveMedia } from './media.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
 import { clearGame, eliminate, gameOf, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
 import { chooseSurvivorGear, chooseSurvivorStyle, clearSurvivor, moveSurvivor, removeSurvivor, resetSurvivorUpgrades, rerollSurvivorChoice, startSurvivor, tickSurvivors, upgradeSurvivor, survivorOf, type SurvivorDeps } from './survivors.ts';
@@ -1538,7 +1538,7 @@ const MIME: Record<string, string> = {
 };
 
 const handleTranslation = createTranslationHandler(createTranslator(configuredTranslationModel(process.env, DEV)));
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   // 絶対形式の壊れたリクエストターゲット（例: http://[::1）でも new URL が例外になるため、ここで 400 にする
   let url: URL;
   try { url = new URL(req.url ?? '/', 'http://x'); } catch { res.statusCode = 400; res.end('bad path'); return; }
@@ -1566,7 +1566,7 @@ const server = http.createServer(async (req, res) => {
     if (!g || !fs.existsSync(groupImageFile(g))) { res.statusCode = 404; res.end(); return; }
     res.setHeader('Content-Type', 'image/jpeg');
     res.setHeader('Cache-Control', url.searchParams.get('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
-    fs.createReadStream(groupImageFile(g)).pipe(res);
+    pipeFile(res, groupImageFile(g));
     return;
   }
   if (url.pathname === '/icon') {
@@ -1583,7 +1583,7 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('Content-Type', 'image/jpeg');
     // URL に版を付けて取得するので長期キャッシュしてよい
     res.setHeader('Cache-Control', url.searchParams.get('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
-    fs.createReadStream(file).pipe(res);
+    pipeFile(res, file);
     return;
   }
   if (url.pathname === '/avatar' || url.pathname === '/avatar/params') {
@@ -1608,7 +1608,7 @@ const server = http.createServer(async (req, res) => {
     const head = fs.readFileSync(file).subarray(0, 4);
     res.setHeader('Content-Type', isParams ? 'application/json' : isPng(head) ? 'image/png' : 'image/jpeg');
     res.setHeader('Cache-Control', url.searchParams.get('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
-    fs.createReadStream(file).pipe(res);
+    pipeFile(res, file);
     return;
   }
   if (url.pathname === '/profile') {
@@ -1750,7 +1750,10 @@ const server = http.createServer(async (req, res) => {
   let pathname: string;
   try { pathname = decodeURIComponent(url.pathname); } catch { res.statusCode = 400; res.end('bad path'); return; }
   let file = path.join(DIST, pathname);
-  if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory())
+  // 接頭辞一致だと DIST の兄弟 (dist2 等) を通してしまうため、相対パスで「中にある」ことを厳密に見る
+  const relToDist = path.relative(DIST, file);
+  const insideDist = relToDist === '' || (!relToDist.startsWith(`..${path.sep}`) && !path.isAbsolute(relToDist));
+  if (!insideDist || !fs.existsSync(file) || fs.statSync(file).isDirectory())
     file = path.join(DIST, 'index.html');
   if (!fs.existsSync(file)) {
     res.statusCode = 404;
@@ -1770,7 +1773,17 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', MIME[path.extname(file)] ?? 'application/octet-stream');
   // assets/ はハッシュ付き。index.html は毎回取り直させる
   res.setHeader('Cache-Control', file.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache');
-  fs.createReadStream(file).pipe(res);
+  pipeFile(res, file);
+}
+
+// ハンドラ全体の安全網: 個別に潰していない例外経路が残っていても、未処理 rejection で
+// プロセスごと落とさず、このリクエストだけ 500 (応答開始済みなら切断) で終える
+const server = http.createServer((req, res) => {
+  handleRequest(req, res).catch((e) => {
+    console.error('request handler error', e);
+    if (res.writableEnded) return;
+    if (!res.headersSent) { res.statusCode = 500; res.end(); } else res.destroy();
+  });
 });
 
 /** ホーム WS で正当に届く最大のメッセージは thumbnailUpload（サムネイル画像 64KiB の data URL で約 87.5KB。
