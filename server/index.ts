@@ -322,7 +322,13 @@ function snapshotUsers(): UserSnapshot {
   }
   return { all, friendsByName, onlineNames: new Set(all.map((u) => u.name)) };
 }
-const sessionsVisibleTo = (name: string, snap = snapshotUsers()) => guild.sessions.filter((d) => canSeeSession(d, name, snap.friendsByName.get(name) ?? [], home.groups, snap.all));
+// 写しが渡されたとき（配信の一括計算）だけそれを使い、単発呼び出しでは全体の写しを作らない。
+// friendsOf は friendsByName と同じ friendPairs を同じ順に走査するので、対象者の一覧は写し経由と一致する
+const sessionsVisibleTo = (name: string, snap?: UserSnapshot) => {
+  const friends = snap ? snap.friendsByName.get(name) ?? [] : friendsOf(name);
+  const all = snap ? snap.all : [...users.values()];
+  return guild.sessions.filter((d) => canSeeSession(d, name, friends, home.groups, all));
+};
 const broadcastSessions = () => { const snap = snapshotUsers(); for (const u of users.values()) sendTo([u.id], { t: 'sessions', list: sessionsVisibleTo(u.name, snap) }); };
 const broadcastGroups = () => broadcast({ t: 'groups', list: home.groups });
 const broadcastEvents = () => broadcast({ t: 'events', list: home.events });
