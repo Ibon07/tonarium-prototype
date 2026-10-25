@@ -1,4 +1,4 @@
-import { JUMP_V } from '../../../shared/protocol.ts';
+import { JUMP_V, LEAN_ANGLE } from '../../../shared/protocol.ts';
 
 export interface JumpBody { grounded: boolean; vy: number; n: number; extraJump: boolean }
 
@@ -22,7 +22,7 @@ export function canLean(c: LeanContext): boolean {
   return c.enabled && c.locked && !c.typing && !c.survivor && !c.carrying && !c.dragging && !c.holdingTool && !c.bike;
 }
 
-export const LEAN_ANGLE = Math.PI / 18;
+export { LEAN_ANGLE } from '../../../shared/protocol.ts';
 export function leanAngle(current: number, left: boolean, right: boolean, allowed: boolean, dt: number): number {
   if (!allowed) return 0;
   const target = ((left ? 1 : 0) - (right ? 1 : 0)) * LEAN_ANGLE;

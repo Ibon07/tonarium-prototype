@@ -94,7 +94,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
   const driving = useRef<{ id: string; version: number; state: VehicleState; sent: number } | null>(null);
   const look = useRef({ yaw: get().selfAvatar.ry, pitch: -0.05 });
   // NaN だと比較が常に false になり一度も送られないので Infinity
-  const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, jump: 0, y: 0, walking: false });
+  const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, lean: 0, jump: 0, y: 0, walking: false });
   const walking = useRef(false);
   // 足元の高さ・上下の速さ・跳んだ回数。stepped は最後に踏んだと伝えた板、round は塔の上に移ったゲームの回
   // car は街の電車に乗っている号車。乗っている間は毎フレーム電車が動いた分だけ一緒に動かす
@@ -345,13 +345,15 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       look.current.yaw = v.ry;
       position.current.set(v.x, eye.current, v.z);
       camera.rotation.set(look.current.pitch, v.ry, 0);
+      const stoppedLeaning = sent.current.lean !== 0;
+      sent.current.lean = 0;
       const stoppedWalking = walking.current;
       walking.current = false;
       sent.current.walking = false;
-      const a: AvatarState = { x: v.x, z: v.z, ry: v.ry, pitch: look.current.pitch, jump: b.n, walking: false };
+      const a: AvatarState = { x: v.x, z: v.z, ry: v.ry, pitch: look.current.pitch, jump: b.n, walking: false, lean: 0 };
       set({ selfAvatar: a });
       const now = performance.now();
-      if (stoppedWalking || now - d.sent >= 50) {
+      if (stoppedWalking || stoppedLeaning || now - d.sent >= 50) {
         d.sent = now;
         itemAction(bike.id, { a: 'bikeDrive', state: v, rideVersion: bike.rideVersion });
         send({ t: 'avatar', s: a });
@@ -399,7 +401,9 @@ export function Player({ rig }: { rig: PlayerCamera }) {
           camera.rotation.z = 0;
           walking.current = false;
           sent.current.walking = false;
-          const a = { ...get().selfAvatar, walking: false };
+          const a = { ...get().selfAvatar, walking: false, lean: 0 };
+          sent.current.lean = 0;
+          rig.place(camera, scene, position.current);
           set({ movementMode: 'noclip', selfAvatar: a });
           send({ t: 'avatar', s: a });
           previousMode.current = 'noclip';
@@ -507,15 +511,15 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     const sendY = mode !== 'walk' || syncAirHeight.current || onTower || b.y < -0.01 || (ground?.y ?? 0) > 0.01;
     const yNow = sendY ? b.y : undefined;
     const changed = Math.abs(x - st.x) > 0.01 || Math.abs(z - st.z) > 0.01 || Math.abs(yaw - st.ry) > 0.01
-      || Math.abs(pitch - st.pitch) > 0.03 || (yNow ?? 0) !== st.y;
+      || rig.lean !== st.lean || Math.abs(pitch - st.pitch) > 0.03 || (yNow ?? 0) !== st.y;
     const interval = 33;
     // 跳んだことは待たずに送る（相手の放物線が遅れて始まらないように）
-    if (jumped || walking.current !== st.walking || (now - st.t > interval && changed)) {
-      Object.assign(st, { t: now, x, z, ry: yaw, pitch, jump: b.n, y: yNow ?? 0, walking: walking.current });
+    if (jumped || (rig.lean === 0 && st.lean !== 0) || walking.current !== st.walking || (now - st.t > interval && changed)) {
+      Object.assign(st, { t: now, x, z, ry: yaw, pitch, lean: rig.lean, jump: b.n, y: yNow ?? 0, walking: walking.current });
       const cp = b.car !== null ? carPose(now0, b.car) : null;
       const l = cp ? toCarLocal(cp, x, z) : null;
       const ride = cp && l && b.car !== null ? { car: b.car, along: l.along, side: Math.max(-CAR.w, Math.min(CAR.w, l.side)), ry: yaw - cp.ry } : undefined;
-      const a: AvatarState = { x, z, ry: yaw, pitch, jump: b.n, walking: walking.current, ...(yNow !== undefined ? { y: yNow } : {}), ...(ride ? { ride } : {}) };
+      const a: AvatarState = { x, z, ry: yaw, pitch, lean: rig.lean, jump: b.n, walking: walking.current, ...(yNow !== undefined ? { y: yNow } : {}), ...(ride ? { ride } : {}) };
       set({ selfAvatar: a });
       send({ t: 'avatar', s: a });
     }

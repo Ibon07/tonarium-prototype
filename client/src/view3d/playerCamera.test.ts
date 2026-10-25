@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { CAMERA_DISTANCE, PlayerCamera } from './playerCamera.ts';
+import { CAMERA_DISTANCE, LEAN_OFFSET, PlayerCamera } from './playerCamera.ts';
 import { aimAt } from './interact.ts';
 import { LEAN_ANGLE } from './movementAbilities.ts';
 
@@ -21,13 +21,14 @@ function wall(scene: THREE.Scene, z: number) {
   return mesh;
 }
 
-test('lean preserves player position, view direction and camera distance in both views', () => {
+test('lean offsets the view sideways and returns to neutral without moving the player in both views', () => {
   const { rig, camera, scene, anchor } = setup();
   const original = anchor.clone();
   for (const thirdPerson of [false, true]) {
     rig.thirdPerson = thirdPerson;
     for (const yaw of [0, Math.PI / 2, -1]) {
       for (const pitch of [-1.4, 0, 1.4]) {
+        rig.lean = 0;
         camera.rotation.set(pitch, yaw, 0);
         rig.place(camera, scene, anchor);
         const position = camera.position.clone();
@@ -37,7 +38,11 @@ test('lean preserves player position, view direction and camera distance in both
           camera.rotation.set(pitch, yaw, rig.lean);
           rig.place(camera, scene, anchor);
           close(anchor.distanceTo(original), 0);
-          close(camera.position.distanceTo(position), 0);
+          const offset = -angle / LEAN_ANGLE * LEAN_OFFSET;
+          close(camera.position.x - position.x, Math.cos(yaw) * offset);
+          close(camera.position.y - position.y, 0);
+          close(camera.position.z - position.z, -Math.sin(yaw) * offset);
+          close(rig.actualDistance, thirdPerson ? CAMERA_DISTANCE.initial : 0);
           close(camera.getWorldDirection(new THREE.Vector3()).distanceTo(direction), 0);
           close(camera.rotation.z, angle);
         }
