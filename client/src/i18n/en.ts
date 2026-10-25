@@ -1,5 +1,6 @@
 export default {
   shareDrawingStart: 'Start drawing',
+  shareDrawingColor: 'Pen color {0}',
   shareDrawingStop: 'Stop drawing',
   shareDrawingYou: 'you',
   shareDrawingError: 'Drawing could not sync. Please check your connection.',

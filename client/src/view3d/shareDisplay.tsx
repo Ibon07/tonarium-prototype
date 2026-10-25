@@ -4,7 +4,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useStore, get, nameOf } from '../store.ts';
 import { shareAnnotations, shareVideoEl } from '../net/livekit.ts';
-import { annotationColor } from '../shareAnnotations.ts';
+import { annotationColor, paintAnnotations } from '../shareAnnotations.ts';
 import { placesOf } from '../spatial.ts';
 import { Label } from './Label.tsx';
 import { carrying, type Interactable } from './interact.ts';
@@ -39,15 +39,7 @@ function VideoPanel({ w, h, tex }: { w: number; h: number; tex: THREE.Texture })
     canvas.width = 1024;
     canvas.height = Math.max(1, Math.round(1024 * h / w));
     const ctx = canvas.getContext('2d')!;
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    for (const segment of annotations.segments) {
-      ctx.strokeStyle = annotationColor(segment.owner);
-      ctx.beginPath();
-      ctx.moveTo(segment.a.x * canvas.width, segment.a.y * canvas.height);
-      ctx.lineTo(segment.b.x * canvas.width, segment.b.y * canvas.height);
-      ctx.stroke();
-    }
+    paintAnnotations(ctx, annotations.segments);
     ctx.font = '18px sans-serif';
     for (const [id, point] of annotations.cursors) {
       const x = point.x * canvas.width, y = point.y * canvas.height;

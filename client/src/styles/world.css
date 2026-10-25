@@ -528,7 +528,12 @@
 .share-video-layer { width: 100%; height: 100%; }
 .share-drawing { position: absolute; pointer-events: none; overflow: hidden; }
 .share-drawing.active { pointer-events: auto; touch-action: none; cursor: crosshair; }
-.share-drawing svg { width: 100%; height: 100%; display: block; pointer-events: none; }
+.share-drawing canvas { width: 100%; height: 100%; display: block; pointer-events: none; }
+.share-drawing-tools { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: fit-content; max-width: calc(100% - 24px); padding: 8px; border-radius: 6px; background: #2b2d31ee; }
+.share-drawing-tools button { border: 1px solid #777; border-radius: 6px; background: #4e5058; color: #fff; padding: 6px 10px; }
+.share-drawing-tools .share-drawing-color { width: 28px; height: 28px; padding: 0; border-radius: 50%; }
+.share-drawing-tools button[aria-pressed="true"] { outline: 3px solid white; outline-offset: 1px; }
+.share-drawing-tools .share-drawing-clear { background: #da373c; }
 .share-drawing-toggle { position: absolute; right: 12px; top: 12px; padding: 7px 12px; border-radius: 6px; background: #20232bea; color: #fff; border: 1px solid #777; }
 .share-drawing-toggle[aria-pressed="true"] { background: #375b92; border-color: #a8caff; }
 .share-cursor { position: absolute; pointer-events: none; font-size: 22px; line-height: 1; text-shadow: 0 1px 3px #000; }

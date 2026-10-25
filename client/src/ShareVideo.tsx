@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent } from 'react';
 import { shareAnnotations, shareVideoEl } from './net/livekit.ts';
-import { annotationColor, normalizedPoint, videoRect, type Point } from './shareAnnotations.ts';
+import { annotationColor, DRAWING_COLORS, normalizedPoint, paintAnnotations, videoRect, type Point } from './shareAnnotations.ts';
 import { useStore, nameOf } from './store.ts';
 import { t } from './i18n/core.ts';
 
@@ -20,10 +20,19 @@ export function ShareVideoHost({ className }: { className?: string }) {
   const active = !!state.share && modeShare === state.share;
   const previous = useRef<Point | null>(null);
   const pointer = useRef<number | null>(null);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const [color, setColor] = useState(DRAWING_COLORS[0]);
+  const [erase, setErase] = useState(false);
   const lastMove = useRef(0);
   const [rect, setRect] = useState(() => videoRect(0, 0, 0, 0));
   useStore((s) => s.participants);
   const selfId = useStore((s) => s.selfId);
+  useEffect(() => {
+    const el = canvas.current!;
+    el.width = 1024;
+    el.height = Math.max(1, Math.round(1024 * rect.height / (rect.width || 1)));
+    paintAnnotations(el.getContext('2d')!, state.segments);
+  }, [state.segments, rect]);
   useEffect(() => {
     const host = hostRef.current!;
     const measure = () => setRect(videoRect(host.clientWidth, host.clientHeight, shareVideoEl.videoWidth, shareVideoEl.videoHeight));
@@ -41,6 +50,8 @@ export function ShareVideoHost({ className }: { className?: string }) {
   useEffect(() => {
     previous.current = null;
     pointer.current = null;
+    setColor(DRAWING_COLORS[0]);
+    setErase(false);
     return () => { shareAnnotations.cursor(null); };
   }, [state.share]);
   useEffect(() => {
@@ -63,7 +74,7 @@ export function ShareVideoHost({ className }: { className?: string }) {
     const point = locate(event);
     shareAnnotations.cursor(point);
     if (pointer.current === event.pointerId) {
-      if (point && previous.current) shareAnnotations.draw(previous.current, point);
+      if (point && previous.current) shareAnnotations.draw(previous.current, point, erase ? 'erase' : color);
       previous.current = point;
     }
   };
@@ -88,21 +99,23 @@ export function ShareVideoHost({ className }: { className?: string }) {
         previous.current = point;
         event.currentTarget.setPointerCapture(event.pointerId);
         shareAnnotations.cursor(point);
-        shareAnnotations.draw(point, point);
+        shareAnnotations.draw(point, point, erase ? 'erase' : color);
       }}
       onPointerMove={(event) => move(event)} onPointerUp={finish}
       onPointerCancel={(event) => { finish(event); shareAnnotations.cursor(null); }}
       onLostPointerCapture={() => { pointer.current = null; previous.current = null; }}
       onPointerLeave={() => { shareAnnotations.cursor(null); previous.current = null; }}>
-      <svg viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
-        {state.segments.map((segment) => <line key={segment.id} x1={segment.a.x * 1000} y1={segment.a.y * 1000}
-          x2={segment.b.x * 1000} y2={segment.b.y * 1000} stroke={annotationColor(segment.owner)}
-          strokeWidth="3" strokeLinecap="round" vectorEffect="non-scaling-stroke" />)}
-      </svg>
+      <canvas ref={canvas} aria-hidden="true" />
       {[...state.cursors].map(([id, point]) => <span key={id} className="share-cursor" style={{
         left: `${point.x * 100}%`, top: `${point.y * 100}%`, color: annotationColor(id),
       }}><span aria-hidden="true">✎</span><span className="share-cursor-name" style={{ transform: `translate(${point.x > 0.7 ? '-100%' : '0'}, ${point.y > 0.85 ? '-100%' : '0'})` }}>{nameOf(id)}{id === selfId ? ` (${t('shareDrawingYou')})` : ''}</span></span>)}
     </div>
+    {active && <div className="share-drawing-tools" role="toolbar" aria-label={t('shareDrawingStart')} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+      {DRAWING_COLORS.map((value) => <button key={value} type="button" className="share-drawing-color" style={{ background: value }}
+        aria-label={t('shareDrawingColor', value)} aria-pressed={!erase && color === value} onClick={() => { setColor(value); setErase(false); }} />)}
+      <button type="button" aria-pressed={erase} onClick={() => setErase(!erase)}>{t('ui343')}</button>
+      <button type="button" className="share-drawing-clear" onClick={() => shareAnnotations.clear()}>{t('ui345')}</button>
+    </div>}
     <button type="button" className="share-drawing-toggle" disabled={!state.share} aria-pressed={active}
       onClick={(event) => {
         event.stopPropagation();
