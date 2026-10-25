@@ -31,7 +31,7 @@ export function pushApart2D(
   // 新しい座標」を見るので、押し出しのたびに共有側の座標も更新して結果を一致させる
   const all = bodies(users, avatars, itemList);
   const own = new Map<string, Body>();
-  for (const b of all) if (b.id) own.set(b.id, b);
+  for (const b of all) if (b.id !== undefined) own.set(b.id, b);
   let moved = false;
   for (const u of users) {
     if (u.mode !== '2d' || !u.pos || u.follow) continue;
