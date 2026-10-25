@@ -8,6 +8,11 @@ export interface ChangelogEntry {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: '2026-10-25',
+    title: '変更履歴のメニュー位置を変更',
+    items: ['ホームとセッション中の左メニューで、変更履歴をフィードバックのすぐ上に移動しました。'],
+  },
+  {
+    date: '2026-10-25',
     title: 'ホームに変更履歴を追加',
     items: ['ホームとセッション中のメニューから変更履歴を開けます。', '見出し・本文を検索でき、未読の更新はナビの赤い点でお知らせします。'],
     tag: '新機能',
