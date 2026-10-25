@@ -24,6 +24,7 @@ import { sanitizeParams } from '../shared/avatar.ts';
 import { VOICE_RANGE, clampAvatar, computePlaces, placeDistance } from '../shared/places.ts';
 import { CITY_HALF, clampCity } from '../shared/city.ts';
 import { callElevator, elevatorOf, resetElevator } from './city.ts';
+import { isStaleEvent, pruneEvents } from './events.ts';
 import { MarketLikes } from './market.ts';
 import { BIKE, clampBike, releaseBike } from '../shared/vehicle.ts';
 import { SOUNDS } from '../shared/sounds.ts';
@@ -230,14 +231,19 @@ for (const ev of home.events) { ev.maybe ??= []; ev.declined ??= []; }
 guild.sessions.push(...home.sessions);
 /** 開始から 30 日以上過ぎたイベントは残さない。当日のものや開始時刻が読めないものは消さない */
 function pruneOldEvents() {
-  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  home.events = home.events.filter((ev) => !(Number.isFinite(ev.at) && ev.at < cutoff));
+  home.events = pruneEvents(home.events, Date.now());
 }
 const eventsBeforePrune = home.events.length;
 pruneOldEvents();
 // home はメモリ側が正で、ファイルへの書き込みは savePeople などと同じく遅らせてまとめる
 const saveHome = later(() => fs.writeFileSync(HOME_FILE, JSON.stringify(home)));
 if (home.events.length !== eventsBeforePrune) saveHome();
+// 常駐中に 30 日を跨いだイベントも残り続けないよう、起動時・作成時だけでなく日次でも剪定する
+setInterval(() => {
+  const before = home.events.length;
+  pruneOldEvents();
+  if (home.events.length !== before) { saveHome(); broadcastEvents(); }
+}, 24 * 60 * 60 * 1000);
 const sessionIds = new Set(guild.sessions.map((w) => w.id));
 const shortId = () => randomUUID().slice(0, 8);
 
@@ -1403,7 +1409,9 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
       else if (msg.answer === 'yes' || msg.answer === 'maybe' || msg.answer === 'no') plan.answers[me.name] = msg.answer;
       const who = (a: Rsvp) => Object.keys(plan.answers).filter((n) => plan.answers[n] === a);
       let ev = plan.event ? home.events.find((x) => x.id === plan.event) : undefined;
-      if (!ev && who('yes').length >= PLAN_QUORUM) {
+      // 剪定済みの古い日程相談 (開始が保持期間を過ぎている) からはイベントを作り直さない。
+      // 回答の記録や既存イベントの出席更新は従来どおり行う
+      if (!ev && who('yes').length >= PLAN_QUORUM && !isStaleEvent(plan.at, Date.now())) {
         const group = msg.conv.split(':')[1];
         ev = { id: shortId(), title: m.text.split('\n')[0].slice(0, 60) || '集まり', at: plan.at, group, session: plan.session, owner: m.from || me.name, attendees: [], maybe: [], declined: [] };
         pruneOldEvents();
