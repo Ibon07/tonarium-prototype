@@ -70,7 +70,7 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 - 2D の画面（距離ごとのプレイヤー・アイテムのリスト、顔、通知・チャット、ウィンドウ、試験中のマップ、スマホ・PWA）→ [docs/screens.md](docs/screens.md)
 - 3D 空間（FPS 風の操作、ワールドの切り替え、ガーデン、街（マンション・電車・エレベーター）、お絵描きアバター、配信ディスプレイ）→ [docs/3d.md](docs/3d.md)
 - 距離で変わる声、ブロードキャストモード、ついていく → [docs/audio.md](docs/audio.md)
-- アイテム（付箋・ハンマー・チェス・サイコロ・キャンバス・カメラ・2048）と画像・動画・YouTube の共有 → [docs/items.md](docs/items.md)
+- アイテム（付箋・ハンマー・チェス・サイコロ・キャンバス・カメラ・2048・バイク）と画像・動画・YouTube の共有 → [docs/items.md](docs/items.md)。バイクの未完了項目は [検証記録](docs/bike-verification.md)、効果音の出典と取得状況は [素材記録](docs/assets.md)
 - 外から試す（cloudflared）・Coolify へのデプロイ → [docs/deploy.md](docs/deploy.md)
 - 同期の仕組み（kokosync、位置・チャット・キャンバス・サイコロのP2P配送、初回同期、大きいデータ、通信状態）→ [docs/sync.md](docs/sync.md)
 - セッション同期を汎用P2P通信へ広げる設計方針と段階的な実装 → [docs/peer-sync-plan.md](docs/peer-sync-plan.md)

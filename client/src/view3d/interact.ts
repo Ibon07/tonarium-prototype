@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { ROOM_HALF } from '../../../shared/protocol.ts';
 
 export interface Interactable {
+  bike?: string;
   use?: (hit: THREE.Intersection) => void;
   /** あれば use の代わりに使う */
   drag?: (phase: 'start' | 'move' | 'end', hit: THREE.Intersection | null) => void;

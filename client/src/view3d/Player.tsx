@@ -1,16 +1,18 @@
 import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { GRAVITY, JUMP_V, type AvatarState } from '../../../shared/protocol.ts';
+import { GRAVITY, JUMP_V, ROOM_HALF, type AvatarState } from '../../../shared/protocol.ts';
 import { ARENA, FALL_Y, LAYER_Y, inArena, startTile, tileBelow, tileCenter } from '../../../shared/game.ts';
 import { SURVIVOR_MOVE_SPEED, SURVIVOR_STYLES } from '../../../shared/survivor.ts';
 import { get, set, useStore, heldHammer, heldCamera, nameOf, solidsOf, worldKindOf, gameOfSession, elevatorOfSession, serverNow, spawnPoint } from '../store.ts';
-import { CAR, clampCity } from '../../../shared/city.ts';
+import { CAR, CITY_HALF, clampCity } from '../../../shared/city.ts';
 import { STEP_UP, carPose, cityGround, citySolids, keepInCar, toCarLocal } from './cityPhysics.ts';
 import { pushOut } from '../../../shared/worlds.ts';
 import { send } from '../net/ws.ts';
 import { selectNote } from '../actions.ts';
-import { dropCamera, dropHammer, hit, moveItem, place2d, toggleLive } from '../items/actions.ts';
+import { dropCamera, dropHammer, hit, moveItem, place2d, toggleLive, itemAction } from '../items/actions.ts';
+import { bikeDisplay, moveBike, requestBikeMount, riddenBike } from './bikeControl.ts';
+import { clampBike, type VehicleState } from '../../../shared/vehicle.ts';
 import { bump } from '../items/effects.ts';
 import { aimAt, aimOn, carrying, clampRoom, EYE, type Interactable } from './interact.ts';
 import { HammerModel } from './items3d.tsx';
@@ -45,6 +47,7 @@ const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
 
 function hintFor(aim: { data: Interactable; hit: THREE.Intersection } | null): string | null {
+  if (riddenBike()) return 'E: 降車 ・ W/↑: アクセル ・ S/↓: ブレーキ ・ A/D・←/→: ハンドル';
   if (carrying.current) return '右クリック: ここに置く';
   const s = get();
   const cam = heldCamera(s);
@@ -77,6 +80,7 @@ export function Player() {
   const { camera, gl, scene } = useThree();
   const survivorActive = useStore((s) => survivorPlaying(s));
   const keys = useRef<Record<string, boolean>>({});
+  const driving = useRef<{ id: string; version: number; state: VehicleState; sent: number } | null>(null);
   const look = useRef({ yaw: get().selfAvatar.ry, pitch: -0.05 });
   // NaN だと比較が常に false になり一度も送られないので Infinity
   const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, jump: 0, y: 0 });
@@ -106,6 +110,7 @@ export function Player() {
     };
     const onMouseDown = (e: MouseEvent) => {
       if (survivorPlaying(get())) return;
+      if (riddenBike() && e.button === 2) return;
       if (e.button === 2) {
         if (document.pointerLockElement !== canvas) return;
         if (carrying.current) finishCarry();
@@ -128,12 +133,26 @@ export function Player() {
     const onMouseMove = (e: MouseEvent) => {
       if (document.pointerLockElement !== canvas) return;
       if (survivorPlaying(get())) return;
-      look.current.yaw -= e.movementX * SENS;
+      if (!riddenBike()) look.current.yaw -= e.movementX * SENS;
       look.current.pitch = Math.max(-1.4, Math.min(1.4, look.current.pitch - e.movementY * SENS));
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e.target)) return;
       keys.current[e.code] = true;
+      if (e.code === 'KeyE' && !e.repeat) {
+        const bike = riddenBike();
+        if (bike) {
+          const d = driving.current;
+          if (d?.id === bike.id && d.version === bike.rideVersion)
+            itemAction(bike.id, { a: 'bikeDrive', state: d.state, rideVersion: d.version });
+          itemAction(bike.id, { a: 'bikeDismount' });
+        }
+        else {
+          const id = aim.current?.data.bike;
+          if (id && !carrying.current && body.current.car === null && body.current.grounded) requestBikeMount(id);
+        }
+      }
+      if (riddenBike()) { if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault(); return; }
       if (e.code === 'Escape') selectNote(null);
       if (e.code === 'Space' && !survivorPlaying(get())) {
         e.preventDefault();
@@ -174,14 +193,19 @@ export function Player() {
       window.removeEventListener('blur', onBlur);
       if (document.pointerLockElement === canvas) document.exitPointerLock();
       finishCarry();
+      const bike = riddenBike();
+      if (bike) itemAction(bike.id, { a: 'bikeDismount' });
+      if (driving.current) bikeDisplay.delete(driving.current.id);
       set({ locked: false, aimHint: null });
     };
   }, [camera, gl]);
 
   function use() {
+    if (riddenBike()) return;
     if (carrying.current) { finishCarry(); return; }
     const s = get();
     const target = aim.current;
+    if (target?.data.bike && (!body.current.grounded || body.current.car !== null || Math.abs(body.current.y) > 0.3)) return;
     const cam = heldCamera(s);
     if (cam) { takePhoto(cam); return; }
     if (heldHammer(s)) {
@@ -246,6 +270,8 @@ export function Player() {
     }
     const tp = get().teleport;
     if (tp) {
+      const bike = riddenBike();
+      if (bike) itemAction(bike.id, { a: 'bikeDismount' });
       camera.position.x = tp.x;
       camera.position.z = tp.z;
       look.current.yaw = tp.ry;
@@ -258,6 +284,47 @@ export function Player() {
     }
     const city = worldKindOf(s) === 'city';
     const now0 = serverNow();
+    const bike = !tp && !survivorPlaying(s) ? riddenBike() : undefined;
+    if (!bike) {
+      const previousBike = riddenBike();
+      if (previousBike) itemAction(previousBike.id, { a: 'bikeDismount' });
+    }
+    if (bike) {
+      if (!driving.current || driving.current.id !== bike.id || driving.current.version !== bike.rideVersion) {
+        driving.current = { id: bike.id, version: bike.rideVersion, state: { ...bike, remainder: 0 }, sent: 0 };
+        finishCarry();
+      }
+      const d = driving.current;
+      const k = keys.current;
+      const solids = city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s);
+      d.state = moveBike(d.state, {
+        throttle: k.KeyW || k.ArrowUp ? 1 : 0, brake: k.KeyS || k.ArrowDown ? 1 : 0,
+        steering: (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0),
+      }, dt, solids, n => clampBike(n, city ? CITY_HALF : ROOM_HALF));
+      const v = d.state;
+      bikeDisplay.set(bike.id, v);
+      b.car = null; b.y = 0; b.vy = 0; b.grounded = true;
+      look.current.yaw = v.ry;
+      camera.position.set(v.x, EYE, v.z);
+      camera.rotation.set(look.current.pitch, v.ry, 0);
+      const a: AvatarState = { x: v.x, z: v.z, ry: v.ry, pitch: look.current.pitch, jump: b.n };
+      set({ selfAvatar: a });
+      const now = performance.now();
+      if (now - d.sent >= 50) {
+        d.sent = now;
+        itemAction(bike.id, { a: 'bikeDrive', state: v, rideVersion: bike.rideVersion });
+        send({ t: 'avatar', s: a });
+      }
+      const hint = hintFor(null);
+      if (s.aimHint !== hint) set({ aimHint: hint });
+      if (hammerRef.current) hammerRef.current.visible = false;
+      return;
+    }
+    if (driving.current) {
+      bikeDisplay.delete(driving.current.id);
+      driving.current = null;
+      aim.current = null;
+    }
     if (city && b.car !== null) {
       // 電車に乗っていれば、前のフレームからの電車の動きと向きの変化をそのまま足す
       const prev = carPose(now0 - Math.min(dt, 0.1) * 1000, b.car);
