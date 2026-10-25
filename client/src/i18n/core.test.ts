@@ -39,14 +39,16 @@ test('all resource keys and interpolation parameters exist in all three language
 test('language changes notify subscribers immediately and survive reload resolution', () => {
   let notifications = 0;
   const unsubscribe = subscribeLanguage(() => notifications++);
-  setLanguage('ko');
-  assert.equal(getLanguage(), 'ko');
-  assert.equal(t('ui12'), '시작하기');
-  assert.equal(saved.get(LANGUAGE_STORAGE_KEY), 'ko');
-  assert.equal(initialLanguage(globalThis.localStorage, ['en-US']), 'ko');
+  for (const [code, startLabel] of [['ja', 'はじめる'], ['en', 'Get started'], ['ko', '시작하기']] as const) {
+    setLanguage(code);
+    assert.equal(getLanguage(), code);
+    assert.equal(t('ui12'), startLabel);
+    assert.equal(saved.get(LANGUAGE_STORAGE_KEY), code);
+    assert.equal(initialLanguage(globalThis.localStorage, ['en-US']), code);
+  }
   unsubscribe();
   setLanguage('ja');
-  assert.equal(notifications, 1);
+  assert.equal(notifications, 3);
 });
 
 test('open notifications and static metadata switch language without changing their source', () => {
