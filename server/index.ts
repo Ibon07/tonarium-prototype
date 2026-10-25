@@ -1380,8 +1380,15 @@ wss.on('connection', (ws) => {
 
 // 2D の人が他の人やアイテムと重なっていたら押し出す
 setInterval(() => {
+  // セッション別の振り分けはティックに1回だけ（inSession の全走査をセッション数ぶん回さない）
+  const bySession = new Map<string | null, Participant[]>();
+  for (const u of users.values()) {
+    const list = bySession.get(u.session);
+    if (list) list.push(u);
+    else bySession.set(u.session, [u]);
+  }
   for (const sid of sessionIds) {
-    const here = inSession(sid);
+    const here = bySession.get(sid) ?? [];
     if (here.some((u) => u.mode === '2d' && u.pos && !u.follow) && pushApart2D(here, avatars.get(sid)!, items.get(sid)!.values(), (p) => clamp2d(sid, p))) sendPresence(sid);
   }
 }, 200);
