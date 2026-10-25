@@ -174,7 +174,13 @@ export function Avatar3D({ id, self = false, rig }: { id: string; self?: boolean
     >
       <group ref={body}>
         <Suspense fallback={null}>
-          <OekakiAvatar userId={id} name={name} version={avatarV} speaking={speaking} look={() => pitchOf(id)} onEyeHeight={onEyeHeight} />
+          <OekakiAvatar userId={id} name={name} version={avatarV} speaking={speaking} look={() => pitchOf(id)}
+            walking={() => {
+              const s = get();
+              const a = self ? s.selfAvatar : s.avatars[id];
+              return a?.walking === true && !a.ride && !(self && s.movementMode !== 'walk')
+                && !Object.values(s.items).some((i) => i.kind === 'bike' && i.rider === id);
+            }} onEyeHeight={onEyeHeight} />
         </Suspense>
       </group>
       {/* 板ポリのモデルは横から当てにくいので、照準用の当たり判定を別に置く */}

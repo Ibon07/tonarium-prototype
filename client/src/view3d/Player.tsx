@@ -23,7 +23,7 @@ import { HammerModel } from './items3d.tsx';
 import { takePhoto, world } from './cameraRender.ts';
 import { CameraModel, cameraHelp } from './camera3d.tsx';
 import { PlayerCamera } from './playerCamera.ts';
-import { blocked, blockedByTrain, moveFlight, recoverPosition, type MovementMode } from './movement.ts';
+import { blocked, blockedByTrain, moveFlight, recoverPosition, walkingAfterMove, type MovementMode } from './movement.ts';
 
 const SPEED = 4;
 const BODY_R = 0.3;
@@ -92,7 +92,8 @@ export function Player({ rig }: { rig: PlayerCamera }) {
   const driving = useRef<{ id: string; version: number; state: VehicleState; sent: number } | null>(null);
   const look = useRef({ yaw: get().selfAvatar.ry, pitch: -0.05 });
   // NaN だと比較が常に false になり一度も送られないので Infinity
-  const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, jump: 0, y: 0 });
+  const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, jump: 0, y: 0, walking: false });
+  const walking = useRef(false);
   // 足元の高さ・上下の速さ・跳んだ回数。stepped は最後に踏んだと伝えた板、round は塔の上に移ったゲームの回
   // car は街の電車に乗っている号車。乗っている間は毎フレーム電車が動いた分だけ一緒に動かす
   const body = useRef({ y: get().selfAvatar.y ?? 0, vy: 0, grounded: true, n: get().selfAvatar.jump ?? 0, stepped: -1, round: -1, survivorRun: -1, car: null as number | null });
@@ -330,10 +331,13 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       look.current.yaw = v.ry;
       position.current.set(v.x, eye.current, v.z);
       camera.rotation.set(look.current.pitch, v.ry, 0);
-      const a: AvatarState = { x: v.x, z: v.z, ry: v.ry, pitch: look.current.pitch, jump: b.n };
+      const stoppedWalking = walking.current;
+      walking.current = false;
+      sent.current.walking = false;
+      const a: AvatarState = { x: v.x, z: v.z, ry: v.ry, pitch: look.current.pitch, jump: b.n, walking: false };
       set({ selfAvatar: a });
       const now = performance.now();
-      if (now - d.sent >= 50) {
+      if (stoppedWalking || now - d.sent >= 50) {
         d.sent = now;
         itemAction(bike.id, { a: 'bikeDrive', state: v, rideVersion: bike.rideVersion });
         send({ t: 'avatar', s: a });
@@ -375,7 +379,15 @@ export function Player({ rig }: { rig: PlayerCamera }) {
         const spawn = spawnPoint();
         const safe = recoverPosition({ x: position.current.x, y: b.y, z: position.current.z }, { ...spawn, y: 0 }, solids, valid);
         if (safe) { position.current.x = safe.x; position.current.z = safe.z; b.y = safe.y; }
-        else { set({ movementMode: 'noclip' }); previousMode.current = 'noclip'; return; }
+        else {
+          walking.current = false;
+          sent.current.walking = false;
+          const a = { ...get().selfAvatar, walking: false };
+          set({ movementMode: 'noclip', selfAvatar: a });
+          send({ t: 'avatar', s: a });
+          previousMode.current = 'noclip';
+          return;
+        }
       }
       previousMode.current = mode;
     }
@@ -399,6 +411,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     const r = survivorPaused ? 0 : (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
     const onTower = worldKindOf(s) === 'game' && inArena(position.current.x, position.current.z);
     const cl = clampTo(onTower, city);
+    const beforeMove = { x: position.current.x, z: position.current.z };
     if (mode !== 'walk') {
       b.vy = 0; b.grounded = false; b.car = null;
       const up = survivorPaused ? 0 : (k.Space ? 1 : 0) - (k.ShiftLeft || k.ShiftRight ? 1 : 0);
@@ -441,6 +454,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     }
     if (b.grounded) syncAirHeight.current = false;
     b.car = city && b.grounded && ground?.car != null ? ground.car : city && b.car !== null && !b.grounded ? b.car : null;
+    walking.current = !tp && walkingAfterMove(walking.current, mode, b.grounded, b.car !== null, beforeMove, position.current, dt);
     if (b.grounded && ground?.tile != null && ground.tile !== b.stepped && g.phase === 'running') {
       b.stepped = ground.tile;
       if (g.players.some((p) => p.id === s.selfId && p.out === null)) send({ t: 'gameStep', tile: ground.tile });
@@ -468,12 +482,12 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       || Math.abs(pitch - st.pitch) > 0.03 || (yNow ?? 0) !== st.y;
     const interval = 33;
     // 跳んだことは待たずに送る（相手の放物線が遅れて始まらないように）
-    if (jumped || (now - st.t > interval && changed)) {
-      Object.assign(st, { t: now, x, z, ry: yaw, pitch, jump: b.n, y: yNow ?? 0 });
+    if (jumped || walking.current !== st.walking || (now - st.t > interval && changed)) {
+      Object.assign(st, { t: now, x, z, ry: yaw, pitch, jump: b.n, y: yNow ?? 0, walking: walking.current });
       const cp = b.car !== null ? carPose(now0, b.car) : null;
       const l = cp ? toCarLocal(cp, x, z) : null;
       const ride = cp && l && b.car !== null ? { car: b.car, along: l.along, side: Math.max(-CAR.w, Math.min(CAR.w, l.side)), ry: yaw - cp.ry } : undefined;
-      const a: AvatarState = { x, z, ry: yaw, pitch, jump: b.n, ...(yNow !== undefined ? { y: yNow } : {}), ...(ride ? { ride } : {}) };
+      const a: AvatarState = { x, z, ry: yaw, pitch, jump: b.n, walking: walking.current, ...(yNow !== undefined ? { y: yNow } : {}), ...(ride ? { ride } : {}) };
       set({ selfAvatar: a });
       send({ t: 'avatar', s: a });
     }
