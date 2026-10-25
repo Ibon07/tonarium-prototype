@@ -138,7 +138,8 @@ export function OekakiAvatar({ name, version, speaking, look, userId }: { name: 
     if (!f) return;
     // 話している間は口を開け、それ以外はときどきまばたき
     if (blink.current > 0) blink.current -= dt;
-    else if (Math.random() < 0.004) blink.current = 0.15;
+    // フレーム単位の確率だと描画頻度でまばたきの間隔が変わるため、経過時間から決める
+    else if (Math.random() < 1 - Math.exp(-dt * 0.24)) blink.current = 0.15;
     const mouth = speaking && Math.sin(performance.now() / 90) > 0;
     f.offset.x = mouth ? FACE.mouthOpen : blink.current > 0 ? FACE.eyesClosed : FACE.normal;
   });

@@ -1,9 +1,10 @@
-import { Suspense, useMemo, useRef } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Suspense, useEffect, useMemo, useRef } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { PerspectiveCamera, View } from '@react-three/drei';
+import { useShallow } from 'zustand/react/shallow';
 import * as THREE from 'three';
 import type { User } from '../../../shared/protocol.ts';
-import { colorOf, get } from '../store.ts';
+import { colorOf, get, useStore } from '../store.ts';
 import { useReducedMotion } from '../emotes.ts';
 import { OekakiAvatar } from '../view3d/OekakiAvatar.tsx';
 import { Emote3D } from '../view3d/Emote3D.tsx';
@@ -20,11 +21,46 @@ function ClearAll() {
   return null;
 }
 
+/** 顔の見え方に合わせて描く頻度を変える。止め切るとまばたきや Idle の動きまで消えるため、帯表示では落とすだけにする */
+function PortraitFrameDriver() {
+  const invalidate = useThree((s) => s.invalidate);
+  const setDpr = useThree((s) => s.setDpr);
+  const { faceWindow, faceGrid, emoteActive, facesFolded, participants } = useStore(useShallow((s) => ({
+    faceWindow: s.windows.some((w) => w.key.startsWith('face:')),
+    faceGrid: s.windows.length === 0 && s.mode === '2d' && s.mapMode === 'none',
+    emoteActive: Object.keys(s.emotes).length > 0,
+    facesFolded: s.folded.faces,
+    participants: s.participants,
+  })));
+  const stopped = facesFolded && !faceWindow;
+  const full = !stopped && (faceWindow || faceGrid || emoteActive);
+
+  useEffect(() => {
+    setDpr(full ? [1, 2] : 1);
+    invalidate();
+    if (stopped) return;
+    if (full) {
+      let raf = 0;
+      const loop = () => {
+        invalidate();
+        raf = requestAnimationFrame(loop);
+      };
+      raf = requestAnimationFrame(loop);
+      return () => cancelAnimationFrame(raf);
+    }
+    const timer = setInterval(invalidate, 50);
+    return () => clearInterval(timer);
+  }, [full, stopped, faceWindow, facesFolded, participants, invalidate, setDpr]);
+
+  return null;
+}
+
 /** 顔タイルのアバターをまとめて描く 1 枚のキャンバス（タイルごとに WebGL を作らない） */
 export function PortraitCanvas() {
   return (
-    <Canvas className="portraits" eventSource={document.body} gl={{ alpha: true }} dpr={[1, 2]}>
+    <Canvas className="portraits" eventSource={document.body} gl={{ alpha: true }} dpr={[1, 2]} frameloop="demand">
       <ClearAll />
+      <PortraitFrameDriver />
       <View.Port />
     </Canvas>
   );
