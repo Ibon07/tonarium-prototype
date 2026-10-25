@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "items:png": "node scripts/rasterize-items.mjs",
     "dev": "concurrently -k -n server,client \"tsx watch --include sessions.json server/index.ts --dev\" \"vite\"",
     "build": "vite build",
     "start": "vite build && tsx server/index.ts",
@@ -40,6 +41,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "sharp": "0.35.5",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
