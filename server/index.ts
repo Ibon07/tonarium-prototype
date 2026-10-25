@@ -519,7 +519,21 @@ function releaseBikes(sid: string, id: string) {
 }
 /** 部屋の中だけの項目を落として、ホームにも配る形にする */
 const publicUser = ({ micOn, follow, pos, viewing, viewLive, display, ...u }: Participant): User => u;
-const presenceOf = ({ micOn, follow, pos, viewing, viewLive, display }: Participant): Presence => ({ micOn, follow, pos, viewing, viewLive, display });
+/**
+ * presence の組み立て結果を参加者ごとに覚えておき、変わっていない人は使い回す。
+ * pos / display / viewing はサーバー内でインプレースに書き換えられることが無く、常に新しい
+ * オブジェクトへの代入で差し替わる（代入箇所は index.ts と spacing.ts のみ）ため、6 項目が
+ * 全て一致すれば前回のオブジェクトをそのまま配っても pack 後の内容は完全一致する。
+ */
+const presenceCache = new WeakMap<Participant, Presence>();
+function presenceOf(u: Participant): Presence {
+  const prev = presenceCache.get(u);
+  if (prev && prev.micOn === u.micOn && prev.follow === u.follow && prev.pos === u.pos
+    && prev.viewing === u.viewing && prev.viewLive === u.viewLive && prev.display === u.display) return prev;
+  const p: Presence = { micOn: u.micOn, follow: u.follow, pos: u.pos, viewing: u.viewing, viewLive: u.viewLive, display: u.display };
+  presenceCache.set(u, p);
+  return p;
+}
 const inSession = (sid: string) => [...users.values()].filter((u) => u.session === sid);
 const othersIn = (sid: string, me: string) => inSession(sid).filter((u) => u.id !== me).map((u) => u.id);
 function broadcastUsers() {
@@ -529,9 +543,12 @@ function broadcastUsers() {
 function sendPresence(sid: string) {
   const here = inSession(sid);
   refreshTelephones(sid);
-  // 視点のライブは、ついてくる人がいなくなったら止める
+  // 視点のライブは、ついてくる人がいなくなったら止める。
+  // ついてくる人がいるかは全員分を先に集めておく（メンバーごとの some 走査だと O(N^2) になる）。
+  // follow はこのループ中では変わらないため、先に集めても判定は従来と一致する
+  const followed = new Set<string | null>(here.map((f) => f.follow));
   for (const u of here)
-    if (u.viewLive && (u.mode !== '3d' || !here.some((f) => f.follow === u.id))) u.viewLive = false;
+    if (u.viewLive && (u.mode !== '3d' || !followed.has(u.id))) u.viewLive = false;
   roomSend(sid, { t: 'presence', sid, all: Object.fromEntries(here.map((u) => [u.id, presenceOf(u)])) });
 }
 function sessionInfoOf(sid: string): SessionInfo {
