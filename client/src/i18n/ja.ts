@@ -1,4 +1,10 @@
 export default {
+  "chatOriginal": "原文：",
+  "chatSourceLanguage": "発言言語：{0}",
+  "chatLanguageUnknown": "不明",
+  "chatTranslation_pending": "翻訳中",
+  "chatTranslation_unavailable": "翻訳の認証設定がありません",
+  "chatTranslation_failed": "翻訳できませんでした",
   "changelogIncludeMaintenance": "開発・保守を含める",
   "appTitle": "Tonarium（プロトタイプ）",
   "appDescription": "2D と 3D を行き来しながら、同じ場所で話したり遊んだりできるソーシャル体験のプロトタイプ",

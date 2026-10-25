@@ -1,4 +1,10 @@
 export default {
+  "chatOriginal": "Original:",
+  "chatSourceLanguage": "Spoken language: {0}",
+  "chatLanguageUnknown": "Unknown",
+  "chatTranslation_pending": "Translating",
+  "chatTranslation_unavailable": "Translation credentials are not configured",
+  "chatTranslation_failed": "Translation failed",
   "changelogIncludeMaintenance": "Include development and maintenance",
   "appTitle": "Tonarium (prototype)",
   "appDescription": "A prototype social experience for talking and playing together in 2D and 3D",
