@@ -155,7 +155,9 @@ export function Avatar3D({ id, self = false, rig }: { id: string; self?: boolean
     const targetRy = bike ? bike.ry : ride.current && r ? carPose(serverNow(), r.car).ry + ride.current.ry : state.ry;
     let d = targetRy - g.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));
+    g.rotation.order = 'YXZ';
     g.rotation.y += ride.current ? d : d * k;
+    g.rotation.z = bike ? 0 : state.lean ?? 0;
     const s = get();
     if (self && rig) {
       g.visible = rig.thirdPerson;

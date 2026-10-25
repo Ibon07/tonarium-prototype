@@ -8,6 +8,11 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: '2026-10-26',
+    title: 'リーン姿勢の同期と視点の横移動',
+    items: ['Q／Eのリーン方向・角度・解除を他参加者へ同期し、本人の視点をリーン方向へ最大25cm移動させます。キー解放・同時押し・設定無効化・道具操作やバイク乗降の優先による解除時に、姿勢と視点位置を通常へ戻します。'],
+  },
+  {
     date: '2026-10-25',
     title: 'Windows／Linux ネイティブ版を廃止',
     items: ['Avalonia／Unity のネイティブ版と専用のビルド・検証・パッケージ・自動配布設定を削除しました。Web 版と Electron 版のコード・共有アセット・Nightly 配布処理を維持し、利用・開発案内を更新しました。公開済み配布物は保持します。'],
