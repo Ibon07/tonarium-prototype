@@ -1304,18 +1304,21 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/token') {
     const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = process.env;
     const id = url.searchParams.get('id');
-    const name = url.searchParams.get('name') ?? '';
     const sid = url.searchParams.get('session') ?? '';
     res.setHeader('Content-Type', 'application/json');
     if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
       res.end(JSON.stringify({ error: 'LiveKit が未設定です (.env)' }));
       return;
     }
-    if (!id || !sessionIds.has(sid)) {
+    // 申告された id/name をそのまま信じると、接続していない第三者が招待制セッションの発行権限まで取れてしまう。
+    // WS 接続中で、そのセッションへの join（canSeeSession 通過済み）を終えた参加者にだけ、
+    // サーバー側レコードの identity/name で発行する。拒否理由は区別せず同じ文言で返す
+    const me = id ? users.get(id) : undefined;
+    if (!me || !sessionIds.has(sid) || me.session !== sid) {
       res.end(JSON.stringify({ error: '不正なリクエストです' }));
       return;
     }
-    const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { identity: id, name, ttl: '12h' });
+    const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { identity: me.id, name: me.name, ttl: '2h' });
     at.addGrant({ roomJoin: true, room: livekitRoom(sid), canPublish: true, canSubscribe: true, canPublishData: false });
     res.end(JSON.stringify({ url: LIVEKIT_URL, token: await at.toJwt() }));
     return;
