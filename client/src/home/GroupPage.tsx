@@ -152,8 +152,8 @@ export function GroupPage() {
       <section className="hsec">
         <h2>セッション <span className="sub">入れる範囲はセッションごとに選ぶ</span></h2>
         <div className="glegend">
-          <span><Chip kind="group"><GroupAvatar group={g} size="tiny" />{g.name}</Chip>{VISIBILITY_INFO.group.desc}</span>
-          <span><Chip kind="groupPlus"><GroupAvatar group={g} size="tiny" />{g.name}＋</Chip>{VISIBILITY_INFO.groupPlus.desc}</span>
+          <span><Chip kind="group"><GroupAvatar group={g} size="chip" />{g.name}</Chip>{VISIBILITY_INFO.group.desc}</span>
+          <span><Chip kind="groupPlus"><GroupAvatar group={g} size="chip" />{g.name}＋</Chip>{VISIBILITY_INFO.groupPlus.desc}</span>
         </div>
         {sessions.length === 0 && <Empty>このグループのセッションはまだありません</Empty>}
         <div className="scards">{sessions.map((d) => <SessionCard key={d.id} s={d} showDelete />)}</div>
