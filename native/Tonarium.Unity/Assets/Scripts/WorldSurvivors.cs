@@ -37,7 +37,7 @@ namespace Tonarium.UnityClient
             survivorLobbyMarker = null; survivorHudControls.Clear(); survivorScroll = Vector2.zero;
             survivorDetails = survivorLibrary = survivorResetConfirm = false;
             survivorRun = -1; survivorSession = "";
-            eye.transform.localPosition = new Vector3(0, 1.6f, 0);
+            eye.transform.localPosition = new Vector3(0, eyeHeight.Current, 0);
             eye.transform.localRotation = Quaternion.Euler(pitch, 0, 0);
             foreach (var avatar in avatars.Values) avatar.SetActive(true);
         }
@@ -112,14 +112,14 @@ namespace Tonarium.UnityClient
             if(!SurvivorPaused)foreach(var projectile in (survivor["projectiles"] as JArray??new JArray()).OfType<JObject>())if(survivorProjectiles.TryGetValue((string)projectile["id"],out var obj)) obj.transform.position=Vector3.Lerp(obj.transform.position,new Vector3(Float(projectile,"x"),.32f,-Float(projectile,"z")),Mathf.Min(1,Time.deltaTime*18));
             if (!SurvivorActive)
             {
-                eye.transform.localPosition = new Vector3(0, 1.6f, 0);
+                eye.transform.localPosition = new Vector3(0, eyeHeight.Current, 0);
                 eye.transform.localRotation = Quaternion.Euler(pitch, 0, 0);
                 return;
             }
             if (Cursor.lockState != CursorLockMode.None) Unlock();
             var me = SurvivorMe;
             controller.transform.rotation = Quaternion.identity;
-            eye.transform.localPosition = new Vector3(0, 16, 0);
+            eye.transform.localPosition = new Vector3(0, eyeHeight.Current + (16 - OekakiModel.DefaultEyeHeight), 0);
             eye.transform.localRotation = Quaternion.Euler(90, 0, 0);
             bool canMove = controls && Application.isFocused && (!SurvivorActive || (me != null && (bool?)me["alive"] == true && !SurvivorPaused));
             if (canMove)

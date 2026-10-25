@@ -1,11 +1,14 @@
 import { ItemDetail } from '../market/ItemDetail.tsx';
 import { ItemArt, ItemVisual } from '../market/ItemVisual.tsx';
 import { ITEM_USAGE } from '../market/itemUsage.ts';
+import { GroupAvatar } from './GroupAvatar.tsx';
 import { useOwnedItems, type OwnedItem } from '../market/items.ts';
 import { MARKET_PRODUCTS, contentAvailable, productFor } from '../../../shared/market.ts';
 import { useOwnedContent } from '../market/store.ts';
 import { OriginBadge } from '../market/OriginBadge.tsx';
 import { useEffect, useRef, useState } from 'react';
+import { CHANGELOG } from '../../../shared/changelog.ts';
+import { markChangelogSeen } from './changelog.ts';
 import { save, set, unreadOf, useStore, type HomePage } from '../store.ts';
 import { dmKey, type EventDef, type Group, type User } from '../../../shared/protocol.ts';
 import { sortForHome } from '../../../shared/home.ts';
@@ -22,6 +25,23 @@ import { Composer, Thread } from './messages.tsx';
 import { StatusDot, StatusText, useStatusOf } from './status.tsx';
 
 const match = (q: string, ...texts: (string | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q.toLowerCase()));
+
+export function ChangelogPage({ q }: { q: string }) {
+  useEffect(() => markChangelogSeen(), []);
+  const entries = CHANGELOG.filter((entry) => match(q, entry.title, ...entry.items));
+  return (
+    <section className="hsec" aria-label="変更履歴の一覧">
+      {entries.length === 0 && <Empty>該当する変更履歴はありません</Empty>}
+      {entries.map((entry) => (
+        <article className="hsec hchangelog" key={`${entry.date}:${entry.title}`}>
+          <time className="sub" dateTime={entry.date}>{entry.date}</time>
+          <h2>{entry.title}{entry.tag && <small className="sub">{entry.tag}</small>}</h2>
+          <ul>{entry.items.map((item) => <li key={item}>{item}</li>)}</ul>
+        </article>
+      ))}
+    </section>
+  );
+}
 
 type FriendLike = { id: string; name: string; session?: string | null; mode?: '2d' | '3d'; sharing?: boolean };
 
@@ -317,7 +337,7 @@ function GroupRow({ g }: { g: Group }) {
   const member = g.members.includes(selfName);
   return (
     <div className="grow">
-      <span className="gmark" style={{ background: g.color }}>{g.name.slice(0, 1)}</span>
+      <GroupAvatar group={g} />
       <span className="ginfo">
         <button className="ib glink" onClick={() => openGroup(g.id)}><b>{g.name}</b><Icon name="right" size={13} /></button>
         <span className="sub">{g.members.length} 人 · セッション {sessions.length} 件 · {g.owner} が作成</span>

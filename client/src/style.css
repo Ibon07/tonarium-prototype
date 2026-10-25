@@ -903,6 +903,9 @@ img.av { object-fit: cover; display: block; }
 .hnav { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .hnavbtn { width: 100%; height: 40px; justify-content: flex-start; gap: 12px; padding: 0 12px; border-radius: 12px; font-size: 14px; font-weight: 600; color: var(--ink2); }
 .hnavbtn.on { background: var(--accentbg); color: var(--accent); }
+.hnavbtn { position: relative; }
+.hchangelog { padding: 18px; background: var(--paper); border-radius: 18px; }
+.hchangelog ul { margin: 0; padding-left: 22px; font-size: 14px; line-height: 1.7; list-style: disc; }
 .hbadge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--sand); color: var(--muted2); font-size: 11px; font-weight: 700; line-height: 20px; text-align: center; }
 .hnavbtn.on .hbadge { background: #fff; }
 .hside-sec { margin-top: 14px; padding: 12px 8px 0; border-top: 1px solid var(--line2); display: flex; flex-direction: column; gap: 8px; }
@@ -943,6 +946,7 @@ img.av { object-fit: cover; display: block; }
 
 .scards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 14px; }
 .scard { background: var(--paper); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; display: flex; flex-direction: column; }
+.scthumbnail { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; flex-shrink: 0; }
 .schead { display: flex; align-items: center; gap: 6px; padding: 10px 12px; min-height: 56px; }
 .scworld { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: var(--muted2); }
 .scjoin { height: 32px; padding: 0 14px; border-radius: 10px; font-size: 13px; }
@@ -1044,9 +1048,12 @@ img.av { object-fit: cover; display: block; }
 .hbadge.red { background: var(--danger); color: #fff; }
 .hnavbtn.on .hbadge.red { background: var(--danger); }
 .gmark { position: relative; }
+.gmark img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.gmark > .gmark { width: 100%; height: 100%; border-radius: inherit; }
 .gmark.on { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ink2); }
 .gmark.big { width: 48px; height: 48px; font-size: 20px; border-radius: 14px; }
 .gmark.tiny { width: 26px; height: 26px; font-size: 12px; border-radius: 8px; }
+.gmark.chip { width: 16px; height: 16px; font-size: 9px; border-radius: 4px; flex-shrink: 0; }
 .gunread { position: absolute; top: -4px; right: -4px; width: 11px; height: 11px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 2px var(--paper); }
 .hself { display: flex; align-items: center; padding: 6px 4px 6px 6px; }
 .hselfst { flex: 1; min-width: 0; height: auto; padding: 4px; border-radius: 10px; justify-content: flex-start; gap: 10px; text-align: left; }

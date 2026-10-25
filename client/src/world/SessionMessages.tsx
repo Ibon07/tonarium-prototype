@@ -4,6 +4,7 @@ import { channelKey, dmKey } from '../../../shared/protocol.ts';
 import { sendMessage } from '../actions.ts';
 import { Composer, Thread } from '../home/messages.tsx';
 import { NameFace } from '../home/common.tsx';
+import { GroupAvatar } from '../home/GroupAvatar.tsx';
 import { Icon } from './Icon.tsx';
 import { itemLabel } from './common.tsx';
 
@@ -18,7 +19,7 @@ function useConvs(): Conv[] {
   const list: Conv[] = [
     ...groups.filter((g) => g.members.includes(selfName)).flatMap((g) => g.channels.map((c) => ({
       key: channelKey(g.id, c.id), title: `${g.name} #${c.name}`,
-      mark: <span className="gmark tiny" style={{ background: g.color }}>{g.name.slice(0, 1)}</span>,
+      mark: <GroupAvatar group={g} size="tiny" />,
     }))),
     ...friends.map((n) => ({ key: dmKey(selfName, n), title: n, mark: <NameFace name={n} size={26} /> })),
   ];

@@ -13,7 +13,7 @@ let sawSnapshot = false;
 const timeout = setTimeout(() => { console.error('JS SDK interoperability timeout'); cleanup(1); }, 45000);
 function cleanup(code: number) { clearTimeout(timeout); client?.close(); ws.close(); setTimeout(() => process.exit(code), 200); }
 ws.on('open', () => {
-  ws.send(JSON.stringify({ t: 'hello', id: crypto.randomUUID(), name: 'Web SDK Smoke', compat: 1 }));
+  ws.send(JSON.stringify({ t: 'hello', id: crypto.randomUUID(), name: 'Web SDK Smoke', compat: 2 }));
   ws.send(JSON.stringify({ t: 'join', sid }));
   ws.send(JSON.stringify({ t: 'prepareSync', requestId: test, peerPositions: false, peerDelivery: false }));
 });
