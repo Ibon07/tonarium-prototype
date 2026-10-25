@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { createMirrorSurface } from './mirrorReflection.ts';
 import { createItem, ITEM_INFO, ONLY_3D, applyItemAction } from '../../../shared/items.ts';
+import { CAFE } from '../../../shared/worlds.ts';
+import { ROOM_HALF, SPAWN } from '../../../shared/protocol.ts';
 
 function rendererStub(draw: (scene: THREE.Scene, camera: THREE.Camera) => void) {
   let target: THREE.WebGLRenderTarget | null = null;
@@ -26,6 +28,41 @@ function reflect(resource: ReturnType<typeof createMirrorSurface>, renderer: THR
   const args = [renderer, scene, camera, mirror.geometry, mirror.material, null] as unknown as Parameters<typeof mirror.onBeforeRender>;
   mirror.onBeforeRender(...args);
 }
+
+test('cafe wall mirror fits the north wall and reflects both participants from spawn', (t) => {
+  const m = CAFE.mirror;
+  assert.equal(m.x, SPAWN.x);
+  assert.ok(m.z < SPAWN.z && m.z > -ROOM_HALF + 0.2);
+  assert.ok(m.w > m.h);
+  assert.ok(Math.abs(m.x) + m.w / 2 + 0.07 < ROOM_HALF);
+  assert.ok(m.y - m.h / 2 - 0.07 > 0);
+  assert.ok(m.y + m.h / 2 + 0.07 < 4);
+  const resource = createMirrorSurface(m.w, m.h);
+  t.after(() => resource.dispose());
+  resource.mirror.position.set(m.x, m.y, m.z + 0.001);
+  const scene = new THREE.Scene();
+  scene.add(resource.mirror);
+  const camera = new THREE.PerspectiveCamera(60, 4 / 3, 0.05, 100);
+  let draws = 0;
+  const renderer = rendererStub((_, view) => {
+    draws++;
+    // 鏡面を通る視線が枠内に収まることを、足元と頭の両方で確かめる。
+    for (const x of [-1, 1]) for (const y of [0.1, 1.7]) {
+      const avatar = new THREE.Vector3(x, y, SPAWN.z);
+      const ratio = (resource.mirror.position.z - view.position.z) / (avatar.z - view.position.z);
+      const hit = view.position.clone().lerp(avatar, ratio);
+      assert.ok(Math.abs(hit.x - m.x) < m.w / 2);
+      assert.ok(Math.abs(hit.y - m.y) < m.h / 2);
+      const projected = avatar.project(view);
+      assert.ok(Math.abs(projected.x) < 1 && Math.abs(projected.y) < 1 && Math.abs(projected.z) < 1);
+    }
+  });
+  for (const x of [-1, 1]) {
+    camera.position.set(x, 1.6, SPAWN.z);
+    reflect(resource, renderer, scene, camera);
+  }
+  assert.equal(draws, 2);
+});
 
 test('mirror is a placeable 3D-only item without content actions', () => {
   const base = { id: 'mirror1', x: 1, z: -2, ry: 0.7, createdBy: 'alice' };
