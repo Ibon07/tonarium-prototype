@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CHANGELOG } from '../../../shared/changelog.ts';
+import { CHANGELOG } from '../i18n/static.ts';
 
 const SEEN_KEY = 'tonarium.changelog.seen';
 

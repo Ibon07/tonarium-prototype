@@ -1,9 +1,11 @@
+import { t as tr } from '../i18n/index.ts';
 import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GRAVITY, JUMP_V, ROOM_HALF, type AvatarState } from '../../../shared/protocol.ts';
 import { ARENA, FALL_Y, LAYER_Y, TILE_COUNT, TILE, inArena, startTile, tileBelow, tileCenter, tileGone } from '../../../shared/game.ts';
-import { SURVIVOR_MOVE_SPEED, SURVIVOR_STYLES } from '../../../shared/survivor.ts';
+import { SURVIVOR_MOVE_SPEED } from '../../../shared/survivor.ts';
+import { SURVIVOR_STYLES } from '../i18n/static.ts';
 import { get, set, useStore, heldHammer, heldCamera, nameOf, solidsOf, worldKindOf, gameOfSession, elevatorOfSession, serverNow, spawnPoint } from '../store.ts';
 import { CAR, CITY_HALF, CITY_SURFACES, SHAFT_RECT, clampCity, elevatorY, type Surface } from '../../../shared/city.ts';
 import { STEP_UP, carPose, cityGround, citySolids, keepInCar, toCarLocal } from './cityPhysics.ts';
@@ -50,18 +52,18 @@ const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
 
 function hintFor(aim: { data: Interactable; hit: THREE.Intersection } | null): string | null {
-  if (riddenBike()) return 'E: 降車 ・ W/↑: アクセル ・ S/↓: ブレーキ ・ A/D・←/→: ハンドル';
-  if (carrying.current) return '右クリック: ここに置く';
+  if (riddenBike()) return tr('mergeBikeControls');
+  if (carrying.current) return tr("ui525");
   const s = get();
   const cam = heldCamera(s);
   if (cam) return cameraHelp(cam);
   if (!aim) return null;
   if (heldHammer(s) && aim.data.hitTarget) {
     const t = typeof aim.data.hitTarget === 'function' ? aim.data.hitTarget(aim.hit) : aim.data.hitTarget;
-    if (t && t !== s.selfId) return `クリック: ${nameOf(t)} を叩く`;
+    if (t && t !== s.selfId) return tr("ui526", nameOf(t));
   }
-  const parts = [aim.data.hint, aim.data.carry && '右クリック: 運ぶ', aim.data.remove && 'X: 片付ける'].filter(Boolean);
-  return parts.length ? parts.join(' ・ ') : null;
+  const parts = [aim.data.hint, aim.data.carry && tr("ui527"), aim.data.remove && tr("ui528")].filter(Boolean);
+  return parts.length ? parts.join(tr("ui529")) : null;
 }
 
 /** `user:<ID>` は 2D の人の立ち姿、`display:<ID>` はその人の配信ディスプレイ */
