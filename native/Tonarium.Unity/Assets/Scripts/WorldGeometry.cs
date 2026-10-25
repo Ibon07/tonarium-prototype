@@ -65,7 +65,7 @@ namespace Tonarium.UnityClient
             // Web と同じ足元の座標を使い、カメラの眼高を二重に足さない。
             controller.transform.position = ToUnity(new Vector3(0,0,6.5f));
             controller.transform.rotation = Quaternion.identity;
-            eye.transform.localPosition = new Vector3(0,1.6f,0);
+            eye.transform.localPosition = new Vector3(0,eyeHeight.Current,0);
             eye.transform.localRotation = Quaternion.identity;
             yaw=0;pitch=0;
             controller.enabled = true;
