@@ -319,36 +319,41 @@ function createEnemy(s: SurvivorState, kind: SurvivorEnemy['kind'], now: number,
     dashFrom: null, dashUntil: 0, movePhase: random(s) * Math.PI * 2, chargeTarget: null, chargeUntil: 0,
   };
 }
+type WeaponConfig = { interval: number; range: number; damage: number; aoe?: number; targets?: number; pierce?: boolean; chain?: boolean; chainRange?: number; fan?: boolean; fanAngle?: number; centered?: boolean };
+// 武器ごとの設定は不変なので、呼び出しごとの組み直しを避けてモジュール定数に置く（中身は従来の関数内リテラルと同一）
+const WEAPON_CONFIGS: Record<string, WeaponConfig> = {
+  moonblade: { interval: 650, range: 2.3, damage: 16, targets: 1 },
+  starbolt: { interval: 1050, range: 8.5, damage: 15, targets: 1 },
+  shade: { interval: 1200, range: 7, damage: 17, targets: 3 },
+  bloodaura: { interval: 650, range: 2.7, damage: 11, aoe: 2.7 },
+  eclipse: { interval: 420, range: 3.2, damage: 30, aoe: 3.2 },
+  starfall: { interval: 1000, range: 9.5, damage: 35, aoe: 2.8 },
+  umbralstorm: { interval: 850, range: 8.2, damage: 27, targets: 8 },
+  crimsonsun: { interval: 500, range: 3.7, damage: 19, aoe: 3.7 },
+  frostlance: { interval: 1_050, range: 8.2, damage: 22, targets: 5, pierce: true },
+  stormring: { interval: 1_300, range: 7.5, damage: 14, targets: 5, chain: true, chainRange: 4.2 },
+  embermine: { interval: 1_450, range: 7, damage: 26, aoe: 2.8 },
+  thornshot: { interval: 900, range: 9.5, damage: 13, targets: 4, fan: true, fanAngle: 0.42 },
+  voidpulse: { interval: 780, range: 3.5, damage: 21, aoe: 3.5, centered: true },
+  lunarconvergence: { interval: 400, range: 4.8, damage: 95, aoe: 4.8, centered: true },
+  crimsonvoid: { interval: 360, range: 14, damage: 92, targets: 16, pierce: true },
+  stormfrost: { interval: 590, range: 18, damage: 185, targets: 22, pierce: true },
+  astralbarrage: { interval: 250, range: 15, damage: 78, targets: 14 },
+  soulreaper: { interval: 600, range: 8, damage: 165, aoe: 7.2 },
+  thunderweb: { interval: 650, range: 15, damage: 125, targets: 18, chain: true, chainRange: 6.5 },
+  infernomine: { interval: 820, range: 14, damage: 205, aoe: 6.8 },
+  thornstorm: { interval: 440, range: 16, damage: 82, targets: 18, fan: true, fanAngle: 0.9 },
+  lunarvoid: { interval: 640, range: 8, damage: 180, aoe: 8, centered: true },
+};
+
 function weaponAttack(s: SurvivorState, p: SurvivorPlayer, gear: string, level: number, now: number, d: SurvivorDeps) {
-  const profile = d.profile(p.id);
+  const cfg = WEAPON_CONFIGS[gear];
+  if (!cfg) return;
   const styleHaste = p.style === 'stargazer' ? 0.9 : 1;
   const passiveHaste = Math.max(0.4, (1 - (p.gear.astralbook ?? 0) * 0.07) * styleHaste);
-  const configs: Record<string, { interval: number; range: number; damage: number; aoe?: number; targets?: number; pierce?: boolean; chain?: boolean; chainRange?: number; fan?: boolean; fanAngle?: number; centered?: boolean }> = {
-    moonblade: { interval: 650, range: 2.3, damage: 16, targets: 1 },
-    starbolt: { interval: 1050, range: 8.5, damage: 15, targets: 1 },
-    shade: { interval: 1200, range: 7, damage: 17, targets: 3 },
-    bloodaura: { interval: 650, range: 2.7, damage: 11, aoe: 2.7 },
-    eclipse: { interval: 420, range: 3.2, damage: 30, aoe: 3.2 },
-    starfall: { interval: 1000, range: 9.5, damage: 35, aoe: 2.8 },
-    umbralstorm: { interval: 850, range: 8.2, damage: 27, targets: 8 },
-    crimsonsun: { interval: 500, range: 3.7, damage: 19, aoe: 3.7 },
-    frostlance: { interval: 1_050, range: 8.2, damage: 22, targets: 5, pierce: true },
-    stormring: { interval: 1_300, range: 7.5, damage: 14, targets: 5, chain: true, chainRange: 4.2 },
-    embermine: { interval: 1_450, range: 7, damage: 26, aoe: 2.8 },
-    thornshot: { interval: 900, range: 9.5, damage: 13, targets: 4, fan: true, fanAngle: 0.42 },
-    voidpulse: { interval: 780, range: 3.5, damage: 21, aoe: 3.5, centered: true },
-    lunarconvergence: { interval: 400, range: 4.8, damage: 95, aoe: 4.8, centered: true },
-    crimsonvoid: { interval: 360, range: 14, damage: 92, targets: 16, pierce: true },
-    stormfrost: { interval: 590, range: 18, damage: 185, targets: 22, pierce: true },
-    astralbarrage: { interval: 250, range: 15, damage: 78, targets: 14 },
-    soulreaper: { interval: 600, range: 8, damage: 165, aoe: 7.2 },
-    thunderweb: { interval: 650, range: 15, damage: 125, targets: 18, chain: true, chainRange: 6.5 },
-    infernomine: { interval: 820, range: 14, damage: 205, aoe: 6.8 },
-    thornstorm: { interval: 440, range: 16, damage: 82, targets: 18, fan: true, fanAngle: 0.9 },
-    lunarvoid: { interval: 640, range: 8, damage: 180, aoe: 8, centered: true },
-  };
-  const cfg = configs[gear];
-  if (!cfg || now < (p.attackAt[gear] ?? 0) + cfg.interval * passiveHaste) return;
+  // クールダウン中は何もしないので、プロフィール取得は実際に攻撃するときだけにする
+  if (now < (p.attackAt[gear] ?? 0) + cfg.interval * passiveHaste) return;
+  const profile = d.profile(p.id);
   p.attackAt[gear] = now;
   const range = cfg.range * (1 + (p.gear.huntsigil ?? 0) * 0.05);
   const areaRadius = cfg.aoe ? cfg.aoe * (1 + (p.gear.pyreseed ?? 0) * 0.05) : 0;

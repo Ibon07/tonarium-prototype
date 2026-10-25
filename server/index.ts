@@ -101,8 +101,25 @@ function survivorCount(value: unknown, max: number) {
     ? Math.min(max, Math.max(0, Math.floor(value)))
     : 0;
 }
+// 正規化（移行・返金・オブジェクト再構築）済みのプロフィール実体。再構築は冪等で、以降この実体に
+// 起きる変更は購入・リセット・実績追加など値の変更だけなので、2 回目以降は再構築を省ける。
+// 実体が差し替われば WeakSet に載っていないので、初回として再び正規化が走る。
+// ただし加算で増える points / upgrades / upgradeSpent は、旧実装が毎回クランプしていたため、
+// 高速パスでもこの3種のクランプだけは毎回行い、結果が旧実装と一致するようにする
+const normalizedSurvivorProfiles = new WeakSet<SurvivorProfile>();
 function survivorProfile(id: string): SurvivorProfile {
   const p = survivorProfiles[id] ??= newSurvivorProfile();
+  if (normalizedSurvivorProfiles.has(p)) {
+    p.points = survivorCount(p.points, Number.MAX_SAFE_INTEGER);
+    for (const key of Object.keys(SURVIVOR_META_UPGRADES) as SurvivorMetaUpgrade[]) {
+      p.upgrades[key] = survivorCount(p.upgrades[key], SURVIVOR_META_UPGRADES[key].max);
+      const spent = p.upgradeSpent[key] as number | null | undefined;
+      p.upgradeSpent[key] = spent == null
+        ? survivorUpgradeRefund(key, p.upgrades[key])
+        : survivorCount(spent, Number.MAX_SAFE_INTEGER);
+    }
+    return p;
+  }
   p.points = survivorCount(p.points, Number.MAX_SAFE_INTEGER);
   const upgrades = p.upgrades as Record<string, unknown> | null | undefined;
   const version = survivorCount(p.upgradeVersion, SURVIVOR_PROFILE_VERSION);
@@ -141,6 +158,7 @@ function survivorProfile(id: string): SurvivorProfile {
   p.achievements ??= [];
   p.discovered ??= [];
   p.runs ??= 0; p.bestLevel ??= 0; p.bestKills ??= 0;
+  normalizedSurvivorProfiles.add(p);
   return p;
 }
 
