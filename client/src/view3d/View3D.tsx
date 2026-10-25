@@ -14,6 +14,7 @@ import { carrying, type Interactable } from './interact.ts';
 import { DEFAULT_EYE_HEIGHT } from '../../../shared/avatar.ts';
 import { EyeHeightContext, useEyeHeight } from './eyeHeight.ts';
 import { Player } from './Player.tsx';
+import { MOVEMENT_MODES } from './movement.ts';
 import { AttentionGlow, HammerModel, Item3D } from './items3d.tsx';
 import { Label } from './Label.tsx';
 import { OekakiAvatar } from './OekakiAvatar.tsx';
@@ -251,6 +252,7 @@ function Viewfinder() {
 }
 
 function Crosshair() {
+  const movementMode = useStore((s) => s.movementMode);
   const locked = useStore((s) => s.locked);
   const survivorWorld = useStore((s) => worldKindOf(s) === 'survivors');
   const survivorActive = useStore((s) => {
@@ -272,10 +274,11 @@ function Crosshair() {
       {locked && hint && <div className="aimhint">{hint}</div>}
       {recentlyHit(get().selfId) && <div className="hitme">ピコッ!</div>}
       <div className="keyhelp">
-        {survivorWorld && survivorActive
+        <span>移動: {MOVEMENT_MODES[movementMode]} ・ {movementMode !== 'walk' && 'Space: 上昇 ・ Shift: 下降 ・ '}設定から切り替え</span><br />
+        {survivorWorld && survivorActive && movementMode === 'walk'
           ? <>WASD / 矢印: 移動 ・ Esc: カーソルを出す</>
           : locked
-            ? <>WASD: 移動 ・ Space: ジャンプ ・ マウス: 視点 ・ クリック: 操作 ・ 右クリック: 運ぶ/置く ・ X: 片付ける{holding && ' ・ Q: 手に持った物を置く'} ・ Esc: カーソルを出す</>
+            ? <>WASD: 移動 ・ {movementMode === 'walk' && 'Space: ジャンプ ・ '}マウス: 視点 ・ クリック: 操作 ・ 右クリック: 運ぶ/置く ・ X: 片付ける{holding && ' ・ Q: 手に持った物を置く'} ・ Esc: カーソルを出す</>
             : <>画面をクリックすると操作を始めます（マウスで視点・照準で操作）</>}
       </div>
     </>

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { MovementMode } from './view3d/movement.ts';
 import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, SessionInfo, User } from '../../shared/protocol.ts';
 import { SPAWN } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
@@ -158,6 +159,7 @@ interface State extends AdSlice {
   emotes: Record<string, import('../../shared/emotes.ts').ActiveEmote>;
   swings: Record<string, number>;
   hitFx: { key: number; from: string; to: string }[];
+  movementMode: MovementMode;
   locked: boolean;
   aimHint: string | null;
 
@@ -283,6 +285,7 @@ export const useStore = create<State>((set, get) => ({
   emotes: {},
   swings: {},
   hitFx: [],
+  movementMode: 'walk',
   locked: false,
   aimHint: null,
   selfAvatar: spawnPoint(),

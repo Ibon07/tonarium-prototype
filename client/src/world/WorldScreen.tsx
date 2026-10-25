@@ -1,4 +1,5 @@
 import { contentAvailable, productFor } from '../../../shared/market.ts';
+import { MOVEMENT_MODES } from '../view3d/movement.ts';
 import { useOwnedContent } from '../market/store.ts';
 import { OriginBadge } from '../market/OriginBadge.tsx';
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
@@ -63,6 +64,7 @@ function WorldBadge() {
   const broadcast = useStore((s) => isBroadcast(s));
   const kind = useStore((s) => worldKindOf(s));
   const mode = useStore((s) => s.mode);
+  const movementMode = useStore((s) => s.movementMode);
   const survivorWindowOpen = useStore((s) => s.windows.some((w) => w.key === 'survivors'));
   const antimatterWindowOpen = useStore((s) => s.windows.some((w) => w.key === 'antimatter'));
   const pending = useStore((s) => !!s.worldPending && s.worldPending.sid === s.session);
@@ -91,6 +93,18 @@ function WorldBadge() {
             <input type="checkbox" role="switch" checked={broadcast} onChange={(e) => send({ t: 'broadcast', on: e.target.checked })} />
           </label>
           <span className="menusep" />
+          {mode === '3d' && <>
+            <span className="menutitle">移動方法（自分のみ）</span>
+            <div className="worldpick" role="radiogroup" aria-label="移動方法">
+              {(Object.keys(MOVEMENT_MODES) as (keyof typeof MOVEMENT_MODES)[]).map((value) => (
+                <button key={value} role="radio" aria-checked={movementMode === value} className={`ib wpick ${movementMode === value ? 'on' : ''}`} onClick={() => set({ movementMode: value })}>
+                  {MOVEMENT_MODES[value]}
+                </button>
+              ))}
+            </div>
+            <span className="sub wrap">フライ・ノークリップ: Space で上昇、Shift で下降</span>
+            <span className="menusep" />
+          </>}
           <span className="menutitle">ワールド（全員に反映）</span>
           <div className="worldpick" role="radiogroup" aria-label="ワールド">
             {WORLD_KINDS.filter((k) => contentAvailable(owned, 'worlds', k)).map((k) => (
