@@ -7,6 +7,16 @@ type HTMLMap = CanvasTexture & { update(): void; observer: MutationObserver; _sc
 export class TerminalSurface {
   mesh: HTMLMesh | null = null;
   private vectors = new WeakMap<SVGSVGElement, { source: string; image: HTMLImageElement }>();
+  private imgOrigins = new WeakMap<HTMLImageElement, { src: string; crossOrigin: boolean }>();
+  /** img が別オリジンか（従来は refresh のたびに new URL で判定していた。origin は URL 文字列だけで決まるためキャッシュできる） */
+  private isCrossOriginImg(el: HTMLImageElement): boolean {
+    const src = el.currentSrc || el.src;
+    const cached = this.imgOrigins.get(el);
+    if (cached && cached.src === src) return cached.crossOrigin;
+    const crossOrigin = new URL(src, location.href).origin !== location.origin && !el.src.startsWith('data:') && !el.src.startsWith('blob:');
+    this.imgOrigins.set(el, { src, crossOrigin });
+    return crossOrigin;
+  }
   refresh() {
     const hidden: [HTMLElement, string][] = [];
     const hide = (el: HTMLElement) => { hidden.push([el, el.style.display]); el.style.display = 'none'; };
@@ -16,7 +26,7 @@ export class TerminalSurface {
       if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') hide(el);
     });
     document.querySelectorAll<HTMLImageElement>('img').forEach(el => {
-      if (!el.complete || !el.naturalWidth || (new URL(el.currentSrc || el.src, location.href).origin !== location.origin && !el.src.startsWith('data:') && !el.src.startsWith('blob:'))) hide(el);
+      if (!el.complete || !el.naturalWidth || this.isCrossOriginImg(el)) hide(el);
     });
     try {
       if (!this.mesh) {
@@ -81,5 +91,5 @@ export class TerminalSurface {
       this.mesh.scale.set(1.25 / Math.max(.001, canvas.width * .001), 1.25 / aspect / Math.max(.001, canvas.height * .001), 1);
     } finally { hidden.reverse().forEach(([el, display]) => { el.style.display = display; }); }
   }
-  dispose() { this.mesh?.removeFromParent(); this.mesh?.dispose(); this.mesh = null; this.vectors = new WeakMap(); }
+  dispose() { this.mesh?.removeFromParent(); this.mesh?.dispose(); this.mesh = null; this.vectors = new WeakMap(); this.imgOrigins = new WeakMap(); }
 }

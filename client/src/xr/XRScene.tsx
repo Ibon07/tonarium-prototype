@@ -146,7 +146,9 @@ export function XRScene({ rig }: { rig: PlayerCamera }) {
     camera.position.set(0, 0, 0); camera.quaternion.identity();
     origin.updateMatrixWorld(true);
     if (camera instanceof THREE.PerspectiveCamera) gl.xr.updateCamera(camera);
-    if (performance.now() - lastDraw.current > 200) {
+    // 閉じている間は端末メッシュ自体が非表示 (visible = state.open) で、refresh の結果は誰にも見えない (#201)。
+    // 開いた瞬間から従来どおり 200ms 間隔で更新が再開する。
+    if (state.open && performance.now() - lastDraw.current > 200) {
       lastDraw.current = performance.now();
       try {
         surface.refresh();
