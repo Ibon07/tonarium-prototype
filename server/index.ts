@@ -57,13 +57,16 @@ const RECAP_MIN_MS = Number(process.env.RECAP_MIN_MINUTES ?? 10) * 60_000;
 function readJson<T>(file: string, fallback: T): T {
   try { return JSON.parse(fs.readFileSync(file, 'utf-8')) as T; } catch { return fallback; }
 }
+/** ユーザー由来のキー（ID・名前）を入れるレコードは prototype を持たせない。__proto__ 等も通常のキーとして扱い、Object.prototype を汚染させない */
+function newRecord<T>(): Record<string, T> { return Object.create(null) as Record<string, T>; }
+function nullRecord<T>(obj: Record<string, T>): Record<string, T> { return Object.assign(newRecord<T>(), obj); }
 /** 書き込みが続いてもまとめて 1 回にする */
 function later(fn: () => void, ms = 800) {
   let t: ReturnType<typeof setTimeout> | null = null;
   return () => { if (!t) t = setTimeout(() => { t = null; fn(); }, ms); };
 }
 for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR]) fs.mkdirSync(d, { recursive: true });
-const survivorProfiles = readJson<Record<string, SurvivorProfile>>(SURVIVORS_FILE, {});
+const survivorProfiles = nullRecord(readJson<Record<string, SurvivorProfile>>(SURVIVORS_FILE, {}));
 const saveSurvivorProfiles = later(() => fs.writeFile(SURVIVORS_FILE, JSON.stringify(survivorProfiles), () => {}));
 function survivorCount(value: unknown, max: number) {
   return typeof value === 'number' && Number.isFinite(value)
@@ -148,6 +151,7 @@ const guild = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')) as GuildConfig
 // renamed は sessions.json のセッションを画面から改名したときの名前（sessions.json は書き換えない）
 const home: { sessions: SessionDef[]; groups: Group[]; events: EventDef[]; renamed: Record<string, string> } = { sessions: [], groups: [], events: [], renamed: {} };
 try { Object.assign(home, JSON.parse(fs.readFileSync(HOME_FILE, 'utf-8'))); } catch { /* まだ無い */ }
+home.renamed = nullRecord(home.renamed);
 for (const d of guild.sessions) d.name = home.renamed[d.id] ?? d.name;
 const defaultChannels = () => [{ id: 'general', name: '雑談' }];
 for (const g of home.groups) if (!g.channels?.length) g.channels = defaultChannels();
@@ -192,7 +196,7 @@ const lastAttention = new Map<string, number>();
 const emoteUntil = new WeakMap<Participant, number>();
 const worldOf = new Map<string, WorldKind>();
 // アイテムはだれもいなくなっても残し、再起動しても戻す（盤面の続きをするため）
-const savedItems = readJson<Record<string, Item[]>>(ITEMS_FILE, {});
+const savedItems = nullRecord(readJson<Record<string, Item[]>>(ITEMS_FILE, {}));
 /** 持っている人や編集中の人は再起動でいなくなるので外す */
 function settle(it: Item) {
   const x = it as Item & { holder?: string | null; editingBy?: string | null; live?: boolean; operator?: string | null };
@@ -217,14 +221,18 @@ setInterval(() => {
 }, 5000);
 
 interface PersonRec { status: StatusKind; statusText: string; recent: string[]; lastSeen: number | null; watchers: string[] }
-const people = readJson<Record<string, PersonRec>>(PEOPLE_FILE, {});
+const people = nullRecord(readJson<Record<string, PersonRec>>(PEOPLE_FILE, {}));
 const savePeople = later(() => fs.writeFile(PEOPLE_FILE, JSON.stringify(people), () => {}));
 function personRec(name: string) {
   return (people[name] ??= { status: 'online', statusText: '', recent: [], lastSeen: null, watchers: [] });
 }
 
 /** convs は会話ごとのメッセージ、reads は 名前 → 会話 → 読んだ時刻 */
-const inbox = readJson<{ convs: Record<string, Message[]>; reads: Record<string, Record<string, number>> }>(MESSAGES_FILE, { convs: {}, reads: {} });
+const inboxRaw = readJson<{ convs: Record<string, Message[]>; reads: Record<string, Record<string, number>> }>(MESSAGES_FILE, { convs: {}, reads: {} });
+const inbox = {
+  convs: nullRecord(inboxRaw.convs ?? {}),
+  reads: nullRecord(Object.fromEntries(Object.entries(inboxRaw.reads ?? {}).map(([name, r]) => [name, nullRecord(r)]))),
+};
 const saveInbox = later(() => fs.writeFile(MESSAGES_FILE, JSON.stringify(inbox), () => {}));
 
 /** セッションにだれかが入ってから全員が出るまで。終わったらまとめにする */
@@ -567,6 +575,8 @@ function leaveSession(u: Participant) {
 
 function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string }, msg: ClientMsg) {
   if (msg.t === 'hello') {
+    // __proto__ は ID として受け付けない。レコードのキーや msgpack のマップキーに流れると壊れるため（正規クライアントの ID は UUID で、該当しない）
+    if (msg.id === '__proto__') return;
     state.id = msg.id;
     const name = normalizeName(msg.name);
     const rec = personRec(name);
@@ -829,7 +839,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
       return;
     }
     case 'itemCreate': {
-      if (!(msg.kind in ITEM_INFO)) return;
+      if (!Object.hasOwn(ITEM_INFO, msg.kind)) return;
       if (ONLY_3D[msg.kind] && me.mode !== '3d') return;
       if (msg.media && 'url' in msg.media && !mediaExists(msg.media.url)) return;
       let at = placeIn(sid, msg.x, msg.z, 0.4);
@@ -978,7 +988,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
   switch (msg.t) {
     case 'sessionCreate': {
       const name = trimTo(msg.name, 40);
-      const visibility = msg.visibility in VISIBILITY_INFO ? msg.visibility : 'public';
+      const visibility = Object.hasOwn(VISIBILITY_INFO, msg.visibility) ? msg.visibility : 'public';
       const group = isGroupVisibility(visibility) ? home.groups.find((g) => g.id === msg.group && g.members.includes(me.name))?.id : undefined;
       if (!name || (isGroupVisibility(visibility) && !group)) return true;
       const def: SessionDef = { id: shortId(), name, topic: trimTo(msg.topic, 100), world: isWorldKind(msg.world) ? msg.world : 'room', visibility, owner: me.name, group, invited: [] };
@@ -1065,12 +1075,12 @@ function handleHome(me: User, msg: ClientMsg): boolean {
         ...(voice ? { voice } : {}), ...(media ? { media } : {}), ...(plan ? { plan } : {}), ...(invite ? { invite } : {}), ...(item ? { item } : {}),
       });
       // 送った会話は読んだことにする
-      (inbox.reads[me.name] ??= {})[msg.conv] = Date.now();
+      (inbox.reads[me.name] ??= newRecord())[msg.conv] = Date.now();
       return true;
     }
     case 'read': {
       if (!convMembers(msg.conv)?.includes(me.name)) return true;
-      const reads = (inbox.reads[me.name] ??= {});
+      const reads = (inbox.reads[me.name] ??= newRecord());
       const at = Math.min(Date.now(), Number(msg.at) || 0);
       if (at <= (reads[msg.conv] ?? 0)) return true;
       reads[msg.conv] = at;
@@ -1100,7 +1110,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       return true;
     }
     case 'setStatus': {
-      if (!(msg.status in STATUS_INFO)) return true;
+      if (!Object.hasOwn(STATUS_INFO, msg.status)) return true;
       const rec = personRec(me.name);
       rec.status = msg.status;
       rec.statusText = trimTo(msg.text, STATUS_TEXT_MAX);

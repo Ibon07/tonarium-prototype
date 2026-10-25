@@ -108,7 +108,7 @@ function addPlayer(sid: string, s: SurvivorState, u: Participant, d: SurvivorDep
 }
 
 export function chooseSurvivorStyle(sid: string, user: Participant, style: SurvivorStyle, d: SurvivorDeps) {
-  if (!SURVIVOR_STYLES[style]) return;
+  if (!Object.hasOwn(SURVIVOR_STYLES, style)) return;
   if (d.profile(user.id).upgrades.characters < (SURVIVOR_STYLES[style].unlockAt ?? 0)) return;
   const s = survivorOf(sid);
   if ((s.phase === 'running' || s.phase === 'boss') && !inJoinArea(positionOf(user, d.avatars(sid)))) return;
@@ -133,7 +133,7 @@ export function startSurvivor(sid: string, by: Participant, d: SurvivorDeps) {
   next.startedAt = Date.now();
   next.nextSpawnAt = next.startedAt + 500;
   next.randomSeed = (Math.random() * 0xffff_ffff) >>> 0 || 1;
-  next.stylePicks = { ...s.stylePicks };
+  Object.assign(next.stylePicks, s.stylePicks);
   group.forEach((u, i) => { next.players[u.id] = playerFor(u, next, d, i); });
   states.set(sid, next);
   send(sid, next, d);
@@ -786,8 +786,9 @@ export function tickSurvivors(now: number, d: SurvivorDeps) {
 }
 
 export function upgradeSurvivor(sid: string, id: string, upgrade: SurvivorMetaUpgrade, d: SurvivorDeps) {
+  // upgrade はクライアント由来。継承プロパティ（__proto__ 等）を有効扱いしないよう自前プロパティだけを見る
+  if (!Object.hasOwn(SURVIVOR_META_UPGRADES, upgrade)) return;
   const def = SURVIVOR_META_UPGRADES[upgrade];
-  if (!def) return;
   const profile = d.profile(id);
   const level = profile.upgrades[upgrade];
   const cost = survivorUpgradeCost(upgrade, level);
