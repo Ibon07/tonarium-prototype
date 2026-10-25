@@ -1,4 +1,8 @@
 export default {
+  shareDrawingStart: 'Start drawing',
+  shareDrawingStop: 'Stop drawing',
+  shareDrawingYou: 'you',
+  shareDrawingError: 'Drawing could not sync. Please check your connection.',
   popupSettings: 'New arrival popups (shared)',
   popupPause: 'Pause',
   popupChooseDuration: 'Choose duration',
