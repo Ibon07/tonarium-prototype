@@ -29,6 +29,7 @@ import { createBikeAudio } from './bikeAudio.ts';
 import { BikeModel } from './BikeModel.tsx';
 import { Mirror3D } from './mirror3d.tsx';
 import { JumpPad3D } from './jumpPad3d.tsx';
+import { createImageTexture } from './imageTexture.ts';
 
 const TABLE_Y = 0.78;
 
@@ -245,15 +246,15 @@ function Board({ item, w, h, data, children, label }: {
 }
 
 function Image3D({ item }: { item: Item & { kind: 'image' } }) {
-  const tex = useMemo(() => {
-    const t = new THREE.TextureLoader().load(item.url);
-    t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = 4;
-    return t;
+  const [media, setMedia] = useState<ReturnType<typeof createImageTexture> | null>(null);
+  useEffect(() => {
+    const loaded = createImageTexture(item.url);
+    setMedia(loaded);
+    return () => loaded.dispose();
   }, [item.url]);
-  useEffect(() => () => tex.dispose(), [tex]);
+  useFrame((_, dt) => media?.update(dt));
   const [w, h] = boardSize(item.w, item.h);
-  return <Board item={item} w={w} h={h} data={removable(item)}><meshBasicMaterial map={tex} toneMapped={false} /></Board>;
+  return <Board item={item} w={w} h={h} data={removable(item)}><meshBasicMaterial map={media?.texture ?? null} toneMapped={false} /></Board>;
 }
 
 function Video3D({ item }: { item: Item & { kind: 'video' } }) {
