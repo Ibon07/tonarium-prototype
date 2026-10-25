@@ -70,6 +70,8 @@ function WorldBadge() {
   const kind = useStore((s) => worldKindOf(s));
   const mode = useStore((s) => s.mode);
   const movementMode = useStore((s) => s.movementMode);
+  const doubleJump = useStore((s) => s.doubleJump);
+  const lean = useStore((s) => s.lean);
   const survivorWindowOpen = useStore((s) => s.windows.some((w) => w.key === 'survivors'));
   const antimatterWindowOpen = useStore((s) => s.windows.some((w) => w.key === 'antimatter'));
   const pending = useStore((s) => !!s.worldPending && s.worldPending.sid === s.session);
@@ -111,6 +113,14 @@ function WorldBadge() {
               ))}
             </div>
             <span className="sub wrap">{tr('mergeFlightHint')}</span>
+            <label className="switchrow">
+              <span>{tr('doubleJumpSetting')}</span>
+              <input type="checkbox" role="switch" checked={doubleJump} onChange={(e) => { set({ doubleJump: e.target.checked }); save('tonarium.doubleJump', e.target.checked); }} />
+            </label>
+            <label className="switchrow">
+              <span>{tr('leanSetting')}</span>
+              <input type="checkbox" role="switch" checked={lean} onChange={(e) => { set({ lean: e.target.checked }); save('tonarium.lean', e.target.checked); }} />
+            </label>
             <span className="menusep" />
           </>}
           <span className="menutitle">{tr('ui859')}</span>

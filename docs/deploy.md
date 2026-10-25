@@ -58,4 +58,4 @@ cloudflared 以外（ngrok など）を使う場合は、`.env` の `ALLOWED_HOS
 
 ## 変更履歴の集約
 
-Web の Vite ビルド時に、既存の共通履歴と作業別 JSON を自動集約する。Dockerfile の `npx vite build` でも同じ処理が動く。集約結果を入力へ書き戻さないため再デプロイでも重複しない。配置・形式・並び順・ネイティブ版の集約は [変更履歴の開発ガイド](changelog.md) を参照。
+Web の Vite ビルド時に、既存の共通履歴と作業別 JSON を自動集約する。Dockerfile の `npx vite build` でも同じ処理が動く。集約結果を入力へ書き戻さないため再デプロイでも重複しない。配置・形式・並び順は [変更履歴の開発ガイド](changelog.md) を参照。
