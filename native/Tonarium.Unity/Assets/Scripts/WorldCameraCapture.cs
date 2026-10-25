@@ -30,15 +30,18 @@ namespace Tonarium.UnityClient
             itemObjects.TryGetValue(id, out var model);
             liveScreens.TryGetValue("camera:" + id, out var monitor);
             bool modelActive = model != null && model.activeSelf, monitorActive = monitor != null && monitor.activeSelf;
+            var selfRenderers = selfModel != null ? selfModel.GetComponentsInChildren<Renderer>() : new Renderer[0];
             try
             {
                 // レンズ自身と手元のモニターが撮影結果に映り込まないようにする。
                 if (modelActive) model.SetActive(false);
                 if (monitorActive) monitor.SetActive(false);
+                foreach (var renderer in selfRenderers) renderer.enabled = (string)item["holder"] != selfId;
                 return CameraCapture().Render(eye, position, rotation, width, height, quality);
             }
             finally
             {
+                foreach (var renderer in selfRenderers) if (renderer != null) renderer.enabled = false;
                 if (modelActive && model != null) model.SetActive(true);
                 if (monitorActive && monitor != null) monitor.SetActive(true);
             }

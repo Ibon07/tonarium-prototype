@@ -1,6 +1,7 @@
 // 操作できる物体は userData に Interactable を持たせる（照準が当たった物から親をたどって探す）
 import * as THREE from 'three';
 import { ROOM_HALF } from '../../../shared/protocol.ts';
+import { DEFAULT_EYE_HEIGHT } from '../../../shared/avatar.ts';
 
 export interface Interactable {
   use?: (hit: THREE.Intersection) => void;
@@ -14,7 +15,8 @@ export interface Interactable {
   noRay?: boolean;
 }
 
-export const EYE = 1.6;
+/** 標準アバターの既定値。現在の一人称視点には useEyeHeight を使う。 */
+export const EYE = DEFAULT_EYE_HEIGHT;
 const LIMIT = ROOM_HALF - 0.5;
 export const clampRoom = (v: number) => Math.max(-LIMIT, Math.min(LIMIT, v));
 
