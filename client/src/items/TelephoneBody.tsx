@@ -40,7 +40,7 @@ function TelephoneTurn({ item, interactive }: { item: Extract<Item, { kind: 'tel
   const down: React.PointerEventHandler<SVGSVGElement> = e => {
     if (locked || pointer.current !== null || e.button !== 0) return;
     if (strokes.length >= TELEPHONE_MAX_STROKES || strokes.reduce((n, s) => n + s.pts.length / 2, 0) >= TELEPHONE_MAX_POINTS) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* VR の合成入力は端末側で保持する */ }
     pointer.current = e.pointerId;
     const pts = point(e);
     setStrokes(old => old.length >= TELEPHONE_MAX_STROKES || old.reduce((n, s) => n + s.pts.length / 2, 0) >= TELEPHONE_MAX_POINTS

@@ -26,6 +26,7 @@ import { CameraModel, cameraHelp } from './camera3d.tsx';
 import { PlayerCamera } from './playerCamera.ts';
 import { blocked, blockedByTrain, fallToGround, moveFlight, recoverPosition, walkingAfterMove, type MovementMode } from './movement.ts';
 import { canLean, leanAngle, pressJump } from './movementAbilities.ts';
+import { xr, xrState } from '../xr/runtime.ts';
 
 const SPEED = 4;
 const BODY_R = 0.3;
@@ -125,6 +126,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       if (!locked) { keys.current = {}; leanConsumed.current = {}; rig.lean = 0; }
     };
     const onMouseDown = (e: MouseEvent) => {
+      if (xrState().active) return;
       if (survivorPlaying(get())) return;
       if (riddenBike() && e.button === 2) return;
       if (e.button === 2) {
@@ -147,6 +149,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       dragging.current = null;
     };
     const onMouseMove = (e: MouseEvent) => {
+      if (xrState().active) return;
       if (document.pointerLockElement !== canvas) return;
       if (survivorPlaying(get())) return;
       if (!riddenBike()) look.current.yaw -= e.movementX * SENS;
@@ -192,12 +195,23 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       if (e.code === 'KeyX' && !carrying.current) aim.current?.data.remove?.();
     };
     const onWheel = (e: WheelEvent) => {
-      if (!rig.thirdPerson || (document.pointerLockElement !== canvas && e.target !== canvas)) return;
+      if (!rig.thirdPerson || (!xrState().active && document.pointerLockElement !== canvas && e.target !== canvas)) return;
       e.preventDefault();
       rig.zoom(e.deltaY);
     };
     const onKeyUp = (e: KeyboardEvent) => { keys.current[e.code] = false; leanConsumed.current[e.code] = false; };
     const onBlur = () => { keys.current = {}; leanConsumed.current = {}; rig.lean = 0; };
+    xr.use = () => { aim.current = aimAt(scene, camera, xr.ray); use(); };
+    xr.release = () => {
+      if (dragging.current) { dragging.current.data.drag!('end', dragging.current.hit); dragging.current = null; }
+    };
+    xr.cancel = finishCarry;
+    xr.carry = () => {
+      if (riddenBike()) return;
+      aim.current = aimAt(scene, camera, xr.ray);
+      if (carrying.current) finishCarry();
+      else if (aim.current?.data.carry) carrying.current = { id: aim.current.data.carry, x: 0, z: 0, ry: 0, last: 0 };
+    };
 
     document.addEventListener('pointerlockchange', onLock);
     // 右クリックは運ぶ操作に使うので、ロック中はメニューを出さない
@@ -223,6 +237,8 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       window.removeEventListener('blur', onBlur);
       if (document.pointerLockElement === canvas) document.exitPointerLock();
       rig.lean = 0;
+      xr.release?.();
+      xr.use = null; xr.release = null; xr.carry = null; xr.cancel = null;
       finishCarry();
       const bike = riddenBike();
       if (bike) itemAction(bike.id, { a: 'bikeDismount' });
@@ -267,6 +283,8 @@ export function Player({ rig }: { rig: PlayerCamera }) {
   });
 
   useFrame((_, dt) => {
+    const immersive = xrState().active;
+    if (immersive) { look.current.yaw += xr.turn; xr.turn = 0; }
     const eye = eyeHeight.current;
     eye.current += (eye.target - eye.current) * (1 - Math.exp(-dt / 0.2));
     const s = get();
@@ -332,10 +350,11 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       }
       const d = driving.current;
       const k = keys.current;
+      const [sx, sy] = immersive ? xr.move : [0, 0];
       const solids = [...(city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s)), ...padSolids];
       d.state = moveBike(d.state, {
-        throttle: k.KeyW || k.ArrowUp ? 1 : 0, brake: k.KeyS || k.ArrowDown ? 1 : 0,
-        steering: (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0),
+        throttle: k.KeyW || k.ArrowUp ? 1 : Math.max(0, -sy), brake: k.KeyS || k.ArrowDown ? 1 : Math.max(0, sy),
+        steering: (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0) + sx,
       }, dt, solids, n => clampBike(n, city ? CITY_HALF : ROOM_HALF));
       const v = d.state;
       bikeDisplay.set(bike.id, v);
@@ -422,17 +441,18 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       look.current.yaw += Math.atan2(Math.sin(cur.ry - prev.ry), Math.cos(cur.ry - prev.ry));
     }
     const survivors = survivorPlaying(s);
-    const { yaw: viewYaw, pitch } = look.current;
+    const viewYaw = look.current.yaw + (immersive ? xr.headYaw : 0);
+    const pitch = immersive ? xr.headPitch : look.current.pitch;
     const yaw = survivors ? 0 : viewYaw;
     rig.lean = leanAngle(rig.lean, !!keys.current.KeyQ, !!keys.current.KeyE,
-      canLean({ enabled: s.lean && !leanConsumed.current.KeyQ && !leanConsumed.current.KeyE, locked: s.locked, typing: isTyping(document.activeElement), survivor: survivors,
+      canLean({ enabled: s.lean && !leanConsumed.current.KeyQ && !leanConsumed.current.KeyE, locked: s.locked || immersive, typing: isTyping(document.activeElement), survivor: survivors,
         carrying: !!carrying.current, dragging: !!dragging.current, holdingTool: !!heldHammer(s) || !!heldCamera(s), bike: !!aim.current?.data.bike }), dt);
     const shake = bump(s.hits[s.selfId]);
     camera.rotation.set(pitch - shake * 0.15, yaw + (rig.thirdPerson ? 0 : Math.sin(performance.now() / 30) * shake * 0.03), rig.lean);
 
     const k = keys.current;
-    const f = survivorPaused ? 0 : (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0);
-    const r = survivorPaused ? 0 : (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
+    const f = survivorPaused ? 0 : (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0) - (immersive ? xr.move[1] : 0);
+    const r = survivorPaused ? 0 : (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0) + (immersive ? xr.move[0] : 0);
     const onTower = worldKindOf(s) === 'game' && inArena(position.current.x, position.current.z);
     const cl = clampTo(onTower, city);
     const beforeMove = { x: position.current.x, z: position.current.z };
@@ -536,16 +556,16 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     }
 
     rig.avatarPosition.set(x, b.y, z);
-    rig.yaw = yaw;
+    rig.yaw = immersive ? look.current.yaw : yaw;
     rig.place(camera, scene, position.current);
 
     const d = dragging.current;
     if (d) {
-      const h = aimOn(d.obj, camera);
+      const h = aimOn(d.obj, camera, immersive ? xr.ray : null);
       if (h) { d.hit = h; d.data.drag!('move', h); }
     }
 
-    aim.current = aimAt(scene, camera);
+    aim.current = aimAt(scene, camera, immersive ? xr.ray : null);
     const hint = hintFor(aim.current);
     if (hint !== s.aimHint) set({ aimHint: hint });
 

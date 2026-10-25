@@ -37,8 +37,9 @@ export function findInteractable(obj: THREE.Object3D | null): { data: Interactab
 const raycaster = new THREE.Raycaster();
 const CENTER = new THREE.Vector2(0, 0);
 
-export function aimOn(obj: THREE.Object3D, camera: THREE.Camera) {
-  raycaster.setFromCamera(CENTER, camera);
+export function aimOn(obj: THREE.Object3D, camera: THREE.Camera, ray?: THREE.Ray | null) {
+  if (ray) { raycaster.ray.copy(ray); raycaster.camera = camera; }
+  else raycaster.setFromCamera(CENTER, camera);
   return raycaster.intersectObject(obj, true)[0] ?? null;
 }
 
@@ -61,8 +62,9 @@ function aimTargets(scene: THREE.Scene): THREE.Object3D[] {
   return out;
 }
 
-export function aimAt(scene: THREE.Scene, camera: THREE.Camera) {
-  raycaster.setFromCamera(CENTER, camera);
+export function aimAt(scene: THREE.Scene, camera: THREE.Camera, ray?: THREE.Ray | null) {
+  if (ray) { raycaster.ray.copy(ray); raycaster.camera = camera; }
+  else raycaster.setFromCamera(CENTER, camera);
   raycaster.far = 30;
   for (const hit of raycaster.intersectObjects(aimTargets(scene), false)) {
     if (!(hit.object as THREE.Mesh).isMesh) continue;

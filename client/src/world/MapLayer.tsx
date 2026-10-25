@@ -92,7 +92,7 @@ function Map2D({ kind }: { kind: WorldKind }) {
     if (e.button !== 0 && e.button !== 1) return;
     // ホイールを押したときの自動スクロールを出さない
     if (e.button === 1) e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* VR の合成入力は端末側で保持する */ }
     down.current = { x: e.clientX, y: e.clientY, button: e.button, v };
   };
   const onMove = (e: React.PointerEvent) => {
