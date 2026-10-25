@@ -106,7 +106,6 @@ Web の基底値は [style.css](client/src/style.css) の `:root` と要素セ�
 
 - **AD研究所**：`s` オブジェクトのrootは背景 `#10122c`・文字 `#f2eef5`・13px・padding/gap10・radius10。選択タブは枠 `#7fffe3`・背景 `rgba(84,244,221,.18)`。入力はradius8・白22%の1px線・黒25%背景、ボタン文字12px。専用CSSが紫/青緑の背景グラデーション、hoverの発光、focusの黄 `#fff188` 2px輪郭、disabledのopacity .45・not-allowed、次元カードのlocked/affordable状態を加える。共通のsと `.ad-lab-panel` のCSSを併用する実装。根拠：[styles.ts](client/src/world/antimatter/styles.ts)、[antimatter-panel.css](client/src/world/antimatter/antimatter-panel.css)、[AntimatterPanel.tsx](client/src/world/antimatter/AntimatterPanel.tsx)。
 - **宵闇サバイバーズ**：窓本体は `#1b1520`・文字 `#f6eaf1`、バーは `#3b2639`。選択のfocus-visibleは `#fff0bf` の3px輪郭・offset3。通常のpaper/accentとは異なるゲーム固有のテーマ。根拠：[style.css](client/src/style.css)、[SurvivorPanel.tsx](client/src/world/SurvivorPanel.tsx)。
-- **Avalonia ネイティブ**：`Ui.BodyFont` / `HeadingFont` は同名の同梱フォント、基底14、タイトル26。Ink/Muted/Background/PaperはWebと同じ値。`Ui.Button` はpadding `14,9`・radius10、`Ui.Card` はpaper・radius18・padding20・枠 `#e5e0d8` 1、Row spacing10 / Column12、`Ui.Input` は最小高40・radius9。Appの基底TextBoxはradius10なので、ヘルパー適用後と区別する。FluentThemeのLightを使い、CSSは直接再利用しない。根拠：[Ui.cs](native/Tonarium.Desktop/Views/Ui.cs)、[App.cs](native/Tonarium.Desktop/App.cs)、[native-windows.md](docs/native-windows.md)、[native-linux.md](docs/native-linux.md)。
 - **Electron のローカル画面**：system-ui、light/dark配色、ボタンradius8・padding `10px 18px`、focus-visibleは `#8572d5` 3px輪郭。通常Web画面のstyle.cssとは別定義。根拠：[local.css](electron/app/local.css)、[electron.md](docs/electron.md)。
 
 ## 未統一・未定義の事項
@@ -115,10 +114,10 @@ Web の基底値は [style.css](client/src/style.css) の `:root` と要素セ�
 
 | 状況 | 確認できる範囲と限界 | 根拠 |
 | --- | --- | --- |
-| 未統一：サイズ体系 | 余白・角丸・文字サイズは各セレクターやインライン値。間隔を4px倍数に限定する規則や、統一した見出し倍率はない | [style.css](client/src/style.css)、[AD styles.ts](client/src/world/antimatter/styles.ts)、[Ui.cs](native/Tonarium.Desktop/Views/Ui.cs) |
+| 未統一：サイズ体系 | 余白・角丸・文字サイズは各セレクターやインライン値。間隔を4px倍数に限定する規則や、統一した見出し倍率はない | [style.css](client/src/style.css)、[AD styles.ts](client/src/world/antimatter/styles.ts) |
 | 未統一：操作状態 | inputのfocus、マーケット・エモート・ゲームのfocus-visibleは個別定義。全ボタン共通のpressed/loading/validation-errorスタイルや、統一したフォーカス表示は定義されていない | [style.css](client/src/style.css)、[market.css](client/src/market/market.css)、[AD CSS](client/src/world/antimatter/antimatter-panel.css) |
 | 未統一：モーダルの閉じ方 | PopoverのEsc、ホームModalの背景クリック、購入のdialogなど実装が異なる。全モーダルに共通のEsc・フォーカストラップ・復帰処理を保証する部品はない | [world/common.tsx](client/src/world/common.tsx)、[home/dialogs.tsx](client/src/home/dialogs.tsx)、[Market.tsx](client/src/market/Market.tsx) |
-| 未統一：テーマと描画経路 | Webの紙色、AD/ゲームの暗色、Electronのlight/dark、AvaloniaのLightが併存。3D文字はcanvasの書体・m単位で別管理。単一テーマ切替の規則ではない | [style.css](client/src/style.css)、[Label.tsx](client/src/view3d/Label.tsx)、[local.css](electron/app/local.css)、[App.cs](native/Tonarium.Desktop/App.cs) |
+| 未統一：テーマと描画経路 | Webの紙色、AD/ゲームの暗色、Electronのlight/darkが併存。3D文字はcanvasの書体・m単位で別管理。単一テーマ切替の規則ではない | [style.css](client/src/style.css)、[Label.tsx](client/src/view3d/Label.tsx)、[local.css](electron/app/local.css) |
 | 未定義：全画面への動きの削減 | マスコット・エモート・ADにはprefers-reduced-motion対応がある。ただし全アニメーションを一律に停止する規則としては確認できない | [style.css](client/src/style.css)、[AD CSS](client/src/world/antimatter/antimatter-panel.css)、[useAdReducedMotion.ts](client/src/ad/useAdReducedMotion.ts) |
 | 未検証：実際の見え方 | 本書は静的調査。フォント取得失敗時の描画、各言語の文字幅、実機の小画面操作、コントラスト・キーボード操作の全画面適合性は、この調査では実測していない | [index.html](client/index.html)、[languages.md](docs/languages.md)、[screens.md](docs/screens.md) |
 

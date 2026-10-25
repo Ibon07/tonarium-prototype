@@ -9,6 +9,11 @@ export interface ChangelogEntry {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: '2026-10-25',
+    title: 'Windows／Linux ネイティブ版を廃止',
+    items: ['Avalonia／Unity のネイティブ版と専用のビルド・検証・パッケージ・自動配布設定を削除しました。Web 版と Electron 版のコード・共有アセット・Nightly 配布処理を維持し、利用・開発案内を更新しました。公開済み配布物は保持します。'],
+  },
+  {
+    date: '2026-10-25',
     title: 'GIF画像アイテムのアニメーションとループ再生を修正',
     items: ['Web版の3D画像アイテムにGIFの各フレームと表示時間を反映し、最終フレームの後も先頭から繰り返すようにしました。透明部分やフレームの消去・復元に対応し、アイテム削除時には読み込みと再生を停止して画像・テクスチャを解放します。チャットの画像表示は従来のままです。'],
   },
