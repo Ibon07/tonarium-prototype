@@ -4,11 +4,11 @@
 
 ## 共通定義は Web の CSS に集まっている
 
-Web の基底値は [style.css](client/src/style.css) の `:root` と要素セレクターにある。React の汎用 Button/Input コンポーネントを経由する構成ではなく、HTML 要素に既存クラスを組み合わせる。以下の色・形状は該当する変数・クラスから再利用できる。用途別の React 部品は [home/common.tsx](client/src/home/common.tsx)、[world/common.tsx](client/src/world/common.tsx) にある。
+Web の基底値は [styles/base.css](client/src/styles/base.css) の `:root` と要素セレクターにある（全体は [style.css](client/src/style.css) がセクション別ファイルを元の順序で読み込む）。React の汎用 Button/Input コンポーネントを経由する構成ではなく、HTML 要素に既存クラスを組み合わせる。以下の色・形状は該当する変数・クラスから再利用できる。用途別の React 部品は [home/common.tsx](client/src/home/common.tsx)、[world/common.tsx](client/src/world/common.tsx) にある。
 
 ### 配色：紙色の面、濃い文字、青の操作色
 
-表の変数・値はすべて [style.css の `:root`](client/src/style.css) で確認済み。用途は同ファイルの `.home`、`.panel`、`.win`、`.dock`、`.tab`、`.livechip` などに対応する。
+表の変数・値はすべて [styles/base.css の `:root`](client/src/styles/base.css) で確認済み。用途は `client/src/styles/` 配下の `.home`、`.panel`、`.win`、`.dock`、`.tab`、`.livechip` などに対応する。
 
 | 既存定義 | 値 | 実装上の用途・再利用 |
 | --- | --- | --- |
@@ -67,7 +67,7 @@ Web の基底値は [style.css](client/src/style.css) の `:root` と要素セ�
 | サイズ違い | `.small` 高さ30・左右padding 10・文字12・radius 9、`.big` 高さ40、`.square` 44×44・radius 12、`.swatch` 18×18の丸 | [style.css](client/src/style.css) |
 | ドック操作 | `.dk` hover はdock3、`.muted` は `#F06A5A`（hover `#E25646`）、`.active` はspeak、`.leave` はdanger（hover `#A8321F`）。active は押下中を表す共通疑似クラスではなく機能状態 | [style.css](client/src/style.css)、[WorldScreen.tsx](client/src/world/WorldScreen.tsx) |
 | 入力・選択欄 | input/textarea はfocusでaccent枠、outlineなし。textarea は縦リサイズ。ホーム `.hfield` 内は高さ40、select は別指定。名前変更は空欄・変更なしで保存をdisabled | [style.css](client/src/style.css)、[WorldScreen.tsx](client/src/world/WorldScreen.tsx) の SessionRename |
-| 言語選択 | `LanguageSelect` はラベルとネイティブselectを使い、日本語・英語・韓国語を選ぶと即時保存する。専用の装飾クラスはなく、参加画面とプロフィールではブラウザのselect表示に依存する。`.hfield select` の指定を全select共通の値として扱わない | [LanguageSelect.tsx](client/src/i18n/LanguageSelect.tsx)、[locale.ts](client/src/i18n/locale.ts)、[App.tsx](client/src/App.tsx)、[Profile.tsx](client/src/Profile.tsx)、[style.css](client/src/style.css) |
+| 言語選択 | `LanguageSelect` はラベルとネイティブselectを使い、日本語・英語・韓国語を選ぶと即時保存する。装飾は専用クラス `.language-select`（base.css）で、select は周囲の入力欄と同じ高さ44px・枠線・角丸を持ち、focus で accent 枠になる。`.hfield select` の指定を全select共通の値として扱わない | [LanguageSelect.tsx](client/src/i18n/LanguageSelect.tsx)、[locale.ts](client/src/i18n/locale.ts)、[App.tsx](client/src/App.tsx)、[Profile.tsx](client/src/Profile.tsx)、[style.css](client/src/style.css) |
 | タブ・選択 | `.tab.on` はink背景・白文字、`.htabs button.on` はpaper背景・accent文字・shadow、`.hnavbtn.on` はaccentbg。`Tabs` はtablist/tab と aria-selected、イベント返事はaria-pressedを持ち再押下で取消 | [home/common.tsx](client/src/home/common.tsx)、[style.css](client/src/style.css) |
 | セッションカード | 人数・共有・公開範囲・参加者・残置アイテムを表示。未参加は「参加する」、別セッション中は「移動する」、現在地は `.hhere`。所有者の削除操作は在室者がいるとdisabled。カード自体はarticle | [SessionCard.tsx](client/src/home/SessionCard.tsx)、[home.md](docs/home.md) |
 | 顔・アイテム印・チップ | `Face` は画像、なければ頭文字。サイズ既定32、文字はサイズ×.44。`ItemMark` は既存ITEM_INFOのtint/inkを使用。`Chip` は公開範囲等のkindをクラスへ渡す。未読は `.badge` / `.hdot` | [world/common.tsx](client/src/world/common.tsx)、[home/common.tsx](client/src/home/common.tsx)、[style.css](client/src/style.css) |
@@ -96,7 +96,7 @@ Web の基底値は [style.css](client/src/style.css) の `:root` と要素セ�
 | 顔の配置 | 窓がなくマップも非表示なら中央の大きいグリッド。それ以外は上の帯 | 上の帯。ロック中の前面表示の制約も受ける | [FaceStrip.tsx](client/src/world/FaceStrip.tsx)、[screens.md](docs/screens.md)、[style.css](client/src/style.css) |
 | 背景・移動 | `MapLayer` の設定は「なし / 2D / 3D」。2Dマップはクリックで移動先、ホイールで拡縮、中ボタンドラッグで平行移動。背景に3Dマップを使ってもクライアントの3Dモードとは別 | `View3D` と `Player` による空間移動。クリックでマウスロック、WASD/矢印、歩行時Spaceジャンプ。Escで解除 | [MapLayer.tsx](client/src/world/MapLayer.tsx)、[Map3D.tsx](client/src/world/Map3D.tsx)、[View3D.tsx](client/src/view3d/View3D.tsx)、[Player.tsx](client/src/view3d/Player.tsx) |
 | UIへの入力 | カーソルで前面パネル・窓を操作 | ロック中は前面子要素opacity .4・pointer-events none。中央照準で操作し、Esc後に前面UIへ戻る。Tabで左右パネルをまとめて開閉 | [WorldScreen.tsx](client/src/world/WorldScreen.tsx)、[style.css](client/src/style.css)、[3d.md](docs/3d.md) |
-| 視点・操作案内 | マップの俯瞰と位置印・声の範囲を表示 | 初期一人称、F5で三人称、三人称ホイールで距離変更。歩行/フライ/ノークリップを設定。照準8px、対象ありは14px・黄の輪郭、照準下のヒント13px、下部キー案内12px | [Player.tsx](client/src/view3d/Player.tsx)、[playerCamera.ts](client/src/view3d/playerCamera.ts)、[style.css](client/src/style.css)、[3d.md](docs/3d.md) |
+| 視点・操作案内 | マップの俯瞰と位置印・声の範囲を表示 | 初期一人称、Tで一人称／三人称を切り替え（F5はブラウザの通常の再読み込み）、三人称ホイールで距離変更。歩行/フライ/ノークリップを設定。照準8px、対象ありは14px・黄の輪郭、照準下のヒント13px、下部キー案内12px | [Player.tsx](client/src/view3d/Player.tsx)、[playerCamera.ts](client/src/view3d/playerCamera.ts)、[style.css](client/src/style.css)、[3d.md](docs/3d.md) |
 | 空間内の文字 | DOM の `.mname` は11px・700、半透明の紙色 | `Label` はcanvas文字をスプライト化。Segoe UI/Hiragino Sans/Noto Sans JP/sans-serif、生成時48px・600・padding20、既定の表示高0.2m。白文字と黒75%の面。Web本文の14pxとは別単位 | [style.css](client/src/style.css)、[Label.tsx](client/src/view3d/Label.tsx) |
 | 機能の差 | 宵闇サバイバーズ等は窓で操作 | 板わたり参加、カメラ・バイクなど空間専用操作がある。AD研究所は装置から共通の操作パネルを開く | [items.md](docs/items.md)、[3d.md](docs/3d.md)、[AD windowBodies.tsx](client/src/world/antimatter/windowBodies.tsx) |
 

@@ -25,6 +25,7 @@ import { CameraModel, CameraStreamer, CamMonitor } from './camera3d.tsx';
 import { WORLD_BG, WorldMesh } from './worlds3d.tsx';
 import { useLastSaid } from '../world/common.tsx';
 import { ShareDisplay } from './shareDisplay.tsx';
+import { XRScene } from '../xr/XRScene.tsx';
 
 /** 頭の上のチャットの吹き出し（上部の顔と同じく直近 30 秒） */
 function ChatBubble({ id, y }: { id: string; y: number }) {
@@ -156,7 +157,9 @@ export function Avatar3D({ id, self = false, rig }: { id: string; self?: boolean
     const targetRy = bike ? bike.ry : ride.current && r ? carPose(serverNow(), r.car).ry + ride.current.ry : state.ry;
     let d = targetRy - g.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));
+    g.rotation.order = 'YXZ';
     g.rotation.y += ride.current ? d : d * k;
+    g.rotation.z = bike ? 0 : state.lean ?? 0;
     const s = get();
     if (self && rig) {
       g.visible = rig.thirdPerson;
@@ -318,6 +321,7 @@ export function View3D() {
             ? <CameraStreamer key={`stream-${it.id}`} item={it} /> : null))}
           {viewLive && <ViewStreamer />}
           <Player rig={rig} />
+          <XRScene rig={rig} />
         </Canvas>
       </EyeHeightContext.Provider>
       <Viewfinder />
