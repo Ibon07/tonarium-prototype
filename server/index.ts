@@ -1689,7 +1689,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   if (url.pathname === '/api/leaderboard') {
     res.setHeader('Content-Type', 'application/json');
     if (req.method === 'GET') {
-      res.end(JSON.stringify({ entries: adLeaderboard }));
+      // playerId はセーブの読み書きキーそのものなので応答には含めない (#210)。
+      // 自分の行の強調表示のため、クライアントが既に送っている X-User-Id と一致する行にだけ self を付ける。
+      const selfId = typeof req.headers['x-user-id'] === 'string' ? req.headers['x-user-id'].slice(0, 128) : '';
+      const entries = adLeaderboard.map(({ playerId, ...rest }) => (selfId && playerId === selfId ? { ...rest, self: true } : rest));
+      res.end(JSON.stringify({ entries }));
       return;
     }
     if (req.method === 'POST') {
