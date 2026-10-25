@@ -60,14 +60,18 @@ function readJson<T>(file: string, fallback: T): T {
 /** ユーザー由来のキー（ID・名前）を入れるレコードは prototype を持たせない。__proto__ 等も通常のキーとして扱い、Object.prototype を汚染させない */
 function newRecord<T>(): Record<string, T> { return Object.create(null) as Record<string, T>; }
 function nullRecord<T>(obj: Record<string, T>): Record<string, T> { return Object.assign(newRecord<T>(), obj); }
-/** 書き込みが続いてもまとめて 1 回にする */
+/** 書き込みが続いてもまとめて 1 回にする。flush は保留分をその場で流す（終了時の保存用） */
 function later(fn: () => void, ms = 800) {
   let t: ReturnType<typeof setTimeout> | null = null;
-  return () => { if (!t) t = setTimeout(() => { t = null; fn(); }, ms); };
+  // 失敗で落とさない。従来の非同期書き込みもエラーを握りつぶしていたし、終了時に 1 件の失敗で他を巻き込まないため
+  const run = () => { t = null; try { fn(); } catch { /* noop */ } };
+  const trigger = () => { if (!t) t = setTimeout(run, ms); };
+  trigger.flush = () => { if (t) { clearTimeout(t); run(); } };
+  return trigger;
 }
 for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR]) fs.mkdirSync(d, { recursive: true });
 const survivorProfiles = nullRecord(readJson<Record<string, SurvivorProfile>>(SURVIVORS_FILE, {}));
-const saveSurvivorProfiles = later(() => fs.writeFile(SURVIVORS_FILE, JSON.stringify(survivorProfiles), () => {}));
+const saveSurvivorProfiles = later(() => fs.writeFileSync(SURVIVORS_FILE, JSON.stringify(survivorProfiles)));
 function survivorCount(value: unknown, max: number) {
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.min(max, Math.max(0, Math.floor(value)))
@@ -165,7 +169,7 @@ function pruneOldEvents() {
 const eventsBeforePrune = home.events.length;
 pruneOldEvents();
 // home はメモリ側が正で、ファイルへの書き込みは savePeople などと同じく遅らせてまとめる
-const saveHome = later(() => fs.writeFile(HOME_FILE, JSON.stringify(home), () => {}));
+const saveHome = later(() => fs.writeFileSync(HOME_FILE, JSON.stringify(home)));
 if (home.events.length !== eventsBeforePrune) saveHome();
 const sessionIds = new Set(guild.sessions.map((w) => w.id));
 const shortId = () => randomUUID().slice(0, 8);
@@ -222,7 +226,7 @@ setInterval(() => {
 
 interface PersonRec { status: StatusKind; statusText: string; recent: string[]; lastSeen: number | null; watchers: string[] }
 const people = nullRecord(readJson<Record<string, PersonRec>>(PEOPLE_FILE, {}));
-const savePeople = later(() => fs.writeFile(PEOPLE_FILE, JSON.stringify(people), () => {}));
+const savePeople = later(() => fs.writeFileSync(PEOPLE_FILE, JSON.stringify(people)));
 function personRec(name: string) {
   return (people[name] ??= { status: 'online', statusText: '', recent: [], lastSeen: null, watchers: [] });
 }
@@ -233,7 +237,7 @@ const inbox = {
   convs: nullRecord(inboxRaw.convs ?? {}),
   reads: nullRecord(Object.fromEntries(Object.entries(inboxRaw.reads ?? {}).map(([name, r]) => [name, nullRecord(r)]))),
 };
-const saveInbox = later(() => fs.writeFile(MESSAGES_FILE, JSON.stringify(inbox), () => {}));
+const saveInbox = later(() => fs.writeFileSync(MESSAGES_FILE, JSON.stringify(inbox)));
 
 /** セッションにだれかが入ってから全員が出るまで。終わったらまとめにする */
 const visits = new Map<string, { from: number; people: Set<string>; log: Recap['log'] }>();
@@ -1415,7 +1419,14 @@ setInterval(() => {
   }
 }, 200);
 
-for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => { shutdownRooms().finally(() => process.exit(0)); });
+for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => {
+  // 遅延保存の保留分は落とす前に書き出す。broadcast の later は保存ではないので対象外
+  saveSurvivorProfiles.flush();
+  saveHome.flush();
+  savePeople.flush();
+  saveInbox.flush();
+  shutdownRooms().finally(() => process.exit(0));
+});
 
 server.listen(PORT, () => {
   console.log(`server on http://localhost:${PORT}`);
