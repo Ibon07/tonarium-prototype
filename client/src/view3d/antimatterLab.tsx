@@ -2,13 +2,10 @@
 // drei の Html は使わない。Label.tsx の注記どおり、3D 参加直後の分が空になり撮影にも写らないうえ、
 // ポインターロック中は DOM をマウスで直接操作できないため。代わりに、空間内は CanvasTexture の
 // ボード（撮影にも写る・遮蔽も 3D 通り）で示し、操作は照準＋クリックで前面パネルを開く方式にする。
-import { useEffect, useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
   ANTIMATTER_ALTAR, ANTIMATTER_CORE, ANTIMATTER_EXHIBITS, ANTIMATTER_PALETTE, ANTIMATTER_PORTAL,
-  ANTIMATTER_TOWERS, DIMENSION_TARGETS, clampLog, particleCountFromLog,
-  ringSpeedFromBought, towerHeightFromLog,
+  ANTIMATTER_TOWERS, DIMENSION_TARGETS, clampLog, towerHeightFromLog,
   type AdDioramaView, type AdLabSnapshot, type AdPanelTarget,
 } from '../../../shared/antimatterLayout.ts';
 import { Box, Cyl, SpawnArea } from './parts3d.tsx';
@@ -18,6 +15,7 @@ import { AntimatterReadout } from './AntimatterReadout.tsx';
 import { AdPurchaseParticles3D } from './AdPurchaseParticles3D.tsx';
 import { DimensionReactor3D } from './DimensionReactor3D.tsx';
 import { DimensionProductionParticles } from './DimensionProductionParticles.tsx';
+import { CoreFountain } from './CoreFountain.tsx';
 
 export type Origin = [number, number];
 
@@ -36,63 +34,6 @@ function LabShell({ origin }: { origin: Origin }) {
       <gridHelper args={[20, 20, '#3a3f66', '#2a2e4d']} position-y={0.005} userData={{ noRay: true }} />
       {/* 周囲は透明な境界。移動・アイテムの範囲制限は共通の clampRoom が担う。 */}
       {origin[0] === 0 && origin[1] === 0 && <SpawnArea color={pal.spawn} />}
-    </group>
-  );
-}
-
-const PARTICLE_MAX = 300;
-
-/** 中央コアの粒子噴水。粒子数は log の飽和関数で決め、量に比例させない */
-function CoreFountain({ log10, bought }: { log10: number; bought: number }) {
-  const points = useRef<THREE.Points>(null);
-  const ring = useRef<THREE.Group>(null);
-  const logRef = useRef(log10);
-  useEffect(() => { logRef.current = log10; }, [log10]);
-  const { geo, seeds } = useMemo(() => {
-    const arr = new Float32Array(PARTICLE_MAX * 3);
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(arr, 3));
-    g.setDrawRange(0, 0);
-    const s = Array.from({ length: PARTICLE_MAX }, (_, i) => ({
-      a: (i * 2.39996) % (Math.PI * 2),
-      r: 0.2 + ((i * 37) % 100) / 100 * 0.9,
-      sp: 0.5 + ((i * 13) % 100) / 100,
-      y: ((i * 29) % 100) / 100,
-    }));
-    return { geo: g, seeds: s };
-  }, []);
-  useEffect(() => () => geo.dispose(), [geo]);
-  useFrame(({ clock }) => {
-    const t = clock.elapsedTime;
-    const n = particleCountFromLog(logRef.current);
-    const attr = geo.getAttribute('position') as THREE.BufferAttribute;
-    const arr = attr.array as Float32Array;
-    for (let i = 0; i < n; i++) {
-      const s = seeds[i];
-      const a = s.a + t * s.sp * 0.9;
-      arr[i * 3] = Math.cos(a) * s.r;
-      arr[i * 3 + 1] = ((s.y + t * 0.12 * s.sp) % 1) * 2.2 + 0.3;
-      arr[i * 3 + 2] = Math.sin(a) * s.r;
-    }
-    attr.needsUpdate = true;
-    geo.setDrawRange(0, n);
-    if (ring.current) ring.current.rotation.y = t * ringSpeedFromBought(bought);
-  });
-  return (
-    <group userData={{ noRay: true }}>
-      <mesh position-y={0.5}>
-        <sphereGeometry args={[0.55, 24, 16]} />
-        <meshStandardMaterial color="#7fd8ff" emissive="#2a6cff" emissiveIntensity={1.4} roughness={0.3} />
-      </mesh>
-      <group ref={ring} position-y={0.5}>
-        <mesh rotation-x={Math.PI / 2}>
-          <torusGeometry args={[1.3, 0.05, 8, 48]} />
-          <meshBasicMaterial color="#9cf0ff" transparent opacity={0.9} toneMapped={false} />
-        </mesh>
-      </group>
-      <points ref={points} geometry={geo}>
-        <pointsMaterial size={0.08} color="#aef3ff" transparent opacity={0.95} depthWrite={false} blending={THREE.AdditiveBlending} sizeAttenuation />
-      </points>
     </group>
   );
 }
