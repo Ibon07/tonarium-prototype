@@ -8,6 +8,11 @@ export interface ChangelogEntry {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: '2026-10-25',
+    title: '変更履歴の記載漏れを防止',
+    items: ['今後の変更は、変更履歴に新しい項目がないとチェックを通過しないようにしました。'],
+  },
+  {
+    date: '2026-10-25',
     title: 'ホームに変更履歴を追加',
     items: ['ホームとセッション中のメニューから変更履歴を開けます。', '見出し・本文を検索でき、未読の更新はナビの赤い点でお知らせします。'],
     tag: '新機能',
