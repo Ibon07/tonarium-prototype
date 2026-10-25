@@ -1,4 +1,5 @@
-import { ITEM_INFO, type ItemInfo, type ItemKind } from '../../../shared/items.ts';
+import { ITEM_INFO } from '../i18n/static.ts';
+import { type ItemInfo, type ItemKind } from '../../../shared/items.ts';
 import { MARKET_PRODUCTS } from '../../../shared/market.ts';
 import { useOwnedContent } from './store.ts';
 

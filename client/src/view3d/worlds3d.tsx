@@ -1,3 +1,4 @@
+import { t as tr, getLanguage } from '../i18n/index.ts';
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import { ROOM_HALF } from '../../../shared/protocol.ts';
@@ -94,7 +95,7 @@ function MenuBoard() {
     ctx.font = '700 84px "Segoe UI", "Noto Sans JP", sans-serif';
     ctx.fillText('Café Tonarium', 512, 130);
     ctx.font = '500 48px "Segoe UI", "Noto Sans JP", sans-serif';
-    const menu = [['ブレンドコーヒー', '¥450'], ['カフェラテ', '¥520'], ['抹茶ラテ', '¥550'], ['チーズケーキ', '¥480']];
+    const menu = [[tr("ui548"), '¥450'], [tr("ui549"), '¥520'], [tr("ui550"), '¥550'], [tr("ui551"), '¥480']];
     menu.forEach(([n, p], i) => {
       ctx.textAlign = 'left';
       ctx.fillText(n, 120, 250 + i * 88);
@@ -103,7 +104,7 @@ function MenuBoard() {
     });
     t.needsUpdate = true;
     return t;
-  }, []);
+  }, [getLanguage()]);
   return (
     <mesh position={[-H + 0.12, 3.05, CAFE.shelf.z]} rotation-y={Math.PI / 2}>
       <planeGeometry args={[2.6, 1.62]} />

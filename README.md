@@ -71,6 +71,7 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 
 ## 主な機能
 
+- 日本語・英語・韓国語の表示切り替え（端末保存・ブラウザ言語判定）→ [docs/languages.md](docs/languages.md)
 - 変更履歴（主な更新の一覧・検索・未読の赤い点）→ [docs/home.md の変更履歴](docs/home.md#変更履歴)
 - Web 版をそのまま使う Electron クライアント → [docs/electron.md](docs/electron.md)
 - ホーム（セッション外の画面。セッション・フレンド・イベント・グループの一覧と作成、公開範囲、招待）→ [docs/home.md](docs/home.md)

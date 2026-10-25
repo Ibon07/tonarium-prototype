@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n/index.ts';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -58,7 +59,7 @@ function Standee({ user }: { user: Participant }) {
     card.current?.scale.set(1 + 0.3 * b, 1 - 0.45 * b, 1 + 0.3 * b);
   });
   return (
-    <group ref={ref} position={[pos0.x, 0, pos0.z]} userData={{ hitTarget: user.id, carry: `user:${user.id}`, hint: `💻 ${user.name}（2Dで参加中）` } satisfies Interactable}>
+    <group ref={ref} position={[pos0.x, 0, pos0.z]} userData={{ hitTarget: user.id, carry: `user:${user.id}`, hint: tr("ui536", user.name) } satisfies Interactable}>
       <group ref={card}>
         <Suspense fallback={null}>
           <OekakiAvatar userId={user.id} name={user.name} version={user.avatar} speaking={speaking} onEyeHeight={setHeight} />
@@ -204,7 +205,7 @@ function NoteEditor() {
   return (
     <div className="noteeditor">
       <textarea
-        autoFocus value={note.text} placeholder="付箋の内容"
+        autoFocus value={note.text} placeholder={tr("ui537")}
         style={{ background: note.color }}
         onChange={(e) => editNote(note.id, { text: e.target.value })}
       />
@@ -212,11 +213,11 @@ function NoteEditor() {
         {NOTE_COLORS.map((c) => (
           <button key={c} className="swatch" style={{ background: c }} onClick={() => editNote(note.id, { color: c })} />
         ))}
-        <button className="small" onClick={faceMe}>こちらに向ける</button>
-        <button className="small" onClick={() => removeItem(note.id)}>片付ける</button>
-        <button className="small" onClick={() => selectNote(null)}>閉じる</button>
+        <button className="small" onClick={faceMe}>{tr("ui538")}</button>
+        <button className="small" onClick={() => removeItem(note.id)}>{tr("ui539")}</button>
+        <button className="small" onClick={() => selectNote(null)}>{tr("ui73")}</button>
       </div>
-      <small>空間をクリックすると操作に戻ります</small>
+      <small>{tr("ui540")}</small>
     </div>
   );
 }
@@ -242,7 +243,7 @@ function Viewfinder() {
       {cam && (
         <div className="viewfinder">
           <i className="tl" /><i className="tr" /><i className="bl" /><i className="br" />
-          {cam.live && <div className="rec">● LIVE 配信中</div>}
+          {cam.live && <div className="rec">{tr("ui541")}</div>}
         </div>
       )}
       {flashAt > 0 && <div key={flashAt} className="flash" />}
@@ -270,13 +271,13 @@ function Crosshair() {
     <>
       {locked && <div className={`crosshair ${hint ? 'on' : ''}`} />}
       {locked && hint && <div className="aimhint">{hint}</div>}
-      {recentlyHit(get().selfId) && <div className="hitme">ピコッ!</div>}
+      {recentlyHit(get().selfId) && <div className="hitme">{tr("ui542")}</div>}
       <div className="keyhelp">
         {survivorWorld && survivorActive
-          ? <>WASD / 矢印: 移動 ・ Esc: カーソルを出す</>
+          ? <>{tr("ui543")}</>
           : locked
-            ? <>WASD: 移動 ・ Space: ジャンプ ・ マウス: 視点 ・ クリック: 操作 ・ 右クリック: 運ぶ/置く ・ X: 片付ける{holding && ' ・ Q: 手に持った物を置く'} ・ Esc: カーソルを出す</>
-            : <>画面をクリックすると操作を始めます（マウスで視点・照準で操作）</>}
+            ? <>{tr("ui544")}{holding && tr("ui545")} {tr("ui546")}</>
+            : <>{tr("ui547")}</>}
       </div>
     </>
   );
