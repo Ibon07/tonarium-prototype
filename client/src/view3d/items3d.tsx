@@ -20,6 +20,7 @@ import { Camera3D } from './camera3d.tsx';
 import { Label } from './Label.tsx';
 import { removable, useFollow } from './itemHelpers.ts';
 import { Dice3D } from './dice3d.tsx';
+import { AntimatterItem3D } from './antimatterItem3d.tsx';
 import { bikeDisplay, requestBikeMount } from './bikeControl.ts';
 import { angleDelta } from '../../../shared/vehicle.ts';
 import { createBikeAudio } from './bikeAudio.ts';
@@ -359,6 +360,7 @@ export function Item3D({ item }: { item: Item }) {
     case 'chessAi':
     case 'chess': return <Chess3D item={item} />;
     case 'dice': return <Dice3D item={item} />;
+    case 'antimatter': return <AntimatterItem3D item={item} />;
     default: return PANELS[item.kind] ? <CompatPanel3D item={item} /> : null;
   }
 }

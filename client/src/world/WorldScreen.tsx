@@ -36,6 +36,7 @@ import { MasterVolume } from './VolumeMenus.tsx';
 import { SurvivorPanel } from './SurvivorPanel.tsx';
 import { EmoteDockButton } from './Emotes.tsx';
 import { unlockEmoteAudio } from './sounds.ts';
+import { AdAudio } from '../ad/AdAudio.tsx';
 
 /** 名前はだれでも変えられ、全員に反映されてログに出る */
 function SessionRename({ current, onDone }: { current: string; onDone: () => void }) {
@@ -65,6 +66,7 @@ function WorldBadge() {
   const mode = useStore((s) => s.mode);
   const movementMode = useStore((s) => s.movementMode);
   const survivorWindowOpen = useStore((s) => s.windows.some((w) => w.key === 'survivors'));
+  const antimatterWindowOpen = useStore((s) => s.windows.some((w) => w.key === 'antimatter'));
   const pending = useStore((s) => !!s.worldPending && s.worldPending.sid === s.session);
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const [profile, setProfile] = useState(false);
@@ -73,6 +75,7 @@ function WorldBadge() {
       <img className="wmark" src="/brand/mark.png" alt="" />
       <span className="wname">{world?.name}</span>
       {kind === 'survivors' && mode === '2d' && <button className="chipbtn survivor-window-button" onClick={() => openWindow('survivors')}>{survivorWindowOpen ? 'ゲーム画面' : 'ゲームを開く'}</button>}
+      {kind === 'antimatter' && mode === '2d' && <button className="chipbtn" onClick={() => openWindow('antimatter')}>{antimatterWindowOpen ? 'AD 研究所' : 'AD を開く'}</button>}
       {broadcast && <span className="bcpill" title="ブロードキャストモード：距離に関係なく声が届きます"><Icon name="megaphone" size={12} />ブロードキャスト</span>}
       {!wsConnected && <span className="reconn">再接続中…</span>}
       <span className="vline" />
@@ -529,6 +532,9 @@ export function WorldScreen() {
       closeWindow('survivors', true);
       closeWindow('survivor-library', true);
     }
+    // ワールド用パネルは研究所内だけ。アイテムから開いたパネルと進行データは維持する。
+    if (worldKind === 'antimatter' && mode === '2d') openWindow('antimatter');
+    else if (worldKind !== 'antimatter') closeWindow('antimatter');
   }, [worldKind, mode]);
   useEffect(() => {
     if (mode !== '3d') return;
@@ -567,6 +573,7 @@ export function WorldScreen() {
         {phone && <PhoneTabs />}
       </div>
       <MediaSync />
+      <AdAudio />
       <Toast />
       {dragging && <DropHint />}
       <SwitchLoading />

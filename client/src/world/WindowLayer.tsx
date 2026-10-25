@@ -20,6 +20,7 @@ import { YouTubePlayer, youTubeDuration } from '../youtube.tsx';
 import { send } from '../net/ws.ts';
 import { DiceBody } from './DiceBody.tsx';
 import { SurvivorLibrary, SurvivorPanel } from './SurvivorPanel.tsx';
+import { AntimatterSpaceWindowBody, AntimatterWindowBody } from './antimatter/windowBodies.tsx';
 
 const BAR = 40;
 type Kind = 'video' | 'panel' | 'note' | 'media' | 'face' | 'dice' | 'survivor';
@@ -84,6 +85,8 @@ function useResolved(key: string, compact: boolean): Resolved | null {
   const name = (id: string | null) => (id ? users.find((p) => p.id === id)?.name ?? '（退出済み）' : '');
   const at = (id: string) => <UserDist id={id} />;
   if (key === 'survivors') return { kind: 'survivor', dark: true, title: '宵闇サバイバーズ', sub: survivor?.phase === 'running' || survivor?.phase === 'boss' ? '協力サバイバル' : '10分間のサバイバル', width: 680, aspect: 1.28, noClose: true, body: <SurvivorPanel /> };
+  if (key === 'antimatter') return { kind: 'survivor', dark: true, title: 'AD 研究所', sub: '反物質次元（進行はプレイヤーごと）', width: 720, aspect: 1.2, body: <AntimatterWindowBody /> };
+  if (key === 'antimatter-space') return { kind: 'survivor', dark: true, title: 'AD 研究所 — 空間パネル', sub: '3D の塔・コアから開いた操作パネル', width: 520, body: <AntimatterSpaceWindowBody /> };
   if (key === 'survivor-library') return { kind: 'survivor', dark: true, title: '装備図鑑・実績', sub: '発見した装備と記録', width: 620, aspect: 1.05, body: <SurvivorLibrary /> };
   if (key === 'share') {
     if (!sharer) return null;
@@ -139,6 +142,13 @@ function useResolved(key: string, compact: boolean): Resolved | null {
     };
   }
   if (item.kind === 'dice') return { kind: 'dice', dark: false, item, title: ITEM_INFO.dice.name, sub, width: 400, body: <DiceBody item={item} interactive={!compact} /> };
+  // 入口だけのアイテム。開くのはワールド版と同じ自分の AD パネル
+  if (item.kind === 'antimatter') return {
+    kind: 'survivor', dark: true, item, title: 'AD 研究所', sub, width: 720, aspect: 1.2,
+    body: compact
+      ? <div style={{ padding: 16, color: '#e9e5f5' }}>AD 研究所 — クリックで大きく表示</div>
+      : <AntimatterWindowBody />,
+  };
   if (item.kind === 'bike') return { kind: 'panel', dark: false, item, title: ITEM_INFO.bike.name, sub, width: 360, body: <p>{ITEM_INFO.bike.desc}</p> };
   if (item.kind === 'note') return { kind: 'note', dark: false, item, title: itemLabel(item), sub, width: 320, body: <NoteBody note={item} /> };
   const panel = PANELS[item.kind];
@@ -171,14 +181,25 @@ function WindowFrame({ win, region, simple, z, compact = false }: {
     } else width = Math.min(region.w, 420);
   } else if (r.aspect && r.kind !== 'panel') height = width / r.aspect + BAR;
 
+  // AD は長い操作パネルなので、フリー配置でも画面内に収めて本文をスクロールできるようにする。
+  const boundedAD = !simple && !max && (win.key === 'antimatter' || r.item?.kind === 'antimatter');
+  let left = win.x;
+  let top = win.y;
+  if (boundedAD) {
+    width = Math.min(width, Math.max(1, region.w - 16));
+    height = Math.min(height ?? region.h, Math.max(BAR, region.h - 16));
+    left = Math.max(8, Math.min(left, region.w - width - 8));
+    top = Math.max(8, Math.min(top, region.h - height - 8));
+  }
+
   const style: React.CSSProperties = max && !compact
     ? { position: 'fixed', left: 0, top: 0, width, height, zIndex: 44 }
-    : simple ? { width, height } : { position: 'absolute', left: win.x, top: win.y, width, height, zIndex: z };
+    : simple ? { width, height } : { position: 'absolute', left, top, width, height, zIndex: z };
 
   const onDown = (e: React.PointerEvent) => {
     raiseWindow(win.key);
     if (simple || max || (e.target as Element).closest('button')) return;
-    drag.current = { sx: e.clientX, sy: e.clientY, ox: win.x, oy: win.y };
+    drag.current = { sx: e.clientX, sy: e.clientY, ox: left, oy: top };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 合成イベントなど */ }
   };
   const onMove = (e: React.PointerEvent) => {
@@ -243,6 +264,12 @@ export function WindowLayer() {
   const visibleWindows = mode === '3d' ? windows.filter((w) => w.key !== 'survivors') : windows;
   const ref = useRef<HTMLDivElement>(null);
   const [region, setRegion] = useState({ w: 800, h: 500 });
+  const [viewport, setViewport] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
+  useLayoutEffect(() => {
+    const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -286,7 +313,7 @@ export function WindowLayer() {
       </div>
       {!simple && (
         <div className="winfree">
-          {visibleWindows.map((w, i) => <WindowFrame key={w.key} win={w} region={region} simple={false} z={i + 1} />)}
+          {visibleWindows.map((w, i) => <WindowFrame key={w.key} win={w} region={viewport} simple={false} z={i + 1} />)}
         </div>
       )}
     </>
