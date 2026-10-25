@@ -108,7 +108,7 @@ public sealed class TonariumClient : IAsyncDisposable
                 await socket.ConnectAsync(endpoint.Uri, ct);
                 await UiAsync(() => { State.Connected = true; State.ConnectionStatus = "接続済み"; });
                 // compat は shared/protocol.ts の COMPAT_VERSION と一致させる。合わないとサーバーが接続を断つ
-                await SendHomeAsync(new JsonObject { ["t"] = "hello", ["id"] = State.SelfId, ["name"] = State.Name, ["compat"] = 1 }, ct);
+                await SendHomeAsync(new JsonObject { ["t"] = "hello", ["id"] = State.SelfId, ["name"] = State.Name, ["compat"] = 2 }, ct);
                 if (State.SessionId is { } sid)
                 {
                     await SendHomeAsync(new JsonObject { ["t"] = "join", ["sid"] = sid }, ct);

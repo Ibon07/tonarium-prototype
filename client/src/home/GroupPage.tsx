@@ -5,7 +5,8 @@ import { createChannel, deleteGroup, invite, joinGroup, leaveGroup } from '../ac
 import { Face } from '../world/common.tsx';
 import { Icon } from '../world/Icon.tsx';
 import { SessionCard } from './SessionCard.tsx';
-import { CreateSessionDialog, InviteToGroupDialog } from './dialogs.tsx';
+import { CreateSessionDialog, GroupSettingsDialog, InviteToGroupDialog } from './dialogs.tsx';
+import { GroupAvatar } from './GroupAvatar.tsx';
 import { Composer, Thread } from './messages.tsx';
 import { StatusDot, StatusText, useStatusOf } from './status.tsx';
 import { Chip, Empty, EventAnswer, EventHost, NameFace, timeLabel, uniqueByName } from './common.tsx';
@@ -109,7 +110,7 @@ export function GroupTitle() {
   if (!g) return null;
   return (
     <span className="gtitle">
-      <span className="gmark big" style={{ background: g.color }}>{g.name.slice(0, 1)}</span>
+      <GroupAvatar group={g} size="big" />
       <span className="finfo">
         <h1>{g.name}</h1>
         <span className="sub">{g.members.length} 人 · セッション {n} 件 · {g.owner} が作成</span>
@@ -123,16 +124,19 @@ export function GroupActions() {
   const selfName = useStore((s) => s.selfName);
   const [create, setCreate] = useState(false);
   const [inv, setInv] = useState(false);
+  const [settings, setSettings] = useState(false);
   if (!g) return null;
   const member = g.members.includes(selfName);
   return (
     <>
+      {(g.owner === selfName || g.editors?.includes(selfName)) && <button className="ib hbtn" title="グループ設定" aria-label="グループ設定" onClick={() => setSettings(true)}><Icon name="settings" size={16} /></button>}
       {member && <button className="hbtn" onClick={() => setInv(true)}>フレンドを誘う</button>}
       {member ? <button className="hbtn" onClick={() => leaveGroup(g.id)}>抜ける</button> : <button className="dark hbtn" onClick={() => joinGroup(g.id)}>入る</button>}
       {g.owner === selfName && <button className="ib hbtn" title="このグループを消す" aria-label="このグループを消す" onClick={() => { deleteGroup(g.id); set({ homePage: 'groups' }); }}><Icon name="trash" size={16} /></button>}
       {member && <button className="dark hcreate" onClick={() => setCreate(true)}><Icon name="plus" size={16} />セッションを作る</button>}
       {create && <CreateSessionDialog group={g.id} onClose={() => setCreate(false)} />}
       {inv && <InviteToGroupDialog group={g} onClose={() => setInv(false)} />}
+      {settings && (g.owner === selfName || g.editors?.includes(selfName)) && <GroupSettingsDialog key={g.id} group={g} onClose={() => setSettings(false)} />}
     </>
   );
 }
@@ -148,8 +152,8 @@ export function GroupPage() {
       <section className="hsec">
         <h2>セッション <span className="sub">入れる範囲はセッションごとに選ぶ</span></h2>
         <div className="glegend">
-          <span><Chip kind="group"><Icon name="flag" size={11} />{g.name}</Chip>{VISIBILITY_INFO.group.desc}</span>
-          <span><Chip kind="groupPlus"><Icon name="flag" size={11} />{g.name}＋</Chip>{VISIBILITY_INFO.groupPlus.desc}</span>
+          <span><Chip kind="group"><GroupAvatar group={g} size="chip" />{g.name}</Chip>{VISIBILITY_INFO.group.desc}</span>
+          <span><Chip kind="groupPlus"><GroupAvatar group={g} size="chip" />{g.name}＋</Chip>{VISIBILITY_INFO.groupPlus.desc}</span>
         </div>
         {sessions.length === 0 && <Empty>このグループのセッションはまだありません</Empty>}
         <div className="scards">{sessions.map((d) => <SessionCard key={d.id} s={d} showDelete />)}</div>

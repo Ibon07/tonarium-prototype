@@ -64,6 +64,8 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 - `npm run dev` 中は保存するとサーバーが再起動する（セッション内のチャットは消える。アイテムは `data/items.json` から戻る）。`npm start` の場合は再起動が必要
 
 ## 主な機能
+
+- 変更履歴（主な更新の一覧・検索・未読の赤い点）→ [docs/home.md の変更履歴](docs/home.md#変更履歴)
 - Web 版をそのまま使う Electron クライアント → [docs/electron.md](docs/electron.md)
 - ホーム（セッション外の画面。セッション・フレンド・イベント・グループの一覧と作成、公開範囲、招待）→ [docs/home.md](docs/home.md)
 - ステータス、DM とグループのチャンネル、日程の相談、セッションのまとめ → [docs/messages.md](docs/messages.md)

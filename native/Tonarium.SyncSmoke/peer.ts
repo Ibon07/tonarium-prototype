@@ -13,7 +13,7 @@ const configured = new Promise<SyncConfig>(resolve => home.on('message', raw => 
   if (message.t === 'syncConfig') resolve(message.config);
 }));
 for (const message of [
-  { t: 'hello', id, name: 'Independent load sender', compat: 1 },
+  { t: 'hello', id, name: 'Independent load sender', compat: 2 },
   { t: 'join', sid: 'sync-load' },
   { t: 'prepareSync', requestId: id, peerPositions: false, peerDelivery: false },
 ]) home.send(JSON.stringify(message));
