@@ -10,6 +10,7 @@
     <AssemblyName>Tonarium</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="$(IntermediateOutputPath)changelog.json" LogicalName="Tonarium.Changelog.json" />
     <None Update="Linux/*.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <AvaloniaResource Include="Assets/fonts/**" />
     <None Update="Assets/fonts/*OFL.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" TargetPath="licenses/%(Filename)%(Extension)" />
@@ -38,6 +39,9 @@
     <AvaloniaResource Include="../../client/public/brand/**" Link="Assets/brand/%(RecursiveDir)%(Filename)%(Extension)" />
     <AvaloniaResource Include="../../client/public/oekaki/sample.png" Link="Assets/oekaki/sample.png" />
   </ItemGroup>
+  <Target Name="ExportChangelog" BeforeTargets="PrepareForBuild">
+    <Exec WorkingDirectory="../.." Command="node --import tsx native/export-changelog.ts &quot;$(MSBuildProjectDirectory)/$(IntermediateOutputPath)changelog.json&quot;" />
+  </Target>
   <Target Name="UseOnlyWebViewCore" BeforeTargets="ResolveAssemblyReferences">
     <ItemGroup>
       <Reference Remove="@(Reference)" Condition="'%(Reference.Filename)' == 'Microsoft.Web.WebView2.Wpf' Or '%(Reference.Filename)' == 'Microsoft.Web.WebView2.WinForms'" />

@@ -19,12 +19,14 @@ import { Icon, type IconName } from '../world/Icon.tsx';
 import { acceptInvite, inviteTarget } from '../world/NoticeLog.tsx';
 import { SessionCard } from './SessionCard.tsx';
 import { CreateSessionDialog } from './dialogs.tsx';
-import { EventsPage, FriendTile, FriendsPage, GroupsPage, ItemsPage, SessionsPage, WORLD_FACE, WorldsPage, friendsIn, goHome } from './pages.tsx';
+import { ChangelogPage, EventsPage, FriendTile, FriendsPage, GroupsPage, ItemsPage, SessionsPage, WORLD_FACE, WorldsPage, friendsIn, goHome } from './pages.tsx';
 import { GroupActions, GroupPage, GroupTitle } from './GroupPage.tsx';
 import { StatusDialog, StatusDot, StatusText, useStatusOf } from './status.tsx';
 import { Chip, Empty, EventAnswer, EventHost, NameFace, WEEKDAYS, dateKey, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
 import { touchOnly, usePhone } from '../phone.ts';
 import { FEEDBACK_URL } from '../feedback.ts';
+import { CHANGELOG } from '../../../shared/changelog.ts';
+import { useChangelog } from './changelog.ts';
 
 const NAV: { page: HomePage; name: string; icon: IconName }[] = [
   { page: 'home', name: 'ホーム', icon: 'home' },
@@ -35,6 +37,7 @@ const NAV: { page: HomePage; name: string; icon: IconName }[] = [
   { page: 'worlds', name: 'ワールド', icon: 'globe' },
   { page: 'items', name: 'アイテム', icon: 'box' },
   { page: 'market', name: 'マーケット', icon: 'market' },
+  { page: 'changelog', name: '変更履歴', icon: 'calendar' },
 ];
 
 const WEEK = 7 * 86_400_000;
@@ -75,6 +78,8 @@ function ClientMode() {
 
 /** 左のメニュー。ホームの左列と、セッション中のホバーメニューで同じものを使う */
 export function Sidebar({ inSession, onPick }: { inSession?: boolean; onPick?: () => void }) {
+  const seen = useChangelog((s) => s.seen);
+  const changelogUnread = !!CHANGELOG[0] && CHANGELOG[0].date > seen;
   const page = useStore((s) => s.homePage);
   const selfId = useStore((s) => s.selfId);
   const selfName = useStore((s) => s.selfName);
@@ -102,6 +107,7 @@ export function Sidebar({ inSession, onPick }: { inSession?: boolean; onPick?: (
             <li key={n.page}>
               <button className={`ib hnavbtn ${page === n.page ? 'on' : ''}`} onClick={() => { goHome(n.page); picked(); }}>
                 <Icon name={n.icon} size={18} />{n.name}
+                {n.page === 'changelog' && changelogUnread && <i className="hdot" aria-label="未読の変更履歴あり" />}
                 {!!badge[n.page] && <span className={`hbadge ${n.page === 'friends' && unreadDm ? 'red' : ''}`}>{badge[n.page]}</span>}
               </button>
             </li>
@@ -476,7 +482,7 @@ export function Home({ sheet }: { sheet?: boolean }) {
           {!wsConnected && <span className="reconn">接続中…</span>}
           <span className="spacer" />
           {/* グループの画面は絞り込むものがないので出さない */}
-          {page !== 'group' && <label className="hsearch"><Icon name="search" size={16} /><input value={q} aria-label={page === 'market' ? '商品・クリエイターを検索' : 'コンテンツを検索'} placeholder={page === 'market' ? '商品・クリエイターを検索' : 'フレンド・ワールド・グループを検索'} onChange={(e) => setQ(e.target.value)} /></label>}
+          {page !== 'group' && <label className="hsearch"><Icon name="search" size={16} /><input value={q} aria-label={page === 'changelog' ? '変更履歴を検索' : page === 'market' ? '商品・クリエイターを検索' : 'コンテンツを検索'} placeholder={page === 'changelog' ? '見出し・本文を検索' : page === 'market' ? '商品・クリエイターを検索' : 'フレンド・ワールド・グループを検索'} onChange={(e) => setQ(e.target.value)} /></label>}
           <Bell />
           {page === 'group' ? <GroupActions /> : <button className="dark hcreate" onClick={() => setCreate(true)}><Icon name="plus" size={16} />セッションを作る</button>}
         </header>
@@ -489,6 +495,7 @@ export function Home({ sheet }: { sheet?: boolean }) {
         {page === 'worlds' && <WorldsPage q={q} />}
         {page === 'items' && <ItemsPage q={q} />}
         {page === 'market' && <MarketPage q={q} />}
+        {page === 'changelog' && <ChangelogPage q={q} />}
         {(page === 'sounds' || page === 'emotes') && <ReactionLibrary category={page} q={q} />}
       </main>
       {/* グループの画面は自分の右の列を持っているので出さない */}
