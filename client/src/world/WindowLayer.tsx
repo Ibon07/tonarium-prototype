@@ -149,6 +149,7 @@ function useResolved(key: string, compact: boolean): Resolved | null {
       ? <div style={{ padding: 16, color: '#e9e5f5' }}>AD 研究所 — クリックで大きく表示</div>
       : <AntimatterWindowBody />,
   };
+  if (item.kind === 'bike') return { kind: 'panel', dark: false, item, title: ITEM_INFO.bike.name, sub, width: 360, body: <p>{ITEM_INFO.bike.desc}</p> };
   if (item.kind === 'note') return { kind: 'note', dark: false, item, title: itemLabel(item), sub, width: 320, body: <NoteBody note={item} /> };
   const panel = PANELS[item.kind];
   if (!panel) return null;

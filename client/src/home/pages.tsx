@@ -433,7 +433,7 @@ export function ItemsPage({ q }: { q: string }) {
       headingRef={heading} onBack={() => setSelectedId(null)}
       visual={<ItemVisual kind={selected.kind} product={MARKET_PRODUCTS.find((p) => p.id === selected.productId)} />}
       tags={<>{selected.info.in2d && <span>2D 対応</span>}{selected.info.in3d && <span>3D 対応</span>}</>}
-      usage={selected.productId ? 'アイテム一覧やセッション内の所持アイテムから「目の前に出す」を選びます。質問・挨拶入りの付箋として配置され、自由に編集できます。' : ITEM_USAGE[selected.kind]}>
+      usage={selected.kind === 'bike' ? selected.info.desc : selected.productId ? 'アイテム一覧やセッション内の所持アイテムから「目の前に出す」を選びます。質問・挨拶入りの付箋として配置され、自由に編集できます。' : ITEM_USAGE[selected.kind]}>
       {spawnButton(selected)}
     </ItemDetail> : <>
       <h2>アイテム <span className="sub">{session ? '目の前に出せる' : 'セッションの中で「出す」と使える'}</span></h2>

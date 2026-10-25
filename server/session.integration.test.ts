@@ -245,6 +245,37 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   const newcomer = await peer('newcomer', 'peer-five', undefined, true);
   assert.ok(newcomer.snapshot.chats.some((m: any) => m.id === publicEvent!.id));
   assert.deepEqual(newcomer.snapshot.items.find((i: any) => i.id === newCanvas.id).strokes, (publisher.localItems.get(newCanvas.id) as any).strokes);
+  const bikeA = await peer('bike-a', 'peer-five');
+  const bikeB = await peer('bike-b', 'peer-five');
+  for (const p of [bikeA, bikeB]) {
+    await p.send({ t: 'mode', mode: '3d' });
+    await p.send({ t: 'avatar', s: { x: 0, z: 0, ry: 0 } });
+  }
+  await bikeA.send({ t: 'itemCreate', kind: 'bike', x: 0, z: -2, ry: 0 });
+  const bike = await until(() => [...bikeA.localItems.values()].find(i => i.kind === 'bike'));
+  assert.ok(bike.kind === 'bike');
+  await Promise.all([bikeA, bikeB].map(p => p.send({ t: 'itemAction', id: bike.id, action: { a: 'bikeMount' } })));
+  const occupied = await until(() => {
+    const it = bikeA.localItems.get(bike.id);
+    return it?.kind === 'bike' && it.rider ? it : undefined;
+  });
+  const driver = occupied.rider === bikeA.id ? bikeA : bikeB;
+  const passenger = driver === bikeA ? bikeB : bikeA;
+  const state = { ...occupied, x: 0.5, speed: 2, roll: -0.1 };
+  await passenger.send({ t: 'itemAction', id: bike.id, action: { a: 'bikeDrive', state, rideVersion: occupied.rideVersion } });
+  await passenger.send({ t: 'itemAction', id: bike.id, action: { a: 'bikeDismount' } });
+  await passenger.send({ t: 'chat', text: 'bike ownership barrier', scope: 'all' });
+  await until(() => driver.received.find(v => v.message?.m?.text === 'bike ownership barrier'));
+  assert.equal((driver.localItems.get(bike.id) as typeof occupied).rider, driver.id);
+  assert.equal((driver.localItems.get(bike.id) as typeof occupied).speed, 0);
+  await driver.send({ t: 'itemAction', id: bike.id, action: { a: 'bikeDrive', state, rideVersion: occupied.rideVersion } });
+  await until(() => { const it = passenger.localItems.get(bike.id); return it?.kind === 'bike' && it.speed === 2 && it.roll === -0.1 ? it : undefined; });
+  await driver.send({ t: 'itemAction', id: bike.id, action: { a: 'bikeDismount' } });
+  await until(() => { const it = passenger.localItems.get(bike.id); return it?.kind === 'bike' && it.rider === null && it.speed === 0 ? it : undefined; });
+  await passenger.send({ t: 'itemAction', id: bike.id, action: { a: 'bikeMount' } });
+  await until(() => { const it = driver.localItems.get(bike.id); return it?.kind === 'bike' && it.rider === passenger.id ? it : undefined; });
+  passenger.home.close();
+  await until(() => { const it = driver.localItems.get(bike.id); return it?.kind === 'bike' && it.rider === null && it.speed === 0 ? it : undefined; });
   d.home.send(JSON.stringify({ t: 'leave' }));
   await until(() => !c.positions!.routes().some((r) => r.peer === d.cfg.peer) ? true : undefined);
   a.home.send(JSON.stringify({ t: 'leave' }));
