@@ -164,6 +164,7 @@ export function Player() {
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
     return () => {
+      if (world.camera === camera) { world.camera = null; world.scene = null; }
       document.removeEventListener('pointerlockchange', onLock);
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('contextmenu', onContextMenu);

@@ -179,6 +179,7 @@ export type Participant = User & Presence;
 /** ホーム画面が使う、セッションごとの軽い情報（中の状態そのものは部屋にいる人にしか届かない） */
 export interface SessionInfo {
   world: WorldKind;
+  thumbnail?: string;
   /** 置いてあるアイテムの要約（セッションカードと、メッセージに添えたアイテムの表示用） */
   items: { id: string; kind: ItemKind; summary: string }[];
 }
@@ -270,6 +271,7 @@ export interface SessionSnapshot {
 
 /** WebSocket でサーバーへ送るもの（セッションの外でも使う） */
 export type HomeClientMsg =
+  | { t: 'thumbnailUpload'; sid: string; thumbnail: string }
   | { t: 'marketLike'; product: string }
   | { t: 'hello'; id: string; name: string; compat?: number }
   | { t: 'join'; sid: string }
@@ -363,6 +365,7 @@ export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => m.t in ROOM
 
 /** WebSocket でサーバーから届くもの */
 export type HomeServerMsg =
+  | { t: 'thumbnailRequest'; sid: string }
   | { t: 'marketLikes'; counts: Record<string, number>; liked: string[] }
   /** 互換性バージョンが合わず接続を断るときに、切断の直前に送る */
   | { t: 'incompatible'; compat: number }
