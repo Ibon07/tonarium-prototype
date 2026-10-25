@@ -49,7 +49,7 @@ export function SessionCard({ s, showDelete }: { s: SessionDef; showDelete?: boo
       <div className="scbody">
         <div className="sctitle">
           <h3 title={s.topic}>{s.name}</h3>
-          <Chip kind={vis}>{(vis === 'group' || vis === 'groupPlus') && group ? <GroupAvatar group={group} size="tiny" /> : <Icon name={VIS_ICON[vis]} size={11} />}{(vis === 'group' || vis === 'groupPlus') && group ? `${group.name}${vis === 'groupPlus' ? '＋' : ''}` : VISIBILITY_INFO[vis].name}</Chip>
+          <Chip kind={vis}>{(vis === 'group' || vis === 'groupPlus') && group ? <GroupAvatar group={group} size="chip" /> : <Icon name={VIS_ICON[vis]} size={11} />}{(vis === 'group' || vis === 'groupPlus') && group ? `${group.name}${vis === 'groupPlus' ? '＋' : ''}` : VISIBILITY_INFO[vis].name}</Chip>
         </div>
         <span className="sub">{s.topic || `ワールド：${WORLDS[world].name}`}</span>
         {invitedByOwner && <span className="scinvited">{s.owner} から招待されています</span>}

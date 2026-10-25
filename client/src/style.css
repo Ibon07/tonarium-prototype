@@ -1053,6 +1053,7 @@ img.av { object-fit: cover; display: block; }
 .gmark.on { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ink2); }
 .gmark.big { width: 48px; height: 48px; font-size: 20px; border-radius: 14px; }
 .gmark.tiny { width: 26px; height: 26px; font-size: 12px; border-radius: 8px; }
+.gmark.chip { width: 16px; height: 16px; font-size: 9px; border-radius: 4px; flex-shrink: 0; }
 .gunread { position: absolute; top: -4px; right: -4px; width: 11px; height: 11px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 2px var(--paper); }
 .hself { display: flex; align-items: center; padding: 6px 4px 6px 6px; }
 .hselfst { flex: 1; min-width: 0; height: auto; padding: 4px; border-radius: 10px; justify-content: flex-start; gap: 10px; text-align: left; }
