@@ -27,7 +27,7 @@ import type { PeerOperation } from '../shared/session-events.ts';
 import { getOgp } from './ogp.ts';
 import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
-import { eliminate, gameOf, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
+import { clearGame, eliminate, gameOf, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
 import { chooseSurvivorGear, chooseSurvivorStyle, clearSurvivor, moveSurvivor, removeSurvivor, resetSurvivorUpgrades, rerollSurvivorChoice, startSurvivor, tickSurvivors, upgradeSurvivor, survivorOf, type SurvivorDeps } from './survivors.ts';
 import { newSurvivorProfile, SURVIVOR_META_UPGRADES, SURVIVOR_PROFILE_VERSION, SURVIVOR_TICK_MS, survivorUpgradeRefund, type SurvivorMetaUpgrade, type SurvivorProfile, type SurvivorStyle } from '../shared/survivor.ts';
 import { createSyncGrant, handleSyncOffer, upgradeSync, revokeSync, revokeUserSync, leaveRoom, livekitRoom, roomSend, roomSendSnapshot, shutdownRooms, type RoomHandlers } from './rooms.ts';
@@ -996,8 +996,15 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       home.sessions.splice(home.sessions.indexOf(def), 1);
       guild.sessions.splice(guild.sessions.indexOf(def), 1);
       sessionIds.delete(def.id);
+      worldOf.delete(def.id);
+      chats.delete(def.id);
+      avatars.delete(def.id);
+      items.delete(def.id);
+      broadcastMode.delete(def.id);
+      worldPending.delete(def.id);
       clearSurvivor(def.id);
-      items.get(def.id)?.clear();
+      clearGame(def.id);
+      resetElevator(def.id);
       broadcastSessionInfo();
       for (const ev of home.events) if (ev.session === def.id) ev.session = null;
       saveHome();
@@ -1193,6 +1200,8 @@ function onClose(ws: WebSocket, id: string | null) {
   const wasIn = !!u?.session;
   if (u) leaveSession(u);
   users.delete(id);
+  lastAttention.delete(id);
+  lastRoll.delete(id);
   broadcastUsers();
   if (wasIn) broadcastSessions();
   if (u && !isOnline(u.name)) {

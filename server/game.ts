@@ -78,3 +78,10 @@ export function resetGame(sid: string, d: GameDeps) {
   games.set(sid, next);
   d.sendGame(sid, next);
 }
+
+/** セッション自体が消えたとき用。resetGame と違って状態ごと消す */
+export const clearGame = (sid: string) => {
+  clearTimeout(resetTimers.get(sid));
+  resetTimers.delete(sid);
+  games.delete(sid);
+};
