@@ -1,4 +1,7 @@
 export default {
+  "doubleJumpSetting": "Double jump",
+  "leanSetting": "Lean left / right (Q / E)",
+  "leanControls": " · Q / E: lean left / right",
   "chatOriginal": "Original:",
   "chatSourceLanguage": "Spoken language: {0}",
   "chatLanguageUnknown": "Unknown",

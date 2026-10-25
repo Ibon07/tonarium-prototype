@@ -160,7 +160,8 @@ export function Avatar3D({ id, self = false, rig }: { id: string; self?: boolean
     if (self && rig) {
       g.visible = rig.thirdPerson;
       g.position.copy(rig.avatarPosition);
-      g.rotation.y = rig.yaw;
+      g.rotation.order = 'YXZ';
+      g.rotation.set(0, rig.yaw, rig.lean);
     }
     const b = bump(s.hits[id]);
     body.current?.scale.set(1 + 0.3 * b, 1 - 0.45 * b, 1 + 0.3 * b);
