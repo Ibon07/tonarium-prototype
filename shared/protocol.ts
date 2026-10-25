@@ -9,6 +9,13 @@ import type { PeerOperation } from './session-events.ts';
 
 export type Mode = '2d' | '3d';
 
+/**
+ * 互換性バージョン。画面の版（CLIENT_VERSION）とは別に、通信の約束事だけを見る。
+ * 約束事を壊す変更（メッセージの追加・意味の変更など）を入れたら +1 する。
+ * hello で申告が無い・一致しないクライアントはサーバーが接続を断ち、画面は全面で更新を促す（docs/sync.md）
+ */
+export const COMPAT_VERSION = 1;
+
 /** セッションを見られる人。省略時は public */
 export type Visibility = 'public' | 'friends' | 'groupPlus' | 'group' | 'invite';
 export const VISIBILITY_INFO: Record<Visibility, { name: string; desc: string }> = {
@@ -263,7 +270,7 @@ export interface SessionSnapshot {
 
 /** WebSocket でサーバーへ送るもの（セッションの外でも使う） */
 export type HomeClientMsg =
-  | { t: 'hello'; id: string; name: string }
+  | { t: 'hello'; id: string; name: string; compat?: number }
   | { t: 'join'; sid: string }
   | { t: 'leave' }
   | { t: 'prepareSync'; requestId: string; peerPositions?: boolean; peerDelivery?: boolean }
@@ -355,6 +362,8 @@ export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => m.t in ROOM
 
 /** WebSocket でサーバーから届くもの */
 export type HomeServerMsg =
+  /** 互換性バージョンが合わず接続を断るときに、切断の直前に送る */
+  | { t: 'incompatible'; compat: number }
   | { t: 'syncConfig'; requestId: string; config: SyncConfig }
   | { t: 'syncError'; requestId: string; error: string }
   | { t: 'syncReset'; sid: string }
@@ -385,6 +394,8 @@ export type RoomServerMsg =
   | { t: 'avatar'; sid: string; id: string; s: AvatarState }
   | { t: 'avatarRemove'; sid: string; id: string }
   | { t: 'item'; sid: string; item: Item }
+  /** 移動は中身を送らず位置だけ。受けた側は保持済みのアイテムへ適用する */
+  | { t: 'itemMove'; sid: string; id: string; x: number; z: number; ry: number }
   | { t: 'itemRemove'; sid: string; id: string }
   | { t: 'itemAction'; sid: string; id: string; action: ItemAction; by: string }
   | { t: 'hit'; sid: string; from: string; to: string }

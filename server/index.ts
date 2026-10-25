@@ -12,7 +12,7 @@ import type {
   AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, Recap, RoomClientMsg, Rsvp,
   ServerMsg, SessionDef, SessionInfo, StatusKind, User,
 } from '../shared/protocol.ts';
-import { PLAN_QUORUM, ROOM_HALF, STATUS_INFO, STATUS_TEXT_MAX, VISIBILITY_INFO, channelKey, isGroupVisibility } from '../shared/protocol.ts';
+import { COMPAT_VERSION, PLAN_QUORUM, ROOM_HALF, STATUS_INFO, STATUS_TEXT_MAX, VISIBILITY_INFO, channelKey, isGroupVisibility } from '../shared/protocol.ts';
 import { GROUP_COLORS, canSeeSession } from '../shared/home.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, isWorldKind, pushOut, type WorldKind } from '../shared/worlds.ts';
 import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, itemSummary, type Item } from '../shared/items.ts';
@@ -216,13 +216,22 @@ function registerSession(def: SessionDef) {
   avatars.set(def.id, new Map());
   items.set(def.id, new Map((savedItems[def.id] ?? []).map((it) => [it.id, settle(it)])));
 }
-let lastItemsJson = '';
-setInterval(() => {
-  const json = JSON.stringify(Object.fromEntries([...items].filter(([, m]) => m.size).map(([sid, m]) => [sid, [...m.values()]])));
-  if (json === lastItemsJson) return;
-  lastItemsJson = json;
-  fs.writeFile(ITEMS_FILE, json, () => {});
-}, 5000);
+/** アイテムが変わったセッションの印。保存は印があるときだけ文字列化する（無変更でも 5 秒ごとに全アイテムを文字列化していたのをやめる） */
+const dirtyItemSessions = new Set<string>();
+const markItemsDirty = (sid: string) => { dirtyItemSessions.add(sid); };
+const itemsJson = () => JSON.stringify(Object.fromEntries([...items].filter(([, m]) => m.size).map(([sid, m]) => [sid, [...m.values()]])));
+function saveItems() {
+  if (!dirtyItemSessions.size) return;
+  dirtyItemSessions.clear();
+  fs.writeFile(ITEMS_FILE, itemsJson(), () => {});
+}
+/** 終了時は保留分をその場で書き出す */
+function flushItems() {
+  if (!dirtyItemSessions.size) return;
+  dirtyItemSessions.clear();
+  try { fs.writeFileSync(ITEMS_FILE, itemsJson()); } catch { /* noop */ }
+}
+setInterval(saveItems, 5000);
 
 interface PersonRec { status: StatusKind; statusText: string; recent: string[]; lastSeen: number | null; watchers: string[] }
 const people = nullRecord(readJson<Record<string, PersonRec>>(PEOPLE_FILE, {}));
@@ -446,12 +455,33 @@ const allSessionInfo = () => Object.fromEntries([...sessionIds].map((sid) => [si
 /** アイテムやワールドが変わったら、ホーム向けの軽い情報を全員に配り直す（続けて起きた変更はまとめる） */
 const broadcastSessionInfo = later(() => broadcast({ t: 'sessionInfo', sessions: allSessionInfo() }), 300);
 function sendItem(sid: string, it: Item) {
+  markItemsDirty(sid);
   roomSend(sid, { t: 'item', sid, item: it });
   broadcastSessionInfo();
 }
 function sendItemRemove(sid: string, id: string) {
+  markItemsDirty(sid);
   roomSend(sid, { t: 'itemRemove', sid, id });
   broadcastSessionInfo();
+}
+/** 移動の配信は位置だけにし、アイテムごとに間引く。止まったときの最後の位置は必ず届ける */
+const ITEM_MOVE_MS = 80;
+const itemMoveSentAt = new Map<string, number>();
+const itemMoveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function broadcastItemMove(sid: string, it: Item) {
+  markItemsDirty(sid);
+  const key = `${sid}\0${it.id}`;
+  const send = () => {
+    itemMoveSentAt.set(key, Date.now());
+    roomSend(sid, { t: 'itemMove', sid, id: it.id, x: it.x, z: it.z, ry: it.ry });
+  };
+  const wait = ITEM_MOVE_MS - (Date.now() - (itemMoveSentAt.get(key) ?? 0));
+  if (wait <= 0) { send(); return; }
+  if (itemMoveTimers.has(key)) return;
+  itemMoveTimers.set(key, setTimeout(() => {
+    itemMoveTimers.delete(key);
+    if (items.get(sid)?.get(it.id) === it) send();
+  }, wait));
 }
 function sendSessionSnapshot(sid: string, id: string) {
   roomSendSnapshot(sid, id, {
@@ -582,6 +612,12 @@ function leaveSession(u: Participant) {
 
 function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string }, msg: ClientMsg) {
   if (msg.t === 'hello') {
+    // 互換性バージョンが違う（申告が無い旧クライアントを含む）と通信の約束事が食い違うので、状態を渡さず接続を断つ
+    if (msg.compat !== COMPAT_VERSION) {
+      send(ws, { t: 'incompatible', compat: COMPAT_VERSION });
+      ws.close();
+      return;
+    }
     // __proto__ は ID として受け付けない。レコードのキーや msgpack のマップキーに流れると壊れるため（正規クライアントの ID は UUID で、該当しない）
     if (msg.id === '__proto__') return;
     state.id = msg.id;
@@ -878,8 +914,12 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     case 'itemMove': {
       const it = sessItems.get(msg.id);
       if (!it || (it.kind === 'hammer' && it.holder)) return;
-      Object.assign(it, placeIn(sid, msg.x, msg.z, itemRadius(it) * 0.6), { ry: finNum(msg.ry) });
-      sendItem(sid, it);
+      const p = placeIn(sid, msg.x, msg.z, itemRadius(it) * 0.6);
+      const ry = finNum(msg.ry);
+      // 位置が変わっていなければ送らない
+      if (p.x === it.x && p.z === it.z && ry === it.ry) return;
+      it.x = p.x; it.z = p.z; it.ry = ry;
+      broadcastItemMove(sid, it);
       return;
     }
     case 'itemAction': {
@@ -899,6 +939,8 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
       }
       if (msg.action.a === 'drop') Object.assign(msg.action, placeIn(sid, msg.action.x, msg.action.z, 0.3));
       if (!applyItemAction(it, msg.action, me.id, Math.random)) return;
+      // 差分だけ配る経路は sendItem を通らないので、保存の印はここで付ける
+      markItemsDirty(sid);
       // 旧クライアントだけは手元で適用済み。
       if (isDeltaAction(msg.action)) roomSend(sid, { t: 'itemAction', sid, id: it.id, action: msg.action, by: me.id }, peerEvent ? undefined : othersIn(sid, me.id));
       else sendItem(sid, it);
@@ -1017,6 +1059,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       chats.delete(def.id);
       avatars.delete(def.id);
       items.delete(def.id);
+      markItemsDirty(def.id);
       broadcastMode.delete(def.id);
       worldPending.delete(def.id);
       clearSurvivor(def.id);
@@ -1425,6 +1468,7 @@ setInterval(() => {
 for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => {
   // 遅延保存の保留分は落とす前に書き出す。broadcast の later は保存ではないので対象外
   saveSurvivorProfiles.flush();
+  flushItems();
   saveHome.flush();
   savePeople.flush();
   saveInbox.flush();
