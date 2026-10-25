@@ -152,7 +152,8 @@ export interface SurvivorProfile {
 }
 
 export const newSurvivorState = (): SurvivorState => ({
-  run: 0, phase: 'lobby', startedAt: 0, endedAt: null, pausedAt: null, players: {}, enemies: [], projectiles: [], effects: [], stylePicks: {},
+  // players / stylePicks はユーザー ID がキー。prototype を持たせないことで __proto__ 等も通常のキーとして扱う
+  run: 0, phase: 'lobby', startedAt: 0, endedAt: null, pausedAt: null, players: Object.create(null), enemies: [], projectiles: [], effects: [], stylePicks: Object.create(null),
   kills: 0, spawnIndex: 0, nextSpawnAt: 0, randomSeed: 1, bossDefeated: false, bossesSpawned: 0,
   spawnGrowthPausedAt: null, spawnGrowthPausedUntil: 0, spawnGrowthPausedMs: 0,
 });

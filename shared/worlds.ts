@@ -122,7 +122,7 @@ export const WORLDS: Record<WorldKind, WorldInfo> = {
 export const WORLD_COUNTDOWN_MS = 3000;
 
 export const WORLD_KINDS = Object.keys(WORLDS) as WorldKind[];
-export const isWorldKind = (v: unknown): v is WorldKind => typeof v === 'string' && v in WORLDS;
+export const isWorldKind = (v: unknown): v is WorldKind => typeof v === 'string' && Object.hasOwn(WORLDS, v);
 
 /** 背の高さ。高さのある当たり判定は、足元 y からこの高さまでと重なるときだけ効く */
 const BODY_H = 1.7;

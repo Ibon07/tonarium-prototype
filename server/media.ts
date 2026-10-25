@@ -69,7 +69,7 @@ export function serveMedia(req: http.IncomingMessage, res: http.ServerResponse, 
   const name = path.basename(pathname);
   const ext = name.split('.').pop() ?? '';
   const file = path.join(MEDIA_DIR, name);
-  if (!/^[0-9a-f-]{36}\.\w+$/.test(name) || !TYPES[ext] || !fs.existsSync(file)) { res.statusCode = 404; res.end(); return; }
+  if (!/^[0-9a-f-]{36}\.\w+$/.test(name) || !Object.hasOwn(TYPES, ext) || !fs.existsSync(file)) { res.statusCode = 404; res.end(); return; }
   const total = fs.statSync(file).size;
   res.setHeader('Content-Type', TYPES[ext]);
   res.setHeader('Accept-Ranges', 'bytes');
