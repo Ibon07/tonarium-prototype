@@ -8,6 +8,11 @@ export interface ChangelogEntry {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: '2026-10-25',
+    title: '変更履歴の記載漏れを防止',
+    items: ['今後の変更は、変更履歴に新しい項目がないとチェックを通過しないようにしました。'],
+  },
+  {
+    date: '2026-10-25',
     title: 'アイテムの詳細画面と3Dプレビューを追加',
     items: ['アイテム一覧から説明や使い方を確認し、3D 対応アイテムの姿を回転・拡大して見られます。', '標準アイテム 8 種に挿絵を追加しました。'],
     tag: '新機能',
