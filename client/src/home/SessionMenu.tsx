@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore, set, sessionOf } from '../store.ts';
 import { Icon } from '../world/Icon.tsx';
 import { Home, Sidebar } from './Home.tsx';
+import { touchOnly } from '../phone.ts';
 
 /** セッション中に、背面を暗くぼかしてホームをシートで重ねる。Esc か背面のクリックで閉じる */
 function HomeOverlay() {
@@ -29,7 +30,7 @@ export function SessionMenu() {
   const [hover, setHover] = useState(false);
   // 項目へ動かす途中で一瞬外れても閉じないよう、少し待ってから閉じる
   const timer = useRef(0);
-  const enter = () => { clearTimeout(timer.current); setHover(true); };
+  const enter = () => { if (!touchOnly) { clearTimeout(timer.current); setHover(true); } };
   const leave = () => { timer.current = window.setTimeout(() => setHover(false), 180); };
   const show = hover && !hubOpen;
   return (
