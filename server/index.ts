@@ -48,6 +48,7 @@ const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
 const PROFILE_DIR = path.join(DATA_DIR, 'profiles');
 const FRIENDS_FILE = path.join(DATA_DIR, 'friends.json');
 const HOME_FILE = path.join(DATA_DIR, 'home.json');
+const GROUP_IMAGE_DIR = path.join(DATA_DIR, 'group-images');
 const REPORTS_FILE = path.join(DATA_DIR, 'reports.log');
 const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
 const PEOPLE_FILE = path.join(DATA_DIR, 'people.json');
@@ -70,7 +71,7 @@ function later(fn: () => void, ms = 800) {
   trigger.flush = () => { if (t) { clearTimeout(t); run(); } };
   return trigger;
 }
-for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR]) fs.mkdirSync(d, { recursive: true });
+for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR, GROUP_IMAGE_DIR]) fs.mkdirSync(d, { recursive: true });
 const MARKET_LIKES_FILE = path.join(DATA_DIR, 'market-likes.json');
 const marketLikes = new MarketLikes(readJson<unknown>(MARKET_LIKES_FILE, {}));
 const saveMarketLikes = later(() => fs.writeFileSync(MARKET_LIKES_FILE, JSON.stringify(marketLikes.serialize())));
@@ -140,6 +141,7 @@ function avatarVersion(name: string) {
   return v ? String(v) : null;
 }
 const isJpeg = (b: Buffer) => b[0] === 0xff && b[1] === 0xd8;
+const ICON_MAX_BYTES = 300_000;
 const isPng = (b: Buffer) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
 
 async function readBody(req: http.IncomingMessage, limit: number) {
@@ -162,7 +164,17 @@ try { Object.assign(home, JSON.parse(fs.readFileSync(HOME_FILE, 'utf-8'))); } ca
 home.renamed = nullRecord(home.renamed);
 for (const d of guild.sessions) d.name = home.renamed[d.id] ?? d.name;
 const defaultChannels = () => [{ id: 'general', name: '雑談' }];
-for (const g of home.groups) if (!g.channels?.length) g.channels = defaultChannels();
+for (const g of home.groups) {
+  if (!g.channels?.length) g.channels = defaultChannels();
+  g.editors = [...new Set((g.editors ?? []).filter((n) => n !== g.owner && g.members.includes(n)))];
+}
+const canEditGroup = (g: Group, name: string) => g.owner === name || !!g.editors?.includes(name);
+const groupImageFile = (g: Group, ext = 'jpg') => path.join(GROUP_IMAGE_DIR, `${g.id}.${ext}`);
+function deleteGroupImages(g: Group, keep?: string) {
+  for (const ext of ['jpg', 'jpeg', 'png', 'webp']) {
+    if (ext !== keep) fs.rmSync(groupImageFile(g, ext), { force: true });
+  }
+}
 for (const ev of home.events) { ev.maybe ??= []; ev.declined ??= []; }
 guild.sessions.push(...home.sessions);
 /** 開始から 30 日以上過ぎたイベントは残さない。当日のものや開始時刻が読めないものは消さない */
@@ -1087,9 +1099,24 @@ function handleHome(me: User, msg: ClientMsg): boolean {
     case 'groupCreate': {
       const name = trimTo(msg.name, 40);
       if (!name) return true;
-      home.groups.push({ id: shortId(), name, color: GROUP_COLORS.includes(msg.color) ? msg.color : GROUP_COLORS[0], owner: me.name, members: [me.name], channels: defaultChannels() });
+      home.groups.push({ id: shortId(), name, color: GROUP_COLORS.includes(msg.color) ? msg.color : GROUP_COLORS[0], owner: me.name, editors: [], members: [me.name], channels: defaultChannels() });
       saveHome();
       broadcastGroups();
+      return true;
+    }
+    case 'groupUpdate': {
+      const g = home.groups.find((x) => x.id === msg.groupId);
+      if (!g || !canEditGroup(g, me.name)) return true;
+      let changed = false;
+      if (typeof msg.name === 'string') {
+        const name = trimTo(msg.name, 40);
+        if (name && name !== g.name) { g.name = name; changed = true; }
+      }
+      if (g.owner === me.name && Array.isArray(msg.editors)) {
+        g.editors = [...new Set(msg.editors.filter((n) => typeof n === 'string' && n !== g.owner && g.members.includes(n)))];
+        changed = true;
+      }
+      if (changed) { saveHome(); broadcastGroups(); }
       return true;
     }
     case 'groupJoin':
@@ -1098,6 +1125,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       if (!g) return true;
       if (msg.t === 'groupJoin' && !g.members.includes(me.name)) g.members.push(me.name);
       if (msg.t === 'groupLeave') g.members = g.members.filter((n) => n !== me.name);
+      g.editors = g.editors?.filter((n) => g.members.includes(n));
       saveHome();
       broadcastGroups();
       broadcastSessions();
@@ -1204,6 +1232,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       const g = home.groups.find((x) => x.id === msg.id && x.owner === me.name);
       if (!g) return true;
       home.groups.splice(home.groups.indexOf(g), 1);
+      deleteGroupImages(g);
       // グループ限定だったセッションは作った人だけに残す
       for (const d of home.sessions) if (d.group === g.id) { d.visibility = 'invite'; d.group = undefined; }
       for (const ev of home.events) if (ev.group === g.id) ev.group = null;
@@ -1294,10 +1323,35 @@ const server = http.createServer(async (req, res) => {
   let url: URL;
   try { url = new URL(req.url ?? '/', 'http://x'); } catch { res.statusCode = 400; res.end('bad path'); return; }
   if (url.pathname === '/sync/offer') { await handleSyncOffer(req, res); return; }
+  if (url.pathname.startsWith('/group-image/')) {
+    const g = home.groups.find((x) => x.id === url.pathname.slice('/group-image/'.length));
+    if (req.method === 'POST') {
+      const name = url.searchParams.get('name') ?? '';
+      if (!g || !canEditGroup(g, name)) { res.statusCode = 204; res.end(); return; }
+      const body = await readBody(req, ICON_MAX_BYTES);
+      if (!body || !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
+      // 読み込み中の脱退・権限変更・削除も反映する。
+      if (!home.groups.includes(g) || !canEditGroup(g, name)) { res.statusCode = 204; res.end(); return; }
+      fs.writeFileSync(groupImageFile(g), body);
+      deleteGroupImages(g, 'jpg');
+      g.imageVersion = (g.imageVersion ?? 0) + 1;
+      saveHome();
+      broadcastGroups();
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ imageVersion: g.imageVersion }));
+      return;
+    }
+    if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
+    if (!g || !fs.existsSync(groupImageFile(g))) { res.statusCode = 404; res.end(); return; }
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', url.searchParams.get('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
+    fs.createReadStream(groupImageFile(g)).pipe(res);
+    return;
+  }
   if (url.pathname === '/icon') {
     const name = url.searchParams.get('name') ?? '';
     if (req.method === 'POST') {
-      const body = await readBody(req, 300_000);
+      const body = await readBody(req, ICON_MAX_BYTES);
       if (!body || !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
       fs.writeFileSync(iconFile(name), body);
       res.end(JSON.stringify({ icon: iconVersion(name) }));

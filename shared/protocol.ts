@@ -122,6 +122,8 @@ export interface Group {
   name: string;
   color: string;
   owner: string;
+  imageVersion?: number;
+  editors?: string[];
   /** メンバーの名前 */
   members: string[];
   /** 先頭が既定のチャンネル（セッションのまとめもここに残る） */
@@ -282,6 +284,7 @@ export type HomeClientMsg =
   | { t: 'sessionCreate'; name: string; topic: string; world: WorldKind; visibility: Visibility; group?: string }
   | { t: 'sessionDelete'; id: string }
   | { t: 'groupCreate'; name: string; color: string }
+  | { t: 'groupUpdate'; groupId: string; name?: string; editors?: string[] }
   | { t: 'groupJoin'; id: string }
   | { t: 'groupLeave'; id: string }
   | { t: 'groupDelete'; id: string }

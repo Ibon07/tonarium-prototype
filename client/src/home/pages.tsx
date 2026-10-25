@@ -1,3 +1,4 @@
+import { GroupAvatar } from './GroupAvatar.tsx';
 import { useOwnedItems, type OwnedItem } from '../market/items.ts';
 import { contentAvailable, productFor } from '../../../shared/market.ts';
 import { useOwnedContent } from '../market/store.ts';
@@ -314,7 +315,7 @@ function GroupRow({ g }: { g: Group }) {
   const member = g.members.includes(selfName);
   return (
     <div className="grow">
-      <span className="gmark" style={{ background: g.color }}>{g.name.slice(0, 1)}</span>
+      <GroupAvatar group={g} />
       <span className="ginfo">
         <button className="ib glink" onClick={() => openGroup(g.id)}><b>{g.name}</b><Icon name="right" size={13} /></button>
         <span className="sub">{g.members.length} 人 · セッション {sessions.length} 件 · {g.owner} が作成</span>

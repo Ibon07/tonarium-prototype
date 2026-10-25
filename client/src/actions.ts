@@ -147,6 +147,7 @@ export const createSession = (name: string, topic: string, world: WorldKind, vis
   send({ t: 'sessionCreate', name, topic, world, visibility, group });
 export const deleteSession = (id: string) => send({ t: 'sessionDelete', id });
 export const createGroup = (name: string, color: string) => send({ t: 'groupCreate', name, color });
+export const updateGroup = (groupId: string, changes: { name?: string; editors?: string[] }) => send({ t: 'groupUpdate', groupId, ...changes });
 export const joinGroup = (id: string) => send({ t: 'groupJoin', id });
 export const leaveGroup = (id: string) => send({ t: 'groupLeave', id });
 export const deleteGroup = (id: string) => send({ t: 'groupDelete', id });

@@ -21,6 +21,7 @@ import { SessionCard } from './SessionCard.tsx';
 import { CreateSessionDialog } from './dialogs.tsx';
 import { EventsPage, FriendTile, FriendsPage, GroupsPage, ItemsPage, SessionsPage, WORLD_FACE, WorldsPage, friendsIn, goHome } from './pages.tsx';
 import { GroupActions, GroupPage, GroupTitle } from './GroupPage.tsx';
+import { GroupAvatar } from './GroupAvatar.tsx';
 import { StatusDialog, StatusDot, StatusText, useStatusOf } from './status.tsx';
 import { Chip, Empty, EventAnswer, EventHost, NameFace, WEEKDAYS, dateKey, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
 import { touchOnly, usePhone } from '../phone.ts';
@@ -116,7 +117,7 @@ export function Sidebar({ inSession, onPick }: { inSession?: boolean; onPick?: (
               const on = page === 'group' && homeGroup === g.id;
               return (
                 <button key={g.id} className={`gmark ${on ? 'on' : ''}`} style={{ background: g.color }} title={g.name} aria-label={`${g.name}${has ? '（未読あり）' : ''}`} onClick={() => { openGroup(g.id); picked(); }}>
-                  {g.name.slice(0, 1)}{has && <i className="gunread" />}
+                  <GroupAvatar group={g} />{has && <i className="gunread" />}
                 </button>
               );
             })}
