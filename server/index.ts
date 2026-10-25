@@ -474,6 +474,8 @@ const roomHandlers: RoomHandlers = {
 };
 const modeLabel = (m: Mode) => (m === '3d' ? '3D' : '2D');
 const clampRoom = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
+/** クライアント由来の数値を有限数にする（NaN や Infinity が共有状態に残らないように） */
+const finNum = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const solidsOf = (sid: string) => WORLDS[worldOf.get(sid) ?? 'room'].solids;
 /** 部屋（街なら街）の中に収め、家具にめり込んでいたら外へ出す。アイテムと 2D の人は地上にいる */
 function placeIn(sid: string, x: number, z: number, r: number) {
@@ -482,10 +484,11 @@ function placeIn(sid: string, x: number, z: number, r: number) {
   const clamp = (v: number, axis: 'x' | 'z') => world === 'city' ? clampCity(v) : extent
     ? Math.max(axis === 'x' ? extent.minX : extent.minZ, Math.min(axis === 'x' ? extent.maxX : extent.maxZ, v))
     : clampRoom(v);
-  const p = pushOut(clamp(x, 'x'), clamp(z, 'z'), r, solidsOf(sid));
+  // クライアント由来の NaN がそのまま保存・永続化されるのを防ぐ関所（有限でなければ 0 に倒してから収める）
+  const p = pushOut(clamp(finNum(x), 'x'), clamp(finNum(z), 'z'), r, solidsOf(sid));
   return { x: clamp(p.x, 'x'), z: clamp(p.z, 'z') };
 }
-const clamp2d = (sid: string, p: AvatarState): AvatarState => ({ ...placeIn(sid, p.x, p.z, PERSON_R), ry: p.ry });
+const clamp2d = (sid: string, p: AvatarState): AvatarState => ({ ...placeIn(sid, p.x, p.z, PERSON_R), ry: finNum(p.ry) });
 
 /** 配信ディスプレイを本人の 1.3m 前の床に、本人の方へ向けて立てる */
 function placeDisplay(sid: string, u: Participant, av: AvatarState) {
@@ -852,7 +855,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
         }
       }
       const it = createItem(msg.kind, {
-        id: randomUUID(), x: at.x, z: at.z, ry: msg.ry, createdBy: me.id,
+        id: randomUUID(), x: at.x, z: at.z, ry: finNum(msg.ry), createdBy: me.id,
       }, Math.random, msg.media);
       if (!it) return;
       if (it.kind === 'note' && msg.text) it.text = msg.text.slice(0, 300);
@@ -871,7 +874,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     case 'itemMove': {
       const it = sessItems.get(msg.id);
       if (!it || (it.kind === 'hammer' && it.holder)) return;
-      Object.assign(it, placeIn(sid, msg.x, msg.z, itemRadius(it) * 0.6), { ry: msg.ry });
+      Object.assign(it, placeIn(sid, msg.x, msg.z, itemRadius(it) * 0.6), { ry: finNum(msg.ry) });
       sendItem(sid, it);
       return;
     }
