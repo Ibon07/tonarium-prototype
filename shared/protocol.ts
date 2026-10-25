@@ -14,7 +14,7 @@ export type Mode = '2d' | '3d';
  * 約束事を壊す変更（メッセージの追加・意味の変更など）を入れたら +1 する。
  * hello で申告が無い・一致しないクライアントはサーバーが接続を断ち、画面は全面で更新を促す（docs/sync.md）
  */
-export const COMPAT_VERSION = 1;
+export const COMPAT_VERSION = 2;
 
 /** セッションを見られる人。省略時は public */
 export type Visibility = 'public' | 'friends' | 'groupPlus' | 'group' | 'invite';
@@ -272,14 +272,14 @@ export interface SessionSnapshot {
 export type HomeClientMsg =
   | { t: 'marketLike'; product: string }
   | { t: 'hello'; id: string; name: string; compat?: number }
-  | { t: 'join'; sid: string }
-  | { t: 'leave' }
+  | { t: 'join'; sid: string; requestId?: string }
+  | { t: 'leave'; requestId?: string }
   | { t: 'prepareSync'; requestId: string; peerPositions?: boolean; peerDelivery?: boolean }
   /** /icon・/avatar・/profile へ保存した後に、同じ名前のオンラインの人へ反映させる */
   | { t: 'profileUpdated' }
   | { t: 'friendRequest'; to: string }
   | { t: 'friendAccept'; to: string }
-  | { t: 'sessionCreate'; name: string; topic: string; world: WorldKind; visibility: Visibility; group?: string }
+  | { t: 'sessionCreate'; name: string; topic: string; world: WorldKind; visibility: Visibility; group?: string; requestId?: string }
   | { t: 'sessionDelete'; id: string }
   | { t: 'groupCreate'; name: string; color: string }
   | { t: 'groupJoin'; id: string }
@@ -363,6 +363,8 @@ export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => m.t in ROOM
 
 /** WebSocket でサーバーから届くもの */
 export type HomeServerMsg =
+  | { t: 'sessionCreated'; sid: string; requestId?: string }
+  | { t: 'sessionResult'; requestId: string; error?: string }
   | { t: 'marketLikes'; counts: Record<string, number>; liked: string[] }
   /** 互換性バージョンが合わず接続を断るときに、切断の直前に送る */
   | { t: 'incompatible'; compat: number }

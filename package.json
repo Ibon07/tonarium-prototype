@@ -12,6 +12,7 @@
     "test:chess": "tsx --test shared/chess.test.ts server/chess-ai.test.ts",
     "test:sync": "tsx --test shared/session-wire.test.ts shared/session-position.test.ts shared/session-events.test.ts server/ws-heartbeat.test.ts",
     "test:client": "tsx --test client/src/sessionView.test.ts client/src/nearby.test.ts client/src/voiceHeat.test.ts client/src/placesMemo.test.ts",
+    "test:session-actions": "node --experimental-test-module-mocks --test client/src/actions.test.mjs client/src/net/ws.test.mjs",
     "test:sync:integration": "tsx --test server/session.integration.test.ts",
     "electron:dev": "npm --prefix electron start",
     "electron:test": "npm --prefix electron test",
