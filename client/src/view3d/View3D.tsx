@@ -122,9 +122,14 @@ export function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
     if (!g) return;
     const state = self ? get().selfAvatar : get().avatars[id];
     if (!state) return;
-    const k = Math.min(1, dt * 10);
     const r = state.ride;
-    if (r && !self) {
+    const bike = Object.values(get().items).find(i => i.kind === 'bike' && i.rider === id);
+    const k = bike ? 1 - Math.exp(-12 * dt) : Math.min(1, dt * 10);
+    if (bike) {
+      ride.current = null;
+      g.position.x += (bike.x - g.position.x) * k;
+      g.position.z += (bike.z - g.position.z) * k;
+    } else if (r && !self) {
       const L = ride.current;
       if (!L || L.car !== r.car) ride.current = { ...r };
       else {
@@ -143,9 +148,10 @@ export function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
     }
     const j = jump.current;
     if ((state.jump ?? 0) !== j.n) { j.n = state.jump ?? 0; j.at = performance.now(); }
-    if (state.y !== undefined) g.position.y += (state.y - g.position.y) * Math.min(1, dt * 15);
+    if (bike) g.position.y = 0;
+    else if (state.y !== undefined) g.position.y += (state.y - g.position.y) * Math.min(1, dt * 15);
     else g.position.y = jumpHeight(performance.now() - j.at);
-    const targetRy = ride.current && r ? carPose(serverNow(), r.car).ry + ride.current.ry : state.ry;
+    const targetRy = bike ? bike.ry : ride.current && r ? carPose(serverNow(), r.car).ry + ride.current.ry : state.ry;
     let d = targetRy - g.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     g.rotation.y += ride.current ? d : d * k;

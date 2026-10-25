@@ -20,8 +20,50 @@ import { Camera3D } from './camera3d.tsx';
 import { Label } from './Label.tsx';
 import { removable, useFollow } from './itemHelpers.ts';
 import { Dice3D } from './dice3d.tsx';
+import { bikeDisplay, requestBikeMount } from './bikeControl.ts';
+import { angleDelta } from '../../../shared/vehicle.ts';
+import { createBikeAudio } from './bikeAudio.ts';
+import { BikeModel } from './BikeModel.tsx';
 
 const TABLE_Y = 0.78;
+
+function Bike3D({ item }: { item: Extract<Item, { kind: 'bike' }> }) {
+  const sound = useRef<ReturnType<typeof createBikeAudio> | null>(null);
+  useEffect(() => {
+    sound.current = createBikeAudio();
+    return () => { sound.current?.dispose(); sound.current = null; };
+  }, []);
+  const ref = useRef<THREE.Group>(null);
+  const lean = useRef<THREE.Group>(null);
+  const front = useRef<THREE.Group>(null);
+  const wheels = useRef<(THREE.Group | null)[]>([]);
+  const initial = useRef({ position: [item.x, 0, item.z] as [number, number, number], ry: item.ry });
+  const rotation = useRef(item.wheel);
+  useFrame(({ camera }, dt) => {
+    const g = ref.current;
+    if (!g) return;
+    const local = bikeDisplay.get(item.id);
+    const state = local ?? item;
+    const distance = Math.hypot(camera.position.x - state.x, camera.position.z - state.z);
+    sound.current?.update(item.rider, state.speed, state.slipping, Math.max(0, 1 - distance / 18));
+    const c = !item.rider && carrying.current?.id === item.id ? carrying.current : null;
+    const k = local || c ? 1 : 1 - Math.exp(-12 * dt);
+    g.position.x += ((c?.x ?? state.x) - g.position.x) * k;
+    g.position.z += ((c?.z ?? state.z) - g.position.z) * k;
+    g.rotation.y += angleDelta(c?.ry ?? state.ry, g.rotation.y) * k;
+    if (lean.current) lean.current.rotation.z += (state.roll - lean.current.rotation.z) * k;
+    if (front.current) front.current.rotation.y = -state.steer;
+    rotation.current += (state.wheel - rotation.current) * k;
+    wheels.current.forEach(w => { if (w) w.rotation.x = -rotation.current; });
+  });
+  const data: Interactable = item.rider ? { hint: `${nameOf(item.rider)} が運転中` } : {
+    ...removable(item), bike: item.id, hint: 'E / クリック: 乗車（3m以内） ・ W/↑: アクセル ・ S/↓: ブレーキ ・ A/D: ハンドル',
+    use: () => requestBikeMount(item.id),
+  };
+  return <group ref={ref} position={initial.current.position} rotation-y={initial.current.ry} userData={data}>
+    <BikeModel lean={lean} front={front} wheelRef={(index, g) => { wheels.current[index] = g; }} />
+  </group>;
+}
 
 function Note3D({ item }: { item: Item & { kind: 'note' } }) {
   const selfId = useStore((s) => s.selfId);
@@ -307,6 +349,7 @@ export function AttentionGlow({ item }: { item: Item }) {
 
 export function Item3D({ item }: { item: Item }) {
   switch (item.kind) {
+    case 'bike': return <Bike3D item={item} />;
     case 'image': return <Image3D item={item} />;
     case 'video': return <Video3D item={item} />;
     case 'youtube': return <YouTube3D item={item} />;

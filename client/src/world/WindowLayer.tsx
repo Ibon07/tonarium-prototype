@@ -139,6 +139,7 @@ function useResolved(key: string, compact: boolean): Resolved | null {
     };
   }
   if (item.kind === 'dice') return { kind: 'dice', dark: false, item, title: ITEM_INFO.dice.name, sub, width: 400, body: <DiceBody item={item} interactive={!compact} /> };
+  if (item.kind === 'bike') return { kind: 'panel', dark: false, item, title: ITEM_INFO.bike.name, sub, width: 360, body: <p>{ITEM_INFO.bike.desc}</p> };
   if (item.kind === 'note') return { kind: 'note', dark: false, item, title: itemLabel(item), sub, width: 320, body: <NoteBody note={item} /> };
   const panel = PANELS[item.kind];
   if (!panel) return null;
