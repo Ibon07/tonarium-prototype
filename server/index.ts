@@ -1773,7 +1773,13 @@ const server = http.createServer(async (req, res) => {
   fs.createReadStream(file).pipe(res);
 });
 
-const wss = new WebSocketServer({ noServer: true });
+/** ホーム WS で正当に届く最大のメッセージは thumbnailUpload（サムネイル画像 64KiB の data URL で約 87.5KB。
+ * server/thumbnails.ts の THUMBNAIL_MAX_BYTES と受付形式から算出）。それ以外のホーム用メッセージは
+ * 長くても数 KB（文章は各所で 2,000 字までに切り詰められる）。上限はその最大の約 12 倍に置き、
+ * 既定の 100MB 級フレームを受けて JSON.parse まで進むのをやめる。セッション内の操作（チャットの画像など）は
+ * このソケットではなく kokosync 側を通るので、ここには含めない */
+const HOME_WS_MAX_PAYLOAD = 1024 * 1024;
+const wss = new WebSocketServer({ noServer: true, maxPayload: HOME_WS_MAX_PAYLOAD });
 keepHomeSocketsAlive(wss);
 server.on('upgrade', (req, socket, head) => {
   // リクエスト側と同じく、壊れた URL で例外にして落とさない
@@ -1785,6 +1791,9 @@ server.on('upgrade', (req, socket, head) => {
 });
 wss.on('connection', (ws) => {
   const state = { id: null as string | null };
+  // maxPayload 超過などで ws が 'error' を出す。接続を閉じるのは ws 側が行う (超過時は 1009) が、
+  // リスナーが無いと例外として投げられプロセスごと落ちるため、受けるだけのハンドラを置く
+  ws.on('error', () => {});
   ws.on('message', (raw) => {
     try { handle(ws, state, JSON.parse(String(raw)) as ClientMsg); }
     catch (e) { console.error('bad message', e); }
