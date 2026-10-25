@@ -61,7 +61,7 @@ Native Linux、Native Windows、Electron Linux、Electron Windowsの4ジョブ�
 
 NativeはUbuntu runner上でUnityのWindows/Linux Monoプレイヤーと.NET 10の自己完結クライアントをビルドする。Unityの版は `ProjectVersion.txt` を使用する。Actions Secretsに `UNITY_EMAIL`・`UNITY_PASSWORD` と `UNITY_LICENSE`（Personal）または `UNITY_SERIAL`（Pro）が必要。[GameCIの認証手順](https://game.ci/docs/github/activation/)を参照。認証未設定やUnityビルド失敗でもElectronのビルド・公開は継続する。
 
-Electronは別のUbuntu runnerで `electron/package-lock.json` から依存を導入し、Linux AppImage／tar.gzとWindows ZIP／NSISインストーラーを作る。Unityや.NET、Web本体のビルドは不要。リモートWebの更新は再読み込みで反映する。
+ElectronはLinux版をUbuntu runner、Windows版をWindows runnerでビルドする。それぞれ `electron/package-lock.json` から依存を導入し、Linux AppImage／tar.gzとWindows ZIP／NSISインストーラーを作る。Unityや.NET、Web本体のビルドは不要。リモートWebの更新は再読み込みで反映する。
 
 公開先は全ジョブで同じ `nightly` prerelease。Nativeは固定名、Electronはバージョンを含む名前で公開する。自分のクライアント・OSの成果物だけを更新する。
 

@@ -223,6 +223,14 @@ class PublishTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_electron_uses_native_runners_for_installers(self):
+        workflow = self.workflow('native-nightly.yml')
+        electron = workflow['jobs']['electron']
+        self.assertEqual(electron['runs-on'], '${{ matrix.os }}')
+        runners = {entry['runtime']: entry['os'] for entry in electron['strategy']['matrix']['include']}
+        self.assertEqual(runners, {'linux-x64': 'ubuntu-24.04', 'win-x64': 'windows-2025'})
+
+
     def workflow(self, name):
         try:
             import yaml

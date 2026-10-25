@@ -38,4 +38,9 @@ async function main(args) {
 }
 
 module.exports = { configuration };
-if (require.main === module) main(process.argv.slice(2)).catch(error => { console.error(error); process.exitCode = 1; });
+if (require.main === module) main(process.argv.slice(2)).catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+  // Match electron-builder's CLI: dependency exit handlers can reset exitCode.
+  process.on('exit', () => { process.exitCode = 1; });
+});
