@@ -6,7 +6,7 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { SOUNDS } from '../../../shared/sounds.ts';
-import { WORLDS, WORLD_COUNTDOWN_MS, WORLD_KINDS } from '../../../shared/worlds.ts';
+import { WORLDS, WORLD_COUNTDOWN_MS } from '../../../shared/worlds.ts';
 import { useStore, get, set, save, nameOf, sessionOf, isBroadcast, worldKindOf, serverNow } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { dropFollowers, follow, leaveSession, playSound, requestLive, setViewLive } from '../actions.ts';
@@ -25,6 +25,7 @@ import { WindowLayer } from './WindowLayer.tsx';
 import { ProfileCard } from './ProfileCard.tsx';
 import { HoppingMascots } from './Mascot.tsx';
 import { SessionMenu } from '../home/SessionMenu.tsx';
+import { WorldSelectDialog } from '../home/pages.tsx';
 import { PortraitCanvas } from './Portraits.tsx';
 import { MapLayer } from './MapLayer.tsx';
 import { ConfirmOpen } from './Links.tsx';
@@ -57,7 +58,6 @@ function SessionRename({ current, onDone }: { current: string; onDone: () => voi
 }
 
 function WorldBadge() {
-  const owned = useOwnedContent();
   const world = useStore((s) => sessionOf(s.session));
   const selfName = useStore((s) => s.selfName);
   const wsConnected = useStore((s) => s.wsConnected);
@@ -70,6 +70,7 @@ function WorldBadge() {
   const pending = useStore((s) => !!s.worldPending && s.worldPending.sid === s.session);
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const [profile, setProfile] = useState(false);
+  const [selectWorld, setSelectWorld] = useState(false);
   return (
     <div className="worldbadge">
       <img className="wmark" src="/brand/mark.png" alt="" />
@@ -106,22 +107,14 @@ function WorldBadge() {
             <span className="menusep" />
           </>}
           <span className="menutitle">ワールド（全員に反映）</span>
-          <div className="worldpick" role="radiogroup" aria-label="ワールド">
-            {WORLD_KINDS.filter((k) => contentAvailable(owned, 'worlds', k)).map((k) => (
-              <div key={k} className="market-entry"><button
-                role="radio" aria-checked={k === kind} className={`ib wpick ${k === kind ? 'on' : ''}`} disabled={pending}
-                onClick={() => { if (k !== kind) { setMenu(null); set({ confirmWorld: k }); } }}
-              >
-                <b>{WORLDS[k].name}</b><span className="sub wrap">{WORLDS[k].desc}</span>
-              </button><OriginBadge productId={productFor('worlds', k)?.id} onOpen={() => setMenu(null)} /></div>
-            ))}
-          </div>
+          <button className="ib menuitem" disabled={pending} onClick={() => { setMenu(null); setSelectWorld(true); }}><Icon name="globe" />ワールド変更</button>
           <span className="menusep" />
           <button className="ib menuitem" onClick={() => { setProfile(true); setMenu(null); }}><Icon name="user" />プロフィールを編集</button>
           <button className="ib menuitem" onClick={() => { setMenu(null); leaveSession(); }}><Icon name="leave" />セッションを移動</button>
         </Popover>
       )}
       {profile && createPortal(<ProfileDialog name={selfName} onClose={() => setProfile(false)} />, document.body)}
+      {selectWorld && createPortal(<WorldSelectDialog onClose={() => setSelectWorld(false)} />, document.body)}
     </div>
   );
 }
