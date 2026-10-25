@@ -1,5 +1,7 @@
 /** Ephemeral reactions, shared by the server, portraits and world avatars. */
 export const EMOTES = {
+  cheer: { name: 'ばんざい！', caption: 'やったー！', mark: '🙌', particles: '✦', color: '#a3426b', tint: '#f6dfe9', duration: 2600 },
+  bow: { name: 'ぺこり', caption: 'ありがとう', mark: '🌷', particles: '❀', color: '#665185', tint: '#e8e1f3', duration: 2400 },
   wave: { name: '手を振る', caption: 'やっほー！', mark: '👋', particles: '✦', color: '#bd642b', tint: '#fff0d5', duration: 2600 },
   hop: { name: 'ぴょんぴょん', caption: 'わーい！', mark: '✨', particles: '✧', color: '#a16a08', tint: '#fff6c9', duration: 2400 },
   slump: { name: 'しょんぼり', caption: 'しょぼん…', mark: '💧', particles: '︙', color: '#527ba6', tint: '#e8f2fc', duration: 2800 },
@@ -18,7 +20,13 @@ export function emotePose(id: EmoteId, elapsed: number) {
   const t = Math.max(0, elapsed) / 1000;
   const pose = { y: 0, rx: 0, rz: 0, sx: 1, sy: 1, left: 0, right: 0, bow: 0, liftLeft: 0, liftRight: 0, hands: 0 };
   if (weight <= 0) return pose;
-  if (id === 'wave') {
+  if (id === 'cheer') {
+    pose.liftLeft = pose.liftRight = 68 * weight;
+    pose.left = -.4 * weight; pose.right = .4 * weight; pose.hands = weight;
+    pose.y = Math.abs(Math.sin(t * 5)) * .16 * weight;
+  } else if (id === 'bow') {
+    pose.bow = .65 * weight; pose.rx = -.3 * weight; pose.y = -.08 * weight;
+  } else if (id === 'wave') {
     pose.right = (-0.25 + Math.sin(t * 17) * 0.55) * weight;
     pose.liftRight = 38 * weight;
     pose.hands = weight;

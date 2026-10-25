@@ -7,7 +7,7 @@ import { Face } from '../world/common.tsx';
 import { Icon } from '../world/Icon.tsx';
 import { Chip, ModeIcon, timeLabel, uniqueByName } from './common.tsx';
 
-const WORLD_TINT: Record<WorldKind, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', survivors: '#F2D5E2', city: '#D7EAD3', garden: '#DDEBCF' };
+const WORLD_TINT: Record<WorldKind, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', survivors: '#F2D5E2', city: '#D7EAD3', garden: '#DDEBCF', starlounge: '#DBE1F4' };
 
 const VIS_ICON = { public: 'globe', friends: 'people', groupPlus: 'flag', group: 'flag', invite: 'send' } as const;
 const NO_ITEMS: SessionInfo['items'] = [];

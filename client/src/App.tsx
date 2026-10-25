@@ -1,3 +1,4 @@
+import { useMarketNavigation } from './market/navigation.ts';
 import { useEffect, useRef, useState } from 'react';
 import { useStore, set } from './store.ts';
 import { connectWs } from './net/ws.ts';
@@ -105,6 +106,7 @@ function JoinScreen() {
 }
 
 export function App() {
+  useMarketNavigation();
   const joined = useStore((s) => s.joined);
   const session = useStore((s) => s.session);
   const incompatible = useStore((s) => s.incompatible);

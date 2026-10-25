@@ -1,3 +1,5 @@
+import { useOwnedItems } from '../market/items.ts';
+import { OriginBadge } from '../market/OriginBadge.tsx';
 import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { Participant } from '../../../shared/protocol.ts';
@@ -216,27 +218,28 @@ export const pickProfile = (id: string) => set({ profileOf: id });
 
 function ItemPicker({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
   const mode = useStore((s) => s.mode);
-  const kinds = (Object.keys(ITEM_INFO) as ItemKind[]).filter((k) => !ITEM_INFO[k].media);
-  const [sel, setSel] = useState<ItemKind>('chess');
-  const info = ITEM_INFO[sel];
+  const entries = useOwnedItems();
+  const [sel, setSel] = useState('chess');
+  const selected = entries.find((x) => x.id === sel) ?? entries[0];
+  const info = selected.info;
   const disabledOf = (k: ItemKind) => !!ONLY_3D[k] && mode !== '3d';
   return (
     <Popover anchor={anchor} onClose={onClose} className="picker">
       <div className="pickgrid">
-        <div className="pickhead"><b>所持アイテム</b><span>{kinds.length}</span></div>
+        <div className="pickhead"><b>所持アイテム</b><span>{entries.length}</span></div>
         <div className="grid3">
-          {kinds.map((k) => {
-            const i = ITEM_INFO[k];
-            const disabled = disabledOf(k);
+          {entries.map((entry) => {
+            const i = entry.info;
+            const disabled = disabledOf(entry.kind);
             return (
-              <button
-                key={k} className={`owned ${sel === k ? 'sel' : ''} ${disabled ? 'dis' : ''}`} aria-pressed={sel === k}
-                title={disabled ? '3D モードでのみ出せます' : undefined} onClick={() => setSel(k)}
+              <div key={entry.id} className="market-entry"><button
+                className={`owned ${sel === entry.id ? 'sel' : ''} ${disabled ? 'dis' : ''}`} aria-pressed={sel === entry.id}
+                title={disabled ? '3D モードでのみ出せます' : undefined} onClick={() => setSel(entry.id)}
               >
                 <span className="itemmark" style={{ width: 34, height: 34, background: i.tint, color: i.ink, fontSize: i.mark.length > 2 ? 10 : 15, borderRadius: 10 }}>{i.mark}</span>
                 <span className="oname">{i.name}</span>
                 {!i.in2d && <span className="only3d">3Dのみ</span>}
-              </button>
+              </button><OriginBadge productId={entry.productId} onOpen={onClose} /></div>
             );
           })}
         </div>
@@ -244,7 +247,7 @@ function ItemPicker({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
       <section className="pickdetail" aria-label={`${info.name} の詳細`}>
         <div className="thumb" style={{ background: info.tint, color: info.ink }}><span>{info.mark}</span></div>
         <h3>{info.name}</h3>
-        <span className="sub">制作：Tonarium</span>
+        <span className="sub">制作：{selected.creator}</span>
         <p>{info.desc}</p>
         <div className="tags">
           {info.in2d && <span>2D 対応</span>}
@@ -253,9 +256,9 @@ function ItemPicker({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
         </div>
         <span className="spacer" />
         <button
-          className="primary big" disabled={disabledOf(sel)}
-          onClick={() => { spawnItem(sel); onClose(); }}
-        ><Icon name="plus" size={14} stroke={2.4} />{disabledOf(sel) ? '3D モードで出せます' : '目の前に出す'}</button>
+          className="primary big" disabled={disabledOf(selected.kind)}
+          onClick={() => { spawnItem(selected.kind, selected.text); onClose(); }}
+        ><Icon name="plus" size={14} stroke={2.4} />{disabledOf(selected.kind) ? '3D モードで出せます' : '目の前に出す'}</button>
       </section>
     </Popover>
   );

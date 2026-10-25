@@ -15,6 +15,7 @@ const WALL_H = 4;
 
 export interface Palette { floor: string; wall: string; spawn: string }
 const PALETTES: Record<WorldKind, Palette> = {
+  starlounge: { floor: '#353f69', wall: '#202b4d', spawn: '#e8c983' },
   room: { floor: '#565961', wall: '#80848e', spawn: '#7fb3ff' },
   cafe: { floor: '#8a5a3b', wall: '#eadcc4', spawn: '#ffd28a' },
   garden: { floor: '#91ad70', wall: '#d6dbc5', spawn: '#f5db91' },
@@ -255,7 +256,22 @@ function Cafe() {
   );
 }
 
+function StarLounge() {
+  return <>
+    <ambientLight intensity={1.3} />
+    <directionalLight position={[0, 8, 0]} intensity={1.5} />
+    <Shell pal={PALETTES.starlounge} />
+    {Array.from({ length: 36 }, (_, i) => (
+      <mesh key={i} position={[Math.sin(i * 2.4) * (3 + i % 7), 3.1 + (i % 3) * .3, Math.cos(i * 2.4) * (3 + i % 7)]}>
+        <octahedronGeometry args={[.045 + (i % 3) * .025]} />
+        <meshBasicMaterial color={i % 2 ? '#f9df9b' : '#c5dcff'} />
+      </mesh>
+    ))}
+  </>;
+}
+
 export function WorldMesh({ kind, map = false }: { kind: WorldKind; map?: boolean }) {
+  if (kind === 'starlounge') return <StarLounge />;
   if (kind === 'game') return <GameWorld pal={PALETTES.game} />;
   if (kind === 'survivors') return <><Hall /><SurvivorObjects /></>;
   if (kind === 'city') return <CityWorld map={map} />;
@@ -263,4 +279,4 @@ export function WorldMesh({ kind, map = false }: { kind: WorldKind; map?: boolea
   return kind === 'cafe' ? <Cafe /> : <Hall />;
 }
 
-export const WORLD_BG: Record<WorldKind, string> = { room: '#2b2d31', cafe: '#1f1a17', game: '#7fb6e6', survivors: '#2b2d31', city: '#bcd6ec', garden: '#c8e3ed' };
+export const WORLD_BG: Record<WorldKind, string> = { room: '#2b2d31', cafe: '#1f1a17', game: '#7fb6e6', survivors: '#2b2d31', city: '#bcd6ec', garden: '#c8e3ed', starlounge: '#151c37' };

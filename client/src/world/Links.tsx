@@ -1,3 +1,6 @@
+import { openMarketLink } from '../market/navigation.ts';
+import { marketProductFromUrl } from '../../../shared/market-links.ts';
+import { MARKET_PRODUCTS } from '../../../shared/market.ts';
 import { useEffect, useState } from 'react';
 import { useStore, set } from '../store.ts';
 
@@ -8,7 +11,7 @@ const ogpCache = new Map<string, Promise<Ogp | null>>();
 
 const askOpen = (url: string) => (e: React.MouseEvent) => {
   e.preventDefault();
-  set({ openUrl: url });
+  if (!openMarketLink(url)) set({ openUrl: url });
 };
 
 export const firstUrl = (text: string) => text.match(URL_RE)?.[0] ?? null;
@@ -29,6 +32,7 @@ export function Linkified({ text }: { text: string }) {
 export function OgpCard({ url }: { url: string }) {
   const [ogp, setOgp] = useState<Ogp | null>(null);
   useEffect(() => {
+    if (marketProductFromUrl(url, location.origin)) return;
     let alive = true;
     let p = ogpCache.get(url);
     if (!p) {
@@ -38,6 +42,8 @@ export function OgpCard({ url }: { url: string }) {
     void p.then((o) => { if (alive) setOgp(o); });
     return () => { alive = false; };
   }, [url]);
+  const product = MARKET_PRODUCTS.find((p) => p.id === marketProductFromUrl(url, location.origin));
+  if (product) return <a className="ogp" href={url} onClick={askOpen(url)}><span className="ogptext"><span className="ogpsite">マーケット</span><b>{product.name}</b><span className="ogpdesc">{product.description}</span></span></a>;
   if (!ogp) return null;
   return (
     <a className="ogp" href={url} target="_blank" rel="noopener noreferrer" onClick={askOpen(url)}>

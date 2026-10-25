@@ -1,8 +1,11 @@
+import { useOwnedItems, type OwnedItem } from '../market/items.ts';
+import { contentAvailable, productFor } from '../../../shared/market.ts';
+import { useOwnedContent } from '../market/store.ts';
+import { OriginBadge } from '../market/OriginBadge.tsx';
 import { useState } from 'react';
 import { save, set, unreadOf, useStore, type HomePage } from '../store.ts';
 import { dmKey, type EventDef, type Group, type User } from '../../../shared/protocol.ts';
 import { sortForHome } from '../../../shared/home.ts';
-import { ITEM_INFO, type ItemKind } from '../../../shared/items.ts';
 import { WORLDS, WORLD_KINDS, type WorldKind } from '../../../shared/worlds.ts';
 import { askJoin, deleteEvent, deleteGroup, friendAccept, joinGroup, joinSession, leaveGroup, leaveSession, openDm, openGroup, removeNotice, toggleBlock, watchFriend } from '../actions.ts';
 import { spawnItem } from '../items/actions.ts';
@@ -346,9 +349,10 @@ export function GroupsPage({ q }: { q: string }) {
   );
 }
 
-export const WORLD_FACE: Record<WorldKind, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', survivors: '#F2D5E2', city: '#D7EAD3', garden: '#DDEBCF' };
+export const WORLD_FACE: Record<WorldKind, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', survivors: '#F2D5E2', city: '#D7EAD3', garden: '#DDEBCF', starlounge: '#DBE1F4' };
 
 export function WorldsPage({ q }: { q: string }) {
+  const owned = useOwnedContent();
   const sessions = useStore((s) => s.guild.sessions);
   const worldBy = useStore((s) => s.worldBy);
   const session = useStore((s) => s.session);
@@ -362,13 +366,13 @@ export function WorldsPage({ q }: { q: string }) {
       {session && <CurrentSession />}
       <h2>ワールド <span className="sub">{session ? '選ぶと、いまのセッションのワールドを切り替える' : 'セッションが読み込む 3D 空間'}</span></h2>
       <div className="wcards">
-        {WORLD_KINDS.filter((k) => match(q, WORLDS[k].name, WORLDS[k].desc)).map((k) => {
+        {WORLD_KINDS.filter((k) => contentAvailable(owned, 'worlds', k)).filter((k) => match(q, WORLDS[k].name, WORLDS[k].desc)).map((k) => {
           const n = sessions.filter((d) => (worldBy[d.id] ?? d.world ?? 'room') === k).length;
           const now = !!session && k === current;
           return (
             <article key={k} className={`wcard ${now ? 'current' : ''}`}>
               <div className="wface" style={{ background: WORLD_FACE[k] }}><Icon name="globe" size={28} />{now && <span className="hhere"><i />いまのワールド</span>}</div>
-              <h3>{WORLDS[k].name}</h3>
+              <h3>{WORLDS[k].name}</h3><OriginBadge productId={productFor('worlds', k)?.id} />
               <p className="sub wrap">{WORLDS[k].desc}</p>
               <span className="sub">このワールドのセッション {n} 件</span>
               {session && <button className="primary" disabled={now || pending} onClick={() => pick(k)}>{now ? 'いまのワールド' : 'このワールドに切り替える'}</button>}
@@ -385,22 +389,22 @@ export function WorldsPage({ q }: { q: string }) {
 export function ItemsPage({ q }: { q: string }) {
   const session = useStore((s) => s.session);
   const mode = useStore((s) => s.mode);
-  const kinds = (Object.keys(ITEM_INFO) as ItemKind[]).filter((k) => !ITEM_INFO[k].media && match(q, ITEM_INFO[k].name, ITEM_INFO[k].desc, ITEM_INFO[k].genre));
-  const spawn = (k: ItemKind) => { spawnItem(k); set({ hubOpen: false }); };
+  const entries = useOwnedItems().filter(({ info }) => match(q, info.name, info.desc, info.genre));
+  const spawn = (entry: OwnedItem) => { spawnItem(entry.kind, entry.text); set({ hubOpen: false }); };
   return (
     <section className="hsec">
       <h2>アイテム <span className="sub">{session ? '目の前に出せる' : 'セッションの中で「出す」と使える'}</span></h2>
       <div className="icards">
-        {kinds.map((k) => {
-          const info = ITEM_INFO[k];
-          const only3d = !!ONLY_3D[k] && mode !== '3d';
+        {entries.map((entry) => {
+          const { info } = entry;
+          const only3d = !!ONLY_3D[entry.kind] && mode !== '3d';
           return (
-            <article key={k} className="icard">
+            <article key={entry.id} className="icard"><OriginBadge productId={entry.productId} />
               <span className="itemmark" style={{ width: 44, height: 44, background: info.tint, color: info.ink, fontSize: info.mark.length > 2 ? 13 : 19, borderRadius: 13 }}>{info.mark}</span>
               <span className="iinfo">
                 <b>{info.name} <Chip kind="genre">{info.genre}</Chip>{info.in2d && <Chip kind="mode">2D</Chip>}{info.in3d && <Chip kind="mode">3D</Chip>}</b>
                 <span className="sub wrap">{info.desc}</span>
-                {session && <button className="primary small ispawn" disabled={only3d} title={only3d ? '3D でのみ出せます' : undefined} onClick={() => spawn(k)}><Icon name="plus" size={12} />目の前に出す</button>}
+                {session && <button className="primary small ispawn" disabled={only3d} title={only3d ? '3D でのみ出せます' : undefined} onClick={() => spawn(entry)}><Icon name="plus" size={12} />目の前に出す</button>}
               </span>
             </article>
           );
@@ -414,7 +418,10 @@ export function ItemsPage({ q }: { q: string }) {
 export const friendsIn = (sid: string, friends: string[], users: User[]) => uniqueByName(users.filter((u) => u.session === sid && friends.includes(u.name)));
 
 export function goHome(homePage: HomePage, friendsTab?: 'all' | 'now') {
-  set(friendsTab ? { homePage, friendsTab } : { homePage });
+  if (location.hash.startsWith('#/market/')) {
+    const url = new URL(location.href); url.hash = ''; history.pushState(null, '', url);
+  }
+  set(friendsTab ? { homePage, friendsTab, marketProductId: null } : { homePage, marketProductId: null });
   save('tonarium.homePage', homePage);
   window.scrollTo(0, 0);
 }

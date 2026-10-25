@@ -1,7 +1,12 @@
+import { useOwnedItems, type OwnedItem } from '../market/items.ts';
+import { OriginBadge } from '../market/OriginBadge.tsx';
+import { MarketPage } from '../market/Market.tsx';
+import { ReactionLibrary } from '../market/Library.tsx';
+import { contentAvailable, productFor } from '../../../shared/market.ts';
+import { useOwnedContent } from '../market/store.ts';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { get, save, set, showToast, unreadOf, useStore, type HomePage, type Notice, type SideWidget } from '../store.ts';
-import { ITEM_INFO, type ItemKind } from '../../../shared/items.ts';
 import { WORLDS, WORLD_KINDS, type WorldKind } from '../../../shared/worlds.ts';
 import { joinSession } from '../actions.ts';
 import { spawnItem } from '../items/actions.ts';
@@ -29,6 +34,7 @@ const NAV: { page: HomePage; name: string; icon: IconName }[] = [
   { page: 'groups', name: 'グループ', icon: 'flag' },
   { page: 'worlds', name: 'ワールド', icon: 'globe' },
   { page: 'items', name: 'アイテム', icon: 'box' },
+  { page: 'market', name: 'マーケット', icon: 'market' },
 ];
 
 const WEEK = 7 * 86_400_000;
@@ -230,7 +236,7 @@ function EventsWidget() {
   );
 }
 
-const WORLD_TINT: Record<string, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', city: '#D7EAD3', garden: '#DDEBCF' };
+const WORLD_TINT: Record<string, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', city: '#D7EAD3', garden: '#DDEBCF', starlounge: '#DBE1F4' };
 
 /** フレンドの今／参加できるセッション：セッションの行。押すと参加する（セッション中なら移動） */
 function SessionRows({ onlyFriends }: { onlyFriends: boolean }) {
@@ -260,15 +266,16 @@ function SessionRows({ onlyFriends }: { onlyFriends: boolean }) {
 }
 
 function WorldsWidget() {
+  const owned = useOwnedContent();
   const sessions = useStore((s) => s.guild.sessions);
   const worldBy = useStore((s) => s.worldBy);
   return (
     <div className="hwlist">
-      {WORLD_KINDS.map((k) => (
-        <button key={k} className="ib hwrow" onClick={() => goHome('worlds')}>
+      {WORLD_KINDS.filter((k) => contentAvailable(owned, 'worlds', k)).map((k) => (
+        <div key={k} className="market-entry"><button className="ib hwrow" onClick={() => goHome('worlds')}>
           <span className="hwthumb" style={{ background: WORLD_TINT[k] }}><Icon name="globe" size={14} /></span>
           <span className="finfo"><b>{WORLDS[k].name}</b><span className="sub">セッション {sessions.filter((d) => (worldBy[d.id] ?? d.world ?? 'room') === k).length} 件</span></span>
-        </button>
+        </button><OriginBadge productId={productFor('worlds', k)?.id} /></div>
       ))}
     </div>
   );
@@ -276,16 +283,16 @@ function WorldsWidget() {
 
 function ItemsWidget() {
   const session = useStore((s) => s.session);
-  const kinds = (Object.keys(ITEM_INFO) as ItemKind[]).filter((k) => !ITEM_INFO[k].media);
+  const entries = useOwnedItems();
   // セッション中はそのまま目の前に出す。外ではアイテムのページへ
-  const pick = (k: ItemKind) => { if (session) { spawnItem(k); set({ hubOpen: false }); } else goHome('items'); };
+  const pick = (entry: OwnedItem) => { if (session) { spawnItem(entry.kind, entry.text); set({ hubOpen: false }); } else goHome('items'); };
   return (
     <div className="hwlist">
-      {kinds.map((k) => (
-        <button key={k} className="ib hwrow" onClick={() => pick(k)} title={session ? '目の前に出す' : undefined}>
-          <span className="hwthumb" style={{ background: ITEM_INFO[k].tint, color: ITEM_INFO[k].ink, fontWeight: 800, fontSize: ITEM_INFO[k].mark.length > 2 ? 11 : 16 }}>{ITEM_INFO[k].mark}</span>
-          <span className="finfo"><b>{ITEM_INFO[k].name}</b><span className="sub">{ITEM_INFO[k].genre}</span></span>
-        </button>
+      {entries.map((entry) => (
+        <div key={entry.id} className="market-entry"><button className="ib hwrow" onClick={() => pick(entry)} title={session ? '目の前に出す' : undefined}>
+          <span className="hwthumb" style={{ background: entry.info.tint, color: entry.info.ink, fontWeight: 800, fontSize: entry.info.mark.length > 2 ? 11 : 16 }}>{entry.info.mark}</span>
+          <span className="finfo"><b>{entry.info.name}</b><span className="sub">{entry.info.genre}</span></span>
+        </button><OriginBadge productId={entry.productId} /></div>
       ))}
     </div>
   );
@@ -390,14 +397,14 @@ function WorldTile({ k }: { k: WorldKind }) {
   const n = useStore((s) => s.guild.sessions.filter((d) => (s.worldBy[d.id] ?? d.world ?? 'room') === k).length);
   const [create, setCreate] = useState(false);
   return (
-    <article className="scard">
+    <article className="scard market-world-tile"><OriginBadge productId={productFor('worlds', k)?.id} />
       <div className="schead" style={{ background: WORLD_FACE[k] }}>
         <span className="pill dark">セッション {n} 件</span>
         <span className="spacer" />
         <button className="dark scjoin" onClick={() => setCreate(true)}><Icon name="plus" size={14} />セッションを作る</button>
       </div>
       <div className="scbody">
-        <div className="sctitle"><h3>{WORLDS[k].name}</h3><Chip kind="genre">Tonarium</Chip></div>
+        <div className="sctitle"><h3>{WORLDS[k].name}</h3><Chip kind="genre">{productFor('worlds', k)?.creator ?? 'Tonarium'}</Chip></div>
         <span className="sub wrap">{WORLDS[k].desc}</span>
       </div>
       {create && createPortal(<CreateSessionDialog world={k} onClose={() => setCreate(false)} />, document.body)}
@@ -408,6 +415,7 @@ function WorldTile({ k }: { k: WorldKind }) {
 const DAY = 86_400_000;
 
 function HomePageView({ q }: { q: string }) {
+  const owned = useOwnedContent();
   const sessions = useStore((s) => s.guild.sessions);
   const users = useStore((s) => s.users);
   const friends = useStore((s) => s.friends);
@@ -423,7 +431,7 @@ function HomePageView({ q }: { q: string }) {
     .sort((a, b) => Number(isLive(b)) - Number(isLive(a)) || a.at - b.at);
   // 24 時間以内に「来る」と答えたイベントがあれば、イベントを一番上に出す
   const mineSoon = soon.some((e) => e.attendees.includes(selfName) && e.at < Date.now() + DAY);
-  const worlds = WORLD_KINDS.filter((k) => match(q, WORLDS[k].name, WORLDS[k].desc));
+  const worlds = WORLD_KINDS.filter((k) => contentAvailable(owned, 'worlds', k)).filter((k) => match(q, WORLDS[k].name, WORLDS[k].desc));
   // 参加できるセッションの中にいないフレンド
   const idle = onlineFriends.filter((u) => !sessions.some((d) => d.id === u.session) && match(q, u.name));
   const eventsRow = (
@@ -457,9 +465,10 @@ export function Home({ sheet }: { sheet?: boolean }) {
   const wsConnected = useStore((s) => s.wsConnected);
   const [q, setQ] = useState('');
   const [create, setCreate] = useState(false);
-  const title = NAV.find((n) => n.page === page)?.name;
+  const title = NAV.find((n) => n.page === page)?.name ?? (page === 'sounds' ? 'サウンドボード' : page === 'emotes' ? 'エモート' : undefined);
+  useEffect(() => setQ(''), [page]);
   return (
-    <div className={`home ${sheet ? 'sheet' : ''}`} role={sheet ? 'dialog' : undefined} aria-label={sheet ? title : undefined}>
+    <div className={`home ${sheet ? 'sheet' : ''} ${page === 'market' ? 'market-home' : ''}`} role={sheet ? 'dialog' : undefined} aria-label={sheet ? title : undefined}>
       <Sidebar inSession={sheet} />
       <main className="hmain">
         <header className="hhead">
@@ -467,7 +476,7 @@ export function Home({ sheet }: { sheet?: boolean }) {
           {!wsConnected && <span className="reconn">接続中…</span>}
           <span className="spacer" />
           {/* グループの画面は絞り込むものがないので出さない */}
-          {page !== 'group' && <label className="hsearch"><Icon name="search" size={16} /><input value={q} placeholder="フレンド・ワールド・グループを検索" onChange={(e) => setQ(e.target.value)} /></label>}
+          {page !== 'group' && <label className="hsearch"><Icon name="search" size={16} /><input value={q} aria-label={page === 'market' ? '商品・クリエイターを検索' : 'コンテンツを検索'} placeholder={page === 'market' ? '商品・クリエイターを検索' : 'フレンド・ワールド・グループを検索'} onChange={(e) => setQ(e.target.value)} /></label>}
           <Bell />
           {page === 'group' ? <GroupActions /> : <button className="dark hcreate" onClick={() => setCreate(true)}><Icon name="plus" size={16} />セッションを作る</button>}
         </header>
@@ -479,9 +488,11 @@ export function Home({ sheet }: { sheet?: boolean }) {
         {page === 'group' && <GroupPage />}
         {page === 'worlds' && <WorldsPage q={q} />}
         {page === 'items' && <ItemsPage q={q} />}
+        {page === 'market' && <MarketPage q={q} />}
+        {(page === 'sounds' || page === 'emotes') && <ReactionLibrary category={page} q={q} />}
       </main>
       {/* グループの画面は自分の右の列を持っているので出さない */}
-      {page !== 'group' && <SideArea />}
+      {page !== 'group' && page !== 'market' && <SideArea />}
       {create && <CreateSessionDialog onClose={() => setCreate(false)} />}
     </div>
   );
