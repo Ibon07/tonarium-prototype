@@ -138,8 +138,8 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   await a.send({ t: 'itemAction', id: 'large-canvas', action: { a: 'strokeStart', id: 'new-line', color: '#ffffff', size: 2, x: 1, y: 2 } });
   await until(() => b.received.find((v) => v.message?.action?.id === 'new-line'));
   await a.send({ t: 'mode', mode: '3d' });
-  a.client.latest(PACKET_TOPIC, await seal(a.key, a.cfg.token, 'client-position', 1, { t: 'avatar', s: { x: 2, z: 3, ry: 0 } }) as any, 1n);
-  await until(() => b.received.find((v) => v.t === 'avatar' && v.id === a.id && v.s.x === 2));
+  a.client.latest(PACKET_TOPIC, await seal(a.key, a.cfg.token, 'client-position', 1, { t: 'avatar', s: { x: 2, z: 3, ry: 0, walking: true } }) as any, 1n);
+  await until(() => b.received.find((v) => v.t === 'avatar' && v.id === a.id && v.s.x === 2 && v.s.walking === true));
   await a.send({ t: 'poke', to: b.id });
   const poke = await until(() => b.received.find((v) => v.message?.t === 'poke'));
   assert.equal(poke.message.from, a.id);
@@ -149,8 +149,8 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   const hold = b.pauseNextBlob();
   await a.send({ t: 'chat', text: 'large attachment', image, scope: 'all' });
   await hold.beginning;
-  a.client.latest(PACKET_TOPIC, await seal(a.key, a.cfg.token, 'client-position', 2, { t: 'avatar', s: { x: 4, z: 3, ry: 0 } }) as any, 2n);
-  await until(() => b.received.find((v) => v.t === 'avatar' && v.id === a.id && v.s.x === 4));
+  a.client.latest(PACKET_TOPIC, await seal(a.key, a.cfg.token, 'client-position', 2, { t: 'avatar', s: { x: 2, z: 3, ry: 0, walking: false } }) as any, 2n);
+  await until(() => b.received.find((v) => v.t === 'avatar' && v.id === a.id && v.s.x === 2 && v.s.walking === false));
   assert.equal(b.received.some((v) => v.message?.m?.image === image), false, 'position arrives while the blob receiver is paused');
   hold.release();
   await until(() => b.received.find((v) => v.message?.m?.image === image));
