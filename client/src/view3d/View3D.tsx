@@ -24,6 +24,7 @@ import { CameraModel, CameraStreamer, CamMonitor } from './camera3d.tsx';
 import { WORLD_BG, WorldMesh } from './worlds3d.tsx';
 import { useLastSaid } from '../world/common.tsx';
 import { ShareDisplay } from './shareDisplay.tsx';
+import { XRScene } from '../xr/XRScene.tsx';
 
 /** 頭の上のチャットの吹き出し（上部の顔と同じく直近 30 秒） */
 function ChatBubble({ id, y }: { id: string; y: number }) {
@@ -318,6 +319,7 @@ export function View3D() {
             ? <CameraStreamer key={`stream-${it.id}`} item={it} /> : null))}
           {viewLive && <ViewStreamer />}
           <Player rig={rig} />
+          <XRScene rig={rig} />
         </Canvas>
       </EyeHeightContext.Provider>
       <Viewfinder />
