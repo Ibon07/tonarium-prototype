@@ -3,7 +3,7 @@ import { newChess, chessBoard, playChess, type ChessState, type Promotion } from
 import type { DiceRoll, DieSides } from './dice.ts';
 import { BIKE, releaseBike, vehicleInitial, type VehicleState } from './vehicle.ts';
 
-export type ItemKind = 'telephone' | 'note' | 'hammer' | 'chess' | 'chessAi' | 'g2048' | 'canvas' | 'camera' | 'image' | 'video' | 'youtube' | 'dice' | 'antimatter' | 'bike';
+export type ItemKind = 'telephone' | 'note' | 'hammer' | 'chess' | 'chessAi' | 'g2048' | 'canvas' | 'camera' | 'image' | 'video' | 'youtube' | 'dice' | 'antimatter' | 'bike' | 'mirror' | 'jumpPad';
 
 /**
  * みんなで同じ位置を再生するための時計。at（サーバー時刻 ms）の時点で base 秒目。
@@ -38,6 +38,8 @@ interface ItemBase {
 
 export type Item =
   | (ItemBase & { kind: 'telephone'; game: TelephoneView })
+  | (ItemBase & { kind: 'jumpPad' })
+  | (ItemBase & { kind: 'mirror' })
   | (ItemBase & VehicleState & { kind: 'bike'; rider: string | null; rideVersion: number })
   | (ItemBase & { kind: 'note'; text: string; color: string; editingBy: string | null })
   | (ItemBase & { kind: 'hammer'; holder: string | null })
@@ -59,7 +61,7 @@ export type ChessItem = Extract<Item, { kind: 'chess' | 'chessAi' }>;
 export const isChessItem = (item: Item): item is ChessItem => item.kind === 'chess' || item.kind === 'chessAi';
 
 export const isHandheld = (i: Item) => i.kind === 'hammer' || i.kind === 'camera';
-export const ONLY_3D: Partial<Record<ItemKind, boolean>> = { camera: true, bike: true };
+export const ONLY_3D: Partial<Record<ItemKind, boolean>> = { camera: true, bike: true, mirror: true, jumpPad: true };
 
 export type Dir = 'up' | 'down' | 'left' | 'right';
 
@@ -106,6 +108,8 @@ export interface ItemInfo {
 
 export const ITEM_INFO: Record<ItemKind, ItemInfo> = {
   telephone: { name: 'お絵描き伝言', mark: '伝言', tint: '#F6E4EC', ink: '#9A3A62', desc: '2〜30人で文章と絵を交互につなぐ伝言ゲーム。参加登録して開始し、最後はホストと一緒に結果を鑑賞。', genre: 'ゲーム', in2d: true, in3d: true },
+  jumpPad: { name: 'ジャンプ台', mark: '↑', tint: '#D8F5EC', ink: '#17634D', desc: '上面に着地すると自動で跳ねる3D専用の台。右クリックで運び、Xで片付ける。', genre: 'あそび', in2d: false, in3d: true },
+  mirror: { name: '鏡', mark: '鏡', tint: '#E1EBF0', ink: '#39576B', desc: '3D 空間に置く平面鏡。正面に自分や周囲の参加者、景色が映り、視点や動きに追従する。右クリックで運び、X で片付ける。', genre: 'ツール', in2d: false, in3d: true },
   bike: { name: 'バイク', mark: '単車', tint: '#DBEAE7', ink: '#235E57', desc: '3D 専用の一人乗りバイク。照準を合わせ E またはクリックで乗車、E で降車。W/↑: アクセル、S/↓: ブレーキ、A/D・←/→: ハンドル。急旋回すると滑ります。', genre: 'のりもの', in2d: false, in3d: true },
   note: { illustration: '/items/note.png', name: '付箋', mark: '付', tint: '#FBF1C4', ink: '#7A5B0E', desc: '文字を書いて置いておける付箋。2D ではウィンドウで、3D では空間の板として読み書きできる。', genre: 'ツール', in2d: true, in3d: true },
   hammer: { illustration: '/items/hammer.png', name: 'ピコピコハンマー', mark: '槌', tint: '#FBE3D2', ink: '#A24A16', desc: '手に持って誰かを叩ける。叩くと相手の前に移動する。', genre: 'あそび', in2d: true, in3d: true },
@@ -217,6 +221,8 @@ export function createItem(
     case 'canvas': return { ...b, kind, strokes: [] };
     case 'camera': return { ...b, kind, holder: null, pitch: 0, live: false, operator: null };
     case 'dice': return { ...b, kind, roll: null };
+    case 'jumpPad':
+    case 'mirror':
     case 'antimatter': return { ...b, kind };
   }
 }
@@ -354,6 +360,9 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
     // 結果はサーバーが決める（server の rollDice）
     case 'telephone':
     case 'dice':
+      return false;
+    case 'jumpPad':
+    case 'mirror':
       return false;
     // 入口だけで操作を持たない
     case 'antimatter':

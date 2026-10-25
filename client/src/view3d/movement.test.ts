@@ -1,8 +1,40 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { blocked, blockedByTrain, moveFlight, recoverPosition } from './movement.ts';
+import { blocked, blockedByTrain, moveFlight, recoverPosition, walkingAfterMove } from './movement.ts';
 import { CAR, PLATFORM_Y, carPose, fromCarLocal } from '../../../shared/city.ts';
 import type { Solid } from '../../../shared/worlds.ts';
+import { pushOut } from '../../../shared/worlds.ts';
+
+test('walking follows resolved horizontal movement, with speed hysteresis', () => {
+  const origin = { x: 0, z: 0 };
+  const walking = (active: boolean, speed: number, dt = 1 / 60) =>
+    walkingAfterMove(active, 'walk', true, false, origin, { x: speed * dt, z: 0 }, dt);
+  for (const dt of [1 / 30, 1 / 60, 1 / 144]) assert.equal(walking(false, 4, dt), true);
+  assert.equal(walking(false, 0.12), false);
+  assert.equal(walking(true, 0.12), true);
+  assert.equal(walking(true, 0.04), false);
+  assert.equal(walking(true, 0), false);
+  assert.equal(walkingAfterMove(true, 'walk', true, false, origin, origin, 0), false);
+});
+
+test('wall pressure stops walking while sliding along a wall keeps walking', () => {
+  const solids: Solid[] = [{ x: 1, z: 0, w: 1, d: 10 }];
+  const start = { x: 0.2, z: 0 };
+  const stopped = pushOut(start.x + 0.06, start.z, 0.3, solids, 0);
+  assert.equal(walkingAfterMove(true, 'walk', true, false, start, stopped, 1 / 60), false);
+  const sliding = pushOut(start.x + 0.06, start.z + 0.06, 0.3, solids, 0);
+  assert.equal(walkingAfterMove(false, 'walk', true, false, start, sliding, 1 / 60), true);
+});
+
+test('takeoff, flight, noclip and boarding stop walking; landing and dismount allow it again', () => {
+  const start = { x: 0, z: 0 }, end = { x: 0.06, z: 0 };
+  for (const mode of ['walk', 'fly', 'noclip'] as const) {
+    assert.equal(walkingAfterMove(true, mode, false, false, start, end, 1 / 60), false);
+    assert.equal(walkingAfterMove(true, mode, true, true, start, end, 1 / 60), false);
+    assert.equal(walkingAfterMove(true, mode, true, false, start, end, 1 / 60), mode === 'walk');
+  }
+  assert.equal(walkingAfterMove(false, 'walk', true, false, start, end, 1 / 60), true);
+});
 
 const wall: Solid = { x: 1, z: 0, w: 0.1, d: 10, y0: 0, y1: 6 };
 const ceiling = { x0: -5, x1: 5, z0: -5, z1: 5, ya: 3, yb: 3 };

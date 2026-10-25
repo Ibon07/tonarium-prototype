@@ -1,9 +1,36 @@
 import { pushOut, type Solid } from '../../../shared/worlds.ts';
 import { CAR, PLATFORM_Y, carPose, toCarLocal, trainState, surfaceHeight, type Surface } from '../../../shared/city.ts';
+import { GRAVITY } from '../../../shared/protocol.ts';
+import { JUMP_PAD } from '../../../shared/jumpPad.ts';
+
+export interface LandingGround { y: number; jumpPad?: boolean }
+export function fallToGround(body: { y: number; vy: number; grounded: boolean; n: number }, ground: LandingGround | null, dt: number): boolean {
+  const previousY = body.y;
+  body.vy -= GRAVITY * dt;
+  body.y += body.vy * dt;
+  if (!ground || body.vy > 0 || body.y > ground.y) return false;
+  if (ground.jumpPad && previousY < ground.y) return false;
+  body.y = ground.y;
+  if (ground.jumpPad) {
+    body.vy = JUMP_PAD.velocity;
+    body.grounded = false;
+    body.n++;
+    return true;
+  }
+  body.vy = 0;
+  body.grounded = true;
+  return false;
+}
 
 export const MOVEMENT_MODES = { walk: '歩行', fly: 'フライ', noclip: 'ノークリップ' } as const;
 export type MovementMode = keyof typeof MOVEMENT_MODES;
 export interface Position { x: number; y: number; z: number }
+export function walkingAfterMove(walking: boolean, mode: MovementMode, grounded: boolean, riding: boolean,
+  before: Pick<Position, 'x' | 'z'>, after: Pick<Position, 'x' | 'z'>, dt: number): boolean {
+  if (mode !== 'walk' || !grounded || riding || dt <= 0) return false;
+  const speed = Math.hypot(after.x - before.x, after.z - before.z) / Math.min(dt, 0.1);
+  return Number.isFinite(speed) && speed > (walking ? 0.08 : 0.18);
+}
 export const BODY_RADIUS = 0.3;
 export const BODY_HEIGHT = 1.7;
 
