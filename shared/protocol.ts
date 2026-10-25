@@ -6,6 +6,8 @@ import type { SurvivorMetaUpgrade, SurvivorProfile, SurvivorState, SurvivorStyle
 import type { ElevatorState } from './city.ts';
 import type { SyncConfig } from './session-wire.ts';
 import type { PeerOperation } from './session-events.ts';
+import type { AssetCommand, AssetView } from './shared-assets.ts';
+import type { AssetDelta } from './shared-sync.ts';
 
 export type Mode = '2d' | '3d';
 
@@ -14,7 +16,7 @@ export type Mode = '2d' | '3d';
  * 約束事を壊す変更（メッセージの追加・意味の変更など）を入れたら +1 する。
  * hello で申告が無い・一致しないクライアントはサーバーが接続を断ち、画面は全面で更新を促す（docs/sync.md）
  */
-export const COMPAT_VERSION = 2;
+export const COMPAT_VERSION = 3;
 
 /** セッションを見られる人。省略時は public */
 export type Visibility = 'public' | 'friends' | 'groupPlus' | 'group' | 'invite';
@@ -260,6 +262,7 @@ export interface Snapshot {
 /** セッションの LiveKit の部屋に入ったとき、サーバーからその人だけに届く中の状態 */
 export interface SessionSnapshot {
   sid: string;
+  sharedAssets?: AssetView;
   chats: ChatMessage[];
   avatars: Record<string, AvatarState>;
   items: Item[];
@@ -310,6 +313,8 @@ export type HomeClientMsg =
 
 /** kokosync でサーバーへ送るもの（セッションの中だけ）。 */
 export type RoomClientMsg =
+  | { t: 'sharedCommand'; command: AssetCommand }
+  | { t: 'sharedResync' }
   | { t: 'peerOperation'; event: PeerOperation }
   /** 部屋につないだ・つなぎ直した後に、中の状態を送ってもらう */
   | { t: 'sync' }
@@ -360,13 +365,14 @@ export type ClientMsg = HomeClientMsg | RoomClientMsg;
 
 /** 部屋へ送る種類の一覧（送り先の振り分けに使う。型と同じ並び） */
 const ROOM_CLIENT_TYPES: Record<RoomClientMsg['t'], true> = {
+  sharedCommand: true, sharedResync: true,
   peerOperation: true,
   sync: true, mode: true, status: true, follow: true, dropFollowers: true, place2d: true, displayMove: true, chat: true, avatar: true,
   viewing: true, poke: true, sound: true, emote: true, liveRequest: true, viewLive: true, itemCreate: true, attention: true, broadcast: true, world: true, sessionRename: true,
   gameStart: true, gameStep: true, gameFell: true, survivorStyle: true, survivorStart: true, survivorMove: true, survivorChoose: true, survivorReroll: true, survivorUpgrade: true, survivorReset: true,
   elevatorCall: true, itemRemove: true, itemMove: true, itemAction: true, hit: true,
 };
-export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => m.t in ROOM_CLIENT_TYPES;
+export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => Object.hasOwn(ROOM_CLIENT_TYPES, m.t);
 
 /** WebSocket でサーバーから届くもの */
 export type HomeServerMsg =
@@ -401,6 +407,8 @@ export type HomeServerMsg =
 
 /** kokosync でサーバーから届くもの。 */
 export type RoomServerMsg =
+  | { t: 'sharedDelta'; sid: string; delta: AssetDelta; commandId?: string }
+  | { t: 'sharedState'; sid: string; view: AssetView; commandId?: string; error?: string }
   | { t: 'presence'; sid: string; all: Record<string, Presence> }
   | { t: 'chat'; sid: string; m: ChatMessage }
   | { t: 'avatar'; sid: string; id: string; s: AvatarState }

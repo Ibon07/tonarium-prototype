@@ -32,6 +32,9 @@ import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts'
 import type { PeerOperation } from '../shared/session-events.ts';
 import { getOgp } from './ogp.ts';
 import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
+import { SharedService } from './shared-service.ts';
+import { sharedSolids } from '../shared/shared-presentation.ts';
+import { assetDelta } from '../shared/shared-sync.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
 import { clearGame, eliminate, gameOf, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
 import { chooseSurvivorGear, chooseSurvivorStyle, clearSurvivor, moveSurvivor, removeSurvivor, resetSurvivorUpgrades, rerollSurvivorChoice, startSurvivor, tickSurvivors, upgradeSurvivor, survivorOf, type SurvivorDeps } from './survivors.ts';
@@ -48,6 +51,7 @@ const CLIENT_VERSION = (() => {
   try { return createHash('sha1').update(fs.readFileSync(path.join(DIST, 'index.html'))).digest('hex').slice(0, 12); } catch { return null; }
 })();
 const DATA_DIR = process.env.DATA_DIR ?? path.join(ROOT, 'data');
+const sharedAssets = new SharedService(DATA_DIR);
 const ICON_DIR = path.join(DATA_DIR, 'icons');
 const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
 const PROFILE_DIR = path.join(DATA_DIR, 'profiles');
@@ -564,6 +568,7 @@ function sendSessionSnapshot(sid: string, id: string) {
   refreshTelephones(sid);
   roomSendSnapshot(sid, id, {
     sid,
+    sharedAssets: sharedAssets.view(sid, id),
     chats: (chats.get(sid) ?? []).filter((m) => !m.to || m.to.includes(id)),
     avatars: Object.fromEntries(avatars.get(sid) ?? []),
     items: [...(items.get(sid)?.values() ?? [])].map(it => telephoneItemFor(it, id, new Set(inSession(sid).map(u => u.id)))),
@@ -588,7 +593,7 @@ const modeLabel = (m: Mode) => (m === '3d' ? '3D' : '2D');
 const clampRoom = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
 /** クライアント由来の数値を有限数にする（NaN や Infinity が共有状態に残らないように） */
 const finNum = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
-const solidsOf = (sid: string) => WORLDS[worldOf.get(sid) ?? 'room'].solids;
+const solidsOf = (sid: string) => [...WORLDS[worldOf.get(sid) ?? 'room'].solids, ...sharedSolids(sharedAssets.view(sid, 'server'), sharedAssets.catalog.current())];
 /** 部屋（街なら街）の中に収め、家具にめり込んでいたら外へ出す。アイテムと 2D の人は地上にいる */
 function placeIn(sid: string, x: number, z: number, r: number) {
   const world = worldOf.get(sid) ?? 'room';
@@ -689,7 +694,7 @@ function leaveSession(u: Participant) {
   u.display = null;
   event(sid, `${u.name} が退出しました`);
   if (inSession(sid).length) sendPresence(sid);
-  else { finishVisit(sid); void leaveRoom(sid); scheduleEmptyCheck(sid); }
+  else { finishVisit(sid); sharedAssets.release(sid); void leaveRoom(sid); scheduleEmptyCheck(sid); }
 }
 
 function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string }, msg: ClientMsg) {
@@ -838,6 +843,25 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
 function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPositions = false, peerEvent?: PeerOperation) {
   const sessItems = items.get(sid)!;
   switch (msg.t) {
+    case 'sharedResync': {
+      roomSend(sid, { t: 'sharedState', sid, view: sharedAssets.view(sid, me.id) }, [me.id]);
+      return;
+    }
+    case 'sharedCommand': {
+      let error: string | undefined;
+      const recipients = inSession(sid);
+      const before = new Map(recipients.map(u => [u.id, sharedAssets.view(sid, u.id)]));
+      let result: string | undefined;
+      try { result = sharedAssets.apply(sid, me.id, msg.command); }
+      catch { error = '共有アセットの操作を確定できませんでした。状態を確認して再試行してください。'; }
+      const commandId = typeof msg.command?.id === 'string' ? msg.command.id.slice(0, 64) : undefined;
+      for (const user of error ? [me] : recipients) {
+        const view = sharedAssets.view(sid, user.id);
+        if (result === 'applied' && msg.command.kind === 'events') roomSend(sid, { t: 'sharedDelta', sid, delta: assetDelta(before.get(user.id)!, view), commandId }, [user.id]);
+        else roomSend(sid, { t: 'sharedState', sid, view, commandId, ...(user.id === me.id && error ? { error } : {}) }, [user.id]);
+      }
+      return;
+    }
     case 'sync': {
       sendSessionSnapshot(sid, me.id);
       return;
@@ -1467,6 +1491,7 @@ const server = http.createServer(async (req, res) => {
   // 絶対形式の壊れたリクエストターゲット（例: http://[::1）でも new URL が例外になるため、ここで 400 にする
   let url: URL;
   try { url = new URL(req.url ?? '/', 'http://x'); } catch { res.statusCode = 400; res.end('bad path'); return; }
+  if (sharedAssets.http(req, res, url.pathname)) return;
   if (url.pathname === '/api/translate') { await handleTranslation(req, res); return; }
   if (url.pathname === '/sync/offer') { await handleSyncOffer(req, res); return; }
   if (url.pathname.startsWith('/group-image/')) {

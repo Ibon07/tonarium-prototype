@@ -8,6 +8,8 @@ import { ARENA, FALL_Y, LAYER_Y, TILE_COUNT, TILE, inArena, startTile, tileBelow
 import { SURVIVOR_MOVE_SPEED } from '../../../shared/survivor.ts';
 import { SURVIVOR_STYLES } from '../i18n/static.ts';
 import { get, set, useStore, heldHammer, heldCamera, nameOf, solidsOf, worldKindOf, gameOfSession, elevatorOfSession, serverNow, spawnPoint } from '../store.ts';
+import { useSharedAssets } from '../shared-assets/state.ts';
+import { sharedSolids } from '../../../shared/shared-presentation.ts';
 import { CAR, CITY_HALF, CITY_SURFACES, SHAFT_RECT, clampCity, elevatorY, type Surface } from '../../../shared/city.ts';
 import { STEP_UP, carPose, cityGround, citySolids, keepInCar, toCarLocal } from './cityPhysics.ts';
 import { pushOut } from '../../../shared/worlds.ts';
@@ -332,7 +334,8 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       }
       const d = driving.current;
       const k = keys.current;
-      const solids = [...(city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s)), ...padSolids];
+      const shared = useSharedAssets.getState();
+      const solids = [...(city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s)), ...padSolids, ...sharedSolids(shared.sid === s.session ? shared.view : undefined, shared.catalog)];
       d.state = moveBike(d.state, {
         throttle: k.KeyW || k.ArrowUp ? 1 : 0, brake: k.KeyS || k.ArrowDown ? 1 : 0,
         steering: (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0),
@@ -371,7 +374,8 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       aim.current = null;
     }
     const mode = s.movementMode;
-    const solids = [...(city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s)), ...padSolids];
+    const shared = useSharedAssets.getState();
+    const solids = [...(city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s)), ...padSolids, ...sharedSolids(shared.sid === s.session ? shared.view : undefined, shared.catalog)];
     const surfaces: Surface[] = city ? [...CITY_SURFACES, { ...SHAFT_RECT, ya: elevatorY(elevatorOfSession(s), now0), yb: elevatorY(elevatorOfSession(s), now0) }] : [];
     if (worldKindOf(s) === 'game') {
       for (let i = 0; i < TILE_COUNT; i++) if (!tileGone(g, i, now0)) {

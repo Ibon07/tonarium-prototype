@@ -8,6 +8,11 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: '2026-10-26',
+    title: '共有アセットの検証・原本保全・配置編集の基盤を追加',
+    items: ['固定版とSHA-256で参照する共有原本・マップの契約、提出物検証、永続カタログ切替、予算付き宣言ルールと範囲別状態を追加しました。kokosyncで保存後の確定状態を個別配送し、配置編集・draft・JSON入出力・3D表示と動的衝突を接続しました。動作例、検証コード、未実装項目と環境上の検証制約を記録しました。'],
+  },
+  {
     date: '2026-10-25',
     title: 'Windows／Linux ネイティブ版を廃止',
     items: ['Avalonia／Unity のネイティブ版と専用のビルド・検証・パッケージ・自動配布設定を削除しました。Web 版と Electron 版のコード・共有アセット・Nightly 配布処理を維持し、利用・開発案内を更新しました。公開済み配布物は保持します。'],

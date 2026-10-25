@@ -1,5 +1,7 @@
 # セッションの同期（kokosync）
 
+共有アセットの追加により互換性バージョンは3です。`sharedCommand` を既存の認証済み操作経路で処理し、保存後の `sharedDelta` を受信者別に暗号化して届けます。欠落時の `sharedResync` と初回snapshotで全量を補完します。状態範囲と制約は [shared-assets.md](shared-assets.md) を参照してください。
+
 セッション内のデータは kokosync、フレンド・DM・ホームは既存の WebSocket、音声・映像は LiveKit を使う。アプリ側の `send()` とメッセージ型は維持している。
 
 ## 経路と担当
