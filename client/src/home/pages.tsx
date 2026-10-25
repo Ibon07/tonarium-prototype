@@ -9,8 +9,9 @@ import { useOwnedContent } from '../market/store.ts';
 import { OriginBadge } from '../market/OriginBadge.tsx';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CHANGELOG } from '../i18n/static.ts';
-import { markChangelogSeen } from './changelog.ts';
+import { CHANGELOG } from '../../../shared/changelog.ts';
+import { localized } from '../i18n/core.ts';
+import { filterChangelog, markChangelogSeen } from './changelog.ts';
 import { save, set, unreadOf, useStore, type HomePage } from '../store.ts';
 import { dmKey, type EventDef, type Group, type User } from '../../../shared/protocol.ts';
 import { sortForHome } from '../../../shared/home.ts';
@@ -30,13 +31,18 @@ import { StatusDot, StatusText, useStatusOf } from './status.tsx';
 const match = (q: string, ...texts: (string | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q.toLowerCase()));
 
 export function ChangelogPage({ q }: { q: string }) {
+  const [includeMaintenance, setIncludeMaintenance] = useState(false);
   useEffect(() => markChangelogSeen(), []);
-  const entries = CHANGELOG.filter((entry) => match(q, entry.title, ...entry.items));
+  const entries = filterChangelog(localized(filterChangelog(CHANGELOG, '', includeMaintenance)), q, true);
   return (
     <section className="hsec" aria-label={tr("ui259")}>
+      <label className="hchangelog-filter">
+        <input type="checkbox" checked={includeMaintenance} onChange={(e) => setIncludeMaintenance(e.target.checked)} />
+        {tr('changelogIncludeMaintenance')}
+      </label>
       {entries.length === 0 && <Empty>{tr("ui260")}</Empty>}
       {entries.map((entry) => (
-        <article className="hsec hchangelog" key={`${entry.date}:${entry.title}`}>
+        <article className="hsec hchangelog" key={entry.id ?? `${entry.date}:${entry.title}`}>
           <time className="sub" dateTime={entry.date}>{entry.date}</time>
           <h2>{entry.title}{entry.tag && <small className="sub">{entry.tag}</small>}</h2>
           <ul>{entry.items.map((item) => <li key={item}>{item}</li>)}</ul>

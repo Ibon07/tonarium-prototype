@@ -14,6 +14,7 @@ import { bump, recentlyHit } from '../items/effects.ts';
 import { carrying, type Interactable } from './interact.ts';
 import { DEFAULT_EYE_HEIGHT } from '../../../shared/avatar.ts';
 import { EyeHeightContext, useEyeHeight } from './eyeHeight.ts';
+import { PlayerCamera } from './playerCamera.ts';
 import { Player } from './Player.tsx';
 import { MOVEMENT_MODES } from './movement.ts';
 import { AttentionGlow, HammerModel, Item3D } from './items3d.tsx';
@@ -94,8 +95,8 @@ export function Entrance() {
   return <>{in2d.map((u) => <Standee key={u.id} user={u} />)}</>;
 }
 
-/** self は一人称では見えないので隠しておき、カメラで撮るときだけ表示する（renderCamera） */
-export function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
+/** 自分の体は三人称と外部カメラで表示する。 */
+export function Avatar3D({ id, self = false, rig }: { id: string; self?: boolean; rig?: PlayerCamera }) {
   const eye = useEyeHeight();
   const [height, setHeight] = useState(DEFAULT_EYE_HEIGHT);
   const onEyeHeight = useCallback((value: number) => {
@@ -157,6 +158,11 @@ export function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
     d = Math.atan2(Math.sin(d), Math.cos(d));
     g.rotation.y += ride.current ? d : d * k;
     const s = get();
+    if (self && rig) {
+      g.visible = rig.thirdPerson;
+      g.position.copy(rig.avatarPosition);
+      g.rotation.y = rig.yaw;
+    }
     const b = bump(s.hits[id]);
     body.current?.scale.set(1 + 0.3 * b, 1 - 0.45 * b, 1 + 0.3 * b);
     if (hand.current) hand.current.rotation.x = -0.4 - bump(s.swings[id], performance.now(), 350) * 1.6;
@@ -281,7 +287,7 @@ function Crosshair() {
       {locked && hint && <div className="aimhint">{hint}</div>}
       {recentlyHit(get().selfId) && <div className="hitme">{tr("ui542")}</div>}
       <div className="keyhelp">
-        <span>{tr('mergeMovement', tr(MOVEMENT_MODES[movementMode]))} ・ {movementMode !== 'walk' && tr('mergeFlightControls')}{tr('mergeSettingsHint')}</span><br />
+        <span>{tr('mergeMovement', tr(MOVEMENT_MODES[movementMode]))} ・ {movementMode !== 'walk' && tr('mergeFlightControls')}{tr('mergeSettingsHint')} ・ {tr('cameraViewControls')}</span><br />
         {survivorWorld && survivorActive && movementMode === 'walk'
           ? <>{tr('ui543')}</>
           : locked
@@ -293,6 +299,7 @@ function Crosshair() {
 }
 
 export function View3D() {
+  const rig = useRef(new PlayerCamera()).current;
   const eyeHeight = useRef({ current: DEFAULT_EYE_HEIGHT, target: DEFAULT_EYE_HEIGHT });
   const avatarIds = useStore((s) => s.avatarIds);
   const items = useStore((s) => s.items);
@@ -311,13 +318,13 @@ export function View3D() {
           <ShareDisplay />
           <Entrance />
           {avatarIds.map((id) => <Avatar3D key={id} id={id} />)}
-          <Avatar3D id={selfId} self />
+          <Avatar3D id={selfId} self rig={rig} />
           {Object.values(items).map((it) => <Item3D key={it.id} item={it} />)}
           {Object.values(items).map((it) => <AttentionGlow key={`attn-${it.id}`} item={it} />)}
           {Object.values(items).map((it) => (it.kind === 'camera' && it.live && it.operator === selfId
             ? <CameraStreamer key={`stream-${it.id}`} item={it} /> : null))}
           {viewLive && <ViewStreamer />}
-          <Player />
+          <Player rig={rig} />
         </Canvas>
       </EyeHeightContext.Provider>
       <Viewfinder />

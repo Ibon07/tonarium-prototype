@@ -46,11 +46,9 @@ LiveKit Cloud を使う場合は `.env` の `LIVEKIT_*` をそのプロジェク
 ```bash
 npm run dev
 ```
-修正・文書更新・保守を含む全タスクで、`shared/changelog.ts` の `CHANGELOG` 配列の先頭に、今回実際に行った変更の日付・見出し・本文を持つ新規項目を追記する。既存項目は残し、新しい順に保つ。過去履歴の補完は不要。記載内容と実際の差分が一致することをレビューの受け入れ条件とする。
+修正・文書更新・保守を含む全タスクで、`changelog/YYYY-MM-DD-<識別子>.json` を新規追加する。`date`・`title`・`items` が必須、`tag` は任意。共通履歴の手動編集は不要。配置・命名規則・記載例・識別と並び順・ビルド時の集約は [変更履歴の開発ガイド](docs/changelog.md) を参照。記載内容と実際の差分の一致はレビューで確認する。
 
-タスク完了前に `npm run check:completion` を実行する。履歴チェック、型チェック、ビルドの順で実行し、失敗したら完了にしない。履歴チェックだけなら `npm run check:changelog`、チェックの回帰テストは `npm run test:changelog`。比較元は既定で `git merge-base HEAD origin/main` とし、コミット済み・ステージ済み・未ステージの変更を含む現在のファイルと比較する。別のブランチから始めたタスクなどは、開始時に記録した比較元コミットを `CHANGELOG_BASE` に設定して完了チェックを実行するか、`npm run check:changelog -- --base <比較元コミット>` で確認してから型チェックとビルドを実行する。比較元が取得できない場合も失敗するため、必要な Git 履歴を取得する。
-
-既存項目の編集・削除・並べ替え・書式変更・複製だけでは履歴チェックは成功しない。新規項目は先頭に置き、既存項目の内容と順序を保つ。追記漏れの場合は表示された案内に従い、`shared/changelog.ts` の先頭に今回の実施内容を追加して再実行する。既存項目の編集・削除・並べ替えがあれば元に戻す。内容の一致は自動判定しないため、レビューで差分と照合する。
+タスク完了前に `npm run check:completion` を実行する。新規の作業別履歴ファイルと形式の検証、型チェック、ビルドの順で実行し、失敗したら完了にしない。履歴チェックだけなら `npm run check:changelog`、回帰テストは `npm run test:changelog`。比較元は既定で `git merge-base HEAD origin/main`。別の比較元は `CHANGELOG_BASE`、または `npm run check:changelog -- --base <タスク開始時のコミット>` で指定できる。比較元に存在しないファイルの追加が必須で、既存履歴の編集・削除・改名や複製だけでは通過しない。失敗時は案内に従い、新しい作業別ファイルを追加する。共通履歴の既存項目は残す。
 
 `main` 宛ての全 PR はファイル種別による除外なしで GitHub Actions の Web checks を実行する。PR の比較元コミットからの新規履歴、型チェック、ビルド、クライアント・同期テストを確認する。手動実行では対象コミットの親を比較元にする。Discord のフィードバックから作った PR も同じチェックを通してからマージする。
 http://localhost:5173 を開く。同じブラウザで別人として入るには `?as=b` のように付ける（名前はブラウザ共通で覚えるので、入る前に変える）。
@@ -73,7 +71,7 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 
 - 日本語・英語・韓国語の表示切り替え（端末保存・ブラウザ言語判定）→ [docs/languages.md](docs/languages.md)
 - チャットの自動翻訳・小さな原文と発言言語の表示（サーバーのOpenAI連携・ローカルモック）→ [docs/chat-translation.md](docs/chat-translation.md)
-- 変更履歴（主な更新の一覧・検索・未読の赤い点）→ [docs/home.md の変更履歴](docs/home.md#変更履歴)
+- 変更履歴（主な更新の一覧・検索・未読の赤い点）→ [docs/home.md の変更履歴](docs/home.md#変更履歴)・[開発ガイド](docs/changelog.md)
 - Web 版をそのまま使う Electron クライアント → [docs/electron.md](docs/electron.md)
 - ホーム（セッション外の画面。セッション・フレンド・イベント・グループの一覧と作成、公開範囲、招待）→ [docs/home.md](docs/home.md)
 - ステータス、DM とグループのチャンネル、日程の相談、セッションのまとめ → [docs/messages.md](docs/messages.md)
