@@ -3,37 +3,83 @@ import type { WorldKind } from '../../shared/worlds.ts';
 import { approach } from '../../shared/places.ts';
 import { clampRoomPos } from './items/actions.ts';
 import { get, set, recompute, spawnPoint, save, nameOf, showToast, dropSession, type Notice } from './store.ts';
-import { send } from './net/ws.ts';
+import { requestSession, send } from './net/ws.ts';
 import { connectVoice, leaveVoice } from './net/livekit.ts';
 import { startSessionSync, stopSessionSync } from './net/session.ts';
 import { placesOf, resumeAudio } from './spatial.ts';
 import { touchOnly } from './phone.ts';
 import { stopWalk } from './walk.ts';
 
-export function joinSession(sid: string) {
+let sessionOperation = false;
+
+async function enterSession(sid: string, requireVoice = false) {
   if (get().session === sid) { set({ hubOpen: false }); return; }
+  await exitSession();
+  try {
+    await requestSession({ t: 'join', sid });
+  } catch (error) {
+    // 応答だけが届かなかった場合も、サーバー側の参加を残さない。
+    await requestSession({ t: 'leave' }).catch(() => {});
+    throw error;
+  }
   selectNote(null);
-  resumeAudio();
   dropSession(get().session);
   // フレンド申請と招待はセッションをまたいで残す
   set((s) => ({ session: sid, mode: '2d', hubOpen: false, selfAvatar: spawnPoint(), windows: [], maxWin: null, notices: s.notices.filter((n) => n.kind === 'friend' || n.kind === 'invite' || n.kind === 'online') }));
   recompute();
-  send({ t: 'join', sid });
   startSessionSync();
-  void connectVoice(sid);
+  await connectVoice(sid);
+  if (requireVoice && get().voice !== 'connected') throw new Error('通話に接続できませんでした');
   // 外で 3D を選んでいたら、入った後に 3D へ
-  if (get().joinMode === '3d' && !touchOnly) setTimeout(() => switchMode('3d'), 400);
+  if (get().joinMode === '3d' && !touchOnly) setTimeout(() => { if (get().session === sid) switchMode('3d'); }, 400);
 }
 
-export function leaveSession() {
+async function exitSession() {
   if (!get().session) return;
   selectNote(null);
   dropSession(get().session);
   set({ session: null, mode: '2d', hubOpen: false, windows: [], maxWin: null });
   recompute();
-  send({ t: 'leave' });
   stopSessionSync();
-  void leaveVoice();
+  // 通話の切断も終えてから次の部屋につなぐ。
+  const results = await Promise.allSettled([requestSession({ t: 'leave' }), leaveVoice()]);
+  for (const result of results) if (result.status === 'rejected') throw result.reason;
+}
+
+async function withSessionOperation(action: () => Promise<void>) {
+  if (sessionOperation) return;
+  sessionOperation = true;
+  const before = get();
+  try {
+    await action();
+  } catch (error) {
+    let message = error instanceof Error ? error.message : 'セッションに参加できませんでした';
+    try {
+      if (get().session !== before.session) {
+        await exitSession();
+        if (before.session) await enterSession(before.session);
+      }
+    } catch {
+      message += '。元のセッションに再接続できませんでした';
+    }
+    if (get().session === before.session) {
+      set({ mode: before.mode, hubOpen: before.hubOpen, homePage: before.homePage, selfAvatar: before.selfAvatar,
+        windows: before.windows, maxWin: before.maxWin, notices: before.notices });
+      if (before.session) { send({ t: 'mode', mode: before.mode }); send({ t: 'avatar', s: before.selfAvatar }); }
+    }
+    showToast(message);
+  } finally {
+    sessionOperation = false;
+  }
+}
+
+export function joinSession(sid: string) {
+  resumeAudio();
+  return withSessionOperation(() => enterSession(sid));
+}
+
+export function leaveSession() {
+  return withSessionOperation(exitSession);
 }
 
 export function setMode(mode: Mode) {
@@ -143,8 +189,14 @@ export function friendAccept(to: string, noticeId: number) {
 
 export const removeNotice = (noticeId: number) => set((s) => ({ notices: s.notices.filter((n) => n.id !== noticeId) }));
 
-export const createSession = (name: string, topic: string, world: WorldKind, visibility: Visibility, group?: string) =>
-  send({ t: 'sessionCreate', name, topic, world, visibility, group });
+export function createSession(name: string, topic: string, world: WorldKind, visibility: Visibility, group?: string) {
+  resumeAudio();
+  return withSessionOperation(async () => {
+    const reply = await requestSession({ t: 'sessionCreate', name, topic, world, visibility, group });
+    if (reply.t !== 'sessionCreated') throw new Error('セッションを作成できませんでした');
+    await enterSession(reply.sid, true);
+  });
+}
 export const deleteSession = (id: string) => send({ t: 'sessionDelete', id });
 export const createGroup = (name: string, color: string) => send({ t: 'groupCreate', name, color });
 export const updateGroup = (groupId: string, changes: { name?: string; editors?: string[] }) => send({ t: 'groupUpdate', groupId, ...changes });

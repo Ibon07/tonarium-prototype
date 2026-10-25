@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { keepHomeSocketsAlive } from './ws-heartbeat.ts';
+import { SessionThumbnails } from './thumbnails.ts';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
   AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, Recap, RoomClientMsg, Rsvp,
@@ -157,6 +158,9 @@ async function readBody(req: http.IncomingMessage, limit: number) {
 
 const SESSIONS_FILE = process.env.SESSIONS_FILE ?? path.join(ROOT, 'sessions.json');
 const guild = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')) as GuildConfig;
+const fixedSessionIds = new Set(guild.sessions.map((d) => d.id));
+const EMPTY_SESSION_TTL_MS = 5 * 60 * 1000;
+const emptySessionTimers = new Map<string, ReturnType<typeof setTimeout>>();
 // 画面から作ったセッション・グループ・イベント。sessions.json のセッションの後ろに並べる
 // renamed は sessions.json のセッションを画面から改名したときの名前（sessions.json は書き換えない）
 const home: { sessions: SessionDef[]; groups: Group[]; events: EventDef[]; renamed: Record<string, string> } = { sessions: [], groups: [], events: [], renamed: {} };
@@ -215,6 +219,10 @@ const broadcastMode = new Map<string, boolean>();
 const lastAttention = new Map<string, number>();
 const emoteUntil = new WeakMap<Participant, number>();
 const worldOf = new Map<string, WorldKind>();
+const thumbnails = new SessionThumbnails(
+  (id, sid) => sendTo([id], { t: 'thumbnailRequest', sid }),
+  () => broadcastSessionInfo(),
+);
 // アイテムはだれもいなくなっても残し、再起動しても戻す（盤面の続きをするため）
 const savedItems = nullRecord(readJson<Record<string, Item[]>>(ITEMS_FILE, {}));
 /** 持っている人や編集中の人は再起動でいなくなるので外す */
@@ -226,6 +234,7 @@ function settle(it: Item) {
   return it;
 }
 function registerSession(def: SessionDef) {
+  thumbnails.register(def.id);
   sessionIds.add(def.id);
   worldOf.set(def.id, isWorldKind(def.world) ? def.world : 'room');
   chats.set(def.id, []);
@@ -266,7 +275,10 @@ const saveInbox = later(() => fs.writeFileSync(MESSAGES_FILE, JSON.stringify(inb
 
 /** セッションにだれかが入ってから全員が出るまで。終わったらまとめにする */
 const visits = new Map<string, { from: number; people: Set<string>; log: Recap['log'] }>();
-for (const w of guild.sessions) registerSession(w);
+for (const w of guild.sessions) {
+  registerSession(w);
+  scheduleEmptyCheck(w.id);
+}
 // 配信のたびにフレンド全走査と全ユーザー配列化を人数分繰り返さないよう、1 回の配信で使い回す写し
 interface UserSnapshot { all: Participant[]; friendsByName: Map<string, string[]>; onlineNames: Set<string> }
 function snapshotUsers(): UserSnapshot {
@@ -465,11 +477,14 @@ function sessionInfoOf(sid: string): SessionInfo {
     const summary = itemSummary(it);
     return summary ? [{ id: it.id, kind: it.kind, summary }] : [];
   });
-  return { world: worldOf.get(sid) ?? 'room', items: list };
+  return { world: worldOf.get(sid) ?? 'room', items: list, thumbnail: thumbnails.thumbnail(sid) };
 }
 const allSessionInfo = () => Object.fromEntries([...sessionIds].map((sid) => [sid, sessionInfoOf(sid)]));
 /** アイテムやワールドが変わったら、ホーム向けの軽い情報を全員に配り直す（続けて起きた変更はまとめる） */
 const broadcastSessionInfo = later(() => broadcast({ t: 'sessionInfo', sessions: allSessionInfo() }), 300);
+setInterval(() => {
+  for (const sid of sessionIds) thumbnails.update(sid, inSession(sid));
+}, 10_000);
 function sendItem(sid: string, it: Item) {
   markItemsDirty(sid);
   roomSend(sid, { t: 'item', sid, item: it });
@@ -615,6 +630,7 @@ function leaveSession(u: Participant) {
   u.follow = null;
   u.pos = null;
   u.session = null;
+  thumbnails.update(sid, inSession(sid));
   u.mode = '2d';
   u.micOn = false;
   u.sharing = false;
@@ -623,7 +639,7 @@ function leaveSession(u: Participant) {
   u.display = null;
   event(sid, `${u.name} が退出しました`);
   if (inSession(sid).length) sendPresence(sid);
-  else { finishVisit(sid); void leaveRoom(sid); }
+  else { finishVisit(sid); void leaveRoom(sid); scheduleEmptyCheck(sid); }
 }
 
 function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string }, msg: ClientMsg) {
@@ -715,10 +731,14 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
     broadcastPeople();
     return;
   }
-  if (handleHome(me, msg)) return;
+  if (handleHome(me, msg, ws)) return;
   const sid = me.session;
 
   switch (msg.t) {
+    case 'thumbnailUpload':
+      if (sid && sid === msg.sid) thumbnails.upload(sid, me.id, msg.thumbnail);
+      else console.warn('[thumbnail] rejected upload outside session');
+      return;
     case 'prepareSync': {
       if (!sid || typeof msg.requestId !== 'string') return;
       state.syncRequest = msg.requestId;
@@ -731,10 +751,19 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
     }
     case 'join': {
       const def = guild.sessions.find((d) => d.id === msg.sid);
-      if (!def || sid === msg.sid || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) return;
+      if (!def || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) {
+        if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId, error: 'このセッションには参加できません' });
+        return;
+      }
+      if (sid === msg.sid) {
+        if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId });
+        return;
+      }
       leaveSession(me);
       me.session = msg.sid;
+      cancelEmptyCheck(msg.sid);
       me.mode = '2d';
+      thumbnails.update(msg.sid, inSession(msg.sid));
       const visit = visits.get(msg.sid) ?? { from: Date.now(), people: new Set<string>(), log: [] };
       visit.people.add(me.name);
       visits.set(msg.sid, visit);
@@ -742,12 +771,14 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
       event(msg.sid, `${me.name} が入室しました`);
       // フレンド+ のセッションは中にいる人で見える人が変わる
       broadcastSessions();
+      if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId });
       return;
     }
     case 'leave': {
       leaveSession(me);
       broadcastUsers();
       broadcastSessions();
+      if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId });
       return;
     }
   }
@@ -994,6 +1025,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
         if (avatars.get(sid)!.delete(me.id)) roomSend(sid, { t: 'avatarRemove', sid, id: me.id });
       }
       broadcastUsers(); sendPresence(sid);
+      thumbnails.update(sid, inSession(sid));
       event(sid, `${me.name} が ${modeLabel(msg.mode)} に切り替えました`);
       return;
     }
@@ -1056,44 +1088,74 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
 
 const trimTo = (v: unknown, n: number) => String(v ?? '').trim().slice(0, n);
 
+function cancelEmptyCheck(sessionId: string) {
+  clearTimeout(emptySessionTimers.get(sessionId));
+  emptySessionTimers.delete(sessionId);
+}
+
+function scheduleEmptyCheck(sessionId: string) {
+  if (fixedSessionIds.has(sessionId)) return;
+  cancelEmptyCheck(sessionId);
+  emptySessionTimers.set(sessionId, setTimeout(() => {
+    emptySessionTimers.delete(sessionId);
+    const def = home.sessions.find((d) => d.id === sessionId);
+    if (!def || !sessionIds.has(sessionId) || fixedSessionIds.has(sessionId) || inSession(sessionId).length) return;
+    console.log(`session auto-delete: ${JSON.stringify({ id: sessionId, name: def.name, reason: 'empty for 5min' })}`);
+    destroyUserSession(sessionId);
+  }, EMPTY_SESSION_TTL_MS));
+}
+
+function destroyUserSession(sessionId: string) {
+  const def = home.sessions.find((d) => d.id === sessionId);
+  if (!def) return;
+  cancelEmptyCheck(sessionId);
+  home.sessions.splice(home.sessions.indexOf(def), 1);
+  guild.sessions.splice(guild.sessions.indexOf(def), 1);
+  sessionIds.delete(def.id);
+  thumbnails.delete(def.id);
+  worldOf.delete(def.id);
+  chats.delete(def.id);
+  avatars.delete(def.id);
+  items.delete(def.id);
+  markItemsDirty(def.id);
+  broadcastMode.delete(def.id);
+  worldPending.delete(def.id);
+  clearSurvivor(def.id);
+  clearGame(def.id);
+  resetElevator(def.id);
+  broadcastSessionInfo();
+  for (const ev of home.events) if (ev.session === def.id) ev.session = null;
+  saveHome();
+  broadcastSessions();
+  broadcastEvents();
+}
+
 /** ホーム画面の操作（セッション外でもできる）。扱ったら true */
-function handleHome(me: User, msg: ClientMsg): boolean {
+function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
   switch (msg.t) {
     case 'sessionCreate': {
       const name = trimTo(msg.name, 40);
       const visibility = Object.hasOwn(VISIBILITY_INFO, msg.visibility) ? msg.visibility : 'public';
       const group = isGroupVisibility(visibility) ? home.groups.find((g) => g.id === msg.group && g.members.includes(me.name))?.id : undefined;
-      if (!name || (isGroupVisibility(visibility) && !group)) return true;
+      if (!name || (isGroupVisibility(visibility) && !group)) {
+        if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId, error: !name ? 'セッション名を入力してください' : 'このグループには所属していません' });
+        return true;
+      }
       const def: SessionDef = { id: shortId(), name, topic: trimTo(msg.topic, 100), world: isWorldKind(msg.world) ? msg.world : 'room', visibility, owner: me.name, group, invited: [] };
       home.sessions.push(def);
       guild.sessions.push(def);
       registerSession(def);
+      scheduleEmptyCheck(def.id);
       saveHome();
       broadcastSessions();
       broadcastSessionInfo();
+      send(ws, { t: 'sessionCreated', sid: def.id, requestId: msg.requestId });
       return true;
     }
     case 'sessionDelete': {
       const def = home.sessions.find((d) => d.id === msg.id && d.owner === me.name);
       if (!def || [...users.values()].some((u) => u.session === def.id)) return true;
-      home.sessions.splice(home.sessions.indexOf(def), 1);
-      guild.sessions.splice(guild.sessions.indexOf(def), 1);
-      sessionIds.delete(def.id);
-      worldOf.delete(def.id);
-      chats.delete(def.id);
-      avatars.delete(def.id);
-      items.delete(def.id);
-      markItemsDirty(def.id);
-      broadcastMode.delete(def.id);
-      worldPending.delete(def.id);
-      clearSurvivor(def.id);
-      clearGame(def.id);
-      resetElevator(def.id);
-      broadcastSessionInfo();
-      for (const ev of home.events) if (ev.session === def.id) ev.session = null;
-      saveHome();
-      broadcastSessions();
-      broadcastEvents();
+      destroyUserSession(def.id);
       return true;
     }
     case 'groupCreate': {
