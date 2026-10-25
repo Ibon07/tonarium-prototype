@@ -491,17 +491,19 @@ export function Home({ sheet }: { sheet?: boolean }) {
           <Bell />
           {page === 'group' ? <GroupActions /> : <button className="dark hcreate" onClick={() => setCreate(true)}><Icon name="plus" size={16} />{tr("ui101")}</button>}
         </header>
-        {page === 'home' && <HomePageView q={q} />}
-        {page === 'friends' && <FriendsPage q={q} />}
-        {page === 'sessions' && <SessionsPage q={q} />}
-        {page === 'events' && <EventsPage q={q} />}
-        {page === 'groups' && <GroupsPage q={q} />}
-        {page === 'group' && <GroupPage />}
-        {page === 'worlds' && <WorldsPage q={q} />}
-        {page === 'items' && <ItemsPage q={q} />}
-        {page === 'market' && <MarketPage q={q} />}
-        {page === 'changelog' && <ChangelogPage q={q} />}
-        {(page === 'sounds' || page === 'emotes') && <ReactionLibrary category={page} q={q} />}
+        <div className="hcontent" key={page} tabIndex={sheet ? 0 : undefined}>
+          {page === 'home' && <HomePageView q={q} />}
+          {page === 'friends' && <FriendsPage q={q} />}
+          {page === 'sessions' && <SessionsPage q={q} />}
+          {page === 'events' && <EventsPage q={q} />}
+          {page === 'groups' && <GroupsPage q={q} />}
+          {page === 'group' && <GroupPage />}
+          {page === 'worlds' && <WorldsPage q={q} />}
+          {page === 'items' && <ItemsPage q={q} />}
+          {page === 'market' && <MarketPage q={q} />}
+          {page === 'changelog' && <ChangelogPage q={q} />}
+          {(page === 'sounds' || page === 'emotes') && <ReactionLibrary category={page} q={q} />}
+        </div>
       </main>
       {/* グループの画面は自分の右の列を持っているので出さない */}
       {page !== 'group' && page !== 'market' && <SideArea />}
