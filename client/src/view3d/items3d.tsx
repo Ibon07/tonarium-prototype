@@ -27,6 +27,7 @@ import { bikeDisplay, requestBikeMount } from './bikeControl.ts';
 import { angleDelta } from '../../../shared/vehicle.ts';
 import { createBikeAudio } from './bikeAudio.ts';
 import { BikeModel } from './BikeModel.tsx';
+import { Telephone3D } from './telephone3d.tsx';
 import { Mirror3D } from './mirror3d.tsx';
 import { JumpPad3D } from './jumpPad3d.tsx';
 import { createImageTexture } from './imageTexture.ts';
@@ -355,6 +356,7 @@ export function AttentionGlow({ item }: { item: Item }) {
 
 export function Item3D({ item }: { item: Item }) {
   switch (item.kind) {
+    case 'telephone': return <Telephone3D item={item} />;
     case 'jumpPad': return <JumpPad3D item={item} />;
     case 'mirror': return <Mirror3D item={item} />;
     case 'bike': return <Bike3D item={item} />;

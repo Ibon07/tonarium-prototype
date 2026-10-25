@@ -18,6 +18,8 @@ import { COMPAT_VERSION, PLAN_QUORUM, ROOM_HALF, STATUS_INFO, STATUS_TEXT_MAX, V
 import { GROUP_COLORS, canSeeSession } from '../shared/home.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, isWorldKind, pushOut, type WorldKind } from '../shared/worlds.ts';
 import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, itemSummary, type Item } from '../shared/items.ts';
+import { telephoneAction, telephoneItemFor, telephoneState, tickTelephone, reconcileTelephoneHost, hasTelephoneHistory } from './telephone.ts';
+import type { TelephoneAction } from '../shared/telephone.ts';
 import { sanitizeParams } from '../shared/avatar.ts';
 import { VOICE_RANGE, clampAvatar, computePlaces, placeDistance } from '../shared/places.ts';
 import { CITY_HALF, clampCity } from '../shared/city.ts';
@@ -491,6 +493,7 @@ function broadcastUsers() {
 /** セッションの中の人の状態を、その部屋の全員に配り直す */
 function sendPresence(sid: string) {
   const here = inSession(sid);
+  refreshTelephones(sid);
   // 視点のライブは、ついてくる人がいなくなったら止める
   for (const u of here)
     if (u.viewLive && (u.mode !== '3d' || !here.some((f) => f.follow === u.id))) u.viewLive = false;
@@ -511,7 +514,10 @@ setInterval(() => {
 }, 10_000);
 function sendItem(sid: string, it: Item) {
   markItemsDirty(sid);
-  roomSend(sid, { t: 'item', sid, item: it });
+  if (it.kind === 'telephone') {
+    const present = new Set(inSession(sid).map(u => u.id));
+    for (const u of inSession(sid)) roomSend(sid, { t: 'item', sid, item: telephoneItemFor(it, u.id, present) }, [u.id]);
+  } else roomSend(sid, { t: 'item', sid, item: it });
   broadcastSessionInfo();
 }
 function sendItemRemove(sid: string, id: string) {
@@ -538,12 +544,29 @@ function broadcastItemMove(sid: string, it: Item) {
     if (items.get(sid)?.get(it.id) === it) send();
   }, wait));
 }
+const telephonePresence = new WeakMap<object, string>();
+function refreshTelephones(sid: string) {
+  const present = new Set(inSession(sid).map(u => u.id));
+  const presenceKey = [...present].sort().join('\0');
+  for (const it of items.get(sid)?.values() ?? []) {
+    if (it.kind !== 'telephone') continue;
+    const g = telephoneState(it);
+    const progressed = tickTelephone(g, Date.now());
+    const hostChanged = reconcileTelephoneHost(g, present, Math.random);
+    const presenceChanged = telephonePresence.get(g) !== presenceKey;
+    telephonePresence.set(g, presenceKey);
+    if (progressed || hostChanged || presenceChanged) sendItem(sid, it);
+  }
+}
+setInterval(() => { for (const sid of items.keys()) refreshTelephones(sid); }, 250);
+
 function sendSessionSnapshot(sid: string, id: string) {
+  refreshTelephones(sid);
   roomSendSnapshot(sid, id, {
     sid,
     chats: (chats.get(sid) ?? []).filter((m) => !m.to || m.to.includes(id)),
     avatars: Object.fromEntries(avatars.get(sid) ?? []),
-    items: [...(items.get(sid)?.values() ?? [])],
+    items: [...(items.get(sid)?.values() ?? [])].map(it => telephoneItemFor(it, id, new Set(inSession(sid).map(u => u.id)))),
     presence: Object.fromEntries(inSession(sid).map((u) => [u.id, presenceOf(u)])),
     broadcast: broadcastMode.get(sid) ?? false,
     world: worldOf.get(sid) ?? 'room',
@@ -656,6 +679,7 @@ function leaveSession(u: Participant) {
   u.follow = null;
   u.pos = null;
   u.session = null;
+  refreshTelephones(sid);
   thumbnails.update(sid, inSession(sid));
   u.mode = '2d';
   u.micOn = false;
@@ -1006,6 +1030,15 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     case 'itemAction': {
       const it = sessItems.get(msg.id);
       if (!it) return;
+      if (it.kind === 'telephone') {
+        if (!msg.action || typeof msg.action.a !== 'string' || !msg.action.a.startsWith('telephone')) return;
+        const present = new Set(inSession(sid).map(u => u.id));
+        if (telephoneAction(telephoneState(it), { id: me.id, name: me.name, kind: 'human' }, msg.action as TelephoneAction, present, Date.now(), Math.random)) {
+          it.updatedBy = me.id;
+          sendItem(sid, it);
+        }
+        return;
+      }
       if (it.kind === 'bike') {
         if (msg.action.a === 'bikeMount') {
           const av = avatars.get(sid)!.get(me.id);
@@ -1146,6 +1179,8 @@ function scheduleEmptyCheck(sessionId: string) {
     emptySessionTimers.delete(sessionId);
     const def = home.sessions.find((d) => d.id === sessionId);
     if (!def || !sessionIds.has(sessionId) || fixedSessionIds.has(sessionId) || inSession(sessionId).length) return;
+    // 全員不在でも進行と結果鑑賞へ復帰できるよう、履歴のある部屋を残す。
+    if (hasTelephoneHistory(items.get(sessionId)?.values() ?? [])) return;
     console.log(`session auto-delete: ${JSON.stringify({ id: sessionId, name: def.name, reason: 'empty for 5min' })}`);
     destroyUserSession(sessionId);
   }, EMPTY_SESSION_TTL_MS));
