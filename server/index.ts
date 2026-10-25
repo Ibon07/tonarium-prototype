@@ -150,11 +150,22 @@ const iconFile = (name: string) => path.join(ICON_DIR, `${nameHash(name)}.jpg`);
 const avatarImageFile = (name: string) => path.join(AVATAR_DIR, `${nameHash(name)}.img`);
 const avatarParamsFile = (name: string) => path.join(AVATAR_DIR, `${nameHash(name)}.json`);
 const profileFile = (name: string) => path.join(PROFILE_DIR, `${nameHash(name)}.json`);
+// mtime とサイズが変わっていなければ前回の読み結果を使い、変わったら読み直す（サーバー経由・外部どちらの変更も検出できる）
+const bioCache = new Map<string, { mtimeMs: number; size: number; bio: string }>();
 function bioOf(name: string) {
-  try { return String((JSON.parse(fs.readFileSync(profileFile(name), 'utf-8')) as { bio?: unknown }).bio ?? ''); } catch { return ''; }
+  const file = profileFile(name);
+  let stat: fs.Stats | undefined;
+  try { stat = fs.statSync(file); } catch { stat = undefined; }
+  if (!stat) { bioCache.delete(file); return ''; }
+  const cached = bioCache.get(file);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.bio;
+  let bio = '';
+  try { bio = String((JSON.parse(fs.readFileSync(file, 'utf-8')) as { bio?: unknown }).bio ?? ''); } catch { /* 壊れたプロフィールは従来どおり空として扱う */ }
+  bioCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, bio });
+  return bio;
 }
 const mtime = (file: string) => { try { return Math.floor(fs.statSync(file).mtimeMs); } catch { return 0; } };
-const iconVersion = (name: string) => (mtime(iconFile(name)) ? String(mtime(iconFile(name))) : null);
+const iconVersion = (name: string) => { const v = mtime(iconFile(name)); return v ? String(v) : null; };
 function avatarVersion(name: string) {
   const v = Math.max(mtime(avatarImageFile(name)), mtime(avatarParamsFile(name)));
   return v ? String(v) : null;
