@@ -20,6 +20,7 @@
     "electron:install:linux": "bash electron/install-linux-user.sh",
     "test:emotes": "tsx --test shared/emotes.test.ts",
     "test:worlds": "tsx --test shared/worlds.test.ts",
+    "test:items": "tsx --test shared/items.test.ts",
     "test:survivor": "tsx --test shared/survivor.test.ts"
   },
   "dependencies": {

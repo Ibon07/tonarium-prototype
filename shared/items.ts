@@ -17,6 +17,9 @@ export type MediaInit = { url: string; w: number; h: number } | { videoId: strin
 
 export const CANVAS_W = 620;
 export const CANVAS_H = 450;
+/** 1 ストロークの総量（座標の数）と strokeAdd 1 回で足せる量の上限。実クライアントは 50ms ごとに数十点しか送らない */
+export const STROKE_MAX_NUMS = 8000;
+export const STROKE_ADD_MAX_NUMS = 512;
 /** color が 'erase' なら消しゴム */
 export interface Stroke { id: string; by: string; color: string; size: number; pts: number[] }
 
@@ -203,6 +206,8 @@ export function createItem(
 
 /** item を書き換える。変化があれば true */
 export function applyItemAction(item: Item, act: ItemAction, userId: string, rng: () => number): boolean {
+  // クライアント由来の非有限数がアイテムに保存されないようにする変換
+  const fin = (v: number) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
   switch (item.kind) {
     case 'note':
       if (act.a === 'noteEdit') {
@@ -225,7 +230,7 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
       }
       if (act.a === 'drop' && item.holder === userId) {
         item.holder = null;
-        item.x = act.x; item.z = act.z; item.ry = act.ry; item.pitch = act.pitch ?? 0;
+        item.x = act.x; item.z = act.z; item.ry = fin(act.ry); item.pitch = fin(act.pitch ?? 0);
         break;
       }
       if (act.a === 'camLive') {
@@ -245,7 +250,7 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
       if (act.a === 'pick' && item.holder === null) { item.holder = userId; break; }
       if (act.a === 'drop' && item.holder === userId) {
         item.holder = null;
-        item.x = act.x; item.z = act.z; item.ry = act.ry;
+        item.x = act.x; item.z = act.z; item.ry = fin(act.ry);
         break;
       }
       return false;
@@ -289,18 +294,22 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
       break;
     }
     case 'canvas': {
-      const cx = (v: number) => Math.round(Math.max(0, Math.min(CANVAS_W, v)));
-      const cy = (v: number) => Math.round(Math.max(0, Math.min(CANVAS_H, v)));
+      const cx = (v: number) => Math.round(Math.max(0, Math.min(CANVAS_W, fin(v))));
+      const cy = (v: number) => Math.round(Math.max(0, Math.min(CANVAS_H, fin(v))));
       if (act.a === 'strokeStart') {
-        const size = Math.max(1, Math.min(40, act.size));
+        const size = Math.max(1, Math.min(40, fin(act.size) || 1));
         item.strokes.push({ id: act.id, by: userId, color: String(act.color).slice(0, 16), size, pts: [cx(act.x), cy(act.y)] });
         if (item.strokes.length > 3000) item.strokes.shift();
         break;
       }
       if (act.a === 'strokeAdd') {
         const st = item.strokes.findLast((s) => s.id === act.id && s.by === userId);
-        if (!st || st.pts.length > 8000) return false;
-        for (let i = 0; i + 1 < act.pts.length; i += 2) st.pts.push(cx(act.pts[i]), cy(act.pts[i + 1]));
+        if (!st || !Array.isArray(act.pts)) return false;
+        // 1 回の追加量と総量の両方に上限を効かせる（上限を超えた分は打ち切る）
+        const room = STROKE_MAX_NUMS - st.pts.length;
+        if (room < 2) return false;
+        const n = Math.min(act.pts.length, STROKE_ADD_MAX_NUMS, room);
+        for (let i = 0; i + 1 < n; i += 2) st.pts.push(cx(act.pts[i]), cy(act.pts[i + 1]));
         break;
       }
       if (act.a === 'canvasClear') { item.strokes = []; break; }
