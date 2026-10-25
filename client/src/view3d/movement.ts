@@ -4,6 +4,12 @@ import { CAR, PLATFORM_Y, carPose, toCarLocal, trainState, surfaceHeight, type S
 export const MOVEMENT_MODES = { walk: '歩行', fly: 'フライ', noclip: 'ノークリップ' } as const;
 export type MovementMode = keyof typeof MOVEMENT_MODES;
 export interface Position { x: number; y: number; z: number }
+export function walkingAfterMove(walking: boolean, mode: MovementMode, grounded: boolean, riding: boolean,
+  before: Pick<Position, 'x' | 'z'>, after: Pick<Position, 'x' | 'z'>, dt: number): boolean {
+  if (mode !== 'walk' || !grounded || riding || dt <= 0) return false;
+  const speed = Math.hypot(after.x - before.x, after.z - before.z) / Math.min(dt, 0.1);
+  return Number.isFinite(speed) && speed > (walking ? 0.08 : 0.18);
+}
 export const BODY_RADIUS = 0.3;
 export const BODY_HEIGHT = 1.7;
 
