@@ -1030,6 +1030,8 @@ img.av { object-fit: cover; display: block; }
 .iinfo b { font-size: 14px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 
 .hmodal { gap: 14px; }
+.world-select-modal { width: min(960px, 100%); }
+.world-select-modal > h2 { display: flex; align-items: center; gap: 12px; }
 .hfield { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); }
 .hfield input, .hfield select { height: 40px; font-weight: 400; color: var(--ink); font-size: 14px; }
 .hfield select { font: inherit; border: 1px solid var(--line); border-radius: 12px; padding: 0 10px; background: #fff; }
