@@ -1183,7 +1183,9 @@ const MIME: Record<string, string> = {
 };
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url ?? '/', 'http://x');
+  // 絶対形式の壊れたリクエストターゲット（例: http://[::1）でも new URL が例外になるため、ここで 400 にする
+  let url: URL;
+  try { url = new URL(req.url ?? '/', 'http://x'); } catch { res.statusCode = 400; res.end('bad path'); return; }
   if (url.pathname === '/sync/offer') { await handleSyncOffer(req, res); return; }
   if (url.pathname === '/icon') {
     const name = url.searchParams.get('name') ?? '';
@@ -1304,7 +1306,10 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
-  let file = path.join(DIST, decodeURIComponent(url.pathname));
+  // 不正な % エンコーディングで例外になると、async ハンドラの未処理 rejection でプロセスごと落ちる
+  let pathname: string;
+  try { pathname = decodeURIComponent(url.pathname); } catch { res.statusCode = 400; res.end('bad path'); return; }
+  let file = path.join(DIST, pathname);
   if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory())
     file = path.join(DIST, 'index.html');
   if (!fs.existsSync(file)) {
@@ -1331,7 +1336,9 @@ const server = http.createServer(async (req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 keepHomeSocketsAlive(wss);
 server.on('upgrade', (req, socket, head) => {
-  const pathname = new URL(req.url ?? '/', 'http://local').pathname;
+  // リクエスト側と同じく、壊れた URL で例外にして落とさない
+  let pathname: string;
+  try { pathname = new URL(req.url ?? '/', 'http://local').pathname; } catch { socket.destroy(); return; }
   if (pathname === '/sync/ws') upgradeSync(req, socket, head);
   else if (pathname === '/ws') wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   else socket.destroy();
