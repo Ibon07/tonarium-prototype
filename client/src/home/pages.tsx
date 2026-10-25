@@ -7,6 +7,7 @@ import { MARKET_PRODUCTS, contentAvailable, productFor } from '../../../shared/m
 import { useOwnedContent } from '../market/store.ts';
 import { OriginBadge } from '../market/OriginBadge.tsx';
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CHANGELOG } from '../../../shared/changelog.ts';
 import { markChangelogSeen } from './changelog.ts';
 import { save, set, unreadOf, useStore, type HomePage } from '../store.ts';
@@ -215,16 +216,18 @@ function CurrentSession({ onWorlds }: { onWorlds?: () => void }) {
 }
 
 export function SessionsPage({ q }: { q: string }) {
+  const [selectWorld, setSelectWorld] = useState(false);
   const sessions = useStore((s) => s.guild.sessions);
   const worldBy = useStore((s) => s.worldBy);
   const inSession = useStore((s) => !!s.session);
   const list = sessions.filter((d) => match(q, d.name, d.topic, WORLDS[worldBy[d.id] ?? d.world ?? 'room'].name));
   return (
     <section className="hsec">
-      {inSession && <CurrentSession onWorlds={() => goHome('worlds')} />}
+      {inSession && <CurrentSession onWorlds={() => setSelectWorld(true)} />}
       <h2>参加できるセッション <span className="sub">{sessions.length} 件</span></h2>
       {list.length === 0 && <Empty>見つかりません</Empty>}
       <div className="scards">{list.map((d) => <SessionCard key={d.id} s={d} showDelete />)}</div>
+      {inSession && selectWorld && createPortal(<WorldSelectDialog onClose={() => setSelectWorld(false)} />, document.body)}
     </section>
   );
 }
@@ -374,7 +377,23 @@ export function GroupsPage({ q }: { q: string }) {
 
 export const WORLD_FACE: Record<WorldKind, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', survivors: '#F2D5E2', city: '#D7EAD3', garden: '#DDEBCF', starlounge: '#DBE1F4', antimatter: '#D9D6F5' };
 
-export function WorldsPage({ q }: { q: string }) {
+function WorldSelectDialog({ onClose }: { onClose: () => void }) {
+  const [q, setQ] = useState('');
+  return (
+    <div className="modalbg light" onClick={onClose} onKeyDown={(e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
+    }}>
+      <div className="modal hmodal world-select-modal" role="dialog" aria-modal="true" aria-label="ワールドを選択" onClick={(e) => e.stopPropagation()}>
+        <h2>ワールドを選択<span className="spacer" /><button className="ib" aria-label="閉じる" onClick={onClose}><Icon name="close" size={18} /></button></h2>
+        <input autoFocus aria-label="ワールドを検索" placeholder="ワールドを検索" value={q} onChange={(e) => setQ(e.target.value)} />
+        <WorldsPage q={q} onSelected={onClose} />
+        <div className="row end"><button onClick={onClose}>閉じる</button></div>
+      </div>
+    </div>
+  );
+}
+
+export function WorldsPage({ q, onSelected }: { q: string; onSelected?: () => void }) {
   const owned = useOwnedContent();
   const sessions = useStore((s) => s.guild.sessions);
   const worldBy = useStore((s) => s.worldBy);
@@ -383,10 +402,10 @@ export function WorldsPage({ q }: { q: string }) {
   const pending = useStore((s) => !!s.worldPending);
   const [create, setCreate] = useState<WorldKind | null>(null);
   // セッション中に選ぶと、いまのセッションのワールドを切り替える（確認とカウントダウンはセッション側）
-  const pick = (k: WorldKind) => { set({ hubOpen: false, confirmWorld: k }); };
+  const pick = (k: WorldKind) => { onSelected?.(); set({ hubOpen: false, confirmWorld: k }); };
   return (
     <section className="hsec">
-      {session && <CurrentSession />}
+      {session && !onSelected && <CurrentSession />}
       <h2>ワールド <span className="sub">{session ? '選ぶと、いまのセッションのワールドを切り替える' : 'セッションが読み込む 3D 空間'}</span></h2>
       <div className="wcards">
         {WORLD_KINDS.filter((k) => contentAvailable(owned, 'worlds', k)).filter((k) => match(q, WORLDS[k].name, WORLDS[k].desc)).map((k) => {
@@ -399,7 +418,7 @@ export function WorldsPage({ q }: { q: string }) {
               <p className="sub wrap">{WORLDS[k].desc}</p>
               <span className="sub">このワールドのセッション {n} 件</span>
               {session && <button className="primary" disabled={now || pending} onClick={() => pick(k)}>{now ? 'いまのワールド' : 'このワールドに切り替える'}</button>}
-              <button className={session ? '' : 'dark'} onClick={() => setCreate(k)}><Icon name="plus" size={14} />このワールドでセッションを作る</button>
+              {!onSelected && <button className={session ? '' : 'dark'} onClick={() => setCreate(k)}><Icon name="plus" size={14} />このワールドでセッションを作る</button>}
             </article>
           );
         })}
