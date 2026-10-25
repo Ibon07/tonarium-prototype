@@ -1275,6 +1275,7 @@ export default {
   "mergeSettingsHint": "설정에서 변경",
   "mergeMoveControls": "WASD: 이동 · ",
   "mergeJumpControls": "Space: 점프 · ",
+  "cameraViewControls": "F5: 1인칭/3인칭 · 휠: 3인칭 거리",
   "mergeMouseControls": "마우스: 시점 · 클릭: 조작 · 우클릭: 운반/놓기 · X: 치우기",
   "mergeSelectWorld": "월드 선택",
   "mergeSearchWorld": "월드 검색",

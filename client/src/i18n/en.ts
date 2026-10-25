@@ -1275,6 +1275,7 @@ export default {
   "mergeSettingsHint": "Change in settings",
   "mergeMoveControls": "WASD: Move · ",
   "mergeJumpControls": "Space: Jump · ",
+  "cameraViewControls": "F5: First/third person · Wheel: Third-person distance",
   "mergeMouseControls": "Mouse: Look · Click: Interact · Right-click: Carry/Place · X: Put away",
   "mergeSelectWorld": "Select a world",
   "mergeSearchWorld": "Search worlds",

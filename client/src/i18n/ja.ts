@@ -1275,6 +1275,7 @@ export default {
   "mergeSettingsHint": "設定から切り替え",
   "mergeMoveControls": "WASD: 移動 ・ ",
   "mergeJumpControls": "Space: ジャンプ ・ ",
+  "cameraViewControls": "F5: 一人称/三人称 ・ ホイール: 三人称の距離",
   "mergeMouseControls": "マウス: 視点 ・ クリック: 操作 ・ 右クリック: 運ぶ/置く ・ X: 片付ける",
   "mergeSelectWorld": "ワールドを選択",
   "mergeSearchWorld": "ワールドを検索",
