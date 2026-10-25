@@ -4,6 +4,7 @@ import { OriginBadge } from './OriginBadge.tsx';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { MARKET_CATEGORIES } from '../i18n/static.ts';
 import { MARKET_PRODUCTS, type MarketCategory, type MarketProduct } from '../../../shared/market.ts';
+import { ITEM_INFO } from '../i18n/static.ts';
 import { Icon } from '../world/Icon.tsx';
 import { playSynth, unlockEmoteAudio } from '../world/sounds.ts';
 import { purchaseProduct, useOwnedContent } from './store.ts';
@@ -26,6 +27,9 @@ export function ProductArt({ product: p }: { product: MarketProduct }) {
       </> : p.category === 'sounds' ? <>
         <circle cx="180" cy="105" r="65" stroke="currentColor" opacity=".15" strokeWidth="20" />
         {Array.from({ length: 21 }, (_, i) => { const h = 14 + Math.abs(Math.sin(i * 1.7)) * (i > 4 && i < 17 ? 60 : 24); return <path key={i} d={`M${60+i*12} ${105-h/2}v${h}`} stroke="currentColor" strokeWidth="5" strokeLinecap="round" />; })}
+      </> : p.category === 'items' && p.kind === 'bike' ? <>
+        <circle cx="110" cy="145" r="37" stroke="currentColor" strokeWidth="12" /><circle cx="255" cy="145" r="37" stroke="currentColor" strokeWidth="12" />
+        <path d="m110 145 45-55h55l45 55m-100-55 30 55h-75m75 0 25-55-8-25h25m-85 20h40" stroke="currentColor" strokeWidth="9" strokeLinejoin="round" />
       </> : p.category === 'items' ? <>
         <rect x="119" y="34" width="140" height="145" rx="6" fill="currentColor" opacity=".14" transform="rotate(9 189 106)" />
         <rect x="105" y="30" width="140" height="145" rx="6" fill="#FFFDF9" transform="rotate(-7 175 102)" />
@@ -95,8 +99,8 @@ export function MarketPage({ q }: { q: string }) {
         visual={<>{selected.category !== 'sounds' ? <Suspense fallback={<div className="market-3d-stage market-3d-loading" role="status">{tr("ui382")}</div>}><Preview3D key={selected.id} product={selected} /></Suspense> : <ProductArt product={selected} />}{selected.category === 'sounds' && <div className="market-preview"><button disabled={previewing} onClick={() => { unlockEmoteAudio(); playSynth(selected.content, 1); setPreviewing(true); }}><Icon name="volume" />{previewing ? tr("ui402") : tr("ui403")}</button><small>{tr("ui404")}</small></div>}</>}
         social={<><div className="market-social"><LikeButton key={selected.id} product={selected.id} /><div className="market-share-actions"><span className="market-share"><button onClick={() => void copyLink()}><Icon name="link" />{tr("ui405")}</button>{copyStatus === 'copied' && <span className="market-copy-toast" role="status">{tr("ui406")}</span>}</span>{session && <button disabled={!connected} title={connected ? tr("ui407") : tr("ui408")} onClick={shareToSession}><Icon name="send" />{tr("ui409")}</button>}</div></div>
           {copyStatus === 'manual' && <label className="market-copy-fallback">{tr("ui410")}<input readOnly aria-label={tr("ui411")} value={shareProductUrl(selected.id)} onFocus={(e) => e.currentTarget.select()} /></label>}</>}
-        tags={<><span>{tr("ui412")}</span><span>{tr("ui413")}</span></>}
-        usage={<>{selected.category === 'worlds' ? tr("ui414") : selected.category === 'items' ? tr("ui313") : selected.category === 'sounds' ? tr("ui415") : tr("ui416")}</>}>
+        tags={<><span>{selected.category === 'items' && selected.kind && !ITEM_INFO[selected.kind].in2d ? tr('merge3dOnly') : tr("ui412")}</span><span>{tr("ui413")}</span></>}
+        usage={<>{selected.category === 'worlds' ? tr("ui414") : selected.category === 'items' && selected.kind ? ITEM_INFO[selected.kind].desc : selected.category === 'items' ? tr("ui313") : selected.category === 'sounds' ? tr("ui415") : tr("ui416")}</>}>
         <div className="market-price">◉ {selected.price.toLocaleString()} <small>{tr("ui396")}</small></div>
           {owned.includes(selected.id) ? <div className="market-success" role="status"><b><Icon name="check" />{success ? tr("ui417") : tr("ui418")}</b><p>「{MARKET_CATEGORIES[selected.category]}{tr("ui419")}</p><button className="primary" onClick={() => goHome(selected.category)}>{MARKET_CATEGORIES[selected.category]}{tr("ui420")}</button></div> : <><button className="primary market-buy" onClick={() => setConfirm(true)}>{tr("ui421")}</button><small>{tr("ui422")}{MARKET_CATEGORIES[selected.category]}{tr("ui423")}</small></>}
       </ItemDetail>

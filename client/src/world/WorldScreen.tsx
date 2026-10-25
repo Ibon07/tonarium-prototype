@@ -1,6 +1,7 @@
 import { sourceText as uiSource } from '../i18n/core.ts';
 import { t as tr, systemText } from '../i18n/index.ts';
 import { contentAvailable, productFor } from '../../../shared/market.ts';
+import { MOVEMENT_MODES } from '../view3d/movement.ts';
 import { useOwnedContent } from '../market/store.ts';
 import { OriginBadge } from '../market/OriginBadge.tsx';
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
@@ -8,7 +9,7 @@ import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { SOUNDS } from '../i18n/static.ts';
 import { WORLDS } from '../i18n/static.ts';
-import { WORLD_COUNTDOWN_MS, WORLD_KINDS } from '../../../shared/worlds.ts';
+import { WORLD_COUNTDOWN_MS } from '../../../shared/worlds.ts';
 import { useStore, get, set, save, nameOf, sessionOf, isBroadcast, worldKindOf, serverNow } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { dropFollowers, follow, leaveSession, playSound, requestLive, setViewLive } from '../actions.ts';
@@ -27,6 +28,7 @@ import { WindowLayer } from './WindowLayer.tsx';
 import { ProfileCard } from './ProfileCard.tsx';
 import { HoppingMascots } from './Mascot.tsx';
 import { SessionMenu } from '../home/SessionMenu.tsx';
+import { WorldSelectDialog } from '../home/pages.tsx';
 import { PortraitCanvas } from './Portraits.tsx';
 import { MapLayer } from './MapLayer.tsx';
 import { ConfirmOpen } from './Links.tsx';
@@ -38,6 +40,7 @@ import { MasterVolume } from './VolumeMenus.tsx';
 import { SurvivorPanel } from './SurvivorPanel.tsx';
 import { EmoteDockButton } from './Emotes.tsx';
 import { unlockEmoteAudio } from './sounds.ts';
+import { AdAudio } from '../ad/AdAudio.tsx';
 
 /** 名前はだれでも変えられ、全員に反映されてログに出る */
 function SessionRename({ current, onDone }: { current: string; onDone: () => void }) {
@@ -58,17 +61,19 @@ function SessionRename({ current, onDone }: { current: string; onDone: () => voi
 }
 
 function WorldBadge() {
-  const owned = useOwnedContent();
   const world = useStore((s) => sessionOf(s.session));
   const selfName = useStore((s) => s.selfName);
   const wsConnected = useStore((s) => s.wsConnected);
   const broadcast = useStore((s) => isBroadcast(s));
   const kind = useStore((s) => worldKindOf(s));
   const mode = useStore((s) => s.mode);
+  const movementMode = useStore((s) => s.movementMode);
   const survivorWindowOpen = useStore((s) => s.windows.some((w) => w.key === 'survivors'));
+  const antimatterWindowOpen = useStore((s) => s.windows.some((w) => w.key === 'antimatter'));
   const pending = useStore((s) => !!s.worldPending && s.worldPending.sid === s.session);
   const [menu, setMenu] = useState<DOMRect | null>(null);
   const [profile, setProfile] = useState(false);
+  const [selectWorld, setSelectWorld] = useState(false);
   return (
     <div className="worldbadge">
       <img className="wmark" src="/brand/mark.png" alt="" />
@@ -76,6 +81,7 @@ function WorldBadge() {
       {kind === 'survivors' && mode === '2d' && <button className="chipbtn survivor-window-button" onClick={() => openWindow('survivors')}>{survivorWindowOpen ? tr("ui850") : tr("ui851")}</button>}
       {broadcast && <span className="bcpill" title={tr("ui852")}><Icon name="megaphone" size={12} />{tr("ui853")}</span>}
       {!wsConnected && <span className="reconn">{tr("ui854")}</span>}
+      {kind === 'antimatter' && mode === '2d' && <button className="chipbtn" onClick={() => openWindow('antimatter')}>{antimatterWindowOpen ? tr('mergeAdLab') : tr('mergeOpenAd')}</button>}
       <span className="vline" />
       <button
         className="ib" aria-label={tr("ui855")} title={tr("ui855")} data-popanchor
@@ -91,23 +97,27 @@ function WorldBadge() {
             <input type="checkbox" role="switch" checked={broadcast} onChange={(e) => send({ t: 'broadcast', on: e.target.checked })} />
           </label>
           <span className="menusep" />
-          <span className="menutitle">{tr("ui859")}</span>
-          <div className="worldpick" role="radiogroup" aria-label={tr("ui105")}>
-            {WORLD_KINDS.filter((k) => contentAvailable(owned, 'worlds', k)).map((k) => (
-              <div key={k} className="market-entry"><button
-                role="radio" aria-checked={k === kind} className={`ib wpick ${k === kind ? 'on' : ''}`} disabled={pending}
-                onClick={() => { if (k !== kind) { setMenu(null); set({ confirmWorld: k }); } }}
-              >
-                <b>{WORLDS[k].name}</b><span className="sub wrap">{WORLDS[k].desc}</span>
-              </button><OriginBadge productId={productFor('worlds', k)?.id} onOpen={() => setMenu(null)} /></div>
-            ))}
-          </div>
+          {mode === '3d' && <>
+            <span className="menutitle">{tr('mergeMovementSettings')}</span>
+            <div className="worldpick" role="radiogroup" aria-label={tr('mergeMovementLabel')}>
+              {(Object.keys(MOVEMENT_MODES) as (keyof typeof MOVEMENT_MODES)[]).map((value) => (
+                <button key={value} role="radio" aria-checked={movementMode === value} className={`ib wpick ${movementMode === value ? 'on' : ''}`} onClick={() => set({ movementMode: value })}>
+                  {tr(MOVEMENT_MODES[value])}
+                </button>
+              ))}
+            </div>
+            <span className="sub wrap">{tr('mergeFlightHint')}</span>
+            <span className="menusep" />
+          </>}
+          <span className="menutitle">{tr('ui859')}</span>
+          <button className="ib menuitem" disabled={pending} onClick={() => { setMenu(null); setSelectWorld(true); }}><Icon name="globe" />{tr('mergeChangeWorld')}</button>
           <span className="menusep" />
           <button className="ib menuitem" onClick={() => { setProfile(true); setMenu(null); }}><Icon name="user" />{tr("ui860")}</button>
           <button className="ib menuitem" onClick={() => { setMenu(null); leaveSession(); }}><Icon name="leave" />{tr("ui861")}</button>
         </Popover>
       )}
       {profile && createPortal(<ProfileDialog name={selfName} onClose={() => setProfile(false)} />, document.body)}
+      {selectWorld && createPortal(<WorldSelectDialog onClose={() => setSelectWorld(false)} />, document.body)}
     </div>
   );
 }
@@ -515,6 +525,9 @@ export function WorldScreen() {
       closeWindow('survivors', true);
       closeWindow('survivor-library', true);
     }
+    // ワールド用パネルは研究所内だけ。アイテムから開いたパネルと進行データは維持する。
+    if (worldKind === 'antimatter' && mode === '2d') openWindow('antimatter');
+    else if (worldKind !== 'antimatter') closeWindow('antimatter');
   }, [worldKind, mode]);
   useEffect(() => {
     if (mode !== '3d') return;
@@ -553,6 +566,7 @@ export function WorldScreen() {
         {phone && <PhoneTabs />}
       </div>
       <MediaSync />
+      <AdAudio />
       <Toast />
       {dragging && <DropHint />}
       <SwitchLoading />

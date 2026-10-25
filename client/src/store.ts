@@ -1,6 +1,7 @@
 import { t } from './i18n/core.ts';
 import { create } from 'zustand';
 import type { UiMessage } from './i18n/index.ts';
+import type { MovementMode } from './view3d/movement.ts';
 import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, SessionInfo, User } from '../../shared/protocol.ts';
 import { SPAWN } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
@@ -11,6 +12,8 @@ import { newGame, type GameState } from '../../shared/game.ts';
 import { NEW_ELEVATOR, type ElevatorState } from '../../shared/city.ts';
 import type { PositionRoute } from '../../shared/session-position.ts';
 import { newSurvivorProfile, type SurvivorProfile, type SurvivorState } from '../../shared/survivor.ts';
+import { createAdSlice, type AdSlice } from './ad/slice.ts';
+import type { AdPanelTarget } from '../../shared/antimatterLayout.ts';
 import { deriveSession } from './sessionView.ts';
 import type { Walk } from './walk.ts';
 
@@ -24,7 +27,9 @@ export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | '
 /** ホームの右の欄に出すもの */
 export type SideWidget = 'now' | 'events' | 'sessions' | 'worlds' | 'items';
 
-interface State {
+interface State extends AdSlice {
+  /** 3D の照準クリックで開いた AD 前面パネルの宛先（antimatter-space ウィンドウ用） */
+  adSpaceTarget: AdPanelTarget | null;
   selfId: string;
   selfName: string;
   joined: boolean;
@@ -157,6 +162,7 @@ interface State {
   emotes: Record<string, import('../../shared/emotes.ts').ActiveEmote>;
   swings: Record<string, number>;
   hitFx: { key: number; from: string; to: string }[];
+  movementMode: MovementMode;
   locked: boolean;
   aimHint: string | null;
 
@@ -199,7 +205,9 @@ export function spawnPoint(): AvatarState {
   return { x: SPAWN.x + Math.sin(a) * r, z: SPAWN.z + Math.cos(a) * r, ry: 0 };
 }
 
-export const useStore = create<State>(() => ({
+export const useStore = create<State>((set, get) => ({
+  adSpaceTarget: null,
+  ...createAdSlice((p) => set(p as Partial<State>), () => get() as unknown as AdSlice),
   selfId: '',
   selfName: '',
   joined: false,
@@ -280,6 +288,7 @@ export const useStore = create<State>(() => ({
   emotes: {},
   swings: {},
   hitFx: [],
+  movementMode: 'walk',
   locked: false,
   aimHint: null,
   selfAvatar: spawnPoint(),

@@ -8,6 +8,7 @@ import { MARKET_PRODUCTS, contentAvailable, productFor } from '../../../shared/m
 import { useOwnedContent } from '../market/store.ts';
 import { OriginBadge } from '../market/OriginBadge.tsx';
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CHANGELOG } from '../i18n/static.ts';
 import { markChangelogSeen } from './changelog.ts';
 import { save, set, unreadOf, useStore, type HomePage } from '../store.ts';
@@ -217,16 +218,18 @@ function CurrentSession({ onWorlds }: { onWorlds?: () => void }) {
 }
 
 export function SessionsPage({ q }: { q: string }) {
+  const [selectWorld, setSelectWorld] = useState(false);
   const sessions = useStore((s) => s.guild.sessions);
   const worldBy = useStore((s) => s.worldBy);
   const inSession = useStore((s) => !!s.session);
   const list = sessions.filter((d) => match(q, d.name, d.topic, WORLDS[worldBy[d.id] ?? d.world ?? 'room'].name));
   return (
     <section className="hsec">
-      {inSession && <CurrentSession onWorlds={() => goHome('worlds')} />}
+      {inSession && <CurrentSession onWorlds={() => setSelectWorld(true)} />}
       <h2>{tr("ui199")}<span className="sub">{sessions.length} {tr("ui196")}</span></h2>
       {list.length === 0 && <Empty>{tr("ui223")}</Empty>}
       <div className="scards">{list.map((d) => <SessionCard key={d.id} s={d} showDelete />)}</div>
+      {inSession && selectWorld && createPortal(<WorldSelectDialog onClose={() => setSelectWorld(false)} />, document.body)}
     </section>
   );
 }
@@ -374,9 +377,25 @@ export function GroupsPage({ q }: { q: string }) {
   );
 }
 
-export const WORLD_FACE: Record<WorldKind, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', survivors: '#F2D5E2', city: '#D7EAD3', garden: '#DDEBCF', starlounge: '#DBE1F4' };
+export const WORLD_FACE: Record<WorldKind, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', survivors: '#F2D5E2', city: '#D7EAD3', garden: '#DDEBCF', starlounge: '#DBE1F4', antimatter: '#D9D6F5' };
 
-export function WorldsPage({ q }: { q: string }) {
+export function WorldSelectDialog({ onClose }: { onClose: () => void }) {
+  const [q, setQ] = useState('');
+  return (
+    <div className="modalbg light" onClick={onClose} onKeyDown={(e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
+    }}>
+      <div className="modal hmodal world-select-modal" role="dialog" aria-modal="true" aria-label={tr('mergeSelectWorld')} onClick={(e) => e.stopPropagation()}>
+        <h2>{tr('mergeSelectWorld')}<span className="spacer" /><button className="ib" aria-label={tr('閉じる')} onClick={onClose}><Icon name="close" size={18} /></button></h2>
+        <input autoFocus aria-label={tr('mergeSearchWorld')} placeholder={tr('mergeSearchWorld')} value={q} onChange={(e) => setQ(e.target.value)} />
+        <WorldsPage q={q} onSelected={onClose} />
+        <div className="row end"><button onClick={onClose}>{tr('閉じる')}</button></div>
+      </div>
+    </div>
+  );
+}
+
+export function WorldsPage({ q, onSelected }: { q: string; onSelected?: () => void }) {
   const owned = useOwnedContent();
   const sessions = useStore((s) => s.guild.sessions);
   const worldBy = useStore((s) => s.worldBy);
@@ -385,10 +404,10 @@ export function WorldsPage({ q }: { q: string }) {
   const pending = useStore((s) => !!s.worldPending);
   const [create, setCreate] = useState<WorldKind | null>(null);
   // セッション中に選ぶと、いまのセッションのワールドを切り替える（確認とカウントダウンはセッション側）
-  const pick = (k: WorldKind) => { set({ hubOpen: false, confirmWorld: k }); };
+  const pick = (k: WorldKind) => { onSelected?.(); set({ hubOpen: false, confirmWorld: k }); };
   return (
     <section className="hsec">
-      {session && <CurrentSession />}
+      {session && !onSelected && <CurrentSession />}
       <h2>{tr("ui105")}<span className="sub">{session ? tr("ui304") : tr("ui305")}</span></h2>
       <div className="wcards">
         {WORLD_KINDS.filter((k) => contentAvailable(owned, 'worlds', k)).filter((k) => match(q, WORLDS[k].name, WORLDS[k].desc)).map((k) => {
@@ -401,7 +420,7 @@ export function WorldsPage({ q }: { q: string }) {
               <p className="sub wrap">{WORLDS[k].desc}</p>
               <span className="sub">{tr("ui307")}{n} {tr("ui196")}</span>
               {session && <button className="primary" disabled={now || pending} onClick={() => pick(k)}>{now ? tr("ui306") : tr("ui308")}</button>}
-              <button className={session ? '' : 'dark'} onClick={() => setCreate(k)}><Icon name="plus" size={14} />{tr("ui309")}</button>
+              {!onSelected && <button className={session ? '' : 'dark'} onClick={() => setCreate(k)}><Icon name="plus" size={14} />{tr("ui309")}</button>}
             </article>
           );
         })}
@@ -435,7 +454,7 @@ export function ItemsPage({ q }: { q: string }) {
       headingRef={heading} onBack={() => setSelectedId(null)}
       visual={<ItemVisual kind={selected.kind} product={MARKET_PRODUCTS.find((p) => p.id === selected.productId)} />}
       tags={<>{selected.info.in2d && <span>{tr("ui311")}</span>}{selected.info.in3d && <span>{tr("ui312")}</span>}</>}
-      usage={selected.productId ? tr("ui313") : ITEM_USAGE[selected.kind]}>
+      usage={selected.kind === 'bike' ? selected.info.desc : selected.productId ? tr("ui313") : ITEM_USAGE[selected.kind]}>
       {spawnButton(selected)}
     </ItemDetail> : <>
       <h2>{tr("ui154")}<span className="sub">{session ? tr("ui314") : tr("ui315")}</span></h2>

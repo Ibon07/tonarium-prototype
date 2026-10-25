@@ -7,6 +7,7 @@ import type { MarketProduct } from '../../../shared/market.ts';
 const Preview3D = lazy(() => import('./Preview3D.tsx'));
 
 export function ItemArt({ kind, name, className }: { kind: ItemKind; name: string; className?: string }) {
+  if (!ITEM_INFO[kind].illustration) return <span className={className ?? 'item-illustration'} style={{ background: ITEM_INFO[kind].tint, color: ITEM_INFO[kind].ink }} role="img" aria-label={name}>{ITEM_INFO[kind].mark}</span>;
   return <img className={className ?? 'item-illustration'} src={ITEM_INFO[kind].illustration} alt={tr("ui381", name)} width={360} height={240} />;
 }
 
