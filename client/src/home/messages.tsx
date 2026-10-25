@@ -1,4 +1,5 @@
 import { t as tr, systemText } from '../i18n/index.ts';
+import { TranslatedText } from '../TranslatedText.tsx';
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store.ts';
 import { RSVP_LABEL } from '../i18n/static.ts';
@@ -10,7 +11,6 @@ import { answerPlan, joinSession, markRead, sendMessage } from '../actions.ts';
 import { uploadMedia } from '../media.ts';
 import { ChatImage } from '../world/common.tsx';
 import { Icon } from '../world/Icon.tsx';
-import { Linkified } from '../world/Links.tsx';
 import { openWindow } from '../world/windows.ts';
 import { NameFace, timeLabel } from './common.tsx';
 
@@ -68,7 +68,7 @@ function RecapCard({ r }: { r: Recap }) {
         </div>
         {log && (
           <div className="rlog">
-            {r.log.map((l, i) => <div key={i}><b>{l.name}</b> <span className="sub">{timeLabel(l.at)}</span><div><Linkified text={l.text} /></div></div>)}
+            {r.log.map((l, i) => <div key={i}><b>{l.name}</b> <span className="sub">{timeLabel(l.at)}</span><div><TranslatedText text={l.text} /></div></div>)}
           </div>
         )}
       </div>
@@ -139,7 +139,7 @@ export function MessageView({ conv, m }: { conv: string; m: Message }) {
       <NameFace name={m.from} size={32} />
       <div className="msgbody">
         <span className="mhead"><b>{m.from}</b><span className="sub">{timeLabel(m.at)}</span></span>
-        {m.text && <p className="mtext"><Linkified text={m.text} /></p>}
+        {m.text && <p className="mtext"><TranslatedText text={m.text} /></p>}
         {m.voice && <audio className="mvoice" src={m.voice.url} controls preload="metadata" aria-label={tr("ui247", m.voice.sec)} />}
         {m.media?.kind === 'image' && <ChatImage src={m.media.url} />}
         {m.media?.kind === 'video' && <video className="chatvideo" src={m.media.url} controls preload="metadata" playsInline />}

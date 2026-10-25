@@ -1,4 +1,5 @@
 import { sourceText as uiSource } from '../i18n/core.ts';
+import { useTranslatedText } from '../TranslatedText.tsx';
 import { t as tr, localized } from '../i18n/index.ts';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -93,12 +94,13 @@ export function useLastSaid(id: string) {
   const [, tick] = useState(0);
   const last = [...chat].reverse().find((m) => m.from === id && m.text);
   const fresh = last && Date.now() - last.at < BUBBLE_MS;
+  const translated = useTranslatedText(fresh ? last.text : '');
   useEffect(() => {
     if (!fresh || !last) return;
     const t = setTimeout(() => tick((n) => n + 1), BUBBLE_MS - (Date.now() - last.at) + 50);
     return () => clearTimeout(t);
   }, [fresh, last]);
-  return fresh ? last.text : null;
+  return fresh ? translated?.text ?? last.text : null;
 }
 
 export function ChatImage({ src }: { src?: string }) {

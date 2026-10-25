@@ -1,4 +1,5 @@
 import { sourceText as uiSource } from '../i18n/core.ts';
+import { TranslatedText } from '../TranslatedText.tsx';
 import { localized, t as tr, systemText } from '../i18n/index.ts';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChatMessage, ChatScope } from '../../../shared/protocol.ts';
@@ -12,7 +13,7 @@ import { Icon } from './Icon.tsx';
 import { ChatImage, Face, itemLabel } from './common.tsx';
 import { openWindow } from './windows.ts';
 import { canItemize, itemizeMessage, uploadMedia } from '../media.ts';
-import { Linkified, OgpCard, firstUrl } from './Links.tsx';
+import { OgpCard, firstUrl } from './Links.tsx';
 
 const NO_CHAT: ChatMessage[] = [];
 const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -158,7 +159,7 @@ function LogLine({ m, selfId }: { m: ChatMessage; selfId: string }) {
           <span className="sub">{time(m.at)}</span>
         </div>
         {m.dice && <DiceLine roll={m.dice} />}
-        {m.text && <span className="ltext"><Linkified text={m.text} /></span>}
+        {m.text && <span className="ltext"><TranslatedText text={m.text} /></span>}
         {firstUrl(m.text) && <OgpCard url={firstUrl(m.text)!} />}
         <ChatImage src={m.image} />
         {m.media?.kind === 'image' && <ChatImage src={m.media.url} />}
@@ -243,7 +244,7 @@ export function NoticeLog() {
             <span className="aicon"><Icon name="megaphone" /></span>
             <div>
               <div className="ahead"><strong>{tr("ui634")}</strong>{announce.fromName} · {time(announce.at)}</div>
-              <span><Linkified text={announce.text} /></span>
+              <span><TranslatedText text={announce.text} /></span>
             </div>
           </div>
         )}
