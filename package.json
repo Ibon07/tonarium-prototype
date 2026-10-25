@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "items:png": "node scripts/rasterize-items.mjs",
     "dev": "concurrently -k -n server,client \"tsx watch --include sessions.json server/index.ts --dev\" \"vite\"",
     "build": "vite build",
     "start": "vite build && tsx server/index.ts",
@@ -20,6 +21,7 @@
     "electron:build:windows": "npm --prefix electron run build:windows",
     "electron:install:linux": "bash electron/install-linux-user.sh",
     "test:emotes": "tsx --test shared/emotes.test.ts",
+    "test:avatar": "tsx --test shared/avatar.test.ts",
     "test:market": "tsx --test shared/market.test.ts server/market.test.ts",
     "test:worlds": "tsx --test shared/worlds.test.ts",
     "test:items": "tsx --test shared/items.test.ts",
@@ -41,6 +43,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "sharp": "0.35.5",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
