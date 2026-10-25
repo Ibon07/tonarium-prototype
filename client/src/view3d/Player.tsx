@@ -149,8 +149,8 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       look.current.pitch = Math.max(-1.4, Math.min(1.4, look.current.pitch - e.movementY * SENS));
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (rig.keyDown(e)) return;
       if (isTyping(e.target)) return;
+      if (rig.keyDown(e)) return;
       keys.current[e.code] = true;
       if (e.code === 'KeyE' && !e.repeat) {
         const bike = riddenBike();
