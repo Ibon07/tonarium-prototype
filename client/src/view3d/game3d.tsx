@@ -20,13 +20,21 @@ const WALL_H = 4;
 const LAYER_COLORS = ['#ff7a8a', '#ffb347', '#ffe066', '#7ee08a', '#6ec6ff'];
 const STEPPED = new THREE.Color('#ff3b30');
 
+const joinerTickListeners = new Set<() => void>();
+let joinerTimer: ReturnType<typeof setInterval> | undefined;
+function subscribeJoinerTick(listener: () => void) {
+  joinerTickListeners.add(listener);
+  joinerTimer ??= setInterval(() => joinerTickListeners.forEach((l) => l()), 500);
+  return () => {
+    joinerTickListeners.delete(listener);
+    if (joinerTickListeners.size === 0 && joinerTimer) { clearInterval(joinerTimer); joinerTimer = undefined; }
+  };
+}
+
 /** 参加エリアにいる 3D の人（自分を含む） */
 function useJoiners() {
   const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((n) => n + 1), 500);
-    return () => clearInterval(t);
-  }, [getLanguage()]);
+  useEffect(() => subscribeJoinerTick(() => tick((n) => n + 1)), [getLanguage()]);
   const s = get();
   return s.participants.filter((u) => {
     if (u.mode !== '3d') return false;
