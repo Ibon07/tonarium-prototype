@@ -10,10 +10,10 @@ export class PlayerCamera {
   yaw = 0;
   private readonly direction = new THREE.Vector3();
   private readonly ray = new THREE.Raycaster();
+  private readonly obstacles: THREE.Mesh[] = [];
 
-  keyDown(e: Pick<KeyboardEvent, 'code' | 'repeat' | 'preventDefault'>) {
-    if (e.code !== 'F5') return false;
-    e.preventDefault();
+  keyDown(e: Pick<KeyboardEvent, 'code' | 'repeat'>) {
+    if (e.code !== 'KeyT') return false;
     if (!e.repeat) this.thirdPerson = !this.thirdPerson;
     return true;
   }
@@ -33,16 +33,21 @@ export class PlayerCamera {
     this.ray.far = this.desiredDistance;
     scene.updateMatrixWorld(true);
     this.actualDistance = this.desiredDistance;
-    for (const hit of this.ray.intersectObjects(scene.children, true)) {
-      if (!(hit.object as THREE.Mesh).isMesh) continue;
+    this.obstacles.length = 0;
+    // Sprite の raycast はカメラを必要とするため、衝突用のレイはメッシュだけに当てる。
+    scene.traverseVisible(object => {
+      if (!(object as THREE.Mesh).isMesh) return;
+      const mesh = object as THREE.Mesh;
       let skip = false;
       // noRay は電車の壁にも使うため、カメラ用の除外条件にはしない。
-      for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
+      for (let o: THREE.Object3D | null = mesh; o; o = o.parent) {
         if (!o.visible || o.userData.selfBody || o.userData.firstPerson) { skip = true; break; }
       }
-      const materials = (hit.object as THREE.Mesh).material;
+      const materials = mesh.material;
       if ((Array.isArray(materials) ? materials : [materials]).every(m => !m.visible || (m.transparent && m.opacity === 0))) skip = true;
-      if (skip) continue;
+      if (!skip) this.obstacles.push(mesh);
+    });
+    for (const hit of this.ray.intersectObjects(this.obstacles, false)) {
       // 近い壁では希望距離の下限よりも、壁の手前に収まることを優先する。
       this.actualDistance = Math.max(0, hit.distance - CAMERA_DISTANCE.margin);
       break;

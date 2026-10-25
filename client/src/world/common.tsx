@@ -1,4 +1,5 @@
 import { sourceText as uiSource } from '../i18n/core.ts';
+import { useTranslatedText } from '../TranslatedText.tsx';
 import { t as tr, localized } from '../i18n/index.ts';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -10,6 +11,7 @@ import { bandOf, type Band, type ListedPlayer } from '../nearby.ts';
 import { useStore, set, colorOf, heldHammer } from '../store.ts';
 import { iconUrl } from '../icon.ts';
 import { useNearby, useNearbyItems } from '../spatial.ts';
+import { popoverPosition } from './popoverPosition.ts';
 
 /** アイコンがあれば画像、無ければ頭文字 */
 export function Face({ id, name, size = 32, ring }: { id: string; name: string; size?: number; ring?: string }) {
@@ -93,12 +95,13 @@ export function useLastSaid(id: string) {
   const [, tick] = useState(0);
   const last = [...chat].reverse().find((m) => m.from === id && m.text);
   const fresh = last && Date.now() - last.at < BUBBLE_MS;
+  const translated = useTranslatedText(fresh ? last.text : '');
   useEffect(() => {
     if (!fresh || !last) return;
     const t = setTimeout(() => tick((n) => n + 1), BUBBLE_MS - (Date.now() - last.at) + 50);
     return () => clearTimeout(t);
   }, [fresh, last]);
-  return fresh ? last.text : null;
+  return fresh ? translated?.text ?? last.text : null;
 }
 
 export function ChatImage({ src }: { src?: string }) {
@@ -148,31 +151,43 @@ export function Popover({ anchor, onClose, children, side = 'right', className =
   const close = useRef(onClose);
   close.current = onClose;
   useEffect(() => {
-    // 開閉ボタン（data-popanchor）は自分で切り替えるので、ここでは閉じない
-    const down = (e: MouseEvent) => {
+    // 自分の開閉ボタンだけはクリックで切り替え、別のメニューを開いたら閉じる
+    const down = (e: PointerEvent) => {
       const t = e.target as Element;
-      if (!ref.current?.contains(t) && !t.closest?.('[data-popanchor]')) close.current();
+      const button = t.closest?.('[data-popanchor]')?.getBoundingClientRect();
+      const ownAnchor = button && button.left === anchor.left && button.top === anchor.top;
+      if (!ref.current?.contains(t) && !ownAnchor) close.current();
     };
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); };
     // 開いたクリック自体で閉じないよう、次のイベントから見る
-    const t = setTimeout(() => { window.addEventListener('mousedown', down); window.addEventListener('keydown', key); });
-    return () => { clearTimeout(t); window.removeEventListener('mousedown', down); window.removeEventListener('keydown', key); };
-  }, []);
-  // 実際の大きさが分かってから画面内に収める
-  const [shift, setShift] = useState({ x: 0, y: 0 });
-  useLayoutEffect(() => {
-    const r = ref.current?.getBoundingClientRect();
-    if (!r) return;
-    setShift({
-      x: Math.min(0, window.innerWidth - 12 - r.right) + Math.max(0, 12 - r.left),
-      y: Math.min(0, window.innerHeight - 12 - r.bottom) + Math.max(0, 12 - r.top),
-    });
+    const t = setTimeout(() => { window.addEventListener('pointerdown', down); window.addEventListener('keydown', key); });
+    return () => { clearTimeout(t); window.removeEventListener('pointerdown', down); window.removeEventListener('keydown', key); };
   }, [anchor]);
-  const style: React.CSSProperties = side === 'right'
-    ? { left: anchor.right + 10 + shift.x, top: anchor.top - 8 + shift.y }
-    : side === 'up'
-      ? { left: anchor.left + anchor.width / 2 + shift.x, bottom: window.innerHeight - anchor.top + 10 - shift.y, transform: 'translateX(-50%)' }
-      : { left: anchor.left + shift.x, top: anchor.bottom + 8 + shift.y };
+  // 実際の大きさが分かってから画面内に収める
+  const [style, setStyle] = useState<React.CSSProperties>({ visibility: 'hidden' });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const place = () => {
+      const viewport = window.visualViewport;
+      const bounds = { left: viewport?.offsetLeft ?? 0, top: viewport?.offsetTop ?? 0, width: viewport?.width ?? window.innerWidth, height: viewport?.height ?? window.innerHeight };
+      el.style.maxWidth = `${Math.max(0, bounds.width - 24)}px`;
+      el.style.maxHeight = `${Math.max(0, bounds.height - 24)}px`;
+      setStyle(popoverPosition(anchor, el.getBoundingClientRect(), bounds, side));
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(el);
+    window.addEventListener('resize', place);
+    window.visualViewport?.addEventListener('resize', place);
+    window.visualViewport?.addEventListener('scroll', place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', place);
+      window.visualViewport?.removeEventListener('resize', place);
+      window.visualViewport?.removeEventListener('scroll', place);
+    };
+  }, [anchor, side]);
   // パネルの backdrop-filter が fixed の基準になって切れてしまうので body に出す
   return createPortal(<div ref={ref} className={`popover ${className}`} style={style}>{children}</div>, document.body);
 }

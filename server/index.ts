@@ -1,5 +1,6 @@
 import { scheduleChessAiReply } from './chess-ai.ts';
 import 'dotenv/config';
+import { configuredTranslationModel, createTranslationHandler, createTranslator } from './translation.ts';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1426,10 +1427,12 @@ const MIME: Record<string, string> = {
   '.webmanifest': 'application/manifest+json', '.webp': 'image/webp',
 };
 
+const handleTranslation = createTranslationHandler(createTranslator(configuredTranslationModel(process.env, DEV)));
 const server = http.createServer(async (req, res) => {
   // 絶対形式の壊れたリクエストターゲット（例: http://[::1）でも new URL が例外になるため、ここで 400 にする
   let url: URL;
   try { url = new URL(req.url ?? '/', 'http://x'); } catch { res.statusCode = 400; res.end('bad path'); return; }
+  if (url.pathname === '/api/translate') { await handleTranslation(req, res); return; }
   if (url.pathname === '/sync/offer') { await handleSyncOffer(req, res); return; }
   if (url.pathname.startsWith('/group-image/')) {
     const g = home.groups.find((x) => x.id === url.pathname.slice('/group-image/'.length));
