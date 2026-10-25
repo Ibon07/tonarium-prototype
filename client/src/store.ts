@@ -17,7 +17,7 @@ export type WinMode = 'simple' | 'free';
 export interface Win { key: string; x: number; y: number }
 /** key は attention ならウィンドウのキー、invite なら session:<id> / group:<id>、askJoin なら session:<id> */
 export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean }
-export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items' | 'market' | 'sounds' | 'emotes';
+export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items' | 'market' | 'changelog' | 'sounds' | 'emotes';
 /** ホームの右の欄に出すもの */
 export type SideWidget = 'now' | 'events' | 'sessions' | 'worlds' | 'items';
 
