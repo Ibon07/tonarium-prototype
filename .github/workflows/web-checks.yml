@@ -16,6 +16,8 @@ jobs:
   web:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      CHANGELOG_BASE: ${{ github.event.pull_request.base.sha || format('{0}^', github.sha) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -30,7 +32,7 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: node .github/scripts/check-changelog.mjs
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm run build
+      - run: npm run test:changelog
+      - run: npm run check:completion
       - run: npm run test:client
       - run: npm run test:sync
