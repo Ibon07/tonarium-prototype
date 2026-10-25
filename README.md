@@ -46,6 +46,7 @@ LiveKit Cloud を使う場合は `.env` の `LIVEKIT_*` をそのプロジェク
 ```bash
 npm run dev
 ```
+`main` 宛ての PR は GitHub Actions の Web checks で型チェック、ビルド、クライアント・同期テストを実行する。Discord のフィードバックから作った PR も同じチェックを通してからマージする。
 http://localhost:5173 を開く。同じブラウザで別人として入るには `?as=b` のように付ける（名前はブラウザ共通で覚えるので、入る前に変える）。
 動作確認で作ったセッション・グループ・イベントを消したいときは `data/home.json` を消してサーバーを再起動する。
 
