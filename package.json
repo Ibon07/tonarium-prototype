@@ -10,7 +10,7 @@
     "livekit": "docker compose -f docker-compose.dev.yml up -d",
     "livekit:stop": "docker compose -f docker-compose.dev.yml down",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test:movement": "tsx --test client/src/view3d/movement.test.ts shared/walking.test.ts",
+    "test:movement": "tsx --test client/src/view3d/movement.test.ts client/src/view3d/jumpPad.test.ts shared/walking.test.ts",
     "test:camera": "tsx --test client/src/view3d/playerCamera.test.ts",
     "test:mirror": "tsx --test client/src/view3d/mirrorReflection.test.ts",
     "check:changelog": "node scripts/check-changelog.mjs",

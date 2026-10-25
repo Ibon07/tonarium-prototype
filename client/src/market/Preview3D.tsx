@@ -18,6 +18,7 @@ import { ChessModel, HammerModel, NoteModel, PanelModel } from '../view3d/itemMo
 import { CameraStand } from '../view3d/cameraModel.tsx';
 import { DiceStand } from '../view3d/diceModel.tsx';
 import { MirrorModel } from '../view3d/mirror3d.tsx';
+import { JumpPadModel } from '../view3d/jumpPad3d.tsx';
 import { Label } from '../view3d/Label.tsx';
 import { drawText, makeCanvasTexture } from '../view3d/textTexture.ts';
 import { drawCanvasPanel } from '../items/canvasDrawing.ts';
@@ -117,6 +118,7 @@ function InitialCanvas({ item }: { item: Item & { kind: 'canvas' } }) {
 
 function InitialModel({ item }: { item: Item }) {
   switch (item.kind) {
+    case 'jumpPad': return <JumpPadModel />;
     case 'mirror': return <MirrorModel />;
     case 'bike': return <BikeModel />;
     case 'note': return <InitialNote item={item} />;
