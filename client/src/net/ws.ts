@@ -21,6 +21,23 @@ export const ATTENTION_MS = 10_000;
 // HMR でこのモジュールが読み直されても同じソケットを使う（新しい側で送信が黙って捨てられるのを防ぐ）
 const g = globalThis as unknown as { __tonariumWs?: WebSocket | null };
 let retry = 0;
+type SessionReply = Extract<ServerMsg, { t: 'sessionCreated' | 'sessionResult' }>;
+const sessionRequests = new Map<string, { resolve: (reply: SessionReply) => void; reject: (error: Error) => void }>();
+
+export function requestSession(msg: Extract<ClientMsg, { t: 'sessionCreate' | 'join' | 'leave' }>): Promise<SessionReply> {
+  if (g.__tonariumWs?.readyState !== WebSocket.OPEN) return Promise.reject(new Error('サーバーに接続されていません'));
+  const requestId = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => finish(new Error('セッション操作がタイムアウトしました')), 15_000);
+    const finish = (error?: Error, reply?: SessionReply) => {
+      clearTimeout(timer);
+      sessionRequests.delete(requestId);
+      if (error) reject(error); else resolve(reply!);
+    };
+    sessionRequests.set(requestId, { resolve: (reply) => finish(undefined, reply), reject: (error) => finish(error) });
+    try { send({ ...msg, requestId }); } catch { finish(new Error('セッション操作を送信できませんでした')); }
+  });
+}
 
 export function connectWs() {
   const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
@@ -41,6 +58,7 @@ export function connectWs() {
   };
   ws.onmessage = (e) => onMessage(JSON.parse(e.data) as ServerMsg);
   ws.onclose = (event) => {
+    for (const request of sessionRequests.values()) request.reject(new Error('サーバーとの接続が切れました'));
     console.warn('[home-ws] closed', { code: event.code, reason: event.reason, wasClean: event.wasClean,
       connectedSeconds: openedAt ? Math.round((performance.now() - openedAt) / 1000) : 0 });
     stopSessionSync(true);
@@ -115,6 +133,13 @@ export function applySessionSnapshot(snap: SessionSnapshot) {
 
 export function onMessage(msg: ServerMsg) {
   switch (msg.t) {
+    case 'sessionCreated':
+    case 'sessionResult': {
+      const request = msg.requestId ? sessionRequests.get(msg.requestId) : undefined;
+      if (msg.t === 'sessionResult' && msg.error) request?.reject(new Error(msg.error));
+      else request?.resolve(msg);
+      return;
+    }
     case 'thumbnailRequest':
       if (msg.sid !== get().session || get().mode !== '3d') return;
       void import('../view3d/cameraRender.ts').then(({ takeThumbnail }) => {

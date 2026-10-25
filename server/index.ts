@@ -713,7 +713,7 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
     broadcastPeople();
     return;
   }
-  if (handleHome(me, msg)) return;
+  if (handleHome(me, msg, ws)) return;
   const sid = me.session;
 
   switch (msg.t) {
@@ -733,7 +733,14 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
     }
     case 'join': {
       const def = guild.sessions.find((d) => d.id === msg.sid);
-      if (!def || sid === msg.sid || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) return;
+      if (!def || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) {
+        if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId, error: 'このセッションには参加できません' });
+        return;
+      }
+      if (sid === msg.sid) {
+        if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId });
+        return;
+      }
       leaveSession(me);
       me.session = msg.sid;
       me.mode = '2d';
@@ -745,12 +752,14 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
       event(msg.sid, `${me.name} が入室しました`);
       // フレンド+ のセッションは中にいる人で見える人が変わる
       broadcastSessions();
+      if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId });
       return;
     }
     case 'leave': {
       leaveSession(me);
       broadcastUsers();
       broadcastSessions();
+      if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId });
       return;
     }
   }
@@ -1061,13 +1070,16 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
 const trimTo = (v: unknown, n: number) => String(v ?? '').trim().slice(0, n);
 
 /** ホーム画面の操作（セッション外でもできる）。扱ったら true */
-function handleHome(me: User, msg: ClientMsg): boolean {
+function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
   switch (msg.t) {
     case 'sessionCreate': {
       const name = trimTo(msg.name, 40);
       const visibility = Object.hasOwn(VISIBILITY_INFO, msg.visibility) ? msg.visibility : 'public';
       const group = isGroupVisibility(visibility) ? home.groups.find((g) => g.id === msg.group && g.members.includes(me.name))?.id : undefined;
-      if (!name || (isGroupVisibility(visibility) && !group)) return true;
+      if (!name || (isGroupVisibility(visibility) && !group)) {
+        if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId, error: !name ? 'セッション名を入力してください' : 'このグループには所属していません' });
+        return true;
+      }
       const def: SessionDef = { id: shortId(), name, topic: trimTo(msg.topic, 100), world: isWorldKind(msg.world) ? msg.world : 'room', visibility, owner: me.name, group, invited: [] };
       home.sessions.push(def);
       guild.sessions.push(def);
@@ -1075,6 +1087,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       saveHome();
       broadcastSessions();
       broadcastSessionInfo();
+      send(ws, { t: 'sessionCreated', sid: def.id, requestId: msg.requestId });
       return true;
     }
     case 'sessionDelete': {
