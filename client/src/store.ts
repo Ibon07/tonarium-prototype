@@ -19,7 +19,7 @@ export type WinMode = 'simple' | 'free';
 export interface Win { key: string; x: number; y: number }
 /** key は attention ならウィンドウのキー、invite なら session:<id> / group:<id>、askJoin なら session:<id> */
 export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean }
-export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items';
+export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items' | 'market' | 'changelog' | 'sounds' | 'emotes';
 /** ホームの右の欄に出すもの */
 export type SideWidget = 'now' | 'events' | 'sessions' | 'worlds' | 'items';
 
@@ -32,6 +32,8 @@ interface State extends AdSlice {
   wsConnected: boolean;
   /** つなぎ直した先のサーバーが、このページと違う版の画面を出している */
   updateVersion: string | null;
+  /** 互換性バージョンがサーバーと合わず、接続を断たれた。更新するまで全面表示で止める */
+  incompatible: boolean;
 
   guild: GuildConfig;
   groups: Group[];
@@ -50,6 +52,8 @@ interface State extends AdSlice {
   mode: Mode;
   /** 開いているホームのページ（最後に開いたページを覚えておき、セッション中のメニューはそこを開く） */
   homePage: HomePage;
+  marketProductId: string | null;
+  marketLikes: { counts: Record<string, number>; liked: string[] } | null;
   /** group ページで開いているグループと、グループごとに開いているチャンネル */
   homeGroup: string | null;
   homeChannel: Record<string, string>;
@@ -98,6 +102,8 @@ interface State extends AdSlice {
   lightweight: boolean;
   /** 2D の背景に出すマップ（手元に保存）。マップを入れるべきか試すための設定 */
   mapMode: 'none' | '2d' | '3d';
+  /** 声の湯気：会話のあった場所の熱をマップに残す（手元に保存） */
+  voiceHeat: boolean;
   /** マップで選んだ目的地へ 2D の自分が歩いている途中 */
   walk: Walk | null;
   /** 動画・YouTube ごとの自分だけの音量（0〜1）。無ければ既定の半分 */
@@ -202,6 +208,7 @@ export const useStore = create<State>((set, get) => ({
   joined: false,
   wsConnected: false,
   updateVersion: null,
+  incompatible: false,
   guild: { name: 'Tonarium', sessions: [] },
   groups: [],
   events: [],
@@ -215,6 +222,8 @@ export const useStore = create<State>((set, get) => ({
   mode: '2d',
   // 個別のグループは開き直せないので一覧に戻す
   homePage: ((p: HomePage) => (p === 'group' ? 'groups' : p))(load<HomePage>('tonarium.homePage', 'home')),
+  marketProductId: null,
+  marketLikes: null,
   homeGroup: null,
   homeChannel: {},
   dmWith: null,
@@ -253,6 +262,7 @@ export const useStore = create<State>((set, get) => ({
   loadScale: load('tonarium.loadScale', 1),
   lightweight: load('tonarium.lightweight', false),
   mapMode: load('tonarium.mapMode', 'none'),
+  voiceHeat: load('tonarium.voiceHeat', true),
   walk: null,
   volumes: {},
   audioVol: load('tonarium.audioVol', { voice: 1, fx: 1, media: 1 }),

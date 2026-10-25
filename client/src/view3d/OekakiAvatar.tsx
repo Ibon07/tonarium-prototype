@@ -3,9 +3,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useGraph } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
-import { DEFAULT_PARAMS, sanitizeParams, type AvatarParams } from '../../../shared/avatar.ts';
+import { AVATAR_SCALE, DEFAULT_EYE_HEIGHT, DEFAULT_PARAMS, getAvatarEyeHeight, getAvatarFloorOffset, sanitizeParams, type AvatarParams } from '../../../shared/avatar.ts';
 import { avatarParamsUrl, avatarTextureUrl } from '../avatar.ts';
-import { emotePose } from '../../../shared/emotes.ts';
+import { emotePose, type ActiveEmote } from '../../../shared/emotes.ts';
 import { get } from '../store.ts';
 import { useReducedMotion } from '../emotes.ts';
 
@@ -48,12 +48,14 @@ function baseAnimation(p: AvatarParams) {
 
 /** モデルは +Z 向きなので、こちらの「前 = -Z」に合わせて回してある */
 /** look は顔の上下の向き（ラジアン、上向きが正）を返す */
-export function OekakiAvatar({ name, version, speaking, look, userId }: { name: string; version: string | null; speaking: boolean; look?: () => number; userId?: string }) {
+export function OekakiAvatar({ name, version, speaking, look, userId, previewEmote, onEyeHeight }: { name: string; version: string | null; speaking: boolean; look?: () => number; userId?: string; previewEmote?: ActiveEmote | null; onEyeHeight?: (height: number) => void }) {
   const { scene, animations } = useGLTF(MODEL);
   const clone = useMemo(() => scene.clone(), [scene]);
   const { nodes } = useGraph(clone);
   const [params, setParams] = useState<AvatarParams>(DEFAULT_PARAMS);
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
+  const [paramsReady, setParamsReady] = useState(false);
+  const notified = useRef(false);
   const mixer = useMemo(() => new THREE.AnimationMixer(clone), [clone]);
   const face = useRef<THREE.Texture | null>(null);
   const blink = useRef(0);
@@ -64,19 +66,25 @@ export function OekakiAvatar({ name, version, speaking, look, userId }: { name: 
 
   useEffect(() => {
     let alive = true;
+    setTexture(null);
+    setParamsReady(!version);
+    onEyeHeight?.(DEFAULT_EYE_HEIGHT);
     void new THREE.TextureLoader().loadAsync(avatarTextureUrl(name, version)).then((t) => {
       t.flipY = false;
       t.colorSpace = THREE.SRGBColorSpace;
       if (alive) setTexture(t); else t.dispose();
-    });
+    }).catch(() => { /* 読み込み失敗時は標準の高さを保つ。 */ });
     setParams(DEFAULT_PARAMS);
     if (version) {
       void fetch(avatarParamsUrl(name, version))
         .then((r) => (r.ok ? r.json() : null))
-        .then((p) => { if (alive && p) setParams(sanitizeParams(p)); });
+        .then((p) => { if (alive) { setParams(sanitizeParams(p)); setParamsReady(true); } })
+        .catch(() => { if (alive) setParamsReady(true); });
     }
     return () => { alive = false; };
-  }, [name, version]);
+  }, [name, version, onEyeHeight]);
+
+  useEffect(() => { notified.current = false; }, [params, texture, paramsReady, onEyeHeight]);
 
   useEffect(() => {
     if (!texture) return;
@@ -110,8 +118,12 @@ export function OekakiAvatar({ name, version, speaking, look, userId }: { name: 
   useFrame((_, dt) => {
     for (const h of hands) if (h) { h.o.quaternion.copy(h.q); h.o.position.copy(h.p); }
     mixer.update(dt);
+    if (!notified.current && texture && paramsReady) {
+      notified.current = true;
+      onEyeHeight?.(getAvatarEyeHeight(params));
+    }
     for (const h of hands) if (h) { h.q.copy(h.o.quaternion); h.p.copy(h.o.position); }
-    const emote = userId ? get().emotes[userId] : undefined;
+    const emote = previewEmote !== undefined ? previewEmote : userId ? get().emotes[userId] : undefined;
     const pose = emotePose(emote?.id ?? 'wave', emote && !reduced ? performance.now() - emote.started : -1);
     if (motion.current) {
       motion.current.position.y = pose.y;
@@ -138,10 +150,11 @@ export function OekakiAvatar({ name, version, speaking, look, userId }: { name: 
     if (!f) return;
     // 話している間は口を開け、それ以外はときどきまばたき
     if (blink.current > 0) blink.current -= dt;
-    else if (Math.random() < 0.004) blink.current = 0.15;
+    // フレーム単位の確率だと描画頻度でまばたきの間隔が変わるため、経過時間から決める
+    else if (Math.random() < 1 - Math.exp(-dt * 0.24)) blink.current = 0.15;
     const mouth = speaking && Math.sin(performance.now() / 90) > 0;
     f.offset.x = mouth ? FACE.mouthOpen : blink.current > 0 ? FACE.eyesClosed : FACE.normal;
   });
 
-  return <group ref={motion}><primitive object={clone} scale={0.012} rotation-y={Math.PI} /></group>;
+  return <group position-y={getAvatarFloorOffset(params)}><group ref={motion}><primitive object={clone} scale={AVATAR_SCALE} rotation-y={Math.PI} /></group></group>;
 }

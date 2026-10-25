@@ -12,10 +12,12 @@ import { send } from '../net/ws.ts';
 import { selectNote } from '../actions.ts';
 import { dropCamera, dropHammer, hit, moveItem, place2d, toggleLive } from '../items/actions.ts';
 import { bump } from '../items/effects.ts';
-import { aimAt, aimOn, carrying, clampRoom, EYE, type Interactable } from './interact.ts';
+import { aimAt, aimOn, carrying, clampRoom, type Interactable } from './interact.ts';
+import { useEyeHeight } from './eyeHeight.ts';
+import { DEFAULT_EYE_HEIGHT } from '../../../shared/avatar.ts';
 import { HammerModel } from './items3d.tsx';
 import { takePhoto, world } from './cameraRender.ts';
-import { cameraHelp } from './camera3d.tsx';
+import { CameraModel, cameraHelp } from './camera3d.tsx';
 
 const SPEED = 4;
 const BODY_R = 0.3;
@@ -74,8 +76,10 @@ function finishCarry() {
 }
 
 export function Player() {
+  const eyeHeight = useEyeHeight();
   const { camera, gl, scene } = useThree();
   const survivorActive = useStore((s) => survivorPlaying(s));
+  const heldCam = useStore((s) => heldCamera(s));
   const keys = useRef<Record<string, boolean>>({});
   const look = useRef({ yaw: get().selfAvatar.ry, pitch: -0.05 });
   // NaN だと比較が常に false になり一度も送られないので Infinity
@@ -85,6 +89,7 @@ export function Player() {
   const body = useRef({ y: get().selfAvatar.y ?? 0, vy: 0, grounded: true, n: get().selfAvatar.jump ?? 0, stepped: -1, round: -1, survivorRun: -1, car: null as number | null });
   const aim = useRef<ReturnType<typeof aimAt>>(null);
   const hammerRef = useRef<THREE.Group>(null);
+  const cameraRef = useRef<THREE.Group>(null);
   const dragging = useRef<{ data: Interactable; obj: THREE.Object3D; hit: THREE.Intersection | null } | null>(null);
 
   useEffect(() => {
@@ -93,7 +98,7 @@ export function Player() {
 
   useEffect(() => {
     const a = get().selfAvatar;
-    camera.position.set(a.x, EYE, a.z);
+    camera.position.set(a.x, eyeHeight.current.current + (a.y ?? 0), a.z);
     camera.rotation.order = 'YXZ';
     world.scene = scene;
     world.camera = camera as THREE.PerspectiveCamera;
@@ -164,6 +169,7 @@ export function Player() {
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
     return () => {
+      if (world.camera === camera) { world.camera = null; world.scene = null; }
       document.removeEventListener('pointerlockchange', onLock);
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('contextmenu', onContextMenu);
@@ -212,6 +218,8 @@ export function Player() {
   });
 
   useFrame((_, dt) => {
+    const eye = eyeHeight.current;
+    eye.current += (eye.target - eye.current) * (1 - Math.exp(-dt / 0.2));
     const s = get();
     const b = body.current;
     const toLobby = () => {
@@ -281,7 +289,7 @@ export function Player() {
     if (f || r) {
       const survivorStyle = survivorMe ? SURVIVOR_STYLES[survivorMe.style] : undefined;
       const moveSpeed = survivors
-        ? (survivorStyle?.speed ?? SURVIVOR_MOVE_SPEED) * (1 + (s.survivorProfile.upgrades.haste ?? 0) * 0.03) * (1 + (survivorMe?.gear.nightcloak ?? 0) * 0.025)
+        ? (survivorStyle?.speed ?? SURVIVOR_MOVE_SPEED) * (1 + (survivorMe?.gear.nightcloak ?? 0) * 0.025)
         : SPEED;
       const step = (moveSpeed * Math.min(dt, 0.1)) / Math.hypot(f, r);
       const nx = camera.position.x + (-Math.sin(yaw) * f + Math.cos(yaw) * r) * step;
@@ -320,11 +328,11 @@ export function Player() {
     }
     if (survivors) {
       camera.up.set(0, 0, -1);
-      camera.position.set(camera.position.x, 16, camera.position.z);
+      camera.position.set(camera.position.x, eye.current + (16 - DEFAULT_EYE_HEIGHT), camera.position.z);
       camera.lookAt(camera.position.x, 0, camera.position.z);
     } else {
       camera.up.set(0, 1, 0);
-      camera.position.y = EYE + b.y - shake * 0.12;
+      camera.position.y = eye.current + b.y - shake * 0.12;
     }
 
     const now = performance.now();
@@ -383,11 +391,24 @@ export function Player() {
       h.rotateX(-0.3 - sw * 1.5);
       h.rotateZ(0.15);
     }
+    const heldCameraModel = cameraRef.current;
+    if (heldCameraModel) {
+      heldCameraModel.position.copy(camera.position);
+      heldCameraModel.quaternion.copy(camera.quaternion);
+      heldCameraModel.translateX(.26);
+      heldCameraModel.translateY(-.3);
+      heldCameraModel.translateZ(-.6);
+    }
   });
 
   return (
-    <group ref={hammerRef} userData={{ noRay: true, firstPerson: true }}>
-      <HammerModel scale={0.38} />
-    </group>
+    <>
+      <group ref={hammerRef} userData={{ noRay: true, firstPerson: true }}>
+        <HammerModel scale={0.38} />
+      </group>
+      {heldCam && <group ref={cameraRef} userData={{ noRay: true, firstPerson: true }}>
+        <CameraModel live={heldCam.live} />
+      </group>}
+    </>
   );
 }

@@ -31,6 +31,7 @@ public sealed partial class ThreeDHost : IAsyncDisposable
     private bool mediaAttached;
     private DispatcherTimer? presentationTimer;
     private string presentationSignature = "";
+    private long lastSendFailure;
     public event Action? ReturnedTo2D;
     public event Action<string>? ItemRequested;
     public event Action<bool>? InputStateChanged;
@@ -94,6 +95,7 @@ public sealed partial class ThreeDHost : IAsyncDisposable
             listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(1);
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
             var info = new ProcessStartInfo(PlayerPath) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(PlayerPath)! };
+            Tonarium.Desktop.Linux.LinuxInputMethod.ConfigureUnity(info);
             info.ArgumentList.Add("--tonarium-port"); info.ArgumentList.Add(port.ToString());
             info.ArgumentList.Add("-screen-fullscreen"); info.ArgumentList.Add("0");
             info.ArgumentList.Add("-screen-width"); info.ArgumentList.Add("1280");
@@ -173,10 +175,10 @@ public sealed partial class ThreeDHost : IAsyncDisposable
                             await SendAsync(new { t = "notice", text = "通話に接続していないので配信できません" });
                             break;
                         }
-                        await client.SendRoomAsync(room).WaitAsync(ct);
+                        await ForwardClientCommandAsync(() => client.SendRoomAsync(room), ct);
                         break;
                     case "home" when message["message"] is JsonObject home:
-                        await client.SendAsync(home).WaitAsync(ct);
+                        await ForwardClientCommandAsync(() => client.SendAsync(home), ct);
                         break;
                     case "cameraFrame" when media is NativeMedia native:
                         if (message["id"]?.ToString() is { } cameraId && message["jpeg"]?.ToString() is { Length: > 0 and < 2097152 } encoded)
@@ -218,9 +220,27 @@ public sealed partial class ThreeDHost : IAsyncDisposable
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         catch (Exception ex)
         {
-            if (!stopping) { LastError = ex.Message; ready?.TrySetException(ex); }
+            if (!stopping) { Program.Log("3D bridge failed: " + ex); LastError = ex.Message; ready?.TrySetException(ex); }
         }
         finally { if (!stopping && !ct.IsCancellationRequested) _ = StopAsync(); }
+    }
+
+    private async Task ForwardClientCommandAsync(Func<Task> send, CancellationToken ct)
+    {
+        try { await send().WaitAsync(ct); }
+        catch (Exception error) when (!ct.IsCancellationRequested &&
+            error is IOException or System.Net.WebSockets.WebSocketException or OperationCanceledException or
+                ObjectDisposedException or TimeoutException or KokoSync.ProtocolException)
+        {
+            // 同期の再接続中もUnityとのローカル接続は維持する。失敗した操作は自動再送しない。
+            var now = Environment.TickCount64;
+            if (lastSendFailure == 0 || now - lastSendFailure > 3000)
+            {
+                lastSendFailure = now;
+                Program.Log("3D command send failed; keeping player running: " + error.GetType().Name);
+                await SendAsync(new { t = "notice", text = "操作を送信できませんでした。同期状態を確認して再度操作してください。" });
+            }
+        }
     }
 
     private async Task SendSnapshotAsync()
@@ -235,6 +255,7 @@ public sealed partial class ThreeDHost : IAsyncDisposable
                 ["users"] = s.Users.DeepClone(), ["avatars"] = s.Avatars.DeepClone(),
                 ["items"] = s.Items.DeepClone(), ["presence"] = s.Presence.DeepClone(),
                 ["chats"] = s.Chats.DeepClone(), ["game"] = s.Game.DeepClone(),
+                ["survivor"] = s.Survivor.DeepClone(), ["survivorProfile"] = s.SurvivorProfile.DeepClone(),
                 ["now"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + s.ServerOffset
             };
         });
@@ -248,7 +269,13 @@ public sealed partial class ThreeDHost : IAsyncDisposable
         {
             if (message["sid"] is { } sid && sid.ToString() != client.State.SessionId) return;
             if (message["t"]?.ToString() == "sessionSnapshot") await SendSnapshotAsync();
-            else await SendAsync(message.DeepClone());
+            else
+            {
+                await SendAsync(message.DeepClone());
+                // ワールド切替ではサーバーがロビー・終了済みのランを再送しない。
+                if (message["t"]?.ToString() == "world" && message["world"]?.ToString() == "survivors")
+                    await SendAsync(new JsonObject { ["t"] = "survivor", ["sid"] = client.State.SessionId, ["state"] = client.State.Survivor.DeepClone() });
+            }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
     }
@@ -282,6 +309,13 @@ public sealed partial class ThreeDHost : IAsyncDisposable
 
     public Task ReleaseInputAsync()=>writer is null?Task.CompletedTask:SendAsync(new {t="releaseInput"});
     public Task SetOpenItemsAsync(IEnumerable<string> ids) => writer is null ? Task.CompletedTask : SendAsync(new { t = "nativeItems", ids = ids.ToArray() });
+    public async Task CloseNativeChatAsync()
+    {
+        if (writer is null || stopping) return;
+        try { await SendAsync(new { t = "nativeChatClosed" }); }
+        catch (Exception error) when (error is IOException or ObjectDisposedException or OperationCanceledException)
+        { Program.Log("3D chat closed after bridge disconnect: " + error.Message); }
+    }
 
     private async void ForwardVideoFrame(string identity, byte[] jpeg)
     {
@@ -386,7 +420,8 @@ public sealed partial class ThreeDHost : IAsyncDisposable
 
     private void PlayerExited(object? sender, EventArgs e)
     {
-        ready?.TrySetException(new IOException("Unity が終了しました。%LOCALAPPDATA%/Tonarium/unity-player.log を確認してください。"));
+        if (sender is Process exited) Program.Log($"Unity exited: code={exited.ExitCode}, requested={stopping}");
+        ready?.TrySetException(new IOException($"Unity が終了しました。{Path.Combine(DesktopInstance.DataDirectory, "unity-player.log")} を確認してください。"));
         if (!stopping) _ = StopAsync();
     }
 
@@ -395,7 +430,9 @@ public sealed partial class ThreeDHost : IAsyncDisposable
         string? configured = Environment.GetEnvironmentVariable("TONARIUM_UNITY_PLAYER");
         if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured)) return Path.GetFullPath(configured);
         foreach (var root in Roots())
-            foreach (var relative in new[] { "Tonarium3D.exe", "unity/Tonarium3D.exe", "build/unity/Tonarium3D.exe", "native/build/unity/Tonarium3D.exe" })
+            foreach (var relative in (OperatingSystem.IsLinux()
+                ? new[] { "Tonarium3D.x86_64", "Unity/Tonarium3D.x86_64", "native/build/unity-linux/Tonarium3D.x86_64", "build/unity-linux/Tonarium3D.x86_64" }
+                : new[] { "Tonarium3D.exe", "Unity/Tonarium3D.exe", "unity/Tonarium3D.exe", "build/unity/Tonarium3D.exe", "native/build/unity/Tonarium3D.exe" }))
             {
                 var candidate = Path.Combine(root, relative);
                 if (File.Exists(candidate)) return candidate;
@@ -415,15 +452,18 @@ public sealed partial class ThreeDHost : IAsyncDisposable
     {
         string? project = Roots().SelectMany(r => new[] { Path.Combine(r, "native", "Tonarium.Unity"), Path.Combine(r, "Tonarium.Unity") })
             .FirstOrDefault(p => File.Exists(Path.Combine(p, "ProjectSettings", "ProjectVersion.txt")));
+        if (OperatingSystem.IsLinux()) throw new FileNotFoundException("Tonarium 3D のLinuxビルドがありません。native/build-unity-linux.sh を実行するか、TONARIUM_UNITY_PLAYER を指定してください。");
         if (project is null) throw new FileNotFoundException("Tonarium 3D が見つかりません。TONARIUM_UNITY_PLAYER にプレイヤーのパスを設定してください。");
         var editor = Environment.GetEnvironmentVariable("TONARIUM_UNITY_EDITOR");
         if (string.IsNullOrWhiteSpace(editor))
         {
             string editorRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Unity", "Hub", "Editor");
-            editor = Directory.Exists(editorRoot) ? Directory.GetDirectories(editorRoot).OrderBy(p => p.Contains("2022.3") ? 0 : 1).ThenByDescending(p => p)
-                .Select(p => Path.Combine(p, "Editor", "Unity.exe")).FirstOrDefault(File.Exists) : null;
+            string requiredVersion = File.ReadLines(Path.Combine(project, "ProjectSettings", "ProjectVersion.txt"))
+                .First(line => line.StartsWith("m_EditorVersion:", StringComparison.Ordinal)).Split(':', 2)[1].Trim();
+            string candidate = Path.Combine(editorRoot, requiredVersion, "Editor", "Unity.exe");
+            editor = File.Exists(candidate) ? candidate : null;
         }
-        if (editor is null) throw new FileNotFoundException("Unity Editor がありません。Unity Hub で Unity 2022.3 と Windows Build Support をインストールしてください。");
+        if (editor is null) throw new FileNotFoundException("Unity Editor がありません。Unity Hub で プロジェクト指定版の Unity と Windows Build Support をインストールしてください。");
         string log = Path.Combine(project, "build.log");
         var info = new ProcessStartInfo(editor) { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden };
         foreach (string arg in new[] { "-batchmode", "-nographics", "-quit", "-projectPath", project, "-executeMethod", "Tonarium.UnityClient.Editor.WindowsBuild.Build", "-logFile", log }) info.ArgumentList.Add(arg);

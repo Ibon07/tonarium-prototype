@@ -1,3 +1,4 @@
+import { useMarketNavigation } from './market/navigation.ts';
 import { useEffect, useRef, useState } from 'react';
 import { useStore, set } from './store.ts';
 import { connectWs } from './net/ws.ts';
@@ -8,7 +9,7 @@ import { Home } from './home/Home.tsx';
 import { WorldScreen } from './world/WorldScreen.tsx';
 import { PeekMascot, type MascotHandle } from './world/Mascot.tsx';
 import { FEEDBACK_URL } from './feedback.ts';
-import { MaintenanceOverlay, UpdateBanner } from './world/ServerNotices.tsx';
+import { CompatOverlay, MaintenanceOverlay, UpdateBanner } from './world/ServerNotices.tsx';
 
 function loadId() {
   try {
@@ -108,9 +109,12 @@ function JoinScreen() {
 }
 
 export function App() {
+  useMarketNavigation();
   const joined = useStore((s) => s.joined);
   const session = useStore((s) => s.session);
+  const incompatible = useStore((s) => s.incompatible);
   if (!joined) return <JoinScreen />;
+  if (incompatible) return <CompatOverlay />;
   return (
     <>
       {session ? <WorldScreen /> : <Home />}

@@ -15,7 +15,7 @@ namespace Tonarium.UnityClient
             var args = Environment.GetCommandLineArgs();
             for (int i = 0; i < args.Length - 1; i++) if (args[i] == "--tonarium-output") output = args[i + 1];
             Directory.CreateDirectory(output);
-            foreach (var kind in new[] { "cafe", "room", "game" })
+            foreach (var kind in new[] { "cafe", "room", "garden", "game" })
             {
                 world.BuildWorld(kind);
                 world.SetPreviewCamera(kind);
@@ -24,7 +24,7 @@ namespace Tonarium.UnityClient
                 ScreenCapture.CaptureScreenshot(Path.Combine(output, kind + ".png"));
                 yield return new WaitForSeconds(.6f);
             }
-            File.WriteAllText(Path.Combine(output, "result.json"), "{\"ok\":true,\"worlds\":3,\"rendered\":true,\"avatars\":" + world.AvatarCount + ",\"items\":" + world.ItemCount + ",\"liveScreens\":" + world.VideoScreenCount + "}");
+            File.WriteAllText(Path.Combine(output, "result.json"), "{\"ok\":true,\"worlds\":4,\"rendered\":true,\"avatars\":" + world.AvatarCount + ",\"items\":" + world.ItemCount + ",\"liveScreens\":" + world.VideoScreenCount + "}");
             Debug.Log("TONARIUM_SMOKE_SUCCESS " + output);
             Application.Quit();
         }

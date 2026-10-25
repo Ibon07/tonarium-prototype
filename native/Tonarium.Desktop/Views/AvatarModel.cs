@@ -67,7 +67,7 @@ internal sealed class AvatarModel
         return new AvatarModel(document);
     }
 
-    public void Pose(float seconds, AvatarParameters parameters, float pitch, Span<Matrix4x4> world)
+    public void Pose(float seconds, AvatarParameters parameters, float pitch, Span<Matrix4x4> world, Tonarium.Desktop.Core.EmoteCatalog.Pose? emote = null)
     {
         Span<Vector3> translations = stackalloc Vector3[Nodes.Length];
         Span<Vector3> scales = stackalloc Vector3[Nodes.Length];
@@ -108,11 +108,19 @@ internal sealed class AvatarModel
         {
             int i = indices[name]; rotations[i] = Quaternion.Normalize(tilt * rotations[i]);
         }
+        if (emote is { } reaction)
+        {
+            AddTranslation(translations, "LeftHand", new Vector3(0, reaction.LiftLeft, 0)); AddTranslation(translations, "RightHand", new Vector3(0, reaction.LiftRight, 0));
+            rotations[indices["LeftHand"]] *= Quaternion.CreateFromAxisAngle(Vector3.UnitZ, reaction.Left);
+            rotations[indices["RightHand"]] *= Quaternion.CreateFromAxisAngle(Vector3.UnitZ, reaction.Right);
+            foreach (string name in new[] { "Head_Front", "Head_Back" }) rotations[indices[name]] = Quaternion.CreateFromAxisAngle(Vector3.UnitX, reaction.Bow) * rotations[indices[name]];
+        }
         for (int i = 0; i < Nodes.Length; i++)
         {
             if (parameters.DisableTail && (Nodes[i].Name == "Tail" || Nodes[i].Name.StartsWith("Tail_"))) scales[i] = Vector3.Zero;
             world[i] = Matrix4x4.CreateScale(scales[i]) * Matrix4x4.CreateFromQuaternion(rotations[i]) * Matrix4x4.CreateTranslation(translations[i]);
             if (Parents[i] >= 0) world[i] *= world[Parents[i]];
+            else if (emote is { } pose) world[i] *= Matrix4x4.CreateScale(pose.Sx, pose.Sy, 1) * Matrix4x4.CreateRotationX(pose.Rx) * Matrix4x4.CreateRotationZ(pose.Rz) * Matrix4x4.CreateTranslation(0, pose.Y / .012f, 0);
         }
     }
     private void AddScale(Span<Vector3> scales, string name, float delta) => scales[indices[name]] += new Vector3(delta);

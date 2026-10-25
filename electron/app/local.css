@@ -1,0 +1,14 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; background: light-dark(#faf8f5, #22232a); color: light-dark(#292936, #eee); }
+main { padding: 28px; max-width: 860px; margin: auto; }
+h1 { font-size: 24px; } p { line-height: 1.6; }
+label { display: block; margin: 18px 0 8px; }
+input { box-sizing: border-box; width: 100%; padding: 12px; font: inherit; }
+button { padding: 10px 18px; border: 1px solid #8886; border-radius: 8px; font: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 3px solid #8572d5; }
+.actions { display: flex; gap: 12px; margin-top: 20px; }
+.hint { font-size: 13px; opacity: .7; } #message { color: light-dark(#a32136, #ffb3b3); overflow-wrap: anywhere; }
+#sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-bottom: 20px; }
+#sources button { display: grid; justify-items: center; gap: 8px; overflow-wrap: anywhere; }
+#sources img { width: 220px; height: 140px; object-fit: contain; }
+select { width: 100%; padding: 10px; font: inherit; }

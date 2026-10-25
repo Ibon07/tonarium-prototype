@@ -10,9 +10,10 @@ const ATTACK_COLORS: Record<string, string> = {
   moonblade: '#ff65aa', eclipse: '#ffe675', bloodaura: '#ff315e', crimsonsun: '#ff9d35',
   starbolt: '#5fe5ff', starfall: '#ffe16e', shade: '#bc8aff', umbralstorm: '#a457ff',
   frostlance: '#8beaff', stormring: '#7cbdff', embermine: '#ff7c3b', thornshot: '#93e86b', voidpulse: '#d783ff',
-  lunarconvergence: '#fff29a', crimsonvoid: '#ff174f', stormfrost: '#70f4ff',
+  lunarconvergence: '#ff527d', crimsonvoid: '#b58cff', stormfrost: '#9af8ff',
+  astralbarrage: '#4deaff', soulreaper: '#ff2d72', thunderweb: '#f4e95c', infernomine: '#ff782b', thornstorm: '#95ff5b', lunarvoid: '#db7aff',
 };
-const isAreaWeapon = (gear: string) => ['moonblade', 'eclipse', 'bloodaura', 'crimsonsun', 'starfall', 'embermine', 'voidpulse', 'crimsonvoid'].includes(gear);
+const isAreaWeapon = (gear: string) => ['moonblade', 'eclipse', 'bloodaura', 'crimsonsun', 'starfall', 'embermine', 'voidpulse', 'lunarconvergence', 'soulreaper', 'infernomine', 'lunarvoid'].includes(gear);
 
 function AttackTrace({ effect, target, showArea, origin }: { effect: SurvivorAttackEffect; target: { x: number; z: number }; showArea: boolean; origin: { x: number; z: number } }) {
   const area = isAreaWeapon(effect.gear);

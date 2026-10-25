@@ -44,6 +44,7 @@ public sealed class HomeView : UserControl
     Button? _leave;
     Button? _bell;
     Control? _searchHost;
+    TextBox? _searchInput;
     Button? _create;
     ScrollViewer? _asideScroll;
     readonly ScrollViewer _scroll;
@@ -58,9 +59,9 @@ public sealed class HomeView : UserControl
     string _search = "";
     const string Ink = "#26262E", Muted = "#5E5C64", Paper = "#FFFDF9", Purple = "#5B47A8", Line = "#DCD5C8", Accent = "#2F5FC4", AccentBg = "#EEF3FC", Sand = "#F3EEE4";
     static readonly (string Id, string Label, string Icon)[] Navigation =
-    [ ("home", "ホーム", "home"), ("friends", "フレンド", "people"), ("sessions", "セッション", "headset"), ("events", "イベント", "calendar"), ("groups", "グループ", "flag"), ("worlds", "ワールド", "globe"), ("items", "アイテム", "box") ];
+    [ ("home", "ホーム", "home"), ("friends", "フレンド", "people"), ("sessions", "セッション", "headset"), ("events", "イベント", "calendar"), ("groups", "グループ", "flag"), ("worlds", "ワールド", "globe"), ("items", "アイテム", "box"), ("changelog", "変更履歴", "calendar") ];
     static readonly (string Id, string Name, string Desc, string Color)[] Worlds =
-    [ ("room", "ホール", "何も置いていない広い部屋", "#DCE6F3"), ("cafe", "カフェ", "カウンターとテーブル席のある落ち着いたカフェ", "#F3E6C6"), ("game", "ゲーム", "板わたりサバイバル。ガラスの向こうの 5 層の塔で、最後まで落ちずに残った人が勝ち", "#E7DDF2") ];
+    [ ("garden", "ガーデン", "木陰のベンチと花壇を散歩できる、空の見える庭", "#DDEBD0"), ("survivors", "宵闇サバイバーズ", "夜明けまで生き残る協力サバイバル", "#E7DDF2"), ("room", "ホール", "何も置いていない広い部屋", "#DCE6F3"), ("cafe", "カフェ", "カウンターとテーブル席のある落ち着いたカフェ", "#F3E6C6"), ("game", "ゲーム", "板わたりサバイバル。ガラスの向こうの 5 層の塔で、最後まで落ちずに残った人が勝ち", "#E7DDF2") ];
     static readonly (string Id, string Name, string Mark, string Desc, string Color)[] Items =
     [ ("note", "付箋", "付", "文字を書いて置いておける付箋。2D ではウィンドウで、3D では空間の板として読み書きできる。", "#FBF1C4"), ("hammer", "ピコピコハンマー", "槌", "手に持って誰かを叩ける。叩くと相手の前に移動する。", "#FBE3D2"), ("chess", "チェス", "♟", "3D では立体のチェス盤、2D ではパネルの UI で遊べる。", "#E3E7F6"), ("chessAi", "チェスAI", "♟AI", "白はあなた、黒はAI。みんなで白の駒を動かしてAIと対戦できる。", "#DFEEE8"), ("g2048", "2048", "2048", "みんなで操作するパズル。3D では互換表示のパネルになる。", "#F4EBCF"), ("canvas", "キャンバス", "画", "みんなで絵を描ける。ペンと消しゴム付き。", "#F6E4EC"), ("camera", "カメラ", "写", "3D 空間で写真を撮ったりライブ配信したりできる。ライブは 2D からも見られる。", "#E5F0E9"), ("dice", "サイコロ", "賽", "TRPG 用のサイコロ（d4〜d100、最大10個）。3D では木の器の中を転がり、結果はチャットに残る。シークレットで振ると結果は自分だけに見える。", "#F3E6D3") ];
 
@@ -83,7 +84,7 @@ public sealed class HomeView : UserControl
         Grid.SetColumn(center, 1);
         var top = _top = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto"),RowDefinitions=new RowDefinitions("Auto,Auto"), ColumnSpacing = 12,MinHeight=44 };
         _headingHost.Content=_heading;top.Children.Add(_headingHost);
-        var search = new TextBox { PlaceholderText = "フレンド・ワールド・グループを検索", Background = Brushes.Transparent,BorderThickness=default, FontSize = 13, MinHeight = 38,Padding=new Thickness(0,6),MinWidth=0 };
+        var search = _searchInput = new TextBox { PlaceholderText = "フレンド・ワールド・グループを検索", Background = Brushes.Transparent,BorderThickness=default, FontSize = 13, MinHeight = 38,Padding=new Thickness(0,6),MinWidth=0 };
         search.TextChanged += (_, _) => { _search = search.Text ?? ""; RenderPage(); };
         var searchRow=new Grid{ColumnDefinitions=new ColumnDefinitions("Auto,*"),ColumnSpacing=8};searchRow.Children.Add(Icon("search",16,Muted));Grid.SetColumn(search,1);searchRow.Children.Add(search);
         _searchHost=new Border{Background=Brush(Paper),CornerRadius=new CornerRadius(999),BorderBrush=Brush(Line),BorderThickness=new Thickness(1),Padding=new Thickness(14,0),Height=40,MaxWidth=300,HorizontalAlignment=HorizontalAlignment.Right,Child=searchRow};
@@ -136,7 +137,9 @@ public sealed class HomeView : UserControl
         _context.HomeRoute = page == "group" && _group.Length > 0 ? "group:" + _group : page;
         if (page.StartsWith("dm:")) { _dm = page[3..]; page = "friends"; _tab = "all"; }
         if (page.StartsWith("group:")) { _group = page[6..]; _channel = ""; page = "group"; }
-        _page = page; _scroll.Offset = default; RenderPage();
+        _page = page;
+        if (page == "changelog" && ChangelogCatalog.Latest.Length > 0) NativeSettings.SetString(ChangelogCatalog.SeenKey, ChangelogCatalog.Latest);
+        _scroll.Offset = default; RenderPage();
     }
     public void Refresh()
     {
@@ -182,6 +185,7 @@ public sealed class HomeView : UserControl
             row.Children.Add(IconLabel(n.Icon,n.Label,18,selected?Accent:"#3A3942",14,12));
             var count=n.Id=="friends"?(unreadDm>0?unreadDm:online):n.Id=="events"?upcoming:0;
             if(count>0){var badge=Chip(count.ToString(),n.Id=="friends"&&unreadDm>0?"#C2402F":"#E6EAF2",n.Id=="friends"&&unreadDm>0?"#FFFFFF":Accent,11,20);Grid.SetColumn(badge,1);row.Children.Add(badge);}
+            if(n.Id=="changelog" && ChangelogCatalog.Unread){var dot=new Border{Width=8,Height=8,CornerRadius=new CornerRadius(4),Background=Brush("#C2402F"),VerticalAlignment=VerticalAlignment.Center};Grid.SetColumn(dot,1);row.Children.Add(dot);}
             b.Content=row;b.HorizontalContentAlignment=HorizontalAlignment.Stretch;
             Avalonia.Automation.AutomationProperties.SetName(b,n.Label);
         }
@@ -195,14 +199,28 @@ public sealed class HomeView : UserControl
         var offset = _scroll.Offset; _inputs.Clear();
         RefreshNavigation();
         if(_searchHost!=null)_searchHost.IsVisible=_page!="group";UpdateColumns();
+        if(_searchInput!=null){_searchInput.PlaceholderText=_page=="changelog"?"見出し・本文を検索":"フレンド・ワールド・グループを検索";Avalonia.Automation.AutomationProperties.SetName(_searchInput,_page=="changelog"?"変更履歴を検索":"コンテンツを検索");}
         _heading.Text = Navigation.FirstOrDefault(n => n.Id == _page).Label ?? (_page == "group" ? T(Find(_context.State.Groups, _group), "name", "グループ") : "通知");
         _headingHost.Content=null;_actionHost.Content=null;
         if(_page=="group"&&Find(_context.State.Groups,_group) is { } headerGroup){var mark=(Border)Mark(Initial(T(headerGroup,"name")),T(headerGroup,"color",Accent),48);((TextBlock)mark.Child!).Foreground=Brush("#FFFFFF");_headingHost.Content=Row(mark,Col(2,Heading(T(headerGroup,"name"),22),Text($"{A(headerGroup,"members").Count} 人 · セッション {_context.State.Sessions.Count(s=>T(s,"group")==_group)} 件 · {T(headerGroup,"owner")} が作成",12,Muted)));_actionHost.Content=GroupHeaderActions(headerGroup);}else{_headingHost.Content=_heading;_actionHost.Content=_create;}
         _pageHost.Content = _page switch
         {
-            "friends" => FriendsPage(), "sessions" => SessionsPage(), "groups" => GroupsPage(), "group" => GroupPage(), "events" => EventsPage(), "worlds" => WorldsPage(), "items" => ItemsPage(), "notifications" => NotificationsPage(), _ => Dashboard()
+            "friends" => FriendsPage(), "sessions" => SessionsPage(), "groups" => GroupsPage(), "group" => GroupPage(), "events" => EventsPage(), "worlds" => WorldsPage(), "items" => ItemsPage(), "changelog" => ChangelogPage(), "notifications" => NotificationsPage(), _ => Dashboard()
         };
         Dispatcher.UIThread.Post(() => { _scroll.Offset = offset; if (focusKey != null && _inputs.TryGetValue(focusKey, out var replacement)) { replacement.Focus(); replacement.CaretIndex = Math.Min(caret, replacement.Text?.Length ?? 0); } });
+    }
+
+    Control ChangelogPage()
+    {
+        var root = Col(12);
+        foreach (var entry in ChangelogCatalog.Entries.Where(e => T(e,"title").Contains(_search,StringComparison.OrdinalIgnoreCase) || A(e,"items").Any(i => (i?.GetValue<string>() ?? "").Contains(_search,StringComparison.OrdinalIgnoreCase))))
+        {
+            var body = Col(12,Text(T(entry,"date"),12,Muted),Row(Heading(T(entry,"title"),17),Text(T(entry,"tag"),12,Muted)));
+            foreach (var item in A(entry,"items")) body.Children.Add(Text("• " + item?.GetValue<string>(),14));
+            root.Children.Add(Card(body));
+        }
+        if (root.Children.Count == 0) root.Children.Add(Empty("該当する変更履歴はありません"));
+        return root;
     }
 
     Control Dashboard()
@@ -519,7 +537,7 @@ public sealed class HomeView : UserControl
     void Confirm(string title,string message,Action action)=>Form(title,[("",Text(message,14))],()=>{action();return null;},"続ける");
     void Form(string title,(string Label,Control Control)[] fields,Func<string?> submit,string button="作る")
     {
-        var window=new Window{Title=title,Width=460,SizeToContent=SizeToContent.Height,CanResize=false,WindowStartupLocation=WindowStartupLocation.CenterOwner,Background=Brush("#F6F2ED"),ShowInTaskbar=false};var c=Col(14);c.Margin=new Thickness(24);c.Children.Add(Text(title,22,weight:FontWeight.Bold));foreach(var (label,control) in fields){if(label.Length>0)c.Children.Add(Text(label,12,Muted));control.HorizontalAlignment=HorizontalAlignment.Stretch;c.Children.Add(control);}var error=Text("",12,"#AE4949");c.Children.Add(error);c.Children.Add(Row(Btn("やめる",()=>window.Close()),Btn(button,()=>{var problem=submit();if(problem!=null){error.Text=problem;return;}window.Close();},true)));window.Content=c;window.Opened+=(_,_)=>fields.Select(f=>f.Control).OfType<TextBox>().FirstOrDefault()?.Focus();_ = window.ShowDialog(_context.Owner);
+        var window=new Window{Title=title,Width=460,SizeToContent=SizeToContent.Height,CanResize=false,WindowStartupLocation=WindowStartupLocation.CenterOwner,Background=Brush("#F6F2ED"),ShowInTaskbar=false};var c=Col(14);c.Margin=new Thickness(24);c.Children.Add(Text(title,22,weight:FontWeight.Bold));foreach(var (label,control) in fields){if(label.Length>0)c.Children.Add(Text(label,12,Muted));control.HorizontalAlignment=HorizontalAlignment.Stretch;c.Children.Add(control);}var error=Text("",12,"#AE4949");c.Children.Add(error);c.Children.Add(Row(Btn("やめる",()=>window.Close()),Btn(button,()=>{var problem=submit();if(problem!=null){error.Text=problem;return;}window.Close();},true)));window.Content=c;window.Opened+=async(_,_)=>{fields.Select(f=>f.Control).OfType<TextBox>().FirstOrDefault()?.Focus();await Linux.LinuxInputMethod.RestoreInitialClientAsync(window);};_ = window.ShowDialog(_context.Owner);
     }
 
     HashSet<string> FriendNames=>_context.State.Friends.Select(n=>n is JsonValue?n.GetValue<string>():T(n,"name")).ToHashSet(StringComparer.Ordinal);

@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { contentAvailable, productFor } from '../../../shared/market.ts';
+import { useOwnedContent } from '../market/store.ts';
+import { OriginBadge } from '../market/OriginBadge.tsx';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { SOUNDS } from '../../../shared/sounds.ts';
@@ -9,7 +12,8 @@ import { dropFollowers, follow, leaveSession, playSound, requestLive, setViewLiv
 import { dropHammer, place2d } from '../items/actions.ts';
 import { consumeHitFx } from '../items/effects.ts';
 import { toggleMic, toggleShare } from '../net/livekit.ts';
-import { View3D } from '../view3d/View3D.tsx';
+// 3D 空間は three 一式が重いので、3D モードに入るときだけ読み込む
+const View3D = lazy(() => import('../view3d/View3D.tsx').then((m) => ({ default: m.View3D })));
 import { ProfileDialog } from '../Profile.tsx';
 import { Icon } from './Icon.tsx';
 import { Popover, itemLabel } from './common.tsx';
@@ -52,6 +56,7 @@ function SessionRename({ current, onDone }: { current: string; onDone: () => voi
 }
 
 function WorldBadge() {
+  const owned = useOwnedContent();
   const world = useStore((s) => sessionOf(s.session));
   const selfName = useStore((s) => s.selfName);
   const wsConnected = useStore((s) => s.wsConnected);
@@ -88,13 +93,13 @@ function WorldBadge() {
           <span className="menusep" />
           <span className="menutitle">ワールド（全員に反映）</span>
           <div className="worldpick" role="radiogroup" aria-label="ワールド">
-            {WORLD_KINDS.map((k) => (
-              <button
-                key={k} role="radio" aria-checked={k === kind} className={`ib wpick ${k === kind ? 'on' : ''}`} disabled={pending}
+            {WORLD_KINDS.filter((k) => contentAvailable(owned, 'worlds', k)).map((k) => (
+              <div key={k} className="market-entry"><button
+                role="radio" aria-checked={k === kind} className={`ib wpick ${k === kind ? 'on' : ''}`} disabled={pending}
                 onClick={() => { if (k !== kind) { setMenu(null); set({ confirmWorld: k }); } }}
               >
                 <b>{WORLDS[k].name}</b><span className="sub wrap">{WORLDS[k].desc}</span>
-              </button>
+              </button><OriginBadge productId={productFor('worlds', k)?.id} onOpen={() => setMenu(null)} /></div>
             ))}
           </div>
           <span className="menusep" />
@@ -108,11 +113,12 @@ function WorldBadge() {
 }
 
 function Soundboard({ anchor, onClose }: { anchor: DOMRect; onClose: () => void }) {
+  const owned = useOwnedContent();
   return (
     <Popover anchor={anchor} side="up" onClose={onClose} className="soundboard">
       <span className="menutitle">サウンドボード（近くの人に聞こえます）</span>
       <div className="sgrid">
-        {SOUNDS.map((x) => <button key={x.id} className="ib sbtn" onClick={() => playSound(x.id)}>{x.name}</button>)}
+        {SOUNDS.filter((x) => contentAvailable(owned, 'sounds', x.id)).map((x) => <div key={x.id} className="market-entry"><button className="ib sbtn" onClick={() => { unlockEmoteAudio(); playSound(x.id); }}>{x.name}</button><OriginBadge productId={productFor('sounds', x.id)?.id} onOpen={onClose} /></div>)}
       </div>
     </Popover>
   );
@@ -225,6 +231,19 @@ function StatusChips() {
   }
   if (!chips.length) return null;
   return <div className="statuschips">{chips.map((c, i) => <div key={i} className="schip">{c}</div>)}</div>;
+}
+
+/** 3D 空間の読み込み中は、切り替え時と同じ画面で待たせる */
+function View3DFallback() {
+  const world = useStore((s) => sessionOf(s.session));
+  return (
+    <div className="switchload to3d" role="status" aria-live="polite">
+      <div className="slbox">
+        <HoppingMascots to="3d" />
+        <b>{world?.name ?? ''} の 3D 空間に入っています…</b>
+      </div>
+    </div>
+  );
 }
 
 function SwitchLoading() {
@@ -521,7 +540,11 @@ export function WorldScreen() {
   }, [mode]);
   return (
     <div ref={root} className={`world ${mode} ${locked ? 'locked' : ''} ${folded.left ? 'fl' : ''} ${folded.right ? 'fr' : ''} ${phone ? `phone pt-${phoneTab}` : ''}`}>
-      {mode === '3d' && <View3D />}
+      {mode === '3d' && (
+        <Suspense fallback={<View3DFallback />}>
+          <View3D />
+        </Suspense>
+      )}
       {mode === '2d' && <MapLayer />}
       <WindowLayer />
       <PortraitCanvas />

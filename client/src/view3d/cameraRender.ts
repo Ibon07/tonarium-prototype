@@ -35,19 +35,24 @@ export function renderCamera(renderer: THREE.WebGLRenderer, item: Item & { kind:
   viewCam.quaternion.copy(quat);
   viewCam.aspect = renderer.domElement.width / renderer.domElement.height;
   viewCam.updateProjectionMatrix();
+  renderView(renderer, scene, viewCam, item.holder !== get().selfId, cameraModels.get(item.id));
+}
+
+function renderView(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera,
+  showSelf = false, model?: THREE.Object3D) {
   const hidden: THREE.Object3D[] = [];
-  const model = cameraModels.get(item.id);
   if (model?.visible) { model.visible = false; hidden.push(model); }
   const shown: THREE.Object3D[] = [];
   // 手に持って撮るときは自分の頭の中から撮ることになるので、自分の体は出さない
-  const showSelf = item.holder !== get().selfId;
   scene.traverse((o) => {
-    if (o.userData.firstPerson && o.visible) { o.visible = false; hidden.push(o); }
+    if ((o.userData.firstPerson || (!showSelf && o.userData.selfBody)) && o.visible) { o.visible = false; hidden.push(o); }
     if (showSelf && o.userData.selfBody && !o.visible) { o.visible = true; shown.push(o); }
   });
-  renderer.render(scene, viewCam);
-  for (const o of hidden) o.visible = true;
-  for (const o of shown) o.visible = false;
+  try { renderer.render(scene, camera); }
+  finally {
+    for (const o of hidden) o.visible = true;
+    for (const o of shown) o.visible = false;
+  }
 }
 
 export function makeRenderer(w: number, h: number) {
@@ -59,6 +64,25 @@ export function makeRenderer(w: number, h: number) {
   renderer.setSize(w, h, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   return renderer;
+}
+
+export function takeThumbnail(): string | undefined {
+  const { scene, camera } = world;
+  if (get().mode !== '3d' || !scene || !camera || !Number.isFinite(camera.aspect) || camera.aspect <= 0) return;
+  let renderer: THREE.WebGLRenderer | undefined;
+  try {
+    renderer = makeRenderer(320, Math.max(1, Math.round(320 / camera.aspect)));
+    const view = camera.clone();
+    camera.updateWorldMatrix(true, false);
+    camera.matrixWorld.decompose(view.position, view.quaternion, view.scale);
+    renderView(renderer, scene, view);
+    return renderer.domElement.toDataURL('image/jpeg', 0.65);
+  } catch {
+    return;
+  } finally {
+    renderer?.dispose();
+    renderer?.forceContextLoss();
+  }
 }
 
 let photoRenderer: THREE.WebGLRenderer | null = null;

@@ -1,4 +1,4 @@
-import { isRoomClientMsg, type ClientMsg, type ServerMsg, type SessionInfo, type SessionSnapshot } from '../../../shared/protocol.ts';
+import { COMPAT_VERSION, isRoomClientMsg, type ClientMsg, type ServerMsg, type SessionInfo, type SessionSnapshot } from '../../../shared/protocol.ts';
 import type { SurvivorState } from '../../../shared/survivor.ts';
 import { applyAvatars } from '../sessionView.ts';
 import { get, recompute, set, spawnPoint } from '../store.ts';
@@ -21,6 +21,23 @@ export const ATTENTION_MS = 10_000;
 // HMR でこのモジュールが読み直されても同じソケットを使う（新しい側で送信が黙って捨てられるのを防ぐ）
 const g = globalThis as unknown as { __tonariumWs?: WebSocket | null };
 let retry = 0;
+type SessionReply = Extract<ServerMsg, { t: 'sessionCreated' | 'sessionResult' }>;
+const sessionRequests = new Map<string, { resolve: (reply: SessionReply) => void; reject: (error: Error) => void }>();
+
+export function requestSession(msg: Extract<ClientMsg, { t: 'sessionCreate' | 'join' | 'leave' }>): Promise<SessionReply> {
+  if (g.__tonariumWs?.readyState !== WebSocket.OPEN) return Promise.reject(new Error('サーバーに接続されていません'));
+  const requestId = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => finish(new Error('セッション操作がタイムアウトしました')), 15_000);
+    const finish = (error?: Error, reply?: SessionReply) => {
+      clearTimeout(timer);
+      sessionRequests.delete(requestId);
+      if (error) reject(error); else resolve(reply!);
+    };
+    sessionRequests.set(requestId, { resolve: (reply) => finish(undefined, reply), reject: (error) => finish(error) });
+    try { send({ ...msg, requestId }); } catch { finish(new Error('セッション操作を送信できませんでした')); }
+  });
+}
 
 export function connectWs() {
   const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
@@ -32,7 +49,7 @@ export function connectWs() {
     retry = 0;
     set({ wsConnected: true });
     const s = get();
-    send({ t: 'hello', id: s.selfId, name: s.selfName });
+    send({ t: 'hello', id: s.selfId, name: s.selfName, compat: COMPAT_VERSION });
     if (s.session) {
       send({ t: 'join', sid: s.session });
       // ホームの再接続後は、参加資格と部屋の状態も取り直す。
@@ -41,12 +58,14 @@ export function connectWs() {
   };
   ws.onmessage = (e) => onMessage(JSON.parse(e.data) as ServerMsg);
   ws.onclose = (event) => {
+    for (const request of sessionRequests.values()) request.reject(new Error('サーバーとの接続が切れました'));
     console.warn('[home-ws] closed', { code: event.code, reason: event.reason, wasClean: event.wasClean,
       connectedSeconds: openedAt ? Math.round((performance.now() - openedAt) / 1000) : 0 });
     stopSessionSync(true);
     set({ wsConnected: false });
     if (get().session) set({ sync: 'unavailable', syncError: 'ホームとの接続を待っています' });
-    setTimeout(connectWs, Math.min(5000, 500 * 2 ** retry++));
+    // 互換性バージョン違いで断たれた場合はつなぎ直しても結果が同じなので、再接続しない
+    if (!get().incompatible) setTimeout(connectWs, Math.min(5000, 500 * 2 ** retry++));
   };
 }
 
@@ -114,6 +133,25 @@ export function applySessionSnapshot(snap: SessionSnapshot) {
 
 export function onMessage(msg: ServerMsg) {
   switch (msg.t) {
+    case 'sessionCreated':
+    case 'sessionResult': {
+      const request = msg.requestId ? sessionRequests.get(msg.requestId) : undefined;
+      if (msg.t === 'sessionResult' && msg.error) request?.reject(new Error(msg.error));
+      else request?.resolve(msg);
+      return;
+    }
+    case 'thumbnailRequest':
+      if (msg.sid !== get().session || get().mode !== '3d') return;
+      void import('../view3d/cameraRender.ts').then(({ takeThumbnail }) => {
+        if (msg.sid !== get().session || get().mode !== '3d') return;
+        const thumbnail = takeThumbnail();
+        if (thumbnail) send({ t: 'thumbnailUpload', sid: msg.sid, thumbnail });
+      });
+      return;
+    case 'marketLikes': set({ marketLikes: { counts: msg.counts, liked: msg.liked } }); return;
+    case 'incompatible':
+      set({ incompatible: true });
+      return;
     case 'syncConfig': void configureSessionSync(msg.requestId, msg.config); return;
     case 'syncError': syncError(msg.requestId, msg.error); return;
     case 'syncReset': resetSessionSync(msg.sid); return;
@@ -150,6 +188,12 @@ export function onMessage(msg: ServerMsg) {
         if (item.kind === 'note' && cur?.kind === 'note' && s.selectedNote === item.id && item.updatedBy === s.selfId)
           item = { ...item, text: cur.text };
         return { itemsBy: { ...s.itemsBy, [msg.sid]: { ...s.itemsBy[msg.sid], [item.id]: item } } };
+      });
+      break;
+    case 'itemMove':
+      set((s) => {
+        const cur = s.itemsBy[msg.sid]?.[msg.id];
+        return cur ? { itemsBy: { ...s.itemsBy, [msg.sid]: { ...s.itemsBy[msg.sid], [msg.id]: { ...cur, x: msg.x, z: msg.z, ry: msg.ry } } } } : {};
       });
       break;
     case 'itemRemove':

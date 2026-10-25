@@ -3,18 +3,32 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "items:png": "node scripts/rasterize-items.mjs",
     "dev": "concurrently -k -n server,client \"tsx watch --include sessions.json server/index.ts --dev\" \"vite\"",
     "build": "vite build",
     "start": "vite build && tsx server/index.ts",
     "livekit": "docker compose -f docker-compose.dev.yml up -d",
     "livekit:stop": "docker compose -f docker-compose.dev.yml down",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check:changelog": "node scripts/check-changelog.mjs",
+    "test:changelog": "node --test scripts/check-changelog.test.mjs",
+    "check:completion": "npm run check:changelog && npm run typecheck && npm run build",
     "test:chess": "tsx --test shared/chess.test.ts server/chess-ai.test.ts",
-    "test:sync": "tsx --test shared/session-wire.test.ts shared/session-position.test.ts shared/session-events.test.ts server/ws-heartbeat.test.ts",
-    "test:client": "tsx --test client/src/sessionView.test.ts client/src/nearby.test.ts",
+    "test:sync": "tsx --test shared/session-wire.test.ts shared/session-position.test.ts shared/session-events.test.ts server/ws-heartbeat.test.ts server/thumbnails.test.ts",
+    "test:client": "tsx --test client/src/sessionView.test.ts client/src/nearby.test.ts client/src/voiceHeat.test.ts client/src/placesMemo.test.ts client/src/home/changelog.test.ts",
+    "test:session-actions": "node --experimental-test-module-mocks --test client/src/actions.test.mjs client/src/net/ws.test.mjs",
+    "test:sync:integration": "tsx --test server/session.integration.test.ts",
+    "electron:dev": "npm --prefix electron start",
+    "electron:test": "npm --prefix electron test",
+    "electron:build:linux": "npm --prefix electron run build:linux",
+    "electron:build:windows": "npm --prefix electron run build:windows",
+    "electron:install:linux": "bash electron/install-linux-user.sh",
     "test:emotes": "tsx --test shared/emotes.test.ts",
+    "test:avatar": "tsx --test shared/avatar.test.ts",
+    "test:market": "tsx --test shared/market.test.ts server/market.test.ts",
     "test:worlds": "tsx --test shared/worlds.test.ts",
-    "test:sync:integration": "tsx --test server/session.integration.test.ts"
+    "test:items": "tsx --test shared/items.test.ts",
+    "test:survivor": "tsx --test shared/survivor.test.ts"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.3",
@@ -32,6 +46,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "sharp": "0.35.5",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

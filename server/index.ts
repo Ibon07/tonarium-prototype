@@ -7,12 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { keepHomeSocketsAlive } from './ws-heartbeat.ts';
+import { SessionThumbnails } from './thumbnails.ts';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
   AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, Recap, RoomClientMsg, Rsvp,
   ServerMsg, SessionDef, SessionInfo, StatusKind, User,
 } from '../shared/protocol.ts';
-import { PLAN_QUORUM, ROOM_HALF, STATUS_INFO, STATUS_TEXT_MAX, VISIBILITY_INFO, channelKey, isGroupVisibility } from '../shared/protocol.ts';
+import { COMPAT_VERSION, PLAN_QUORUM, ROOM_HALF, STATUS_INFO, STATUS_TEXT_MAX, VISIBILITY_INFO, channelKey, isGroupVisibility } from '../shared/protocol.ts';
 import { GROUP_COLORS, canSeeSession } from '../shared/home.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, isWorldKind, pushOut, type WorldKind } from '../shared/worlds.ts';
 import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, itemSummary, type Item } from '../shared/items.ts';
@@ -20,6 +21,7 @@ import { sanitizeParams } from '../shared/avatar.ts';
 import { VOICE_RANGE, clampAvatar, computePlaces, placeDistance } from '../shared/places.ts';
 import { clampCity } from '../shared/city.ts';
 import { callElevator, elevatorOf, resetElevator } from './city.ts';
+import { MarketLikes } from './market.ts';
 import { SOUNDS } from '../shared/sounds.ts';
 import { EMOTES, isEmoteId } from '../shared/emotes.ts';
 import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts';
@@ -27,9 +29,9 @@ import type { PeerOperation } from '../shared/session-events.ts';
 import { getOgp } from './ogp.ts';
 import { MEDIA_DIR, mediaExists, saveMedia, serveMedia } from './media.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
-import { eliminate, gameOf, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
-import { chooseSurvivorGear, chooseSurvivorStyle, clearSurvivor, moveSurvivor, removeSurvivor, resetSurvivorUpgrades, startSurvivor, tickSurvivors, upgradeSurvivor, survivorOf, type SurvivorDeps } from './survivors.ts';
-import { newSurvivorProfile, SURVIVOR_META_UPGRADES, SURVIVOR_TICK_MS, type SurvivorMetaUpgrade, type SurvivorProfile, type SurvivorStyle } from '../shared/survivor.ts';
+import { clearGame, eliminate, gameOf, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
+import { chooseSurvivorGear, chooseSurvivorStyle, clearSurvivor, moveSurvivor, removeSurvivor, resetSurvivorUpgrades, rerollSurvivorChoice, startSurvivor, tickSurvivors, upgradeSurvivor, survivorOf, type SurvivorDeps } from './survivors.ts';
+import { newSurvivorProfile, SURVIVOR_META_UPGRADES, SURVIVOR_PROFILE_VERSION, SURVIVOR_TICK_MS, survivorUpgradeRefund, type SurvivorMetaUpgrade, type SurvivorProfile, type SurvivorStyle } from '../shared/survivor.ts';
 import { createSyncGrant, handleSyncOffer, upgradeSync, revokeSync, revokeUserSync, leaveRoom, livekitRoom, roomSend, roomSendSnapshot, shutdownRooms, type RoomHandlers } from './rooms.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
@@ -47,6 +49,7 @@ const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
 const PROFILE_DIR = path.join(DATA_DIR, 'profiles');
 const FRIENDS_FILE = path.join(DATA_DIR, 'friends.json');
 const HOME_FILE = path.join(DATA_DIR, 'home.json');
+const GROUP_IMAGE_DIR = path.join(DATA_DIR, 'group-images');
 const REPORTS_FILE = path.join(DATA_DIR, 'reports.log');
 const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
 const PEOPLE_FILE = path.join(DATA_DIR, 'people.json');
@@ -59,17 +62,27 @@ const RECAP_MIN_MS = Number(process.env.RECAP_MIN_MINUTES ?? 10) * 60_000;
 function readJson<T>(file: string, fallback: T): T {
   try { return JSON.parse(fs.readFileSync(file, 'utf-8')) as T; } catch { return fallback; }
 }
-/** 書き込みが続いてもまとめて 1 回にする */
+/** ユーザー由来のキー（ID・名前）を入れるレコードは prototype を持たせない。__proto__ 等も通常のキーとして扱い、Object.prototype を汚染させない */
+function newRecord<T>(): Record<string, T> { return Object.create(null) as Record<string, T>; }
+function nullRecord<T>(obj: Record<string, T>): Record<string, T> { return Object.assign(newRecord<T>(), obj); }
+/** 書き込みが続いてもまとめて 1 回にする。flush は保留分をその場で流す（終了時の保存用） */
 function later(fn: () => void, ms = 800) {
   let t: ReturnType<typeof setTimeout> | null = null;
-  return () => { if (!t) t = setTimeout(() => { t = null; fn(); }, ms); };
+  // 失敗で落とさない。従来の非同期書き込みもエラーを握りつぶしていたし、終了時に 1 件の失敗で他を巻き込まないため
+  const run = () => { t = null; try { fn(); } catch { /* noop */ } };
+  const trigger = () => { if (!t) t = setTimeout(run, ms); };
+  trigger.flush = () => { if (t) { clearTimeout(t); run(); } };
+  return trigger;
 }
-for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR]) fs.mkdirSync(d, { recursive: true });
-const survivorProfiles = readJson<Record<string, SurvivorProfile>>(SURVIVORS_FILE, {});
-const saveSurvivorProfiles = later(() => fs.writeFile(SURVIVORS_FILE, JSON.stringify(survivorProfiles), () => {}));
+for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR, GROUP_IMAGE_DIR]) fs.mkdirSync(d, { recursive: true });
+const MARKET_LIKES_FILE = path.join(DATA_DIR, 'market-likes.json');
+const marketLikes = new MarketLikes(readJson<unknown>(MARKET_LIKES_FILE, {}));
+const saveMarketLikes = later(() => fs.writeFileSync(MARKET_LIKES_FILE, JSON.stringify(marketLikes.serialize())));
+const survivorProfiles = nullRecord(readJson<Record<string, SurvivorProfile>>(SURVIVORS_FILE, {}));
+const saveSurvivorProfiles = later(() => fs.writeFileSync(SURVIVORS_FILE, JSON.stringify(survivorProfiles)));
 /** AD のセーブとランキングは Tonarium サーバー内で完結する（Workers は使わない） */
 interface AdLeaderboardEntry { playerId: string; name: string; antimatterLog10: number; infinities: number; playTimeSec: number }
-const adSaves = readJson<Record<string, { save: unknown; updatedAt: string }>>(AD_SAVES_FILE, {});
+const adSaves = nullRecord(readJson<Record<string, { save: unknown; updatedAt: string }>>(AD_SAVES_FILE, {}));
 const adLeaderboard = readJson<AdLeaderboardEntry[]>(AD_LEADERBOARD_FILE, []);
 /** AD の保存は 30 秒に 1 回程度のため、survivors のデバウンス書きとは別に tmp＋リネームで同期書きする（再起動後も残る） */
 function writeJsonAtomic(file: string, value: unknown): void {
@@ -86,15 +99,43 @@ function survivorCount(value: unknown, max: number) {
 }
 function survivorProfile(id: string): SurvivorProfile {
   const p = survivorProfiles[id] ??= newSurvivorProfile();
-  const upgrades = p.upgrades as Partial<Record<SurvivorMetaUpgrade, unknown>> | null | undefined;
-  p.upgrades = {
-    might: survivorCount(upgrades?.might, SURVIVOR_META_UPGRADES.might.max),
-    vitality: survivorCount(upgrades?.vitality, SURVIVOR_META_UPGRADES.vitality.max),
-    haste: survivorCount(upgrades?.haste, SURVIVOR_META_UPGRADES.haste.max),
-  };
+  p.points = survivorCount(p.points, Number.MAX_SAFE_INTEGER);
+  const upgrades = p.upgrades as Record<string, unknown> | null | undefined;
+  const version = survivorCount(p.upgradeVersion, SURVIVOR_PROFILE_VERSION);
+  if (version < 2) {
+    const legacyRefund = ['might', 'vitality', 'haste']
+      .reduce((total, key) => total + survivorCount(upgrades?.[key], 10) * 2, 0);
+    p.points = survivorCount(p.points + legacyRefund, Number.MAX_SAFE_INTEGER);
+    p.upgrades = newSurvivorProfile().upgrades;
+    p.upgradeSpent = newSurvivorProfile().upgradeSpent;
+    p.upgradeVersion = SURVIVOR_PROFILE_VERSION;
+    saveSurvivorProfiles();
+  } else {
+    p.upgrades = Object.fromEntries(Object.entries(SURVIVOR_META_UPGRADES)
+      .map(([key, upgrade]) => [key, survivorCount(upgrades?.[key], upgrade.max)])) as SurvivorProfile['upgrades'];
+    const normalized = p.upgrades;
+    if (version === 2) {
+      const oldCosts: Record<SurvivorMetaUpgrade, number> = { might: 2, rerolls: 4, vitality: 2, regeneration: 4, choiceCount: 100, synergySlots: 100, characters: 20 };
+      p.upgradeSpent = Object.fromEntries(Object.keys(SURVIVOR_META_UPGRADES).map((key) => {
+        const upgrade = key as SurvivorMetaUpgrade;
+        return [upgrade, survivorUpgradeRefund(upgrade, normalized[upgrade], oldCosts[upgrade])];
+      })) as SurvivorProfile['upgradeSpent'];
+    } else {
+      const spent = p.upgradeSpent as Record<string, unknown> | null | undefined;
+      p.upgradeSpent = Object.fromEntries(Object.keys(SURVIVOR_META_UPGRADES).map((key) => {
+        const upgrade = key as SurvivorMetaUpgrade;
+        return [upgrade, spent?.[upgrade] == null
+          ? survivorUpgradeRefund(upgrade, normalized[upgrade])
+          : survivorCount(spent[upgrade], Number.MAX_SAFE_INTEGER)];
+      })) as SurvivorProfile['upgradeSpent'];
+    }
+    if (version < SURVIVOR_PROFILE_VERSION) {
+      p.upgradeVersion = SURVIVOR_PROFILE_VERSION;
+      saveSurvivorProfiles();
+    }
+  }
   p.achievements ??= [];
   p.discovered ??= [];
-  p.points = survivorCount(p.points, Number.MAX_SAFE_INTEGER);
   p.runs ??= 0; p.bestLevel ??= 0; p.bestKills ??= 0;
   return p;
 }
@@ -115,6 +156,7 @@ function avatarVersion(name: string) {
   return v ? String(v) : null;
 }
 const isJpeg = (b: Buffer) => b[0] === 0xff && b[1] === 0xd8;
+const ICON_MAX_BYTES = 300_000;
 const isPng = (b: Buffer) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
 
 async function readBody(req: http.IncomingMessage, limit: number) {
@@ -130,16 +172,39 @@ async function readBody(req: http.IncomingMessage, limit: number) {
 
 const SESSIONS_FILE = process.env.SESSIONS_FILE ?? path.join(ROOT, 'sessions.json');
 const guild = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')) as GuildConfig;
+const fixedSessionIds = new Set(guild.sessions.map((d) => d.id));
+const EMPTY_SESSION_TTL_MS = 5 * 60 * 1000;
+const emptySessionTimers = new Map<string, ReturnType<typeof setTimeout>>();
 // 画面から作ったセッション・グループ・イベント。sessions.json のセッションの後ろに並べる
 // renamed は sessions.json のセッションを画面から改名したときの名前（sessions.json は書き換えない）
 const home: { sessions: SessionDef[]; groups: Group[]; events: EventDef[]; renamed: Record<string, string> } = { sessions: [], groups: [], events: [], renamed: {} };
 try { Object.assign(home, JSON.parse(fs.readFileSync(HOME_FILE, 'utf-8'))); } catch { /* まだ無い */ }
+home.renamed = nullRecord(home.renamed);
 for (const d of guild.sessions) d.name = home.renamed[d.id] ?? d.name;
 const defaultChannels = () => [{ id: 'general', name: '雑談' }];
-for (const g of home.groups) if (!g.channels?.length) g.channels = defaultChannels();
+for (const g of home.groups) {
+  if (!g.channels?.length) g.channels = defaultChannels();
+  g.editors = [...new Set((g.editors ?? []).filter((n) => n !== g.owner && g.members.includes(n)))];
+}
+const canEditGroup = (g: Group, name: string) => g.owner === name || !!g.editors?.includes(name);
+const groupImageFile = (g: Group, ext = 'jpg') => path.join(GROUP_IMAGE_DIR, `${g.id}.${ext}`);
+function deleteGroupImages(g: Group, keep?: string) {
+  for (const ext of ['jpg', 'jpeg', 'png', 'webp']) {
+    if (ext !== keep) fs.rmSync(groupImageFile(g, ext), { force: true });
+  }
+}
 for (const ev of home.events) { ev.maybe ??= []; ev.declined ??= []; }
 guild.sessions.push(...home.sessions);
-const saveHome = () => fs.writeFileSync(HOME_FILE, JSON.stringify(home));
+/** 開始から 30 日以上過ぎたイベントは残さない。当日のものや開始時刻が読めないものは消さない */
+function pruneOldEvents() {
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  home.events = home.events.filter((ev) => !(Number.isFinite(ev.at) && ev.at < cutoff));
+}
+const eventsBeforePrune = home.events.length;
+pruneOldEvents();
+// home はメモリ側が正で、ファイルへの書き込みは savePeople などと同じく遅らせてまとめる
+const saveHome = later(() => fs.writeFileSync(HOME_FILE, JSON.stringify(home)));
+if (home.events.length !== eventsBeforePrune) saveHome();
 const sessionIds = new Set(guild.sessions.map((w) => w.id));
 const shortId = () => randomUUID().slice(0, 8);
 
@@ -168,8 +233,12 @@ const broadcastMode = new Map<string, boolean>();
 const lastAttention = new Map<string, number>();
 const emoteUntil = new WeakMap<Participant, number>();
 const worldOf = new Map<string, WorldKind>();
+const thumbnails = new SessionThumbnails(
+  (id, sid) => sendTo([id], { t: 'thumbnailRequest', sid }),
+  () => broadcastSessionInfo(),
+);
 // アイテムはだれもいなくなっても残し、再起動しても戻す（盤面の続きをするため）
-const savedItems = readJson<Record<string, Item[]>>(ITEMS_FILE, {});
+const savedItems = nullRecord(readJson<Record<string, Item[]>>(ITEMS_FILE, {}));
 /** 持っている人や編集中の人は再起動でいなくなるので外す */
 function settle(it: Item) {
   const x = it as Item & { holder?: string | null; editingBy?: string | null; live?: boolean; operator?: string | null };
@@ -179,36 +248,66 @@ function settle(it: Item) {
   return it;
 }
 function registerSession(def: SessionDef) {
+  thumbnails.register(def.id);
   sessionIds.add(def.id);
   worldOf.set(def.id, isWorldKind(def.world) ? def.world : 'room');
   chats.set(def.id, []);
   avatars.set(def.id, new Map());
   items.set(def.id, new Map((savedItems[def.id] ?? []).map((it) => [it.id, settle(it)])));
 }
-let lastItemsJson = '';
-setInterval(() => {
-  const json = JSON.stringify(Object.fromEntries([...items].filter(([, m]) => m.size).map(([sid, m]) => [sid, [...m.values()]])));
-  if (json === lastItemsJson) return;
-  lastItemsJson = json;
-  fs.writeFile(ITEMS_FILE, json, () => {});
-}, 5000);
+/** アイテムが変わったセッションの印。保存は印があるときだけ文字列化する（無変更でも 5 秒ごとに全アイテムを文字列化していたのをやめる） */
+const dirtyItemSessions = new Set<string>();
+const markItemsDirty = (sid: string) => { dirtyItemSessions.add(sid); };
+const itemsJson = () => JSON.stringify(Object.fromEntries([...items].filter(([, m]) => m.size).map(([sid, m]) => [sid, [...m.values()]])));
+function saveItems() {
+  if (!dirtyItemSessions.size) return;
+  dirtyItemSessions.clear();
+  fs.writeFile(ITEMS_FILE, itemsJson(), () => {});
+}
+/** 終了時は保留分をその場で書き出す */
+function flushItems() {
+  if (!dirtyItemSessions.size) return;
+  dirtyItemSessions.clear();
+  try { fs.writeFileSync(ITEMS_FILE, itemsJson()); } catch { /* noop */ }
+}
+setInterval(saveItems, 5000);
 
 interface PersonRec { status: StatusKind; statusText: string; recent: string[]; lastSeen: number | null; watchers: string[] }
-const people = readJson<Record<string, PersonRec>>(PEOPLE_FILE, {});
-const savePeople = later(() => fs.writeFile(PEOPLE_FILE, JSON.stringify(people), () => {}));
+const people = nullRecord(readJson<Record<string, PersonRec>>(PEOPLE_FILE, {}));
+const savePeople = later(() => fs.writeFileSync(PEOPLE_FILE, JSON.stringify(people)));
 function personRec(name: string) {
   return (people[name] ??= { status: 'online', statusText: '', recent: [], lastSeen: null, watchers: [] });
 }
 
 /** convs は会話ごとのメッセージ、reads は 名前 → 会話 → 読んだ時刻 */
-const inbox = readJson<{ convs: Record<string, Message[]>; reads: Record<string, Record<string, number>> }>(MESSAGES_FILE, { convs: {}, reads: {} });
-const saveInbox = later(() => fs.writeFile(MESSAGES_FILE, JSON.stringify(inbox), () => {}));
+const inboxRaw = readJson<{ convs: Record<string, Message[]>; reads: Record<string, Record<string, number>> }>(MESSAGES_FILE, { convs: {}, reads: {} });
+const inbox = {
+  convs: nullRecord(inboxRaw.convs ?? {}),
+  reads: nullRecord(Object.fromEntries(Object.entries(inboxRaw.reads ?? {}).map(([name, r]) => [name, nullRecord(r)]))),
+};
+const saveInbox = later(() => fs.writeFileSync(MESSAGES_FILE, JSON.stringify(inbox)));
 
 /** セッションにだれかが入ってから全員が出るまで。終わったらまとめにする */
 const visits = new Map<string, { from: number; people: Set<string>; log: Recap['log'] }>();
-for (const w of guild.sessions) registerSession(w);
-const sessionsVisibleTo = (name: string) => guild.sessions.filter((d) => canSeeSession(d, name, friendsOf(name), home.groups, [...users.values()]));
-const broadcastSessions = () => { for (const u of users.values()) sendTo([u.id], { t: 'sessions', list: sessionsVisibleTo(u.name) }); };
+for (const w of guild.sessions) {
+  registerSession(w);
+  scheduleEmptyCheck(w.id);
+}
+// 配信のたびにフレンド全走査と全ユーザー配列化を人数分繰り返さないよう、1 回の配信で使い回す写し
+interface UserSnapshot { all: Participant[]; friendsByName: Map<string, string[]>; onlineNames: Set<string> }
+function snapshotUsers(): UserSnapshot {
+  const all = [...users.values()];
+  const friendsByName = new Map<string, string[]>();
+  const add = (n: string, f: string) => { const l = friendsByName.get(n); if (l) l.push(f); else friendsByName.set(n, [f]); };
+  for (const k of friendPairs) {
+    const [a, b] = k.split('\u0000');
+    add(a, b);
+    if (b !== a) add(b, a);
+  }
+  return { all, friendsByName, onlineNames: new Set(all.map((u) => u.name)) };
+}
+const sessionsVisibleTo = (name: string, snap = snapshotUsers()) => guild.sessions.filter((d) => canSeeSession(d, name, snap.friendsByName.get(name) ?? [], home.groups, snap.all));
+const broadcastSessions = () => { const snap = snapshotUsers(); for (const u of users.values()) sendTo([u.id], { t: 'sessions', list: sessionsVisibleTo(u.name, snap) }); };
 const broadcastGroups = () => broadcast({ t: 'groups', list: home.groups });
 const broadcastEvents = () => broadcast({ t: 'events', list: home.events });
 
@@ -258,22 +357,24 @@ function convsOf(name: string) {
 }
 
 /** フレンドと、同じグループの人 */
-function knownPeopleOf(name: string) {
-  const set = new Set(friendsOf(name));
+function knownPeopleOf(name: string, friendsByName?: Map<string, string[]>) {
+  // 写しが渡されたらそれだけを使う（無い人はフレンドなし）。friendsOf へ落とすと配信の人数分だけ全走査が戻ってしまう
+  const set = new Set(friendsByName ? friendsByName.get(name) ?? [] : friendsOf(name));
   for (const g of home.groups) if (g.members.includes(name)) for (const m of g.members) set.add(m);
   set.delete(name);
   return [...set];
 }
-function personOf(name: string): Person {
+function personOf(name: string, onlineNames?: Set<string>): Person {
   const r = personRec(name);
-  return { name, status: r.status, statusText: r.statusText, lastSeen: isOnline(name) ? null : r.lastSeen };
+  return { name, status: r.status, statusText: r.statusText, lastSeen: (onlineNames ? onlineNames.has(name) : isOnline(name)) ? null : r.lastSeen };
 }
 const watchingOf = (name: string) => Object.entries(people).filter(([, r]) => r.watchers.includes(name)).map(([n]) => n);
 function sendWatching(name: string) {
   sendToNames([name], { t: 'watching', names: watchingOf(name), recentStatus: personRec(name).recent });
 }
 function broadcastPeople() {
-  for (const u of users.values()) sendTo([u.id], { t: 'people', list: knownPeopleOf(u.name).map(personOf) });
+  const snap = snapshotUsers();
+  for (const u of users.values()) sendTo([u.id], { t: 'people', list: knownPeopleOf(u.name, snap.friendsByName).map((n) => personOf(n, snap.onlineNames)) });
 }
 
 function finishVisit(sid: string) {
@@ -390,18 +491,42 @@ function sessionInfoOf(sid: string): SessionInfo {
     const summary = itemSummary(it);
     return summary ? [{ id: it.id, kind: it.kind, summary }] : [];
   });
-  return { world: worldOf.get(sid) ?? 'room', items: list };
+  return { world: worldOf.get(sid) ?? 'room', items: list, thumbnail: thumbnails.thumbnail(sid) };
 }
 const allSessionInfo = () => Object.fromEntries([...sessionIds].map((sid) => [sid, sessionInfoOf(sid)]));
 /** アイテムやワールドが変わったら、ホーム向けの軽い情報を全員に配り直す（続けて起きた変更はまとめる） */
 const broadcastSessionInfo = later(() => broadcast({ t: 'sessionInfo', sessions: allSessionInfo() }), 300);
+setInterval(() => {
+  for (const sid of sessionIds) thumbnails.update(sid, inSession(sid));
+}, 10_000);
 function sendItem(sid: string, it: Item) {
+  markItemsDirty(sid);
   roomSend(sid, { t: 'item', sid, item: it });
   broadcastSessionInfo();
 }
 function sendItemRemove(sid: string, id: string) {
+  markItemsDirty(sid);
   roomSend(sid, { t: 'itemRemove', sid, id });
   broadcastSessionInfo();
+}
+/** 移動の配信は位置だけにし、アイテムごとに間引く。止まったときの最後の位置は必ず届ける */
+const ITEM_MOVE_MS = 80;
+const itemMoveSentAt = new Map<string, number>();
+const itemMoveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function broadcastItemMove(sid: string, it: Item) {
+  markItemsDirty(sid);
+  const key = `${sid}\0${it.id}`;
+  const send = () => {
+    itemMoveSentAt.set(key, Date.now());
+    roomSend(sid, { t: 'itemMove', sid, id: it.id, x: it.x, z: it.z, ry: it.ry });
+  };
+  const wait = ITEM_MOVE_MS - (Date.now() - (itemMoveSentAt.get(key) ?? 0));
+  if (wait <= 0) { send(); return; }
+  if (itemMoveTimers.has(key)) return;
+  itemMoveTimers.set(key, setTimeout(() => {
+    itemMoveTimers.delete(key);
+    if (items.get(sid)?.get(it.id) === it) send();
+  }, wait));
 }
 function sendSessionSnapshot(sid: string, id: string) {
   roomSendSnapshot(sid, id, {
@@ -428,6 +553,8 @@ const roomHandlers: RoomHandlers = {
 };
 const modeLabel = (m: Mode) => (m === '3d' ? '3D' : '2D');
 const clampRoom = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
+/** クライアント由来の数値を有限数にする（NaN や Infinity が共有状態に残らないように） */
+const finNum = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const solidsOf = (sid: string) => WORLDS[worldOf.get(sid) ?? 'room'].solids;
 /** 部屋（街なら街）の中に収め、家具にめり込んでいたら外へ出す。アイテムと 2D の人は地上にいる */
 function placeIn(sid: string, x: number, z: number, r: number) {
@@ -436,10 +563,11 @@ function placeIn(sid: string, x: number, z: number, r: number) {
   const clamp = (v: number, axis: 'x' | 'z') => world === 'city' ? clampCity(v) : extent
     ? Math.max(axis === 'x' ? extent.minX : extent.minZ, Math.min(axis === 'x' ? extent.maxX : extent.maxZ, v))
     : clampRoom(v);
-  const p = pushOut(clamp(x, 'x'), clamp(z, 'z'), r, solidsOf(sid));
+  // クライアント由来の NaN がそのまま保存・永続化されるのを防ぐ関所（有限でなければ 0 に倒してから収める）
+  const p = pushOut(clamp(finNum(x), 'x'), clamp(finNum(z), 'z'), r, solidsOf(sid));
   return { x: clamp(p.x, 'x'), z: clamp(p.z, 'z') };
 }
-const clamp2d = (sid: string, p: AvatarState): AvatarState => ({ ...placeIn(sid, p.x, p.z, PERSON_R), ry: p.ry });
+const clamp2d = (sid: string, p: AvatarState): AvatarState => ({ ...placeIn(sid, p.x, p.z, PERSON_R), ry: finNum(p.ry) });
 
 /** 配信ディスプレイを本人の 1.3m 前の床に、本人の方へ向けて立てる */
 function placeDisplay(sid: string, u: Participant, av: AvatarState) {
@@ -516,6 +644,7 @@ function leaveSession(u: Participant) {
   u.follow = null;
   u.pos = null;
   u.session = null;
+  thumbnails.update(sid, inSession(sid));
   u.mode = '2d';
   u.micOn = false;
   u.sharing = false;
@@ -524,11 +653,19 @@ function leaveSession(u: Participant) {
   u.display = null;
   event(sid, `${u.name} が退出しました`);
   if (inSession(sid).length) sendPresence(sid);
-  else { finishVisit(sid); void leaveRoom(sid); }
+  else { finishVisit(sid); void leaveRoom(sid); scheduleEmptyCheck(sid); }
 }
 
 function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string }, msg: ClientMsg) {
   if (msg.t === 'hello') {
+    // 互換性バージョンが違う（申告が無い旧クライアントを含む）と通信の約束事が食い違うので、状態を渡さず接続を断つ
+    if (msg.compat !== COMPAT_VERSION) {
+      send(ws, { t: 'incompatible', compat: COMPAT_VERSION });
+      ws.close();
+      return;
+    }
+    // __proto__ は ID として受け付けない。レコードのキーや msgpack のマップキーに流れると壊れるため（正規クライアントの ID は UUID で、該当しない）
+    if (msg.id === '__proto__') return;
     state.id = msg.id;
     const name = normalizeName(msg.name);
     const rec = personRec(name);
@@ -557,10 +694,11 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
       },
     });
     send(ws, {
-      t: 'inbox', convs: convsOf(name), reads: inbox.reads[name] ?? {}, people: knownPeopleOf(name).map(personOf),
+      t: 'inbox', convs: convsOf(name), reads: inbox.reads[name] ?? {}, people: knownPeopleOf(name).map((n) => personOf(n)),
       watching: watchingOf(name), lastSeen, recentStatus: rec.recent,
     });
     send(ws, { t: 'survivorProfile', profile: survivorProfile(msg.id) });
+    send(ws, { t: 'marketLikes', ...marketLikes.snapshot(msg.id) });
     broadcastUsers();
     if (cameOnline) {
       // 来たら知らせる は 1 回きり
@@ -574,6 +712,13 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
   }
   const me = state.id ? users.get(state.id) : undefined;
   if (!me) return;
+  if (msg.t === 'marketLike') {
+    if (marketLikes.like(msg.product, me.id)) {
+      saveMarketLikes();
+      for (const id of sockets.keys()) sendTo([id], { t: 'marketLikes', ...marketLikes.snapshot(id) });
+    } else send(ws, { t: 'marketLikes', ...marketLikes.snapshot(me.id) });
+    return;
+  }
   if (msg.t === 'profileUpdated') {
     const icon = iconVersion(me.name);
     const avatar = avatarVersion(me.name);
@@ -600,10 +745,14 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
     broadcastPeople();
     return;
   }
-  if (handleHome(me, msg)) return;
+  if (handleHome(me, msg, ws)) return;
   const sid = me.session;
 
   switch (msg.t) {
+    case 'thumbnailUpload':
+      if (sid && sid === msg.sid) thumbnails.upload(sid, me.id, msg.thumbnail);
+      else console.warn('[thumbnail] rejected upload outside session');
+      return;
     case 'prepareSync': {
       if (!sid || typeof msg.requestId !== 'string') return;
       state.syncRequest = msg.requestId;
@@ -616,10 +765,19 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
     }
     case 'join': {
       const def = guild.sessions.find((d) => d.id === msg.sid);
-      if (!def || sid === msg.sid || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) return;
+      if (!def || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) {
+        if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId, error: 'このセッションには参加できません' });
+        return;
+      }
+      if (sid === msg.sid) {
+        if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId });
+        return;
+      }
       leaveSession(me);
       me.session = msg.sid;
+      cancelEmptyCheck(msg.sid);
       me.mode = '2d';
+      thumbnails.update(msg.sid, inSession(msg.sid));
       const visit = visits.get(msg.sid) ?? { from: Date.now(), people: new Set<string>(), log: [] };
       visit.people.add(me.name);
       visits.set(msg.sid, visit);
@@ -627,12 +785,14 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
       event(msg.sid, `${me.name} が入室しました`);
       // フレンド+ のセッションは中にいる人で見える人が変わる
       broadcastSessions();
+      if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId });
       return;
     }
     case 'leave': {
       leaveSession(me);
       broadcastUsers();
       broadcastSessions();
+      if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId });
       return;
     }
   }
@@ -734,6 +894,11 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
       chooseSurvivorGear(sid, me, String(msg.gear), survivorDeps);
       return;
     }
+    case 'survivorReroll': {
+      if (worldOf.get(sid) !== 'survivors') return;
+      rerollSurvivorChoice(sid, me, survivorDeps);
+      return;
+    }
     case 'survivorUpgrade': {
       if (worldOf.get(sid) !== 'survivors') return;
       upgradeSurvivor(sid, me.id, msg.upgrade as SurvivorMetaUpgrade, survivorDeps);
@@ -786,7 +951,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
       return;
     }
     case 'itemCreate': {
-      if (!(msg.kind in ITEM_INFO)) return;
+      if (!Object.hasOwn(ITEM_INFO, msg.kind)) return;
       if (ONLY_3D[msg.kind] && me.mode !== '3d') return;
       if (msg.media && 'url' in msg.media && !mediaExists(msg.media.url)) return;
       let at = placeIn(sid, msg.x, msg.z, 0.4);
@@ -799,7 +964,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
         }
       }
       const it = createItem(msg.kind, {
-        id: randomUUID(), x: at.x, z: at.z, ry: msg.ry, createdBy: me.id,
+        id: randomUUID(), x: at.x, z: at.z, ry: finNum(msg.ry), createdBy: me.id,
       }, Math.random, msg.media);
       if (!it) return;
       if (it.kind === 'note' && msg.text) it.text = msg.text.slice(0, 300);
@@ -818,8 +983,12 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     case 'itemMove': {
       const it = sessItems.get(msg.id);
       if (!it || (it.kind === 'hammer' && it.holder)) return;
-      Object.assign(it, placeIn(sid, msg.x, msg.z, itemRadius(it) * 0.6), { ry: msg.ry });
-      sendItem(sid, it);
+      const p = placeIn(sid, msg.x, msg.z, itemRadius(it) * 0.6);
+      const ry = finNum(msg.ry);
+      // 位置が変わっていなければ送らない
+      if (p.x === it.x && p.z === it.z && ry === it.ry) return;
+      it.x = p.x; it.z = p.z; it.ry = ry;
+      broadcastItemMove(sid, it);
       return;
     }
     case 'itemAction': {
@@ -839,6 +1008,8 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
       }
       if (msg.action.a === 'drop') Object.assign(msg.action, placeIn(sid, msg.action.x, msg.action.z, 0.3));
       if (!applyItemAction(it, msg.action, me.id, Math.random)) return;
+      // 差分だけ配る経路は sendItem を通らないので、保存の印はここで付ける
+      markItemsDirty(sid);
       // 旧クライアントだけは手元で適用済み。
       if (isDeltaAction(msg.action)) roomSend(sid, { t: 'itemAction', sid, id: it.id, action: msg.action, by: me.id }, peerEvent ? undefined : othersIn(sid, me.id));
       else sendItem(sid, it);
@@ -868,6 +1039,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
         if (avatars.get(sid)!.delete(me.id)) roomSend(sid, { t: 'avatarRemove', sid, id: me.id });
       }
       broadcastUsers(); sendPresence(sid);
+      thumbnails.update(sid, inSession(sid));
       event(sid, `${me.name} が ${modeLabel(msg.mode)} に切り替えました`);
       return;
     }
@@ -930,44 +1102,97 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
 
 const trimTo = (v: unknown, n: number) => String(v ?? '').trim().slice(0, n);
 
+function cancelEmptyCheck(sessionId: string) {
+  clearTimeout(emptySessionTimers.get(sessionId));
+  emptySessionTimers.delete(sessionId);
+}
+
+function scheduleEmptyCheck(sessionId: string) {
+  if (fixedSessionIds.has(sessionId)) return;
+  cancelEmptyCheck(sessionId);
+  emptySessionTimers.set(sessionId, setTimeout(() => {
+    emptySessionTimers.delete(sessionId);
+    const def = home.sessions.find((d) => d.id === sessionId);
+    if (!def || !sessionIds.has(sessionId) || fixedSessionIds.has(sessionId) || inSession(sessionId).length) return;
+    console.log(`session auto-delete: ${JSON.stringify({ id: sessionId, name: def.name, reason: 'empty for 5min' })}`);
+    destroyUserSession(sessionId);
+  }, EMPTY_SESSION_TTL_MS));
+}
+
+function destroyUserSession(sessionId: string) {
+  const def = home.sessions.find((d) => d.id === sessionId);
+  if (!def) return;
+  cancelEmptyCheck(sessionId);
+  home.sessions.splice(home.sessions.indexOf(def), 1);
+  guild.sessions.splice(guild.sessions.indexOf(def), 1);
+  sessionIds.delete(def.id);
+  thumbnails.delete(def.id);
+  worldOf.delete(def.id);
+  chats.delete(def.id);
+  avatars.delete(def.id);
+  items.delete(def.id);
+  markItemsDirty(def.id);
+  broadcastMode.delete(def.id);
+  worldPending.delete(def.id);
+  clearSurvivor(def.id);
+  clearGame(def.id);
+  resetElevator(def.id);
+  broadcastSessionInfo();
+  for (const ev of home.events) if (ev.session === def.id) ev.session = null;
+  saveHome();
+  broadcastSessions();
+  broadcastEvents();
+}
+
 /** ホーム画面の操作（セッション外でもできる）。扱ったら true */
-function handleHome(me: User, msg: ClientMsg): boolean {
+function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
   switch (msg.t) {
     case 'sessionCreate': {
       const name = trimTo(msg.name, 40);
-      const visibility = msg.visibility in VISIBILITY_INFO ? msg.visibility : 'public';
+      const visibility = Object.hasOwn(VISIBILITY_INFO, msg.visibility) ? msg.visibility : 'public';
       const group = isGroupVisibility(visibility) ? home.groups.find((g) => g.id === msg.group && g.members.includes(me.name))?.id : undefined;
-      if (!name || (isGroupVisibility(visibility) && !group)) return true;
+      if (!name || (isGroupVisibility(visibility) && !group)) {
+        if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId, error: !name ? 'セッション名を入力してください' : 'このグループには所属していません' });
+        return true;
+      }
       const def: SessionDef = { id: shortId(), name, topic: trimTo(msg.topic, 100), world: isWorldKind(msg.world) ? msg.world : 'room', visibility, owner: me.name, group, invited: [] };
       home.sessions.push(def);
       guild.sessions.push(def);
       registerSession(def);
+      scheduleEmptyCheck(def.id);
       saveHome();
       broadcastSessions();
       broadcastSessionInfo();
+      send(ws, { t: 'sessionCreated', sid: def.id, requestId: msg.requestId });
       return true;
     }
     case 'sessionDelete': {
       const def = home.sessions.find((d) => d.id === msg.id && d.owner === me.name);
       if (!def || [...users.values()].some((u) => u.session === def.id)) return true;
-      home.sessions.splice(home.sessions.indexOf(def), 1);
-      guild.sessions.splice(guild.sessions.indexOf(def), 1);
-      sessionIds.delete(def.id);
-      clearSurvivor(def.id);
-      items.get(def.id)?.clear();
-      broadcastSessionInfo();
-      for (const ev of home.events) if (ev.session === def.id) ev.session = null;
-      saveHome();
-      broadcastSessions();
-      broadcastEvents();
+      destroyUserSession(def.id);
       return true;
     }
     case 'groupCreate': {
       const name = trimTo(msg.name, 40);
       if (!name) return true;
-      home.groups.push({ id: shortId(), name, color: GROUP_COLORS.includes(msg.color) ? msg.color : GROUP_COLORS[0], owner: me.name, members: [me.name], channels: defaultChannels() });
+      home.groups.push({ id: shortId(), name, color: GROUP_COLORS.includes(msg.color) ? msg.color : GROUP_COLORS[0], owner: me.name, editors: [], members: [me.name], channels: defaultChannels() });
       saveHome();
       broadcastGroups();
+      return true;
+    }
+    case 'groupUpdate': {
+      const g = home.groups.find((x) => x.id === msg.groupId);
+      if (!g || !canEditGroup(g, me.name)) return true;
+      let changed = false;
+      if (typeof msg.name === 'string') {
+        const name = trimTo(msg.name, 40);
+        if (name && name !== g.name) { g.name = name; changed = true; }
+      }
+      if (g.owner === me.name && Array.isArray(msg.editors)) {
+        g.editors = [...new Set(msg.editors.filter((n) => typeof n === 'string' && n !== g.owner && g.members.includes(n)))];
+        changed = true;
+      }
+      if (changed) { saveHome(); broadcastGroups(); }
       return true;
     }
     case 'groupJoin':
@@ -976,12 +1201,13 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       if (!g) return true;
       if (msg.t === 'groupJoin' && !g.members.includes(me.name)) g.members.push(me.name);
       if (msg.t === 'groupLeave') g.members = g.members.filter((n) => n !== me.name);
+      g.editors = g.editors?.filter((n) => g.members.includes(n));
       saveHome();
       broadcastGroups();
       broadcastSessions();
       broadcastPeople();
       // チャンネルが見えるようになった・見えなくなったので、メッセージを送り直す
-      sendToNames([me.name], { t: 'inbox', convs: convsOf(me.name), reads: inbox.reads[me.name] ?? {}, people: knownPeopleOf(me.name).map(personOf), watching: watchingOf(me.name), lastSeen: null, recentStatus: personRec(me.name).recent });
+      sendToNames([me.name], { t: 'inbox', convs: convsOf(me.name), reads: inbox.reads[me.name] ?? {}, people: knownPeopleOf(me.name).map((n) => personOf(n)), watching: watchingOf(me.name), lastSeen: null, recentStatus: personRec(me.name).recent });
       return true;
     }
     case 'channelCreate': {
@@ -1015,12 +1241,12 @@ function handleHome(me: User, msg: ClientMsg): boolean {
         ...(voice ? { voice } : {}), ...(media ? { media } : {}), ...(plan ? { plan } : {}), ...(invite ? { invite } : {}), ...(item ? { item } : {}),
       });
       // 送った会話は読んだことにする
-      (inbox.reads[me.name] ??= {})[msg.conv] = Date.now();
+      (inbox.reads[me.name] ??= newRecord())[msg.conv] = Date.now();
       return true;
     }
     case 'read': {
       if (!convMembers(msg.conv)?.includes(me.name)) return true;
-      const reads = (inbox.reads[me.name] ??= {});
+      const reads = (inbox.reads[me.name] ??= newRecord());
       const at = Math.min(Date.now(), Number(msg.at) || 0);
       if (at <= (reads[msg.conv] ?? 0)) return true;
       reads[msg.conv] = at;
@@ -1039,6 +1265,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       if (!ev && who('yes').length >= PLAN_QUORUM) {
         const group = msg.conv.split(':')[1];
         ev = { id: shortId(), title: m.text.split('\n')[0].slice(0, 60) || '集まり', at: plan.at, group, session: plan.session, owner: m.from || me.name, attendees: [], maybe: [], declined: [] };
+        pruneOldEvents();
         home.events.push(ev);
         home.events.sort((a, b) => a.at - b.at);
         plan.event = ev.id;
@@ -1049,7 +1276,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       return true;
     }
     case 'setStatus': {
-      if (!(msg.status in STATUS_INFO)) return true;
+      if (!Object.hasOwn(STATUS_INFO, msg.status)) return true;
       const rec = personRec(me.name);
       rec.status = msg.status;
       rec.statusText = trimTo(msg.text, STATUS_TEXT_MAX);
@@ -1081,6 +1308,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       const g = home.groups.find((x) => x.id === msg.id && x.owner === me.name);
       if (!g) return true;
       home.groups.splice(home.groups.indexOf(g), 1);
+      deleteGroupImages(g);
       // グループ限定だったセッションは作った人だけに残す
       for (const d of home.sessions) if (d.group === g.id) { d.visibility = 'invite'; d.group = undefined; }
       for (const ev of home.events) if (ev.group === g.id) ev.group = null;
@@ -1096,6 +1324,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       if (!title || !Number.isFinite(at)) return true;
       const group = home.groups.find((g) => g.id === msg.group && g.members.includes(me.name))?.id ?? null;
       const session = sessionsVisibleTo(me.name).find((d) => d.id === msg.session)?.id ?? null;
+      pruneOldEvents();
       home.events.push({ id: shortId(), title, at, group, session, owner: me.name, attendees: [me.name], maybe: [], declined: [] });
       home.events.sort((a, b) => a.at - b.at);
       saveHome();
@@ -1148,6 +1377,8 @@ function onClose(ws: WebSocket, id: string | null) {
   const wasIn = !!u?.session;
   if (u) leaveSession(u);
   users.delete(id);
+  lastAttention.delete(id);
+  lastRoll.delete(id);
   broadcastUsers();
   if (wasIn) broadcastSessions();
   if (u && !isOnline(u.name)) {
@@ -1164,12 +1395,39 @@ const MIME: Record<string, string> = {
 };
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url ?? '/', 'http://x');
+  // 絶対形式の壊れたリクエストターゲット（例: http://[::1）でも new URL が例外になるため、ここで 400 にする
+  let url: URL;
+  try { url = new URL(req.url ?? '/', 'http://x'); } catch { res.statusCode = 400; res.end('bad path'); return; }
   if (url.pathname === '/sync/offer') { await handleSyncOffer(req, res); return; }
+  if (url.pathname.startsWith('/group-image/')) {
+    const g = home.groups.find((x) => x.id === url.pathname.slice('/group-image/'.length));
+    if (req.method === 'POST') {
+      const name = url.searchParams.get('name') ?? '';
+      if (!g || !canEditGroup(g, name)) { res.statusCode = 204; res.end(); return; }
+      const body = await readBody(req, ICON_MAX_BYTES);
+      if (!body || !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
+      // 読み込み中の脱退・権限変更・削除も反映する。
+      if (!home.groups.includes(g) || !canEditGroup(g, name)) { res.statusCode = 204; res.end(); return; }
+      fs.writeFileSync(groupImageFile(g), body);
+      deleteGroupImages(g, 'jpg');
+      g.imageVersion = (g.imageVersion ?? 0) + 1;
+      saveHome();
+      broadcastGroups();
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ imageVersion: g.imageVersion }));
+      return;
+    }
+    if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
+    if (!g || !fs.existsSync(groupImageFile(g))) { res.statusCode = 404; res.end(); return; }
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', url.searchParams.get('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
+    fs.createReadStream(groupImageFile(g)).pipe(res);
+    return;
+  }
   if (url.pathname === '/icon') {
     const name = url.searchParams.get('name') ?? '';
     if (req.method === 'POST') {
-      const body = await readBody(req, 300_000);
+      const body = await readBody(req, ICON_MAX_BYTES);
       if (!body || !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
       fs.writeFileSync(iconFile(name), body);
       res.end(JSON.stringify({ icon: iconVersion(name) }));
@@ -1253,7 +1511,8 @@ const server = http.createServer(async (req, res) => {
   // Workers 版にあった他人セーブの 403 保護はここでは成立しない（docs/3d.md 参照）。
   const adSaveMatch = /^\/api\/save\/([^/]+)$/.exec(url.pathname);
   if (adSaveMatch) {
-    const playerId = decodeURIComponent(adSaveMatch[1]).slice(0, 128);
+    let playerId: string;
+    try { playerId = decodeURIComponent(adSaveMatch[1]).slice(0, 128); } catch { res.statusCode = 400; res.end('bad path'); return; }
     res.setHeader('Content-Type', 'application/json');
     if (req.method === 'GET') {
       const rec = playerId ? adSaves[playerId] : undefined;
@@ -1311,18 +1570,21 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/token') {
     const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = process.env;
     const id = url.searchParams.get('id');
-    const name = url.searchParams.get('name') ?? '';
     const sid = url.searchParams.get('session') ?? '';
     res.setHeader('Content-Type', 'application/json');
     if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
       res.end(JSON.stringify({ error: 'LiveKit が未設定です (.env)' }));
       return;
     }
-    if (!id || !sessionIds.has(sid)) {
+    // 申告された id/name をそのまま信じると、接続していない第三者が招待制セッションの発行権限まで取れてしまう。
+    // WS 接続中で、そのセッションへの join（canSeeSession 通過済み）を終えた参加者にだけ、
+    // サーバー側レコードの identity/name で発行する。拒否理由は区別せず同じ文言で返す
+    const me = id ? users.get(id) : undefined;
+    if (!me || !sessionIds.has(sid) || me.session !== sid) {
       res.end(JSON.stringify({ error: '不正なリクエストです' }));
       return;
     }
-    const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { identity: id, name, ttl: '12h' });
+    const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { identity: me.id, name: me.name, ttl: '2h' });
     at.addGrant({ roomJoin: true, room: livekitRoom(sid), canPublish: true, canSubscribe: true, canPublishData: false });
     res.end(JSON.stringify({ url: LIVEKIT_URL, token: await at.toJwt() }));
     return;
@@ -1339,7 +1601,10 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
-  let file = path.join(DIST, decodeURIComponent(url.pathname));
+  // 不正な % エンコーディングで例外になると、async ハンドラの未処理 rejection でプロセスごと落ちる
+  let pathname: string;
+  try { pathname = decodeURIComponent(url.pathname); } catch { res.statusCode = 400; res.end('bad path'); return; }
+  let file = path.join(DIST, pathname);
   if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory())
     file = path.join(DIST, 'index.html');
   if (!fs.existsSync(file)) {
@@ -1366,7 +1631,9 @@ const server = http.createServer(async (req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 keepHomeSocketsAlive(wss);
 server.on('upgrade', (req, socket, head) => {
-  const pathname = new URL(req.url ?? '/', 'http://local').pathname;
+  // リクエスト側と同じく、壊れた URL で例外にして落とさない
+  let pathname: string;
+  try { pathname = new URL(req.url ?? '/', 'http://local').pathname; } catch { socket.destroy(); return; }
   if (pathname === '/sync/ws') upgradeSync(req, socket, head);
   else if (pathname === '/ws') wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   else socket.destroy();
@@ -1382,13 +1649,29 @@ wss.on('connection', (ws) => {
 
 // 2D の人が他の人やアイテムと重なっていたら押し出す
 setInterval(() => {
+  // セッション別の振り分けはティックに1回だけ（inSession の全走査をセッション数ぶん回さない）
+  const bySession = new Map<string | null, Participant[]>();
+  for (const u of users.values()) {
+    const list = bySession.get(u.session);
+    if (list) list.push(u);
+    else bySession.set(u.session, [u]);
+  }
   for (const sid of sessionIds) {
-    const here = inSession(sid);
+    const here = bySession.get(sid) ?? [];
     if (here.some((u) => u.mode === '2d' && u.pos && !u.follow) && pushApart2D(here, avatars.get(sid)!, items.get(sid)!.values(), (p) => clamp2d(sid, p))) sendPresence(sid);
   }
 }, 200);
 
-for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => { shutdownRooms().finally(() => process.exit(0)); });
+for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => {
+  // 遅延保存の保留分は落とす前に書き出す。broadcast の later は保存ではないので対象外
+  saveMarketLikes.flush();
+  saveSurvivorProfiles.flush();
+  flushItems();
+  saveHome.flush();
+  savePeople.flush();
+  saveInbox.flush();
+  shutdownRooms().finally(() => process.exit(0));
+});
 
 server.listen(PORT, () => {
   console.log(`server on http://localhost:${PORT}`);

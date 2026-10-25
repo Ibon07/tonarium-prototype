@@ -4,7 +4,7 @@ import { SURVIVOR_TITLE } from './survivor.ts';
 import { ANTIMATTER_SOLIDS } from './antimatterLayout.ts';
 
 /** ワールド＝ 3D 空間の種類。セッションはどれか 1 つを読み込み、途中で切り替えられる */
-export type WorldKind = 'room' | 'cafe' | 'game' | 'survivors' | 'city' | 'garden' | 'antimatter';
+export type WorldKind = 'room' | 'cafe' | 'game' | 'survivors' | 'city' | 'garden' | 'starlounge' | 'antimatter';
 
 /** 床の上の通り抜けられない物。r があれば円、なければ w×d の箱（x, z が中心）。
  * y0〜y1 があればその高さの間だけ効く（マンションの階ごとの壁など）。無ければどの高さでも効く */
@@ -79,6 +79,7 @@ export const GARDEN = {
 };
 
 export const WORLDS: Record<WorldKind, WorldInfo> = {
+  starlounge: { name: '星あかりのラウンジ', desc: '星の灯りに包まれる青いラウンジ', solids: [] },
   room: { name: 'ホール', desc: '何も置いていない広い部屋', solids: [] },
   cafe: {
     name: 'カフェ',
@@ -128,7 +129,7 @@ export const WORLDS: Record<WorldKind, WorldInfo> = {
 export const WORLD_COUNTDOWN_MS = 3000;
 
 export const WORLD_KINDS = Object.keys(WORLDS) as WorldKind[];
-export const isWorldKind = (v: unknown): v is WorldKind => typeof v === 'string' && v in WORLDS;
+export const isWorldKind = (v: unknown): v is WorldKind => typeof v === 'string' && Object.hasOwn(WORLDS, v);
 
 /** 背の高さ。高さのある当たり判定は、足元 y からこの高さまでと重なるときだけ効く */
 const BODY_H = 1.7;

@@ -118,8 +118,8 @@ namespace Tonarium.UnityClient
         public void Initialize(Font font)
         {
             Model = GetComponentInChildren<OekakiModel>();
-            nameLabel = WorldPill.Create(transform, font, new Vector3(0, 1.3f, 0), .2f);
-            speechLabel = WorldPill.Create(transform, font, new Vector3(0, 1.62f, 0), .2f);
+            nameLabel = WorldPill.Create(transform, font, new Vector3(0, OekakiModel.DefaultEyeHeight + .22f, 0), .2f);
+            speechLabel = WorldPill.Create(transform, font, new Vector3(0, OekakiModel.DefaultEyeHeight + .54f, 0), .2f);
             ring = new GameObject("Speaking ring"); ring.transform.SetParent(transform, false);
             ring.transform.localPosition = Vector3.up * .02f;
             ring.AddComponent<MeshFilter>().sharedMesh = Ring(.45f, .62f);
@@ -128,6 +128,11 @@ namespace Tonarium.UnityClient
 
         public void SetIdentity(string text, bool standee, bool speaking)
         {
+            float height = Model.EyeHeight;
+            nameLabel.transform.localPosition = Vector3.up * (height + .22f);
+            speechLabel.transform.localPosition = Vector3.up * (height + .54f);
+            var collider = GetComponent<CapsuleCollider>();
+            if (collider != null) { collider.height = Mathf.Max(.7f, height); collider.center = Vector3.up * (collider.height / 2); }
             var background = speaking ? new Color(.137f, .647f, .353f, .95f) : standee ? new Color(.306f, .314f, .345f, .9f) : new Color(0, 0, 0, .75f);
             nameLabel.Set(text, background, Color.white);
             ring.SetActive(speaking);

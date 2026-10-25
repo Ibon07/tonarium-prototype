@@ -6,8 +6,12 @@ import { deleteSession, joinSession } from '../actions.ts';
 import { Face } from '../world/common.tsx';
 import { Icon } from '../world/Icon.tsx';
 import { Chip, ModeIcon, timeLabel, uniqueByName } from './common.tsx';
+import { GroupAvatar } from './GroupAvatar.tsx';
 
-const WORLD_TINT: Record<WorldKind, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', survivors: '#F2D5E2', city: '#D7EAD3', garden: '#DDEBCF', antimatter: '#D9D6F5' };
+const WORLD_TINT: Record<WorldKind, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', survivors: '#F2D5E2', city: '#D7EAD3', garden: '#DDEBCF', starlounge: '#DBE1F4', antimatter: '#D9D6F5' };
+const WORLD_PLACEHOLDER = Object.fromEntries(Object.entries(WORLD_TINT).map(([kind, tint]) => [kind,
+  `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="320" height="180" fill="${tint}"/><circle cx="240" cy="45" r="24" fill="white" opacity=".5"/><path d="M0 150 90 65 160 130 220 85 320 160V180H0Z" fill="white" opacity=".4"/></svg>`)}`,
+]));
 
 const VIS_ICON = { public: 'globe', friends: 'people', groupPlus: 'flag', group: 'flag', invite: 'send' } as const;
 const NO_ITEMS: SessionInfo['items'] = [];
@@ -18,6 +22,7 @@ export function SessionCard({ s, showDelete }: { s: SessionDef; showDelete?: boo
   const selfName = useStore((st) => st.selfName);
   const group = useStore((st) => st.groups.find((g) => g.id === s.group));
   const world = useStore((st) => st.worldBy[s.id] ?? s.world ?? 'room');
+  const thumbnail = useStore((st) => st.sessionInfo[s.id]?.thumbnail);
   const here = uniqueByName(users.filter((u) => u.session === s.id));
   const left = useStore((st) => st.sessionInfo[s.id]?.items ?? NO_ITEMS).map((i) => i.summary);
   const nextEvent = useStore((st) => st.events.find((e) => e.session === s.id && e.at > Date.now() - 3_600_000));
@@ -31,6 +36,7 @@ export function SessionCard({ s, showDelete }: { s: SessionDef; showDelete?: boo
   const current = useStore((st) => st.session);
   return (
     <article className="scard">
+      <img className="scthumbnail" src={thumbnail || WORLD_PLACEHOLDER[world]} alt={`${WORLDS[world].name}のセッションの様子`} />
       <div className="schead" style={{ background: WORLD_TINT[world] }}>
         <span className="pill dark">{here.length} 人</span>
         {sharing && <span className="livechip"><Icon name="screen" size={11} />画面共有</span>}
@@ -43,7 +49,7 @@ export function SessionCard({ s, showDelete }: { s: SessionDef; showDelete?: boo
       <div className="scbody">
         <div className="sctitle">
           <h3 title={s.topic}>{s.name}</h3>
-          <Chip kind={vis}><Icon name={VIS_ICON[vis]} size={11} />{(vis === 'group' || vis === 'groupPlus') && group ? `${group.name}${vis === 'groupPlus' ? '＋' : ''}` : VISIBILITY_INFO[vis].name}</Chip>
+          <Chip kind={vis}>{(vis === 'group' || vis === 'groupPlus') && group ? <GroupAvatar group={group} size="chip" /> : <Icon name={VIS_ICON[vis]} size={11} />}{(vis === 'group' || vis === 'groupPlus') && group ? `${group.name}${vis === 'groupPlus' ? '＋' : ''}` : VISIBILITY_INFO[vis].name}</Chip>
         </div>
         <span className="sub">{s.topic || `ワールド：${WORLDS[world].name}`}</span>
         {invitedByOwner && <span className="scinvited">{s.owner} から招待されています</span>}
