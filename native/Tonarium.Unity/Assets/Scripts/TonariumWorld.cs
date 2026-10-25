@@ -13,6 +13,9 @@ namespace Tonarium.UnityClient
     {
         DesktopBridge bridge;
         Camera eye;
+        readonly EyeHeightProvider eyeHeight = new EyeHeightProvider();
+        OekakiModel selfModel;
+        string selfAppearance;
         CharacterController controller;
         GameObject environment;
         readonly Dictionary<string, GameObject> avatars = new Dictionary<string, GameObject>();
@@ -72,7 +75,7 @@ namespace Tonarium.UnityClient
             controller.radius = .3f; controller.stepOffset = .25f;
             player.transform.position = new Vector3(0, .05f, -6.5f);
             var cameraObject = new GameObject("View"); cameraObject.transform.SetParent(player.transform);
-            cameraObject.transform.localPosition = new Vector3(0, 1.6f, 0);
+            cameraObject.transform.localPosition = new Vector3(0, eyeHeight.Current, 0);
             eye = cameraObject.AddComponent<Camera>(); eye.fieldOfView = 70; eye.nearClipPlane = .05f; eye.farClipPlane = 100;
             cameraObject.AddComponent<AudioListener>();
             yaw = 0;
@@ -259,6 +262,22 @@ namespace Tonarium.UnityClient
 
         void SyncUsers()
         {
+            var self = users.OfType<JObject>().FirstOrDefault(u => (string)u["id"] == selfId);
+            if (self != null)
+            {
+                string name = (string)self["name"] ?? playerName, version = (string)self["avatar"];
+                string appearance = name + "\n" + version;
+                if (selfModel == null)
+                {
+                    selfModel = OekakiModel.Create(controller.transform).GetComponent<OekakiModel>();
+                    foreach (var renderer in selfModel.GetComponentsInChildren<Renderer>()) renderer.enabled = false;
+                }
+                if (selfAppearance != appearance)
+                {
+                    selfAppearance = appearance;
+                    StartCoroutine(LoadAvatar(selfModel.gameObject, name, version));
+                }
+            }
             var valid = new HashSet<string>();
             foreach (var user in users.OfType<JObject>())
             {
@@ -284,17 +303,21 @@ namespace Tonarium.UnityClient
             var model = OekakiModel.Create(root.transform);
             avatars[id] = root;
             root.AddComponent<WorldTarget>().Id = "user:" + id;
-            var collider = root.AddComponent<CapsuleCollider>(); collider.height = 1.3f; collider.center = Vector3.up * .65f; collider.radius = .35f;
+            var collider = root.AddComponent<CapsuleCollider>(); collider.height = OekakiModel.DefaultEyeHeight; collider.center = Vector3.up * (collider.height / 2); collider.radius = .35f;
             StartCoroutine(LoadAvatar(model, name, (string)user?["avatar"]));
         }
 
         IEnumerator LoadAvatar(GameObject model, string name, string version)
         {
+            var avatar = model.GetComponent<OekakiModel>();
+            int revision = ++avatar.LoadVersion;
+            avatar.AppearanceReady = false;
+            avatar.ApplyParameters(new JObject());
             string url = serverUrl + (string.IsNullOrEmpty(version) ? "/oekaki/sample.png" : "/avatar?name=" + UnityWebRequest.EscapeURL(name) + "&v=" + version);
             using (var request = UnityWebRequestTexture.GetTexture(url))
             {
                 yield return request.SendWebRequest();
-                if (request.result != UnityWebRequest.Result.Success || model == null) yield break;
+                if (request.result != UnityWebRequest.Result.Success || model == null || avatar.LoadVersion != revision) yield break;
                 var texture = DownloadHandlerTexture.GetContent(request);
                 model.GetComponent<OekakiModel>().ApplyTexture(texture);
             }
@@ -302,13 +325,15 @@ namespace Tonarium.UnityClient
                 using (var request = UnityWebRequest.Get(serverUrl + "/avatar/params?name=" + UnityWebRequest.EscapeURL(name) + "&v=" + version))
                 {
                     yield return request.SendWebRequest();
-                    if (request.result == UnityWebRequest.Result.Success && model != null)
+                    if (model == null || avatar.LoadVersion != revision) yield break;
+                    if (request.result == UnityWebRequest.Result.Success)
                     {
                         JObject parameters = null;
                         try { parameters = JObject.Parse(request.downloadHandler.text); } catch (Exception) { }
                         if (parameters != null) model.GetComponent<OekakiModel>().ApplyParameters(parameters);
                     }
                 }
+            if (model != null && avatar.LoadVersion == revision) avatar.AppearanceReady = true;
         }
 
         void RemoveAvatar(string id)
@@ -337,6 +362,9 @@ namespace Tonarium.UnityClient
 
         void Update()
         {
+            eyeHeight.Update(selfModel != null ? selfModel.EyeHeight : OekakiModel.DefaultEyeHeight, Time.deltaTime);
+            eye.transform.localPosition = Vector3.up * eyeHeight.Current;
+            if (selfModel != null) selfModel.LookPitch = -pitch * Mathf.Deg2Rad;
             PointerDelta = Vector2.zero;
             ValidateChessSelection();
             if (!string.IsNullOrEmpty(Input.compositionString)) lastCompositionFrame = Time.frameCount;
@@ -422,7 +450,10 @@ namespace Tonarium.UnityClient
                     if (anchor != null)
                     {
                         bool firstPerson=holder==selfId;bool hammer=(string)pair.Value["kind"]=="hammer";
-                        obj.transform.position = firstPerson ? eye.transform.TransformPoint(new Vector3(.26f,-.3f,.6f)) : anchor.TransformPoint(new Vector3(.32f,.6f,.1f));
+                        var avatarModel = firstPerson ? selfModel : anchor.GetComponentInChildren<OekakiModel>();
+                        float avatarHeight = avatarModel != null ? avatarModel.EyeHeight : OekakiModel.DefaultEyeHeight;
+                        var handPosition = new Vector3(hammer ? .32f : .2f, avatarHeight + (hammer ? .6f : .9f) - OekakiModel.DefaultEyeHeight, hammer ? .1f : .3f);
+                        obj.transform.position = firstPerson ? eye.transform.TransformPoint(new Vector3(.26f,-.3f,.6f)) : anchor.TransformPoint(handPosition);
                         obj.transform.rotation = firstPerson ? eye.transform.rotation*Quaternion.Euler(-17,0,8.6f) : anchor.rotation*Quaternion.Euler(-23,0,0);
                         obj.transform.localScale=Vector3.one*(firstPerson&&hammer?.38f:1);
                         foreach(var collider in obj.GetComponentsInChildren<Collider>())collider.enabled=!firstPerson;

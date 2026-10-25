@@ -2,10 +2,10 @@ import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GRAVITY, JUMP_V, ROOM_HALF, type AvatarState } from '../../../shared/protocol.ts';
-import { ARENA, FALL_Y, LAYER_Y, inArena, startTile, tileBelow, tileCenter } from '../../../shared/game.ts';
+import { ARENA, FALL_Y, LAYER_Y, TILE_COUNT, TILE, inArena, startTile, tileBelow, tileCenter, tileGone } from '../../../shared/game.ts';
 import { SURVIVOR_MOVE_SPEED, SURVIVOR_STYLES } from '../../../shared/survivor.ts';
 import { get, set, useStore, heldHammer, heldCamera, nameOf, solidsOf, worldKindOf, gameOfSession, elevatorOfSession, serverNow, spawnPoint } from '../store.ts';
-import { CAR, CITY_HALF, clampCity } from '../../../shared/city.ts';
+import { CAR, CITY_HALF, CITY_SURFACES, SHAFT_RECT, clampCity, elevatorY, type Surface } from '../../../shared/city.ts';
 import { STEP_UP, carPose, cityGround, citySolids, keepInCar, toCarLocal } from './cityPhysics.ts';
 import { pushOut } from '../../../shared/worlds.ts';
 import { send } from '../net/ws.ts';
@@ -14,10 +14,13 @@ import { dropCamera, dropHammer, hit, moveItem, place2d, toggleLive, itemAction 
 import { bikeDisplay, moveBike, requestBikeMount, riddenBike } from './bikeControl.ts';
 import { clampBike, type VehicleState } from '../../../shared/vehicle.ts';
 import { bump } from '../items/effects.ts';
-import { aimAt, aimOn, carrying, clampRoom, EYE, type Interactable } from './interact.ts';
+import { aimAt, aimOn, carrying, clampRoom, type Interactable } from './interact.ts';
+import { useEyeHeight } from './eyeHeight.ts';
+import { DEFAULT_EYE_HEIGHT } from '../../../shared/avatar.ts';
 import { HammerModel } from './items3d.tsx';
 import { takePhoto, world } from './cameraRender.ts';
-import { cameraHelp } from './camera3d.tsx';
+import { CameraModel, cameraHelp } from './camera3d.tsx';
+import { blocked, blockedByTrain, moveFlight, recoverPosition, type MovementMode } from './movement.ts';
 
 const SPEED = 4;
 const BODY_R = 0.3;
@@ -26,7 +29,7 @@ type Store = ReturnType<typeof get>;
 const survivorPlaying = (s: Store) => {
   if (worldKindOf(s) !== 'survivors') return false;
   const phase = s.survivors[s.session ?? '']?.phase;
-  return phase === 'running' || phase === 'boss';
+  return s.movementMode === 'walk' && (phase === 'running' || phase === 'boss');
 };
 
 /** (x, z) で足元 y から落ちたときに着く高さ。塔の上で下に板が無ければ null（落ち続ける）。car は街の電車の床 */
@@ -77,8 +80,10 @@ function finishCarry() {
 }
 
 export function Player() {
+  const eyeHeight = useEyeHeight();
   const { camera, gl, scene } = useThree();
   const survivorActive = useStore((s) => survivorPlaying(s));
+  const heldCam = useStore((s) => heldCamera(s));
   const keys = useRef<Record<string, boolean>>({});
   const driving = useRef<{ id: string; version: number; state: VehicleState; sent: number } | null>(null);
   const look = useRef({ yaw: get().selfAvatar.ry, pitch: -0.05 });
@@ -88,7 +93,10 @@ export function Player() {
   // car は街の電車に乗っている号車。乗っている間は毎フレーム電車が動いた分だけ一緒に動かす
   const body = useRef({ y: get().selfAvatar.y ?? 0, vy: 0, grounded: true, n: get().selfAvatar.jump ?? 0, stepped: -1, round: -1, survivorRun: -1, car: null as number | null });
   const aim = useRef<ReturnType<typeof aimAt>>(null);
+  const previousMode = useRef<MovementMode>('walk');
+  const syncAirHeight = useRef(false);
   const hammerRef = useRef<THREE.Group>(null);
+  const cameraRef = useRef<THREE.Group>(null);
   const dragging = useRef<{ data: Interactable; obj: THREE.Object3D; hit: THREE.Intersection | null } | null>(null);
 
   useEffect(() => {
@@ -97,7 +105,7 @@ export function Player() {
 
   useEffect(() => {
     const a = get().selfAvatar;
-    camera.position.set(a.x, EYE, a.z);
+    camera.position.set(a.x, eyeHeight.current.current + (a.y ?? 0), a.z);
     camera.rotation.order = 'YXZ';
     world.scene = scene;
     world.camera = camera as THREE.PerspectiveCamera;
@@ -157,7 +165,7 @@ export function Player() {
       if (e.code === 'Space' && !survivorPlaying(get())) {
         e.preventDefault();
         const b = body.current;
-        if (b.grounded) { b.vy = JUMP_V; b.grounded = false; b.n++; }
+        if (get().movementMode === 'walk' && b.grounded) { b.vy = JUMP_V; b.grounded = false; b.n++; }
       }
       if (e.code === 'KeyQ') { dropHammer(); dropCamera(look.current.pitch); }
       const aimedCam = () => {
@@ -183,6 +191,7 @@ export function Player() {
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
     return () => {
+      if (world.camera === camera) { world.camera = null; world.scene = null; }
       document.removeEventListener('pointerlockchange', onLock);
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('contextmenu', onContextMenu);
@@ -236,6 +245,8 @@ export function Player() {
   });
 
   useFrame((_, dt) => {
+    const eye = eyeHeight.current;
+    eye.current += (eye.target - eye.current) * (1 - Math.exp(-dt / 0.2));
     const s = get();
     const b = body.current;
     const toLobby = () => {
@@ -305,7 +316,7 @@ export function Player() {
       bikeDisplay.set(bike.id, v);
       b.car = null; b.y = 0; b.vy = 0; b.grounded = true;
       look.current.yaw = v.ry;
-      camera.position.set(v.x, EYE, v.z);
+      camera.position.set(v.x, eye.current, v.z);
       camera.rotation.set(look.current.pitch, v.ry, 0);
       const a: AvatarState = { x: v.x, z: v.z, ry: v.ry, pitch: look.current.pitch, jump: b.n };
       set({ selfAvatar: a });
@@ -318,6 +329,7 @@ export function Player() {
       const hint = hintFor(null);
       if (s.aimHint !== hint) set({ aimHint: hint });
       if (hammerRef.current) hammerRef.current.visible = false;
+      if (cameraRef.current) cameraRef.current.visible = false;
       return;
     }
     if (driving.current) {
@@ -325,7 +337,34 @@ export function Player() {
       driving.current = null;
       aim.current = null;
     }
-    if (city && b.car !== null) {
+    const mode = s.movementMode;
+    const solids = city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s);
+    const surfaces: Surface[] = city ? [...CITY_SURFACES, { ...SHAFT_RECT, ya: elevatorY(elevatorOfSession(s), now0), yb: elevatorY(elevatorOfSession(s), now0) }] : [];
+    if (worldKindOf(s) === 'game') {
+      for (let i = 0; i < TILE_COUNT; i++) if (!tileGone(g, i, now0)) {
+        const t = tileCenter(i);
+        surfaces.push({ x0: t.x - TILE / 2, x1: t.x + TILE / 2, z0: t.z - TILE / 2, z1: t.z + TILE / 2, ya: t.y, yb: t.y });
+      }
+    }
+    const valid = (p: { x: number; y: number; z: number }) => {
+      const bounds = clampTo(worldKindOf(s) === 'game' && inArena(p.x, p.z), city);
+      const height = Math.max(1.7, eye.current + 0.1);
+      return bounds(p.x, ARENA.x) === p.x && bounds(p.z, ARENA.z) === p.z && !blocked(p, solids, surfaces, height) && !(city && blockedByTrain(p, now0, height));
+    };
+    if (mode !== previousMode.current || (tp && mode !== 'noclip') || (mode === 'fly' && !valid({ x: camera.position.x, y: b.y, z: camera.position.z }))) {
+      syncAirHeight.current = mode === 'walk';
+      b.vy = 0;
+      b.grounded = false;
+      b.car = null;
+      if (mode !== 'noclip') {
+        const spawn = spawnPoint();
+        const safe = recoverPosition({ x: camera.position.x, y: b.y, z: camera.position.z }, { ...spawn, y: 0 }, solids, valid);
+        if (safe) { camera.position.x = safe.x; camera.position.z = safe.z; b.y = safe.y; }
+        else { set({ movementMode: 'noclip' }); previousMode.current = 'noclip'; return; }
+      }
+      previousMode.current = mode;
+    }
+    if (mode === 'walk' && city && b.car !== null) {
       // 電車に乗っていれば、前のフレームからの電車の動きと向きの変化をそのまま足す
       const prev = carPose(now0 - Math.min(dt, 0.1) * 1000, b.car);
       const cur = carPose(now0, b.car);
@@ -345,7 +384,13 @@ export function Player() {
     const r = survivorPaused ? 0 : (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
     const onTower = worldKindOf(s) === 'game' && inArena(camera.position.x, camera.position.z);
     const cl = clampTo(onTower, city);
-    if (f || r) {
+    if (mode !== 'walk') {
+      b.vy = 0; b.grounded = false; b.car = null;
+      const up = survivorPaused ? 0 : (k.Space ? 1 : 0) - (k.ShiftLeft || k.ShiftRight ? 1 : 0);
+      const step = SPEED * Math.min(dt, 0.1) / (Math.hypot(f, r, up) || 1);
+      const p = moveFlight({ x: camera.position.x, y: b.y, z: camera.position.z }, { x: (-Math.sin(yaw) * f + Math.cos(yaw) * r) * step, y: up * step, z: (-Math.cos(yaw) * f - Math.sin(yaw) * r) * step }, (p) => mode === 'fly' && !valid(p));
+      camera.position.x = p.x; camera.position.z = p.z; b.y = p.y;
+    } else if (f || r) {
       const survivorStyle = survivorMe ? SURVIVOR_STYLES[survivorMe.style] : undefined;
       const moveSpeed = survivors
         ? (survivorStyle?.speed ?? SURVIVOR_MOVE_SPEED) * (1 + (survivorMe?.gear.nightcloak ?? 0) * 0.025)
@@ -357,13 +402,12 @@ export function Player() {
       camera.position.z = cl(nz, ARENA.z);
     }
     // ワールドの切り替えやテレポートで家具の中に入ったときも、ここで外へ出る
-    const solids = city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s);
-    if (solids.length && !onTower) {
+    if (mode === 'walk' && solids.length && !onTower) {
       const p = pushOut(camera.position.x, camera.position.z, BODY_R, solids, b.y);
       camera.position.x = cl(p.x, 0);
       camera.position.z = cl(p.z, 0);
     }
-    if (city && b.car !== null) {
+    if (mode === 'walk' && city && b.car !== null) {
       const p = keepInCar(carPose(now0, b.car), camera.position.x, camera.position.z, now0);
       camera.position.x = p.x;
       camera.position.z = p.z;
@@ -373,13 +417,14 @@ export function Player() {
     const fdt = Math.min(dt, 0.05);
     const ground = groundAt(s, camera.position.x, camera.position.z, b.y);
     // 坂・階段・上がっていくエレベーターでは足元に合わせて上がる
-    if (b.grounded && ground && ground.y > b.y && ground.y - b.y <= STEP_UP) b.y = ground.y;
-    if (b.grounded && (!ground || ground.y < b.y - 0.001)) b.grounded = false;
-    if (!b.grounded) {
+    if (mode === 'walk' && b.grounded && ground && ground.y > b.y && ground.y - b.y <= STEP_UP) b.y = ground.y;
+    if (mode === 'walk' && b.grounded && (!ground || ground.y < b.y - 0.001)) b.grounded = false;
+    if (mode === 'walk' && !b.grounded) {
       b.vy -= GRAVITY * fdt;
       b.y += b.vy * fdt;
       if (ground && b.vy <= 0 && b.y <= ground.y) { b.y = ground.y; b.vy = 0; b.grounded = true; }
     }
+    if (b.grounded) syncAirHeight.current = false;
     b.car = city && b.grounded && ground?.car != null ? ground.car : city && b.car !== null && !b.grounded ? b.car : null;
     if (b.grounded && ground?.tile != null && ground.tile !== b.stepped && g.phase === 'running') {
       b.stepped = ground.tile;
@@ -387,11 +432,11 @@ export function Player() {
     }
     if (survivors) {
       camera.up.set(0, 0, -1);
-      camera.position.set(camera.position.x, 16, camera.position.z);
+      camera.position.set(camera.position.x, eye.current + (16 - DEFAULT_EYE_HEIGHT), camera.position.z);
       camera.lookAt(camera.position.x, 0, camera.position.z);
     } else {
       camera.up.set(0, 1, 0);
-      camera.position.y = EYE + b.y - shake * 0.12;
+      camera.position.y = eye.current + b.y - shake * 0.12;
     }
 
     const now = performance.now();
@@ -401,7 +446,7 @@ export function Player() {
     const jumped = b.n !== st.jump;
     // 塔の上・落ちている間・高い足場（街の上の階や駅）にいる間は高さも送る。
     // 床でのジャンプは回数だけ送り、相手の画面で放物線を描く（途中の高さを送るとカクつく）
-    const sendY = onTower || b.y < -0.01 || (ground?.y ?? 0) > 0.01;
+    const sendY = mode !== 'walk' || syncAirHeight.current || onTower || b.y < -0.01 || (ground?.y ?? 0) > 0.01;
     const yNow = sendY ? b.y : undefined;
     const changed = Math.abs(x - st.x) > 0.01 || Math.abs(z - st.z) > 0.01 || Math.abs(yaw - st.ry) > 0.01
       || Math.abs(pitch - st.pitch) > 0.03 || (yNow ?? 0) !== st.y;
@@ -450,11 +495,25 @@ export function Player() {
       h.rotateX(-0.3 - sw * 1.5);
       h.rotateZ(0.15);
     }
+    const heldCameraModel = cameraRef.current;
+    if (heldCameraModel) {
+      heldCameraModel.visible = true;
+      heldCameraModel.position.copy(camera.position);
+      heldCameraModel.quaternion.copy(camera.quaternion);
+      heldCameraModel.translateX(.26);
+      heldCameraModel.translateY(-.3);
+      heldCameraModel.translateZ(-.6);
+    }
   });
 
   return (
-    <group ref={hammerRef} userData={{ noRay: true, firstPerson: true }}>
-      <HammerModel scale={0.38} />
-    </group>
+    <>
+      <group ref={hammerRef} userData={{ noRay: true, firstPerson: true }}>
+        <HammerModel scale={0.38} />
+      </group>
+      {heldCam && <group ref={cameraRef} userData={{ noRay: true, firstPerson: true }}>
+        <CameraModel live={heldCam.live} />
+      </group>}
+    </>
   );
 }

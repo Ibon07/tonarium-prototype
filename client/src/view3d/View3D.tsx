@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { jumpHeight, spawnSlot, type Participant } from '../../../shared/protocol.ts';
@@ -10,8 +10,11 @@ import { pitchOf, placesOf } from '../spatial.ts';
 import { publishView } from '../net/livekit.ts';
 import { editNote, moveItem, removeItem } from '../items/actions.ts';
 import { bump, recentlyHit } from '../items/effects.ts';
-import { EYE, carrying, type Interactable } from './interact.ts';
+import { carrying, type Interactable } from './interact.ts';
+import { DEFAULT_EYE_HEIGHT } from '../../../shared/avatar.ts';
+import { EyeHeightContext, useEyeHeight } from './eyeHeight.ts';
 import { Player } from './Player.tsx';
+import { MOVEMENT_MODES } from './movement.ts';
 import { AttentionGlow, HammerModel, Item3D } from './items3d.tsx';
 import { Label } from './Label.tsx';
 import { OekakiAvatar } from './OekakiAvatar.tsx';
@@ -31,6 +34,7 @@ function ChatBubble({ id, y }: { id: string; y: number }) {
 
 /** 2D で参加している人。3D の人と同じアバターで、スポーンエリア・置かれた場所・ついていく相手の後ろに立つ */
 function Standee({ user }: { user: Participant }) {
+  const [height, setHeight] = useState(DEFAULT_EYE_HEIGHT);
   const speaking = useStore((s) => !!s.speaking[user.id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[user.id] === false);
   const ref = useRef<THREE.Group>(null);
@@ -58,11 +62,11 @@ function Standee({ user }: { user: Participant }) {
     <group ref={ref} position={[pos0.x, 0, pos0.z]} userData={{ hitTarget: user.id, carry: `user:${user.id}`, hint: `💻 ${user.name}（2Dで参加中）` } satisfies Interactable}>
       <group ref={card}>
         <Suspense fallback={null}>
-          <OekakiAvatar userId={user.id} name={user.name} version={user.avatar} speaking={speaking} />
+          <OekakiAvatar userId={user.id} name={user.name} version={user.avatar} speaking={speaking} onEyeHeight={setHeight} />
         </Suspense>
       </group>
-      <mesh position-y={0.65}>
-        <cylinderGeometry args={[0.35, 0.35, 1.3, 12]} />
+      <mesh position-y={Math.max(.7, height) / 2}>
+        <cylinderGeometry args={[0.35, 0.35, Math.max(.7, height), 12]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
       {speaking && (
@@ -71,10 +75,10 @@ function Standee({ user }: { user: Participant }) {
           <meshBasicMaterial color="#22c55e" />
         </mesh>
       )}
-      <ChatBubble id={user.id} y={1.62} />
+      <ChatBubble id={user.id} y={height + .54} />
       <Emote3D id={user.id} />
       <Label
-        position={[0, 1.3, 0]} text={`2D ${micOff ? '🔇 ' : ''}${user.name}`}
+        position={[0, height + .22, 0]} text={`2D ${micOff ? '🔇 ' : ''}${user.name}`}
         bg={recentlyHit(user.id) ? 'rgba(240,177,50,0.95)' : speaking ? 'rgba(35,165,90,0.95)' : 'rgba(78,80,88,0.9)'}
         fg={recentlyHit(user.id) ? '#1e1f22' : '#ffffff'}
       />
@@ -91,6 +95,12 @@ export function Entrance() {
 
 /** self は一人称では見えないので隠しておき、カメラで撮るときだけ表示する（renderCamera） */
 export function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
+  const eye = useEyeHeight();
+  const [height, setHeight] = useState(DEFAULT_EYE_HEIGHT);
+  const onEyeHeight = useCallback((value: number) => {
+    setHeight(value);
+    if (self) eye.current.target = value;
+  }, [self, eye]);
   const name = useStore((s) => s.participants.find((p) => p.id === id)?.name);
   const speaking = useStore((s) => !!s.speaking[id]);
   const micOff = useStore((s) => s.voice === 'connected' && s.micOn[id] === false);
@@ -158,23 +168,23 @@ export function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
     >
       <group ref={body}>
         <Suspense fallback={null}>
-          <OekakiAvatar userId={id} name={name} version={avatarV} speaking={speaking} look={() => pitchOf(id)} />
+          <OekakiAvatar userId={id} name={name} version={avatarV} speaking={speaking} look={() => pitchOf(id)} onEyeHeight={onEyeHeight} />
         </Suspense>
       </group>
       {/* 板ポリのモデルは横から当てにくいので、照準用の当たり判定を別に置く */}
-      <mesh position-y={0.65}>
-        <cylinderGeometry args={[0.35, 0.35, 1.3, 12]} />
+      <mesh position-y={Math.max(.7, height) / 2}>
+        <cylinderGeometry args={[0.35, 0.35, Math.max(.7, height), 12]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
       {holding && (
-        <group ref={hand} position={[0.32, 0.6, -0.1]}>
+        <group ref={hand} position={[0.32, height + (.6 - DEFAULT_EYE_HEIGHT), -0.1]}>
           <HammerModel />
         </group>
       )}
       {camera?.kind === 'camera' && (
         <>
-          <CameraModel live={camera.live} position={[0.2, 0.9, -0.3]} />
-          <CamMonitor item={camera} position={[0, 1.95, 0]} />
+          <CameraModel live={camera.live} position={[0.2, height + (.9 - DEFAULT_EYE_HEIGHT), -0.3]} />
+          <CamMonitor item={camera} position={[0, height + (1.95 - DEFAULT_EYE_HEIGHT), 0]} />
         </>
       )}
       {speaking && (
@@ -183,9 +193,9 @@ export function Avatar3D({ id, self = false }: { id: string; self?: boolean }) {
           <meshBasicMaterial color="#22c55e" />
         </mesh>
       )}
-      {!self && <ChatBubble id={id} y={1.62} />}
+      {!self && <ChatBubble id={id} y={height + .54} />}
       <Emote3D id={id} />
-      <Label position={[0, 1.3, 0]} text={`${micOff ? '🔇 ' : ''}${name}`} bg={speaking ? 'rgba(35,165,90,0.95)' : 'rgba(0,0,0,0.75)'} />
+      <Label position={[0, height + 0.22, 0]} text={`${micOff ? '🔇 ' : ''}${name}`} bg={speaking ? 'rgba(35,165,90,0.95)' : 'rgba(0,0,0,0.75)'} />
     </group>
   );
 }
@@ -248,6 +258,7 @@ function Viewfinder() {
 }
 
 function Crosshair() {
+  const movementMode = useStore((s) => s.movementMode);
   const locked = useStore((s) => s.locked);
   const survivorWorld = useStore((s) => worldKindOf(s) === 'survivors');
   const survivorActive = useStore((s) => {
@@ -269,10 +280,11 @@ function Crosshair() {
       {locked && hint && <div className="aimhint">{hint}</div>}
       {recentlyHit(get().selfId) && <div className="hitme">ピコッ!</div>}
       <div className="keyhelp">
-        {survivorWorld && survivorActive
+        <span>移動: {MOVEMENT_MODES[movementMode]} ・ {movementMode !== 'walk' && 'Space: 上昇 ・ Shift: 下降 ・ '}設定から切り替え</span><br />
+        {survivorWorld && survivorActive && movementMode === 'walk'
           ? <>WASD / 矢印: 移動 ・ Esc: カーソルを出す</>
           : locked
-            ? <>WASD: 移動 ・ Space: ジャンプ ・ マウス: 視点 ・ クリック: 操作 ・ 右クリック: 運ぶ/置く ・ X: 片付ける{holding && ' ・ Q: 手に持った物を置く'} ・ Esc: カーソルを出す</>
+            ? <>WASD: 移動 ・ {movementMode === 'walk' && 'Space: ジャンプ ・ '}マウス: 視点 ・ クリック: 操作 ・ 右クリック: 運ぶ/置く ・ X: 片付ける{holding && ' ・ Q: 手に持った物を置く'} ・ Esc: カーソルを出す</>
             : <>画面をクリックすると操作を始めます（マウスで視点・照準で操作）</>}
       </div>
     </>
@@ -280,6 +292,7 @@ function Crosshair() {
 }
 
 export function View3D() {
+  const eyeHeight = useRef({ current: DEFAULT_EYE_HEIGHT, target: DEFAULT_EYE_HEIGHT });
   const avatarIds = useStore((s) => s.avatarIds);
   const items = useStore((s) => s.items);
   const locked = useStore((s) => s.locked);
@@ -290,20 +303,22 @@ export function View3D() {
   return (
     <div className={`view3d ${locked ? 'locked' : ''}`}>
       {/* 街は端から端まで 170m ほどあるので遠くまで描く */}
-      <Canvas camera={{ fov: 70, near: 0.05, far: 300, position: [a0.x, EYE, a0.z] }}>
-        <color attach="background" args={[WORLD_BG[world]]} />
-        <WorldMesh kind={world} />
-        <ShareDisplay />
-        <Entrance />
-        {avatarIds.map((id) => <Avatar3D key={id} id={id} />)}
-        <Avatar3D id={selfId} self />
-        {Object.values(items).map((it) => <Item3D key={it.id} item={it} />)}
-        {Object.values(items).map((it) => <AttentionGlow key={`attn-${it.id}`} item={it} />)}
-        {Object.values(items).map((it) => (it.kind === 'camera' && it.live && it.operator === selfId
-          ? <CameraStreamer key={`stream-${it.id}`} item={it} /> : null))}
-        {viewLive && <ViewStreamer />}
-        <Player />
-      </Canvas>
+      <EyeHeightContext.Provider value={eyeHeight}>
+        <Canvas camera={{ fov: 70, near: 0.05, far: 300, position: [a0.x, eyeHeight.current.current, a0.z] }}>
+          <color attach="background" args={[WORLD_BG[world]]} />
+          <WorldMesh kind={world} />
+          <ShareDisplay />
+          <Entrance />
+          {avatarIds.map((id) => <Avatar3D key={id} id={id} />)}
+          <Avatar3D id={selfId} self />
+          {Object.values(items).map((it) => <Item3D key={it.id} item={it} />)}
+          {Object.values(items).map((it) => <AttentionGlow key={`attn-${it.id}`} item={it} />)}
+          {Object.values(items).map((it) => (it.kind === 'camera' && it.live && it.operator === selfId
+            ? <CameraStreamer key={`stream-${it.id}`} item={it} /> : null))}
+          {viewLive && <ViewStreamer />}
+          <Player />
+        </Canvas>
+      </EyeHeightContext.Provider>
       <Viewfinder />
       <Crosshair />
       <NoteEditor />

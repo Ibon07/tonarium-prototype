@@ -1,8 +1,14 @@
+import { ItemDetail } from '../market/ItemDetail.tsx';
+import { ItemArt, ItemVisual } from '../market/ItemVisual.tsx';
+import { ITEM_USAGE } from '../market/itemUsage.ts';
+import { GroupAvatar } from './GroupAvatar.tsx';
 import { useOwnedItems, type OwnedItem } from '../market/items.ts';
-import { contentAvailable, productFor } from '../../../shared/market.ts';
+import { MARKET_PRODUCTS, contentAvailable, productFor } from '../../../shared/market.ts';
 import { useOwnedContent } from '../market/store.ts';
 import { OriginBadge } from '../market/OriginBadge.tsx';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { CHANGELOG } from '../../../shared/changelog.ts';
+import { markChangelogSeen } from './changelog.ts';
 import { save, set, unreadOf, useStore, type HomePage } from '../store.ts';
 import { dmKey, type EventDef, type Group, type User } from '../../../shared/protocol.ts';
 import { sortForHome } from '../../../shared/home.ts';
@@ -19,6 +25,23 @@ import { Composer, Thread } from './messages.tsx';
 import { StatusDot, StatusText, useStatusOf } from './status.tsx';
 
 const match = (q: string, ...texts: (string | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q.toLowerCase()));
+
+export function ChangelogPage({ q }: { q: string }) {
+  useEffect(() => markChangelogSeen(), []);
+  const entries = CHANGELOG.filter((entry) => match(q, entry.title, ...entry.items));
+  return (
+    <section className="hsec" aria-label="変更履歴の一覧">
+      {entries.length === 0 && <Empty>該当する変更履歴はありません</Empty>}
+      {entries.map((entry) => (
+        <article className="hsec hchangelog" key={`${entry.date}:${entry.title}`}>
+          <time className="sub" dateTime={entry.date}>{entry.date}</time>
+          <h2>{entry.title}{entry.tag && <small className="sub">{entry.tag}</small>}</h2>
+          <ul>{entry.items.map((item) => <li key={item}>{item}</li>)}</ul>
+        </article>
+      ))}
+    </section>
+  );
+}
 
 type FriendLike = { id: string; name: string; session?: string | null; mode?: '2d' | '3d'; sharing?: boolean };
 
@@ -314,7 +337,7 @@ function GroupRow({ g }: { g: Group }) {
   const member = g.members.includes(selfName);
   return (
     <div className="grow">
-      <span className="gmark" style={{ background: g.color }}>{g.name.slice(0, 1)}</span>
+      <GroupAvatar group={g} />
       <span className="ginfo">
         <button className="ib glink" onClick={() => openGroup(g.id)}><b>{g.name}</b><Icon name="right" size={13} /></button>
         <span className="sub">{g.members.length} 人 · セッション {sessions.length} 件 · {g.owner} が作成</span>
@@ -389,29 +412,46 @@ export function WorldsPage({ q }: { q: string }) {
 export function ItemsPage({ q }: { q: string }) {
   const session = useStore((s) => s.session);
   const mode = useStore((s) => s.mode);
-  const entries = useOwnedItems().filter(({ info }) => match(q, info.name, info.desc, info.genre));
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const lastCard = useRef<string | null>(null);
+  const cards = useRef(new Map<string, HTMLButtonElement>());
+  const owned = useOwnedItems();
+  const selected = owned.find((entry) => entry.id === selectedId);
+  const entries = owned.filter(({ info }) => match(q, info.name, info.desc, info.genre));
+  useEffect(() => {
+    if (selectedId) heading.current?.focus();
+    else if (lastCard.current) cards.current.get(lastCard.current)?.focus();
+  }, [selectedId]);
   const spawn = (entry: OwnedItem) => { spawnItem(entry.kind, entry.text); set({ hubOpen: false }); };
-  return (
-    <section className="hsec">
+  const spawnButton = (entry: OwnedItem) => {
+    const only3d = !!ONLY_3D[entry.kind] && mode !== '3d';
+    return session && <button className="primary small ispawn" disabled={only3d} title={only3d ? '3D でのみ出せます' : undefined} onClick={() => spawn(entry)}><Icon name="plus" size={12} />目の前に出す</button>;
+  };
+  return <section className="hsec">
+    {selected ? <ItemDetail key={selected.id} name={selected.info.name} genre={selected.info.genre} creator={selected.creator} description={selected.info.desc}
+      headingRef={heading} onBack={() => setSelectedId(null)}
+      visual={<ItemVisual kind={selected.kind} product={MARKET_PRODUCTS.find((p) => p.id === selected.productId)} />}
+      tags={<>{selected.info.in2d && <span>2D 対応</span>}{selected.info.in3d && <span>3D 対応</span>}</>}
+      usage={selected.kind === 'bike' ? selected.info.desc : selected.productId ? 'アイテム一覧やセッション内の所持アイテムから「目の前に出す」を選びます。質問・挨拶入りの付箋として配置され、自由に編集できます。' : ITEM_USAGE[selected.kind]}>
+      {spawnButton(selected)}
+    </ItemDetail> : <>
       <h2>アイテム <span className="sub">{session ? '目の前に出せる' : 'セッションの中で「出す」と使える'}</span></h2>
       <div className="icards">
-        {entries.map((entry) => {
-          const { info } = entry;
-          const only3d = !!ONLY_3D[entry.kind] && mode !== '3d';
-          return (
-            <article key={entry.id} className="icard"><OriginBadge productId={entry.productId} />
-              <span className="itemmark" style={{ width: 44, height: 44, background: info.tint, color: info.ink, fontSize: info.mark.length > 2 ? 13 : 19, borderRadius: 13 }}>{info.mark}</span>
-              <span className="iinfo">
-                <b>{info.name} <Chip kind="genre">{info.genre}</Chip>{info.in2d && <Chip kind="mode">2D</Chip>}{info.in3d && <Chip kind="mode">3D</Chip>}</b>
-                <span className="sub wrap">{info.desc}</span>
-                {session && <button className="primary small ispawn" disabled={only3d} title={only3d ? '3D でのみ出せます' : undefined} onClick={() => spawn(entry)}><Icon name="plus" size={12} />目の前に出す</button>}
-              </span>
-            </article>
-          );
-        })}
+        {entries.map((entry) => <article key={entry.id} className="icard">
+          <OriginBadge productId={entry.productId} />
+          <button className="item-card-open" ref={(el) => { if (el) cards.current.set(entry.id, el); else cards.current.delete(entry.id); }} onClick={() => { lastCard.current = entry.id; setSelectedId(entry.id); }} aria-label={entry.info.name + 'の詳細'}>
+            <ItemArt kind={entry.kind} name={entry.info.name} className="item-card-art" />
+            <span className="iinfo">
+              <b>{entry.info.name} <Chip kind="genre">{entry.info.genre}</Chip>{entry.info.in2d && <Chip kind="mode">2D</Chip>}{entry.info.in3d && <Chip kind="mode">3D</Chip>}</b>
+              <span className="sub wrap">{entry.info.desc}</span>
+            </span>
+          </button>
+          {spawnButton(entry)}
+        </article>)}
       </div>
-    </section>
-  );
+    </>}
+  </section>;
 }
 
 /** セッションにいるフレンド（同じ名前の複数タブは 1 人） */

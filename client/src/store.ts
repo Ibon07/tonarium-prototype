@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { MovementMode } from './view3d/movement.ts';
 import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, SessionInfo, User } from '../../shared/protocol.ts';
 import { SPAWN } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
@@ -17,7 +18,7 @@ export type WinMode = 'simple' | 'free';
 export interface Win { key: string; x: number; y: number }
 /** key は attention ならウィンドウのキー、invite なら session:<id> / group:<id>、askJoin なら session:<id> */
 export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean }
-export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items' | 'market' | 'sounds' | 'emotes';
+export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items' | 'market' | 'changelog' | 'sounds' | 'emotes';
 /** ホームの右の欄に出すもの */
 export type SideWidget = 'now' | 'events' | 'sessions' | 'worlds' | 'items';
 
@@ -154,6 +155,7 @@ interface State {
   emotes: Record<string, import('../../shared/emotes.ts').ActiveEmote>;
   swings: Record<string, number>;
   hitFx: { key: number; from: string; to: string }[];
+  movementMode: MovementMode;
   locked: boolean;
   aimHint: string | null;
 
@@ -277,6 +279,7 @@ export const useStore = create<State>(() => ({
   emotes: {},
   swings: {},
   hitFx: [],
+  movementMode: 'walk',
   locked: false,
   aimHint: null,
   selfAvatar: spawnPoint(),
