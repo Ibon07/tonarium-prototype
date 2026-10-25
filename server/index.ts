@@ -221,8 +221,21 @@ const saveInbox = later(() => fs.writeFile(MESSAGES_FILE, JSON.stringify(inbox),
 /** セッションにだれかが入ってから全員が出るまで。終わったらまとめにする */
 const visits = new Map<string, { from: number; people: Set<string>; log: Recap['log'] }>();
 for (const w of guild.sessions) registerSession(w);
-const sessionsVisibleTo = (name: string) => guild.sessions.filter((d) => canSeeSession(d, name, friendsOf(name), home.groups, [...users.values()]));
-const broadcastSessions = () => { for (const u of users.values()) sendTo([u.id], { t: 'sessions', list: sessionsVisibleTo(u.name) }); };
+// 配信のたびにフレンド全走査と全ユーザー配列化を人数分繰り返さないよう、1 回の配信で使い回す写し
+interface UserSnapshot { all: Participant[]; friendsByName: Map<string, string[]>; onlineNames: Set<string> }
+function snapshotUsers(): UserSnapshot {
+  const all = [...users.values()];
+  const friendsByName = new Map<string, string[]>();
+  const add = (n: string, f: string) => { const l = friendsByName.get(n); if (l) l.push(f); else friendsByName.set(n, [f]); };
+  for (const k of friendPairs) {
+    const [a, b] = k.split('\u0000');
+    add(a, b);
+    if (b !== a) add(b, a);
+  }
+  return { all, friendsByName, onlineNames: new Set(all.map((u) => u.name)) };
+}
+const sessionsVisibleTo = (name: string, snap = snapshotUsers()) => guild.sessions.filter((d) => canSeeSession(d, name, snap.friendsByName.get(name) ?? [], home.groups, snap.all));
+const broadcastSessions = () => { const snap = snapshotUsers(); for (const u of users.values()) sendTo([u.id], { t: 'sessions', list: sessionsVisibleTo(u.name, snap) }); };
 const broadcastGroups = () => broadcast({ t: 'groups', list: home.groups });
 const broadcastEvents = () => broadcast({ t: 'events', list: home.events });
 
@@ -272,22 +285,24 @@ function convsOf(name: string) {
 }
 
 /** フレンドと、同じグループの人 */
-function knownPeopleOf(name: string) {
-  const set = new Set(friendsOf(name));
+function knownPeopleOf(name: string, friendsByName?: Map<string, string[]>) {
+  // 写しが渡されたらそれだけを使う（無い人はフレンドなし）。friendsOf へ落とすと配信の人数分だけ全走査が戻ってしまう
+  const set = new Set(friendsByName ? friendsByName.get(name) ?? [] : friendsOf(name));
   for (const g of home.groups) if (g.members.includes(name)) for (const m of g.members) set.add(m);
   set.delete(name);
   return [...set];
 }
-function personOf(name: string): Person {
+function personOf(name: string, onlineNames?: Set<string>): Person {
   const r = personRec(name);
-  return { name, status: r.status, statusText: r.statusText, lastSeen: isOnline(name) ? null : r.lastSeen };
+  return { name, status: r.status, statusText: r.statusText, lastSeen: (onlineNames ? onlineNames.has(name) : isOnline(name)) ? null : r.lastSeen };
 }
 const watchingOf = (name: string) => Object.entries(people).filter(([, r]) => r.watchers.includes(name)).map(([n]) => n);
 function sendWatching(name: string) {
   sendToNames([name], { t: 'watching', names: watchingOf(name), recentStatus: personRec(name).recent });
 }
 function broadcastPeople() {
-  for (const u of users.values()) sendTo([u.id], { t: 'people', list: knownPeopleOf(u.name).map(personOf) });
+  const snap = snapshotUsers();
+  for (const u of users.values()) sendTo([u.id], { t: 'people', list: knownPeopleOf(u.name, snap.friendsByName).map((n) => personOf(n, snap.onlineNames)) });
 }
 
 function finishVisit(sid: string) {
@@ -571,7 +586,7 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
       },
     });
     send(ws, {
-      t: 'inbox', convs: convsOf(name), reads: inbox.reads[name] ?? {}, people: knownPeopleOf(name).map(personOf),
+      t: 'inbox', convs: convsOf(name), reads: inbox.reads[name] ?? {}, people: knownPeopleOf(name).map((n) => personOf(n)),
       watching: watchingOf(name), lastSeen, recentStatus: rec.recent,
     });
     send(ws, { t: 'survivorProfile', profile: survivorProfile(msg.id) });
@@ -1000,7 +1015,7 @@ function handleHome(me: User, msg: ClientMsg): boolean {
       broadcastSessions();
       broadcastPeople();
       // チャンネルが見えるようになった・見えなくなったので、メッセージを送り直す
-      sendToNames([me.name], { t: 'inbox', convs: convsOf(me.name), reads: inbox.reads[me.name] ?? {}, people: knownPeopleOf(me.name).map(personOf), watching: watchingOf(me.name), lastSeen: null, recentStatus: personRec(me.name).recent });
+      sendToNames([me.name], { t: 'inbox', convs: convsOf(me.name), reads: inbox.reads[me.name] ?? {}, people: knownPeopleOf(me.name).map((n) => personOf(n)), watching: watchingOf(me.name), lastSeen: null, recentStatus: personRec(me.name).recent });
       return true;
     }
     case 'channelCreate': {
