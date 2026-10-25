@@ -1,7 +1,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const RELEASE_URL = 'https://github.com/katteni-kaihatu/tonarium-prototype/releases/tag/nightly';
+const RELEASE_URL = 'https://github.com/katteni-kaihatu/tonarium-prototype/releases';
+const COMMIT_RELEASE_PREFIX = `${RELEASE_URL}/tag/nightly-`;
+
+function releaseUrl(value) {
+  if (typeof value !== 'string' || !value.startsWith(COMMIT_RELEASE_PREFIX)) return RELEASE_URL;
+  const commit = value.slice(COMMIT_RELEASE_PREFIX.length);
+  return commit.length === 40 && /^[0-9a-f]{40}$/.test(commit) ? value : RELEASE_URL;
+}
 const FEED_URL = 'https://github.com/katteni-kaihatu/tonarium-prototype/releases/download/nightly/';
 
 function createUpdateController({ app, autoUpdater, onChange = () => {}, onNeedsConfiguration = () => {}, platform = process.platform, env = process.env, fetch: fetchUpdate = globalThis.fetch, buildConfigPath = path.join(__dirname, 'update-build.json') }) {
@@ -20,7 +27,7 @@ function createUpdateController({ app, autoUpdater, onChange = () => {}, onNeeds
     }
   } catch { /* 未設定や破損した設定では自動通信しない。 */ }
   const reason = !available ? 'このビルドでは自動更新を利用できません。' : !supported ? 'この配布形式は自動更新に対応していません。リリースページから更新してください。' : '';
-  let current = { status: !available ? 'disabled' : !canCheck ? 'unsupported' : 'idle', version: app.getVersion(), updateVersion: null, downloadedVersion: null, progress: null, error: null };
+  let current = { status: !available ? 'disabled' : !canCheck ? 'unsupported' : 'idle', version: app.getVersion(), updateVersion: null, downloadedVersion: null, progress: null, error: null, releaseUrl: RELEASE_URL };
   let updater;
   let checking;
   let cancellationToken;
@@ -31,7 +38,7 @@ function createUpdateController({ app, autoUpdater, onChange = () => {}, onNeeds
   const listeners = [];
 
   function state() {
-    return { ...current, ...preferences, available, supported, canCheck, reason, needsConfiguration: preferences.checkOnStartup === null, releaseUrl: RELEASE_URL };
+    return { ...current, ...preferences, available, supported, canCheck, reason, needsConfiguration: preferences.checkOnStartup === null };
   }
   function publish(change = {}) {
     if (disposed) return;
@@ -58,13 +65,13 @@ function createUpdateController({ app, autoUpdater, onChange = () => {}, onNeeds
     applyPreferences();
     const listen = (event, handler) => { updater.on(event, handler); listeners.push([event, handler]); };
     listen('checking-for-update', () => publish({ status: 'checking', error: null, progress: null }));
-    listen('update-available', info => publish({ status: 'available', updateVersion: info.version, error: null }));
-    listen('update-not-available', () => publish({ status: current.downloadedVersion ? 'downloaded' : 'not-available', error: null }));
+    listen('update-available', info => publish({ status: 'available', updateVersion: info.version, releaseUrl: releaseUrl(info.releaseUrl), error: null }));
+    listen('update-not-available', info => publish({ status: current.downloadedVersion ? 'downloaded' : 'not-available', releaseUrl: current.downloadedVersion ? current.releaseUrl : releaseUrl(info?.releaseUrl), error: null }));
     listen('download-progress', progress => publish({ status: 'downloading', progress: Math.max(0, Math.min(100, Number(progress.percent) || 0)) }));
     listen('update-downloaded', info => {
       cancellationToken = undefined;
       applyPreferences();
-      publish({ status: 'downloaded', updateVersion: info.version, downloadedVersion: info.version, progress: 100, error: null });
+      publish({ status: 'downloaded', updateVersion: info.version, downloadedVersion: info.version, releaseUrl: releaseUrl(info.releaseUrl), progress: 100, error: null });
     });
     listen('update-cancelled', () => { cancellationToken = undefined; publish({ status: current.downloadedVersion ? 'downloaded' : current.updateVersion ? 'available' : 'idle', progress: null }); });
     listen('error', failure);
@@ -115,7 +122,7 @@ function createUpdateController({ app, autoUpdater, onChange = () => {}, onNeeds
           const info = yaml.load(body, { schema: yaml.JSON_SCHEMA });
           if (!info || typeof info.version !== 'string' || !semver.valid(info.version)) throw new Error('更新情報のバージョンが不正です。');
           const newer = semver.gt(info.version, app.getVersion());
-          publish({ status: newer ? 'available' : 'not-available', updateVersion: newer ? info.version : null, error: null });
+          publish({ status: newer ? 'available' : 'not-available', updateVersion: newer ? info.version : null, releaseUrl: releaseUrl(info.releaseUrl), error: null });
           return state();
         }
         rearmDownload = false;

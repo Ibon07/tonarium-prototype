@@ -57,13 +57,13 @@ git push origin v0.0.1
 
 `.github/workflows/native-nightly.yml`（Actionsの表示名は `Nightly clients`）は `main` へのpushと、mainを選んだ手動実行で起動する。毎晩の時刻指定ではなくmain更新ごとの継続ビルド。
 
-Native Linux、Native Windows、Electron Linux、Electron Windowsの4ジョブを並列で実行し、各ジョブが成功した成果物をそのまま `nightly` prereleaseへ公開する。他のクライアント・OSの終了は待たず、失敗によるキャンセルもしない。後続のmain更新でもElectronはNativeの完了を待たない。同じクライアント・OSの実行だけを直列化し、同名ファイルへの同時書き込みを避ける。
+Native Linux、Native Windows、Electron Linux、Electron Windowsの4ジョブを並列で実行し、成功した成果物を `nightly-<40桁のコミットSHA>` prereleaseへ公開する。同じコミットの4種類は同じReleaseに集める。他のクライアント・OSの終了は待たず、失敗によるキャンセルもしない。同じクライアント・OSの実行だけを直列化する。
 
 NativeはUbuntu runner上でUnityのWindows/Linux Monoプレイヤーと.NET 10の自己完結クライアントをビルドする。Unityの版は `ProjectVersion.txt` を使用する。Actions Secretsに `UNITY_EMAIL`・`UNITY_PASSWORD` と `UNITY_LICENSE`（Personal）または `UNITY_SERIAL`（Pro）が必要。[GameCIの認証手順](https://game.ci/docs/github/activation/)を参照。認証未設定やUnityビルド失敗でもElectronのビルド・公開は継続する。
 
 ElectronはLinux版をUbuntu runner、Windows版をWindows runnerでビルドする。それぞれ `electron/package-lock.json` から依存を導入し、Linux AppImage／tar.gzとWindows ZIP／NSISインストーラーを作る。Unityや.NET、Web本体のビルドは不要。リモートWebの更新は再読み込みで反映する。
 
-公開先は全ジョブで同じ `nightly` prerelease。Nativeは固定名、Electronはバージョンを含む名前で公開する。自分のクライアント・OSの成果物だけを更新する。
+コミット別Releaseの成果物:
 
 - Native: `Tonarium-nightly-linux-x64.tar.gz`、`Tonarium-nightly-win-x64.zip`
 - Electron: `Tonarium-Electron-<version>-linux-x64.tar.gz`、`Tonarium-Electron-<version>-linux-x86_64.AppImage`、`Tonarium-Electron-<version>-win-x64.zip`、`Tonarium-Electron-<version>-win-x64-setup.exe` と差分更新用blockmap
@@ -71,12 +71,18 @@ ElectronはLinux版をUbuntu runner、Windows版をWindows runnerでビルドす
 - 各ファイルの `.sha256`
 - 各クライアント・OSの `Tonarium-Native-nightly-<runtime>.build.json` または `Tonarium-Electron-nightly-<runtime>.build.json`
 
-`.build.json` は対応アーカイブの公開が全て成功してから更新し、ソースコミット、Actions実行URL、チェックサムを記録する。失敗・未完了の側は前回成功した成果物と記録を残すため、Release内の全ファイルが同じコミットとは限らない。ダウンロードする種類の `.build.json` を確認する。アップロード中はアーカイブとチェックサムの置換が完了するまで待つ。
+`.build.json` は対応アーカイブの公開が全て成功してから追加し、ソースコミット、Actions実行URL、チェックサムを記録する。未完了・失敗した種類の成果物はそのReleaseには存在しない。必要な種類がない場合は過去のコミット別Releaseを確認する。タグの参照先は作成後に移動しない。同じコミットを再実行した場合は同じRelease内で該当する種類を更新する。
 
-公開前にmainが先へ進んでいた場合は古いビルドの公開を省略する。mainを頻繁に更新している間は、時間のかかるNativeの更新が後回しになる場合がある。`nightly` タグは巻き戻さず、安定版のLatestにはしない。初回Release作成が競合しても、他ジョブが作成済みなら自分のアップロードを続ける。
+### 自動更新との互換性
+
+既存Electron版が読む固定 `nightly` Releaseは更新情報の入口として維持する。今後ここへ追加・上書きするのは `nightly-linux.yml`・`nightly.yml` とそれぞれの `.sha256` のみ。アーカイブ・インストーラー・blockmap・ビルド記録はコミット別Releaseに置くため、main更新のたびに固定ReleaseのAssetsが増えることはない。移行前の既存Assetsは、古いダウンロードリンクを壊さないため自動削除しない。
+
+YAML内のダウンロード先はコミット別Releaseへの絶対URLに変換し、`releaseUrl` にそのReleaseのページを記録する。本体・チェックサム・ビルド記録の公開成功後にだけ、該当OSの固定更新情報を切り替える。Windows側が失敗してもLinux側は更新でき、失敗した側の入口は前回成功版を維持する。新しいアプリの「Releasesを開く」は検証済みのコミット別URLを開き、旧形式や不正なURLではリポジトリのReleases一覧へ戻す。
+
+ビルド中にmainが先へ進んでも、成果物はそのコミット専用のReleaseへ公開する。固定の更新情報を切り替える直前にはmainを再確認し、古いコミットのビルドでは入口を更新しない。安定版のLatestにはしない。初回Release作成が競合しても、他ジョブが同じタグで作成済みなら参照先を確認して継続する。
 
 Nativeの展開先は `win-x64/`・`linux-x64/`。`Unity/` とビルドコミットを記録した `release.json` を含む。Linux Native版は通常配布と同じシステム依存が必要で、AppImage/Flatpakではない。既存のバージョンタグ向けWindows Release workflowは維持する。
 
 ローカルでも `python3 native/package-nightly.py linux-x64 <dotnet publish先> native/build/unity-linux <出力先>`（Windowsは `win-x64` と `native/build/unity`）で同じ梱包を行える。公開処理の回帰テストは `python3 .github/scripts/test_publish_nightly.py`。このテストはGitHub APIをモックし、実際のReleaseを書き換えない。
 
-Electronは `node electron/scripts/build.cjs --linux --nightly`（Windowsは `--win`）でビルドする。次のパッチ番号とActions実行番号・試行番号から `0.0.9-nightly.<run>.<attempt>` のような比較可能な版を生成する。`GITHUB_RUN_NUMBER` と `GITHUB_RUN_ATTEMPT` を使用する。本体のSHA-256と更新情報内のSHA-512を公開前に検証し、本体を先にアップロードしてから更新情報を切り替える。旧版を取得中のアプリが壊れないよう、過去のバージョン付き成果物は自動削除しない。
+Electronは `node electron/scripts/build.cjs --linux --nightly`（Windowsは `--win`）でビルドする。次のパッチ番号とActions実行番号・試行番号から `0.0.9-nightly.<run>.<attempt>` のような比較可能な版を生成する。`GITHUB_RUN_NUMBER` と `GITHUB_RUN_ATTEMPT` を使用する。本体のSHA-256と更新情報内のSHA-512を公開前に検証する。旧版を取得中のアプリが壊れないよう、過去のコミット別Releaseと成果物は自動削除しない。
