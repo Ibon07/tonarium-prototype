@@ -15,7 +15,12 @@ export const survivorOf = (sid: string) => {
   if (!state) { state = newSurvivorState(); states.set(sid, state); }
   return state;
 };
-export const clearSurvivor = (sid: string) => states.delete(sid);
+export const clearSurvivor = (sid: string) => {
+  const rec = moveSends.get(sid);
+  if (rec?.timer) clearTimeout(rec.timer);
+  moveSends.delete(sid);
+  return states.delete(sid);
+};
 
 export interface SurvivorDeps {
   sendState(sid: string, state: SurvivorState): void;
@@ -26,7 +31,33 @@ export interface SurvivorDeps {
   profileUpdated(id: string, profile: SurvivorProfile): void;
 }
 
-function send(sid: string, s: SurvivorState, d: SurvivorDeps) { d.sendState(sid, structuredClone(s)); }
+// roomSend は状態を同期的に pack してバイト列にするため、送信後の状態変更は混ざらず複製は要らない
+function send(sid: string, s: SurvivorState, d: SurvivorDeps) { d.sendState(sid, s); }
+
+const MOVE_SEND_MS = 100;
+interface MoveSend { at: number; timer: ReturnType<typeof setTimeout> | null; s: SurvivorState; d: SurvivorDeps }
+const moveSends = new Map<string, MoveSend>();
+
+/** 移動メッセージは頻繁に届くので、状態の反映は即時でも送信だけ 100ms に間引く。最後の位置は末尾の送信で必ず届ける */
+function sendMove(sid: string, s: SurvivorState, d: SurvivorDeps) {
+  let rec = moveSends.get(sid);
+  if (!rec) { rec = { at: 0, timer: null, s, d }; moveSends.set(sid, rec); }
+  rec.s = s; rec.d = d;
+  const wait = MOVE_SEND_MS - (Date.now() - rec.at);
+  if (wait <= 0) {
+    if (rec.timer) { clearTimeout(rec.timer); rec.timer = null; }
+    rec.at = Date.now();
+    send(sid, s, d);
+    return;
+  }
+  if (rec.timer) return;
+  rec.timer = setTimeout(() => {
+    rec.timer = null;
+    rec.at = Date.now();
+    // 状態が入れ替わっていたら、開始時の送信で足りている
+    if (states.get(sid) === rec.s) send(sid, rec.s, rec.d);
+  }, wait);
+}
 function positionOf(u: Participant, avatars: Map<string, AvatarState>) {
   return u.mode === '3d' ? avatars.get(u.id) ?? SPAWN : u.pos ?? SPAWN;
 }
@@ -118,7 +149,7 @@ export function moveSurvivor(sid: string, user: Participant, x: number, z: numbe
   const dx = x - p.x, dz = z - p.z, dist = Math.hypot(dx, dz);
   if (dist > max) { x = p.x + dx / dist * max; z = p.z + dz / dist * max; }
   Object.assign(p, clampSurvivorPosition(x, z), { moveAt: now });
-  send(sid, s, d);
+  sendMove(sid, s, d);
 }
 
 function poolFor(p: SurvivorPlayer) {
