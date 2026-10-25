@@ -36,7 +36,7 @@ export function ChangelogPage({ q }: { q: string }) {
     <section className="hsec" aria-label={tr("ui259")}>
       {entries.length === 0 && <Empty>{tr("ui260")}</Empty>}
       {entries.map((entry) => (
-        <article className="hsec hchangelog" key={`${entry.date}:${entry.title}`}>
+        <article className="hsec hchangelog" key={entry.id ?? `${entry.date}:${entry.title}`}>
           <time className="sub" dateTime={entry.date}>{entry.date}</time>
           <h2>{entry.title}{entry.tag && <small className="sub">{entry.tag}</small>}</h2>
           <ul>{entry.items.map((item) => <li key={item}>{item}</li>)}</ul>
