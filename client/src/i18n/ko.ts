@@ -1,4 +1,9 @@
 export default {
+  shareDrawingStart: '낙서 시작',
+  shareDrawingColor: '펜 색상 {0}',
+  shareDrawingStop: '낙서 종료',
+  shareDrawingYou: '나',
+  shareDrawingError: '낙서를 동기화하지 못했습니다. 연결 상태를 확인해 주세요.',
   popupSettings: '새 메시지 팝업 (공통)',
   popupPause: '일시 중지',
   popupChooseDuration: '시간 선택',

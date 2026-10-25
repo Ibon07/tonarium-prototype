@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:share": "tsx --test client/src/shareAnnotations.test.ts",
     "items:png": "node scripts/rasterize-items.mjs",
     "dev": "concurrently -k -n server,client \"tsx watch --include sessions.json server/index.ts --dev\" \"vite\"",
     "build": "vite build",

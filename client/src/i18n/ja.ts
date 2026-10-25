@@ -1,4 +1,9 @@
 export default {
+  shareDrawingStart: 'ラクガキを開始',
+  shareDrawingColor: 'ペンの色 {0}',
+  shareDrawingStop: 'ラクガキを終了',
+  shareDrawingYou: '自分',
+  shareDrawingError: 'ラクガキの同期に失敗しました。接続状態を確認してください。',
   popupSettings: '新着ポップアップ（共通）',
   popupPause: '一時停止',
   popupChooseDuration: '時間を選択',

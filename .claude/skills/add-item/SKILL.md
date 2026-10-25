@@ -20,7 +20,7 @@ description: Tonarium に新しいアイテム（サイコロ・チェス・付�
 4. 3D：`client/src/view3d/items3d.tsx` の `Item3D` の switch に足す。部品は新しいファイル（例：`dice3d.tsx`）に書き、`itemHelpers.ts` の `useFollow`（運んでいる間の追従）と `removable`（右クリックで運ぶ・X で片付ける）を使う。照準の操作は `userData` に `Interactable`（`use`・`hint` など）を置く。キャンバスで描くパネルで足りるなら `client/src/items/panels.ts` の `PANELS` に足すだけで 2D と 3D の両方に出る
 5. 2D：`client/src/world/WindowLayer.tsx` の `useResolved` でウィンドウの中身を返す。React で作るなら別ファイル（例：`DiceBody.tsx`）にし、`Kind` に種類を足すとウィンドウに `k-<種類>` のクラスが付く。`compact`（カンタンモードの下の小さい表示）のときは操作部品を出さない
 6. チャットに残すなら `shared/protocol.ts` の `ChatMessage` にフィールドを足し、`client/src/world/NoticeLog.tsx` の `LogLine` で表示する。サーバーでは `pushChat` に渡す（`to` を付けると宛先だけに届く）
-7. スタイルは `client/src/style.css`、手元だけの設定（人ごとの選択など）は `client/src/store.ts` に `load`/`save` で持つ
+7. スタイルは `client/src/styles/` の該当する領域のファイル（`client/src/style.css` が元の順序で集約）、手元だけの設定（人ごとの選択など）は `client/src/store.ts` に `load`/`save` で持つ
 8. `docs/items.md` の一覧に使い方を足す（長くなるなら節を立てる）。README の「主な機能」のアイテム名の列にも足す
 
 ## 決まりごと

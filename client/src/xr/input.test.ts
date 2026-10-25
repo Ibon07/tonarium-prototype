@@ -59,3 +59,37 @@ test('controller ray reaches the existing interaction callback without moving th
   assert.equal(aimAt(scene, camera), null);
   cube.geometry.dispose(); (cube.material as THREE.Material).dispose();
 });
+
+test('desktop and controller aim skip noRay descendants but retain walls and the distance limit', () => {
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera();
+  camera.updateMatrixWorld();
+  const geometry = new THREE.BoxGeometry();
+  const material = new THREE.MeshBasicMaterial();
+  const decoration = new THREE.Group();
+  decoration.userData.noRay = true;
+  const ignored = new THREE.Mesh(geometry, material);
+  ignored.position.z = -1;
+  decoration.add(ignored);
+  const target = new THREE.Mesh(geometry, material);
+  target.position.z = -3;
+  target.userData.use = () => {};
+  const wall = new THREE.Mesh(geometry, material);
+  wall.position.z = -2;
+  scene.add(decoration, target);
+  const ray = new THREE.Ray(new THREE.Vector3(), new THREE.Vector3(0, 0, -1));
+  try {
+    for (const input of [undefined, ray]) {
+      scene.updateMatrixWorld(true);
+      assert.equal(aimAt(scene, camera, input)?.obj, target);
+      scene.add(wall); scene.updateMatrixWorld(true);
+      assert.equal(aimAt(scene, camera, input), null);
+      scene.remove(wall);
+      target.position.z = -32; scene.updateMatrixWorld(true);
+      assert.equal(aimAt(scene, camera, input), null);
+      target.position.z = -3;
+    }
+  } finally {
+    geometry.dispose(); material.dispose();
+  }
+});

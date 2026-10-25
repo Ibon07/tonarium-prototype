@@ -4,11 +4,11 @@
 
 ## 共通定義は Web の CSS に集まっている
 
-Web の基底値は [style.css](client/src/style.css) の `:root` と要素セレクターにある。React の汎用 Button/Input コンポーネントを経由する構成ではなく、HTML 要素に既存クラスを組み合わせる。以下の色・形状は該当する変数・クラスから再利用できる。用途別の React 部品は [home/common.tsx](client/src/home/common.tsx)、[world/common.tsx](client/src/world/common.tsx) にある。
+Web の基底値は [styles/base.css](client/src/styles/base.css) の `:root` と要素セレクターにある（全体は [style.css](client/src/style.css) がセクション別ファイルを元の順序で読み込む）。React の汎用 Button/Input コンポーネントを経由する構成ではなく、HTML 要素に既存クラスを組み合わせる。以下の色・形状は該当する変数・クラスから再利用できる。用途別の React 部品は [home/common.tsx](client/src/home/common.tsx)、[world/common.tsx](client/src/world/common.tsx) にある。
 
 ### 配色：紙色の面、濃い文字、青の操作色
 
-表の変数・値はすべて [style.css の `:root`](client/src/style.css) で確認済み。用途は同ファイルの `.home`、`.panel`、`.win`、`.dock`、`.tab`、`.livechip` などに対応する。
+表の変数・値はすべて [styles/base.css の `:root`](client/src/styles/base.css) で確認済み。用途は `client/src/styles/` 配下の `.home`、`.panel`、`.win`、`.dock`、`.tab`、`.livechip` などに対応する。
 
 | 既存定義 | 値 | 実装上の用途・再利用 |
 | --- | --- | --- |

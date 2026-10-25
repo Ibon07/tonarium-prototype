@@ -330,10 +330,15 @@ export function SurvivorPanel({ overlay = false }: { overlay?: boolean }) {
   });
   const synergyGroups = [{ label: tr("ui717"), recipes: synergyProgress }];
 
+  // 時計が要るのは、経過時間を表示している最中（running/boss かつ非ポーズ）と、締切つきの選択中だけ。
+  // ロビー・ポーズ中・終了後は回さず、パネル全体の再レンダーとミニマップの再描画を止める
+  const needsClock = (active && !paused) || queuedPlayers.length > 0;
   useEffect(() => {
+    setClock(Date.now());
+    if (!needsClock) return;
     const timer = window.setInterval(() => setClock(Date.now()), 250);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [needsClock]);
   useEffect(() => {
     if (!me || !state) {
       previousHealth.current = null;
