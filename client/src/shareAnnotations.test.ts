@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { annotationColor, normalizedPoint, ShareAnnotations, videoRect } from './shareAnnotations.ts';
+import { annotationColor, DRAWING_COLORS, normalizedPoint, selectAnnotationShare, ShareAnnotations, videoRect } from './shareAnnotations.ts';
 
 function viewers() {
   const peers = new Map<string, ShareAnnotations>();
@@ -143,4 +143,89 @@ test('coordinates use the actual video area for landscape, portrait, square and 
     assert.equal(normalizedPoint(rect.left, rect.top + rect.height + 1, rect), null);
   }
   assert.equal(normalizedPoint(0, 0, videoRect(0, 0, 0, 0)), null);
+});
+
+test('share identity is independent of subscription readiness and participant order', () => {
+  const host = { identity: 'host', publication: { trackSid: 'TR_one', isMuted: false } };
+  const other = { identity: 'other', publication: { trackSid: 'TR_two', isMuted: false } };
+  assert.equal(selectAnnotationShare([host, other])?.publication?.trackSid, 'TR_one');
+  assert.equal(selectAnnotationShare([other, host])?.publication?.trackSid, 'TR_one');
+  assert.equal(selectAnnotationShare([{ ...host, publication: undefined }, other])?.identity, 'other');
+  assert.equal(selectAnnotationShare([{ ...host, publication: { ...host.publication, isMuted: true } }]), undefined);
+});
+
+test('colored drawing, partial erasure and subsequent drawing have identical authority order on all clients', () => {
+  const network = viewers();
+  const host = network.join('host');
+  const alice = network.join('alice');
+  const bob = network.join('bob');
+  network.flush();
+  for (const color of DRAWING_COLORS) alice.draw({ x: 0, y: 0.5 }, { x: 1, y: 0.5 }, color);
+  network.flush();
+  bob.draw({ x: 0.5, y: 0.4 }, { x: 0.5, y: 0.6 }, 'erase');
+  host.draw({ x: 0, y: 0 }, { x: 1, y: 1 }, DRAWING_COLORS[2]);
+  network.flush();
+  alice.draw({ x: 0.5, y: 0.4 }, { x: 0.5, y: 0.6 }, DRAWING_COLORS[4]);
+  network.flush();
+  const late = network.join('late');
+  network.flush();
+  for (const peer of [alice, bob, late]) assert.deepEqual(peer.snapshot().segments, host.snapshot().segments);
+  const colors = host.snapshot().segments.map((s) => s.color);
+  assert.deepEqual(colors.slice(0, DRAWING_COLORS.length), DRAWING_COLORS);
+  assert.equal(colors.at(-2), 'erase');
+  assert.equal(colors.at(-1), DRAWING_COLORS[4]);
+});
+
+test('clear wins over old history, concurrent operations converge, and new shares discard erasure and color history', () => {
+  const network = viewers();
+  const host = network.join('host');
+  const alice = network.join('alice');
+  const bob = network.join('bob');
+  network.flush();
+  alice.draw({ x: 0, y: 0 }, { x: 1, y: 1 }, '#ef4444');
+  network.flush();
+  const stale = { share: 'track-one', kind: 'history', cleared: 0, segments: structuredClone(host.snapshot().segments) };
+  bob.clear();
+  alice.draw({ x: 0.2, y: 0 }, { x: 0.2, y: 1 }, 'erase');
+  host.draw({ x: 0, y: 0.5 }, { x: 1, y: 0.5 }, '#22c55e');
+  network.flush();
+  for (const peer of [alice, bob]) {
+    peer.receive(stale, 'host');
+    assert.deepEqual(peer.snapshot().segments, host.snapshot().segments);
+  }
+  bob.clear();
+  network.flush();
+  const late = network.join('late');
+  network.flush();
+  for (const peer of [host, alice, bob, late]) assert.equal(peer.snapshot().segments.length, 0);
+  alice.draw({ x: 0, y: 0 }, { x: 1, y: 1 }, '#a855f7');
+  network.flush();
+  assert.deepEqual(late.snapshot().segments, host.snapshot().segments);
+  host.clear();
+  network.flush();
+  for (const peer of network.peers.values()) assert.equal(peer.snapshot().segments.length, 0);
+  for (const [id, peer] of network.peers) {
+    peer.setShare(null, '', id);
+    peer.setShare('track-two', 'host', id);
+    peer.receive(stale, 'host');
+  }
+  network.flush();
+  for (const peer of network.peers.values()) assert.equal(peer.snapshot().segments.length, 0);
+});
+
+test('viewers reject forged clear and ordered segments; invalid drawing colors are not sent', () => {
+  const network = viewers();
+  const host = network.join('host');
+  const alice = network.join('alice');
+  network.flush();
+  host.draw({ x: 0, y: 0 }, { x: 1, y: 1 }, '#ef4444');
+  network.flush();
+  const before = structuredClone(alice.snapshot().segments);
+  alice.receive({ share: 'track-one', kind: 'clear', cleared: 100 }, 'intruder');
+  alice.receive({ share: 'track-one', kind: 'segment', segments: [{ ...before[0], id: 'forged', order: 101 }] }, 'intruder');
+  alice.draw({ x: 0, y: 0 }, { x: 1, y: 1 }, 'invalid');
+  assert.equal(network.queue.length, 0);
+  assert.deepEqual(alice.snapshot().segments, before);
+  host.receive({ share: 'track-one', kind: 'segment', segments: [{ ...before[0], id: 'invalid-color', color: 'invalid' }] }, 'alice');
+  assert.deepEqual(host.snapshot().segments, before);
 });

@@ -2,12 +2,12 @@ import { sourceText as uiSource } from '../i18n/core.ts';
 // 接続はここで1つだけ持ち、2D/3D の表示切替では切らない。セッションを移るときだけつなぎ直す。
 import {
   Room, RoomEvent, Track, LocalVideoTrack,
-  type RemoteTrack, type RemoteTrackPublication, type Participant as LkParticipant, type LocalTrackPublication,
+  type RemoteTrack, type RemoteTrackPublication, type Participant as LkParticipant,
 } from 'livekit-client';
 import { get, set, useStore } from '../store.ts';
 import { addVoice, removeAllVoices, removeVoice } from '../spatial.ts';
 import { send } from './ws.ts';
-import { ANNOTATION_TOPIC, ShareAnnotations } from '../shareAnnotations.ts';
+import { ANNOTATION_TOPIC, ShareAnnotations, selectAnnotationShare } from '../shareAnnotations.ts';
 
 // HMR でこのモジュールが読み直されても同じ接続を使う（別の Room が同じ ID で入ると、互いに蹴り出してつなぎ直しを繰り返す）
 const g = globalThis as unknown as { __tonariumRoom?: Room };
@@ -45,6 +45,7 @@ export const shareVideoEl = document.createElement('video');
 shareVideoEl.muted = true;
 shareVideoEl.playsInline = true;
 shareVideoEl.autoplay = true;
+let selectedShareTrack: Track | undefined;
 
 const audioHost = document.createElement('div');
 audioHost.style.display = 'none';
@@ -81,15 +82,19 @@ function syncParticipants() {
   for (const p of all) {
     speaking[p.identity] = p.isSpeaking;
     micOn[p.identity] = p.isMicrophoneEnabled;
-    const pub = p.getTrackPublication(Track.Source.ScreenShare);
-    if (pub?.track) {
-      shareId = pub.trackSid;
-      shareOwner = p.identity;
-    }
-    if (pub && pub.track && !pub.isMuted) {
-      sharer = p.identity;
-      shareHasAudio = !!p.getTrackPublication(Track.Source.ScreenShareAudio);
-    }
+  }
+  // 購読済みかどうかと参加者の列挙順は端末ごとに異なる。
+  const selected = selectAnnotationShare(all.map((p) => ({ identity: p.identity, publication: p.getTrackPublication(Track.Source.ScreenShare), participant: p })));
+  if (selected) {
+    shareId = selected.publication!.trackSid;
+    sharer = shareOwner = selected.identity;
+    shareHasAudio = !!selected.participant.getTrackPublication(Track.Source.ScreenShareAudio);
+  }
+  const track = selected?.publication?.track;
+  if (track !== selectedShareTrack) {
+    selectedShareTrack?.detach(shareVideoEl);
+    track?.attach(shareVideoEl);
+    selectedShareTrack = track;
   }
   const lp = room.localParticipant;
   syncAnnotations(shareId, shareOwner);
@@ -130,8 +135,6 @@ function attachRemote(track: RemoteTrack, pub: RemoteTrackPublication, identity:
       shareAudio.add(el);
     }
     audioHost.appendChild(el);
-  } else if (track.source === Track.Source.ScreenShare) {
-    track.attach(shareVideoEl);
   }
 }
 
@@ -144,14 +147,8 @@ room
     if (camId) { camVideos.delete(camId); setCamFeed(camId, false); }
     syncParticipants();
   })
-  .on(RoomEvent.LocalTrackPublished, (pub: LocalTrackPublication) => {
-    if (pub.source === Track.Source.ScreenShare) pub.track?.attach(shareVideoEl);
-    syncParticipants();
-  })
-  .on(RoomEvent.LocalTrackUnpublished, (pub: LocalTrackPublication) => {
-    if (pub.source === Track.Source.ScreenShare) pub.track?.detach(shareVideoEl);
-    syncParticipants();
-  })
+  .on(RoomEvent.LocalTrackPublished, syncParticipants)
+  .on(RoomEvent.LocalTrackUnpublished, syncParticipants)
   .on(RoomEvent.TrackMuted, syncParticipants)
   .on(RoomEvent.TrackUnmuted, syncParticipants)
   .on(RoomEvent.TrackPublished, () => { syncViewSubscriptions(); syncParticipants(); })
@@ -184,6 +181,8 @@ async function closeRoom() {
 
 function resetVoiceState() {
   syncAnnotations(null);
+  selectedShareTrack?.detach(shareVideoEl);
+  selectedShareTrack = undefined;
   audioHost.replaceChildren();
   camHolder.replaceChildren();
   removeAllVoices();
