@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { SOUNDS } from '../../../shared/sounds.ts';
@@ -9,7 +9,8 @@ import { dropFollowers, follow, leaveSession, playSound, requestLive, setViewLiv
 import { dropHammer, place2d } from '../items/actions.ts';
 import { consumeHitFx } from '../items/effects.ts';
 import { toggleMic, toggleShare } from '../net/livekit.ts';
-import { View3D } from '../view3d/View3D.tsx';
+// 3D 空間は three 一式が重いので、3D モードに入るときだけ読み込む
+const View3D = lazy(() => import('../view3d/View3D.tsx').then((m) => ({ default: m.View3D })));
 import { ProfileDialog } from '../Profile.tsx';
 import { Icon } from './Icon.tsx';
 import { Popover, itemLabel } from './common.tsx';
@@ -222,6 +223,19 @@ function StatusChips() {
   }
   if (!chips.length) return null;
   return <div className="statuschips">{chips.map((c, i) => <div key={i} className="schip">{c}</div>)}</div>;
+}
+
+/** 3D 空間の読み込み中は、切り替え時と同じ画面で待たせる */
+function View3DFallback() {
+  const world = useStore((s) => sessionOf(s.session));
+  return (
+    <div className="switchload to3d" role="status" aria-live="polite">
+      <div className="slbox">
+        <HoppingMascots to="3d" />
+        <b>{world?.name ?? ''} の 3D 空間に入っています…</b>
+      </div>
+    </div>
+  );
 }
 
 function SwitchLoading() {
@@ -515,7 +529,11 @@ export function WorldScreen() {
   }, [mode]);
   return (
     <div ref={root} className={`world ${mode} ${locked ? 'locked' : ''} ${folded.left ? 'fl' : ''} ${folded.right ? 'fr' : ''} ${phone ? `phone pt-${phoneTab}` : ''}`}>
-      {mode === '3d' && <View3D />}
+      {mode === '3d' && (
+        <Suspense fallback={<View3DFallback />}>
+          <View3D />
+        </Suspense>
+      )}
       {mode === '2d' && <MapLayer />}
       <WindowLayer />
       <PortraitCanvas />

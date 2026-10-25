@@ -54,6 +54,8 @@ export function setMode(mode: Mode) {
 export function switchMode(mode: Mode) {
   const s = get();
   if (s.switching || s.mode === mode || !s.session || (mode === '3d' && touchOnly)) return;
+  // 疑似ローディングの間に 3D のチャンクを先読みしておく（WorldScreen の lazy と同じモジュール）
+  if (mode === '3d') void import('./view3d/View3D.tsx');
   const dur = (1000 + Math.random() * 1000) * s.loadScale;
   if (dur < 50) { setMode(mode); return; }
   set({ switching: { to: mode, dur } });
