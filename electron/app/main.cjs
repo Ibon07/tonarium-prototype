@@ -250,7 +250,7 @@ ipcMain.handle('shell:update-configure', async (event, value) => {
 ipcMain.handle('shell:update-check', event => { requireUpdateSender(event); return updateController.check(); });
 ipcMain.handle('shell:update-release', event => {
   requireUpdateSender(event);
-  return shell.openExternal('https://github.com/katteni-kaihatu/tonarium-prototype/releases/tag/nightly');
+  return shell.openExternal(updateController.state().releaseUrl);
 });
 ipcMain.handle('shell:update-install', async event => {
   requireUpdateSender(event);

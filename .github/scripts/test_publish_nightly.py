@@ -30,6 +30,7 @@ class FakeGitHub:
     def __init__(self, *, exists=True, create_fails=False, competitor=False,
                  currents=None, upload_fails=False, tag_fails=False):
         self.exists = exists
+        self.releases = set()
         self.create_fails = create_fails
         self.competitor = competitor
         self.currents = list(currents or [SHA])
@@ -37,6 +38,7 @@ class FakeGitHub:
         self.tag_fails = tag_fails
         self.calls = []
         self.records = []
+        self.uploaded = {}
 
     def __call__(self, *args, check=True):
         self.calls.append(args)
@@ -44,20 +46,23 @@ class FakeGitHub:
         if args[:2] == ('api', 'repos/example/tonarium/git/ref/heads/main'):
             stdout = self.currents.pop(0) if len(self.currents) > 1 else self.currents[0]
         elif args[:2] == ('release', 'view'):
-            code = 0 if self.exists else 1
+            code = 0 if self.exists or args[2] in self.releases else 1
         elif args[:2] == ('release', 'create'):
             # Creation must not upload any archive or checksum.
             assert not any(arg.endswith(('.zip', '.tar.gz', '.AppImage', '.sha256')) for arg in args)
             notes = Path(args[args.index('--notes-file') + 1]).read_text()
-            assert 'different commits' in notes
+            assert ('immutable source commit' in notes if args[2] != 'nightly' else 'Compatibility update feed' in notes)
             code = int(self.create_fails)
-            self.exists = not self.create_fails or self.competitor
-        elif args[:3] == ('api', '--method', 'PATCH'):
-            assert 'force=false' in args
-            code = int(self.tag_fails)
+            if not self.create_fails or self.competitor:
+                self.releases.add(args[2])
+        elif args[:2] == ('api', f'repos/example/tonarium/commits/nightly-{SHA}'):
+            stdout = 'b' * 40 if self.tag_fails else SHA
+        elif 'PATCH' in args:
+            raise AssertionError('Tags must never be moved')
         elif args[:2] == ('release', 'upload'):
             paths = [Path(arg) for arg in args[3:] if not arg.startswith('--')]
             assert all(path.is_file() for path in paths)
+            self.uploaded.update(((args[2], path.name), path.read_bytes()) for path in paths)
             if any(path.name.endswith('.build.json') for path in paths):
                 self.records.extend((path.name, json.loads(path.read_text())) for path in paths)
             else:
@@ -113,9 +118,12 @@ class PublishTests(unittest.TestCase):
                 hashes = self.files(component, runtime)
                 fake = FakeGitHub()
                 self.publish(fake, component, runtime)
-                self.assertEqual(len(fake.uploads()), 3 if component == 'electron' else 2)
+                self.assertEqual(len(fake.uploads()), 4 if component == 'electron' else 2)
                 self.assertFalse(any(args[:2] == ('release', 'create') for args in fake.calls))
                 name, record = fake.records[0]
+                if component == 'electron':
+                    channel = 'nightly-linux.yml' if runtime == 'linux-x64' else 'nightly.yml'
+                    hashes[channel] = hashlib.sha256(fake.uploaded['nightly', channel]).hexdigest()
                 self.assertEqual(name, f'Tonarium-{component.capitalize()}-nightly-{runtime}.build.json')
                 self.assertEqual(record, {
                     'channel': 'nightly', 'component': component, 'runtime': runtime,
@@ -174,17 +182,20 @@ class PublishTests(unittest.TestCase):
             self.publish(fake)
         self.assertFalse(fake.uploads())
 
-    def test_obsolete_build_has_no_mutations(self):
+    def test_obsolete_build_keeps_commit_assets_without_alias_mutations(self):
+        self.files('electron', 'linux-x64')
         fake = FakeGitHub(currents=['b' * 40])
-        self.publish(fake)
-        self.assertEqual(len(fake.calls), 1)
+        self.publish(fake, 'electron', 'linux-x64')
+        self.assertEqual(len(fake.uploads()), 3)
+        self.assertTrue(all(call[2] == f'nightly-{SHA}' for call in fake.uploads()))
+        self.assertFalse(any(call[:3] in [('release', 'view', 'nightly'), ('release', 'edit', 'nightly')] for call in fake.calls))
 
-    def test_main_changes_while_preparing_release(self):
-        self.files()
+    def test_main_changes_while_preparing_compatibility_release(self):
+        self.files('electron', 'linux-x64')
         fake = FakeGitHub(currents=[SHA, 'b' * 40])
-        self.publish(fake)
-        self.assertFalse(fake.uploads())
-        self.assertFalse(any('PATCH' in args for args in fake.calls))
+        self.publish(fake, 'electron', 'linux-x64')
+        self.assertEqual(len(fake.uploads()), 3)
+        self.assertTrue(all(call[2] == f'nightly-{SHA}' for call in fake.uploads()))
 
     def test_invalid_checksum_prevents_release_mutations(self):
         self.files()
@@ -192,7 +203,7 @@ class PublishTests(unittest.TestCase):
         fake = FakeGitHub()
         with self.assertRaisesRegex(RuntimeError, 'Invalid checksum'):
             self.publish(fake)
-        self.assertEqual(len(fake.calls), 1)
+        self.assertEqual(len(fake.calls), 0)
 
     def test_upload_failure_preserves_previous_completion_record(self):
         self.files()
@@ -202,19 +213,59 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(len(fake.uploads()), 1)
         self.assertFalse(fake.records)
 
-    def test_tag_failure_is_not_swallowed(self):
+    def test_mismatched_existing_tag_is_rejected(self):
         self.files()
         fake = FakeGitHub(tag_fails=True)
-        with self.assertRaisesRegex(RuntimeError, 'Cannot advance nightly tag'):
+        with self.assertRaisesRegex(RuntimeError, 'different commit'):
             self.publish(fake)
         self.assertFalse(fake.uploads())
 
-    def test_newer_main_during_tag_update_skips_obsolete_assets(self):
+    def test_native_never_touches_compatibility_release(self):
         self.files()
-        fake = FakeGitHub(tag_fails=True, currents=[SHA, SHA, 'b' * 40])
+        fake = FakeGitHub()
         self.publish(fake)
-        self.assertFalse(fake.uploads())
-        self.assertFalse(fake.records)
+        self.assertTrue(all(call[2] != 'nightly' for call in fake.calls if call[0] == 'release'))
+
+    def test_compatibility_feed_has_absolute_urls_and_exact_checksums(self):
+        import yaml
+        for runtime in ['linux-x64', 'win-x64']:
+            self.files('electron', runtime)
+            fake = FakeGitHub()
+            self.publish(fake, 'electron', runtime)
+            channel = 'nightly-linux.yml' if runtime == 'linux-x64' else 'nightly.yml'
+            raw = fake.uploaded['nightly', channel]
+            info = yaml.safe_load(raw)
+            self.assertEqual(info['releaseUrl'], f'https://github.com/example/tonarium/releases/tag/nightly-{SHA}')
+            self.assertTrue(info['path'].startswith(f'https://github.com/example/tonarium/releases/download/nightly-{SHA}/'))
+            self.assertEqual(info['path'], info['files'][0]['url'])
+            self.assertEqual(raw, fake.uploaded[f'nightly-{SHA}', channel])
+            self.assertEqual(fake.uploaded['nightly', channel + '.sha256'].decode().split(), [hashlib.sha256(raw).hexdigest(), channel])
+            self.assertEqual({name for tag, name in fake.uploaded if tag == 'nightly'}, {channel, channel + '.sha256'})
+
+    def test_both_release_creation_races_accept_matching_competitors(self):
+        self.files('electron', 'linux-x64')
+        fake = FakeGitHub(exists=False, create_fails=True, competitor=True)
+        self.publish(fake, 'electron', 'linux-x64')
+        self.assertEqual({call[2] for call in fake.calls if call[:2] == ('release', 'create')}, {f'nightly-{SHA}', 'nightly'})
+        self.assertEqual(len(fake.uploads()), 4)
+
+    def test_commit_completion_record_failure_cannot_advance_alias(self):
+        self.files('electron', 'linux-x64')
+        fake = FakeGitHub()
+        def reject_record(*args, **kwargs):
+            if args[:2] == ('release', 'upload') and any(arg.endswith('.build.json') for arg in args):
+                raise subprocess.CalledProcessError(1, args)
+            return fake(*args, **kwargs)
+        with patch.object(publisher, 'gh', reject_record):
+            with self.assertRaises(subprocess.CalledProcessError):
+                publisher.publish('electron', 'linux-x64', self.directory)
+        self.assertTrue(all(call[2] != 'nightly' for call in fake.calls if call[0] == 'release'))
+
+    def test_original_local_metadata_is_not_rewritten(self):
+        self.files('electron', 'win-x64')
+        previous = (self.directory / 'nightly.yml').read_bytes()
+        self.publish(FakeGitHub(), 'electron', 'win-x64')
+        self.assertEqual((self.directory / 'nightly.yml').read_bytes(), previous)
 
     def test_non_main_ref_is_rejected(self):
         with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/feature'}):

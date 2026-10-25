@@ -2,7 +2,7 @@
 
 Electron 版は接続先サーバーの Web クライアントを、そのまま専用ウィンドウで開く。2D は React、3D は React Three Fiber / Three.js で、サバイバーズを含む描画・操作・音・通信は Web 版と同じコードを実行する。Avalonia / Unity のネイティブ版とは別のアプリで、並行して利用できる。
 
-初期接続先は `https://tonarium.rheni.work/`。サーバーに配信された Web 更新は、Electron 版でも再読み込み時に反映される。Web アセットやサーバーは配布物に同梱しないため、接続にはネットワークが必要。Electron 本体は GitHub Releases の `nightly` から更新できる。初回起動時に更新設定を選び、以後はメニューの「アプリの更新…」から変更する。
+初期接続先は `https://tonarium.rheni.work/`。サーバーに配信された Web 更新は、Electron 版でも再読み込み時に反映される。Web アセットやサーバーは配布物に同梱しないため、接続にはネットワークが必要。Electron 本体は GitHub Releases のコミット別 `nightly-<コミットSHA>` から更新できる。初回起動時に更新設定を選び、以後はメニューの「アプリの更新…」から変更する。
 
 メニューの「接続先を変更…」から接続先を設定する。設定はユーザーデータ内の `connection.json` に保存する。起動時の `--server URL` でも指定できる。HTTPS 接続を使用し、開発用の `localhost` / `127.0.0.1` / `[::1]` だけ HTTP を許可する。`--data-dir PATH` でテスト用に保存先を分離できる。
 
@@ -35,7 +35,7 @@ electron/artifacts/Tonarium-Electron-0.0.8-linux-x86_64.AppImage
 
 Linux AppImage と Windows NSIS でインストールしたアプリが自動適用に対応する。AppImage はユーザーが書き換えられる場所に保存する。tar.gz／展開済みLinux版とWindows ZIP版は更新の確認・通知に対応し、適用は「Releasesを開く」から手動で行う。Windows ZIP利用者が自動更新を利用するにはNSIS版をインストールする。
 
-更新先は接続中のWebサーバーに関係なく `katteni-kaihatu/tonarium-prototype` の `nightly` Releaseに固定する。これは開発版の配信で、安定版のみのチャンネルではない。取得失敗は更新画面に表示し、アプリの利用は継続できる。設定はユーザーデータ内の `updates.json` に保存する。
+更新先は接続中のWebサーバーに関係なく `katteni-kaihatu/tonarium-prototype` に固定する。`nightly` の更新情報から各OSの最新成功版を確認し、実体はコミット別 `nightly-<コミットSHA>` Releaseから取得する。既存版の更新URLも継続して使える。これは開発版の配信で、安定版のみのチャンネルではない。取得失敗は更新画面に表示し、アプリの利用は継続できる。設定はユーザーデータ内の `updates.json` に保存する。
 
 ### AURなど、パッケージ管理向けビルド
 
@@ -97,6 +97,6 @@ Electronの「Tonarium Electron → マイク・スピーカー…」から、�
 
 ## Nightly配布
 
-main更新時はNative版と独立したLinux／Windowsジョブでビルドし、成功したOSから `nightly` Releaseへ公開します。Nativeの失敗・実行待ちには影響されません。各成果物のソースコミットは対応する `.build.json` を確認してください。[公開構成](native-release.md#native--electron-nightly)。
+main更新時はNative版と独立したLinux／Windowsジョブでビルドし、成功したOSから `nightly-<コミットSHA>` Releaseへ公開します。固定 `nightly` には自動更新の参照情報だけを上書きします。Nativeの失敗・実行待ちには影響されません。各成果物のソースコミットは対応する `.build.json` を確認してください。[公開構成](native-release.md#native--electron-nightly)。
 
 `updates.cjs` はローカルページと実際の更新設定画面・コントローラーを用い、更新取得・適用だけを偽物に置き換えて初回選択、設定復元、確認のみ、自動適用、再起動操作を検証する。実際のReleaseへのアクセスやアプリの置換は行わない。

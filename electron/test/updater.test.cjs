@@ -4,7 +4,7 @@ const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { createUpdateController, FEED_URL } = require('../app/updater.cjs');
+const { createUpdateController, FEED_URL, RELEASE_URL } = require('../app/updater.cjs');
 
 class FakeUpdater extends EventEmitter {
   calls = 0;
@@ -216,4 +216,55 @@ test('re-enabling automatic installation rechecks cached completion to arm quit 
   await f.controller.check();
   assert.equal(f.updater.calls, 2);
   assert.equal(f.controller.state().downloadedVersion, '0.0.9-nightly.2');
+});
+
+
+const commitRelease = 'https://github.com/katteni-kaihatu/tonarium-prototype/releases/tag/nightly-' + 'a1'.repeat(20);
+const invalidReleaseUrls = [
+  undefined, null, 42, {}, '', 'not-a-url',
+  commitRelease.replace('https:', 'http:'),
+  commitRelease.replace('github.com', 'github.com.evil.example'),
+  commitRelease.replace('github.com/', 'github.com@evil.example/'),
+  commitRelease.replace('katteni-kaihatu', 'another-owner'),
+  commitRelease.replace('tonarium-prototype', 'another-repository'),
+  commitRelease + '?redirect=evil', commitRelease + '#fragment', commitRelease + '/',
+  commitRelease + '\n', commitRelease + '\r', ' ' + commitRelease,
+  commitRelease.slice(0, -1), commitRelease + 'a',
+  commitRelease.replace('a1'.repeat(20), 'A1'.repeat(20)),
+  commitRelease.replace('a1'.repeat(20), 'g1'.repeat(20)),
+  RELEASE_URL + '/tag/nightly',
+];
+
+test('updater events select their validated commit release and keep old metadata compatible', async t => {
+  const f = fixture(t);
+  assert.equal(f.controller.state().releaseUrl, RELEASE_URL);
+  await f.controller.check();
+  for (const event of ['update-available', 'update-not-available', 'update-downloaded']) {
+    f.updater.emit(event, { version: '0.0.9-nightly.42.1', releaseUrl: commitRelease });
+    assert.equal(f.controller.state().releaseUrl, commitRelease);
+  }
+  f.updater.emit('update-downloaded', { version: '0.0.9-nightly.43.1' });
+  assert.equal(f.controller.state().releaseUrl, RELEASE_URL);
+});
+
+test('updater events reject untrusted or malformed release links', async t => {
+  const f = fixture(t);
+  await f.controller.check();
+  for (const event of ['update-not-available', 'update-available', 'update-downloaded']) {
+    for (const value of invalidReleaseUrls) {
+      f.updater.emit(event, { version: '0.0.9-nightly.42.1', releaseUrl: value });
+      assert.equal(f.controller.state().releaseUrl, RELEASE_URL, `${event}: ${String(value)}`);
+    }
+  }
+});
+
+test('manual metadata check selects commit release or falls back to repository releases', async t => {
+  for (const value of [commitRelease, ...invalidReleaseUrls]) {
+    const info = { version: '0.0.9-nightly.42.1', releaseUrl: value };
+    const f = fixture(t, { env: {}, fetch: async () => ({ ok: true, text: async () => JSON.stringify(info) }) });
+    await f.controller.check();
+    assert.equal(f.controller.state().status, 'available');
+    assert.equal(f.controller.state().releaseUrl, value === commitRelease ? commitRelease : RELEASE_URL);
+    assert.equal(f.initialized(), 0);
+  }
 });
