@@ -1,4 +1,13 @@
 export default {
+  popupSettings: '新着ポップアップ（共通）',
+  popupPause: '一時停止',
+  popupChooseDuration: '時間を選択',
+  popupMinutes: '{0}分',
+  popupHour: '1時間',
+  popupPaused: '{0}まで停止中',
+  popupResume: '再開',
+  popupNewChat: '新着チャットを開く',
+  popupNewNotice: '新着通知を開く',
   "chatOriginal": "原文：",
   "chatSourceLanguage": "発言言語：{0}",
   "chatLanguageUnknown": "不明",

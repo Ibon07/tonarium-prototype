@@ -42,6 +42,7 @@ import { SurvivorPanel } from './SurvivorPanel.tsx';
 import { EmoteDockButton } from './Emotes.tsx';
 import { unlockEmoteAudio } from './sounds.ts';
 import { AdAudio } from '../ad/AdAudio.tsx';
+import { NewArrivals, PopupPauseSettings } from './NewArrivals.tsx';
 
 /** 名前はだれでも変えられ、全員に反映されてログに出る */
 function SessionRename({ current, onDone }: { current: string; onDone: () => void }) {
@@ -90,6 +91,8 @@ function WorldBadge() {
       ><Icon name="settings" size={18} /></button>
       {menu && (
         <Popover anchor={menu} side="down" onClose={() => setMenu(null)} className="settings">
+          <PopupPauseSettings />
+          <span className="menusep" />
           <span className="menutitle">{tr("ui856")}</span>
           <SessionRename current={world?.name ?? ''} onDone={() => setMenu(null)} />
           <span className="menusep" />
@@ -509,6 +512,7 @@ export function WorldScreen() {
   }, []);
   useOpenRequestedLive();
   const phone = usePhone();
+  useEffect(() => { set({ phoneLayout: phone }); }, [phone]);
   const phoneTab = useStore((s) => s.phoneTab);
   // スマホでは左右のパネルはたたまず、ウィンドウはカンタン表示だけ（保存はしない）
   useEffect(() => {
@@ -569,6 +573,7 @@ export function WorldScreen() {
       <MediaSync />
       <AdAudio />
       <Toast />
+      <NewArrivals />
       {dragging && <DropHint />}
       <SwitchLoading />
       <WorldLoading />

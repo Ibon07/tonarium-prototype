@@ -1,4 +1,13 @@
 export default {
+  popupSettings: '새 메시지 팝업 (공통)',
+  popupPause: '일시 중지',
+  popupChooseDuration: '시간 선택',
+  popupMinutes: '{0}분',
+  popupHour: '1시간',
+  popupPaused: '{0}까지 일시 중지',
+  popupResume: '다시 시작',
+  popupNewChat: '새 채팅 열기',
+  popupNewNotice: '새 알림 열기',
   "chatOriginal": "원문:",
   "chatSourceLanguage": "발화 언어: {0}",
   "chatLanguageUnknown": "알 수 없음",

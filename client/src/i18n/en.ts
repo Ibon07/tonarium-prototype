@@ -1,4 +1,13 @@
 export default {
+  popupSettings: 'New arrival popups (shared)',
+  popupPause: 'Pause',
+  popupChooseDuration: 'Choose duration',
+  popupMinutes: '{0} minutes',
+  popupHour: '1 hour',
+  popupPaused: 'Paused until {0}',
+  popupResume: 'Resume',
+  popupNewChat: 'Open new chat',
+  popupNewNotice: 'Open new notification',
   "chatOriginal": "Original:",
   "chatSourceLanguage": "Spoken language: {0}",
   "chatLanguageUnknown": "Unknown",
