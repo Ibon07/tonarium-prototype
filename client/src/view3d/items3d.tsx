@@ -28,6 +28,7 @@ import { angleDelta } from '../../../shared/vehicle.ts';
 import { createBikeAudio } from './bikeAudio.ts';
 import { BikeModel } from './BikeModel.tsx';
 import { Mirror3D } from './mirror3d.tsx';
+import { JumpPad3D } from './jumpPad3d.tsx';
 
 const TABLE_Y = 0.78;
 
@@ -353,6 +354,7 @@ export function AttentionGlow({ item }: { item: Item }) {
 
 export function Item3D({ item }: { item: Item }) {
   switch (item.kind) {
+    case 'jumpPad': return <JumpPad3D item={item} />;
     case 'mirror': return <Mirror3D item={item} />;
     case 'bike': return <Bike3D item={item} />;
     case 'image': return <Image3D item={item} />;

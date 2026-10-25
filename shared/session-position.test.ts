@@ -79,6 +79,19 @@ test('bind received positions to approved peers, deduplicate, and reject departe
   assert.deepEqual(f.sent.map((p) => p.to), [['server']]);
 });
 
+test('jump pad height and jump count reach another participant through position sync', async () => {
+  const own = config('a', 0), other = config('b', 1), f = fixture(own);
+  await f.positions.update([member(other)]);
+  const key = await importKey(other.positionKey!);
+  for (const [i, y] of [0.18, 0.65, 0.18].entries()) {
+    const state = { x: 2, z: 3, ry: 0, jump: i === 2 ? 2 : 1, y, walking: false };
+    const value = await seal(key, other.token, 'position', i + 1, { t: 'avatar', s: state });
+    await f.positions.receive({ type: 'latest', key: `${POSITION_TOPIC}:0`, peer: other.peer, seq: BigInt(i + 1), value });
+    assert.deepEqual(f.applied.at(-1), { id: 'user-b', state });
+  }
+  assert.equal(f.applied.length, 3);
+});
+
 test('reject mismatched sequence and non-position payloads without applying them', async () => {
   const own = config('a', 0), other = config('b', 1), f = fixture(own), key = await importKey(other.positionKey!);
   await f.positions.update([member(other)]);

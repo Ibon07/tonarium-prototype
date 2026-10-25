@@ -2,7 +2,8 @@ import { t as tr } from '../i18n/index.ts';
 import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { GRAVITY, JUMP_V, ROOM_HALF, type AvatarState } from '../../../shared/protocol.ts';
+import { JUMP_V, ROOM_HALF, type AvatarState } from '../../../shared/protocol.ts';
+import { JUMP_PAD, jumpPadAt, jumpPadSolid, type JumpPad } from '../../../shared/jumpPad.ts';
 import { ARENA, FALL_Y, LAYER_Y, TILE_COUNT, TILE, inArena, startTile, tileBelow, tileCenter, tileGone } from '../../../shared/game.ts';
 import { SURVIVOR_MOVE_SPEED } from '../../../shared/survivor.ts';
 import { SURVIVOR_STYLES } from '../i18n/static.ts';
@@ -23,7 +24,7 @@ import { HammerModel } from './items3d.tsx';
 import { takePhoto, world } from './cameraRender.ts';
 import { CameraModel, cameraHelp } from './camera3d.tsx';
 import { PlayerCamera } from './playerCamera.ts';
-import { blocked, blockedByTrain, moveFlight, recoverPosition, walkingAfterMove, type MovementMode } from './movement.ts';
+import { blocked, blockedByTrain, fallToGround, moveFlight, recoverPosition, walkingAfterMove, type MovementMode } from './movement.ts';
 
 const SPEED = 4;
 const BODY_R = 0.3;
@@ -307,6 +308,8 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       set({ teleport: null });
     }
     const city = worldKindOf(s) === 'city';
+    const pads = Object.values(s.items).filter((item): item is JumpPad => item.kind === 'jumpPad' && item.id !== carrying.current?.id);
+    const padSolids = pads.map(jumpPadSolid);
     const now0 = serverNow();
     const bike = !tp && !survivorPlaying(s) ? riddenBike() : undefined;
     if (!bike) {
@@ -320,7 +323,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       }
       const d = driving.current;
       const k = keys.current;
-      const solids = city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s);
+      const solids = [...(city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s)), ...padSolids];
       d.state = moveBike(d.state, {
         throttle: k.KeyW || k.ArrowUp ? 1 : 0, brake: k.KeyS || k.ArrowDown ? 1 : 0,
         steering: (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0),
@@ -357,7 +360,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       aim.current = null;
     }
     const mode = s.movementMode;
-    const solids = city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s);
+    const solids = [...(city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s)), ...padSolids];
     const surfaces: Surface[] = city ? [...CITY_SURFACES, { ...SHAFT_RECT, ya: elevatorY(elevatorOfSession(s), now0), yb: elevatorY(elevatorOfSession(s), now0) }] : [];
     if (worldKindOf(s) === 'game') {
       for (let i = 0; i < TILE_COUNT; i++) if (!tileGone(g, i, now0)) {
@@ -435,6 +438,11 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       position.current.x = cl(p.x, 0);
       position.current.z = cl(p.z, 0);
     }
+    if (mode === 'walk' && onTower) {
+      const p = pushOut(position.current.x, position.current.z, BODY_R, padSolids, b.y);
+      position.current.x = cl(p.x, ARENA.x);
+      position.current.z = cl(p.z, ARENA.z);
+    }
     if (mode === 'walk' && city && b.car !== null) {
       const p = keepInCar(carPose(now0, b.car), position.current.x, position.current.z, now0);
       position.current.x = p.x;
@@ -443,14 +451,16 @@ export function Player({ rig }: { rig: PlayerCamera }) {
 
     // 先に横へ動かしてから、その場所の足元で上下を決める（板が消えた・端から出たときも落ちる）
     const fdt = Math.min(dt, 0.05);
-    const ground = groundAt(s, position.current.x, position.current.z, b.y);
+    const worldGround = groundAt(s, position.current.x, position.current.z, b.y);
+    const pad = jumpPadAt(pads, position.current.x, position.current.z, b.y);
+    const ground = pad && (!worldGround || worldGround.y <= JUMP_PAD.height)
+      ? { y: JUMP_PAD.height, tile: null, car: null, jumpPad: true }
+      : worldGround;
     // 坂・階段・上がっていくエレベーターでは足元に合わせて上がる
     if (mode === 'walk' && b.grounded && ground && ground.y > b.y && ground.y - b.y <= STEP_UP) b.y = ground.y;
     if (mode === 'walk' && b.grounded && (!ground || ground.y < b.y - 0.001)) b.grounded = false;
     if (mode === 'walk' && !b.grounded) {
-      b.vy -= GRAVITY * fdt;
-      b.y += b.vy * fdt;
-      if (ground && b.vy <= 0 && b.y <= ground.y) { b.y = ground.y; b.vy = 0; b.grounded = true; }
+      if (fallToGround(b, ground, fdt)) syncAirHeight.current = true;
     }
     if (b.grounded) syncAirHeight.current = false;
     b.car = city && b.grounded && ground?.car != null ? ground.car : city && b.car !== null && !b.grounded ? b.car : null;
