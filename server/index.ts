@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { keepHomeSocketsAlive } from './ws-heartbeat.ts';
+import { SessionThumbnails } from './thumbnails.ts';
 import { AccessToken } from 'livekit-server-sdk';
 import type {
   AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, Recap, RoomClientMsg, Rsvp,
@@ -203,6 +204,10 @@ const broadcastMode = new Map<string, boolean>();
 const lastAttention = new Map<string, number>();
 const emoteUntil = new WeakMap<Participant, number>();
 const worldOf = new Map<string, WorldKind>();
+const thumbnails = new SessionThumbnails(
+  (id, sid) => sendTo([id], { t: 'thumbnailRequest', sid }),
+  () => broadcastSessionInfo(),
+);
 // アイテムはだれもいなくなっても残し、再起動しても戻す（盤面の続きをするため）
 const savedItems = nullRecord(readJson<Record<string, Item[]>>(ITEMS_FILE, {}));
 /** 持っている人や編集中の人は再起動でいなくなるので外す */
@@ -214,6 +219,7 @@ function settle(it: Item) {
   return it;
 }
 function registerSession(def: SessionDef) {
+  thumbnails.register(def.id);
   sessionIds.add(def.id);
   worldOf.set(def.id, isWorldKind(def.world) ? def.world : 'room');
   chats.set(def.id, []);
@@ -453,11 +459,14 @@ function sessionInfoOf(sid: string): SessionInfo {
     const summary = itemSummary(it);
     return summary ? [{ id: it.id, kind: it.kind, summary }] : [];
   });
-  return { world: worldOf.get(sid) ?? 'room', items: list };
+  return { world: worldOf.get(sid) ?? 'room', items: list, thumbnail: thumbnails.thumbnail(sid) };
 }
 const allSessionInfo = () => Object.fromEntries([...sessionIds].map((sid) => [sid, sessionInfoOf(sid)]));
 /** アイテムやワールドが変わったら、ホーム向けの軽い情報を全員に配り直す（続けて起きた変更はまとめる） */
 const broadcastSessionInfo = later(() => broadcast({ t: 'sessionInfo', sessions: allSessionInfo() }), 300);
+setInterval(() => {
+  for (const sid of sessionIds) thumbnails.update(sid, inSession(sid));
+}, 10_000);
 function sendItem(sid: string, it: Item) {
   markItemsDirty(sid);
   roomSend(sid, { t: 'item', sid, item: it });
@@ -603,6 +612,7 @@ function leaveSession(u: Participant) {
   u.follow = null;
   u.pos = null;
   u.session = null;
+  thumbnails.update(sid, inSession(sid));
   u.mode = '2d';
   u.micOn = false;
   u.sharing = false;
@@ -707,6 +717,10 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
   const sid = me.session;
 
   switch (msg.t) {
+    case 'thumbnailUpload':
+      if (sid && sid === msg.sid) thumbnails.upload(sid, me.id, msg.thumbnail);
+      else console.warn('[thumbnail] rejected upload outside session');
+      return;
     case 'prepareSync': {
       if (!sid || typeof msg.requestId !== 'string') return;
       state.syncRequest = msg.requestId;
@@ -730,6 +744,7 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
       leaveSession(me);
       me.session = msg.sid;
       me.mode = '2d';
+      thumbnails.update(msg.sid, inSession(msg.sid));
       const visit = visits.get(msg.sid) ?? { from: Date.now(), people: new Set<string>(), log: [] };
       visit.people.add(me.name);
       visits.set(msg.sid, visit);
@@ -991,6 +1006,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
         if (avatars.get(sid)!.delete(me.id)) roomSend(sid, { t: 'avatarRemove', sid, id: me.id });
       }
       broadcastUsers(); sendPresence(sid);
+      thumbnails.update(sid, inSession(sid));
       event(sid, `${me.name} が ${modeLabel(msg.mode)} に切り替えました`);
       return;
     }
@@ -1080,6 +1096,7 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
       home.sessions.splice(home.sessions.indexOf(def), 1);
       guild.sessions.splice(guild.sessions.indexOf(def), 1);
       sessionIds.delete(def.id);
+      thumbnails.delete(def.id);
       worldOf.delete(def.id);
       chats.delete(def.id);
       avatars.delete(def.id);

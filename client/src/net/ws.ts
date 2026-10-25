@@ -140,6 +140,14 @@ export function onMessage(msg: ServerMsg) {
       else request?.resolve(msg);
       return;
     }
+    case 'thumbnailRequest':
+      if (msg.sid !== get().session || get().mode !== '3d') return;
+      void import('../view3d/cameraRender.ts').then(({ takeThumbnail }) => {
+        if (msg.sid !== get().session || get().mode !== '3d') return;
+        const thumbnail = takeThumbnail();
+        if (thumbnail) send({ t: 'thumbnailUpload', sid: msg.sid, thumbnail });
+      });
+      return;
     case 'marketLikes': set({ marketLikes: { counts: msg.counts, liked: msg.liked } }); return;
     case 'incompatible':
       set({ incompatible: true });
