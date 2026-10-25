@@ -319,7 +319,21 @@ const inbox = {
   convs: nullRecord(inboxRaw.convs ?? {}),
   reads: nullRecord(Object.fromEntries(Object.entries(inboxRaw.reads ?? {}).map(([name, r]) => [name, nullRecord(r)]))),
 };
-const saveInbox = later(() => fs.writeFileSync(MESSAGES_FILE, JSON.stringify(inbox)));
+/** 保存のたびに受信箱全体を文字列化しないよう、会話ごと・名前ごとの JSON を覚えておき、変わった分だけ作り直す。
+ * 中身を書き換える場所（pushMessage / 送信時の既読 / 既読 / RSVP）では、対応するキャッシュを必ず捨てること。
+ * 組み立て結果は JSON.stringify(inbox) とバイト単位で一致する（キー順・キーと値の文字列化は同じ規則） */
+const inboxPartJson = { convs: new Map<string, string>(), reads: new Map<string, string>() };
+function inboxJson() {
+  const part = (cache: Map<string, string>, key: string, value: unknown) => {
+    let s = cache.get(key);
+    if (s === undefined) { s = JSON.stringify(value) as string; cache.set(key, s); }
+    return `${JSON.stringify(key)}:${s}`;
+  };
+  const convs = Object.keys(inbox.convs).map((k) => part(inboxPartJson.convs, k, inbox.convs[k])).join(',');
+  const reads = Object.keys(inbox.reads).map((k) => part(inboxPartJson.reads, k, inbox.reads[k])).join(',');
+  return `{"convs":{${convs}},"reads":{${reads}}}`;
+}
+const saveInbox = later(() => fs.writeFileSync(MESSAGES_FILE, inboxJson()));
 
 /** セッションにだれかが入ってから全員が出るまで。終わったらまとめにする */
 const visits = new Map<string, { from: number; people: Set<string>; log: Recap['log'] }>();
@@ -385,14 +399,20 @@ function pushMessage(conv: string, m: Message) {
   const list = (inbox.convs[conv] ??= []);
   list.push(m);
   if (list.length > 300) list.shift();
+  inboxPartJson.convs.delete(conv);
   saveInbox();
   sendToNames(convMembers(conv) ?? [], { t: 'msg', conv, m });
 }
-/** 見える会話だけ、新しい方から 100 件ずつ */
+/** 見える会話だけ、新しい方から 100 件ずつ。
+ * 全会話を走査せず、その人の会話のキーだけを組み立てて引く。拾う条件は convMembers と一致する
+ * （DM はフレンド同士の組だけ、チャンネルは入っているグループのものだけ）。
+ * 常駐の参加者インデックスは持たない（フレンド追加やグループの出入り・削除のたびに同期が必要で、ずれると会話が消えるため） */
 function convsOf(name: string) {
   const out: Record<string, Message[]> = {};
-  for (const [conv, list] of Object.entries(inbox.convs))
-    if (convMembers(conv)?.includes(name)) out[conv] = list.slice(-100);
+  const take = (conv: string) => { const list = inbox.convs[conv]; if (list) out[conv] = list.slice(-100); };
+  // DM のキーは名前順が正規形。保存済みデータに逆順のキー（旧データ）があっても従来どおり拾えるよう両方見る
+  for (const f of friendsOf(name)) { take(`dm:${name}\u0000${f}`); take(`dm:${f}\u0000${name}`); }
+  for (const g of home.groups) if (g.members.includes(name)) for (const c of g.channels) take(channelKey(g.id, c.id));
   return out;
 }
 
@@ -1361,6 +1381,7 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
       });
       // 送った会話は読んだことにする
       (inbox.reads[me.name] ??= newRecord())[msg.conv] = Date.now();
+      inboxPartJson.reads.delete(me.name);
       return true;
     }
     case 'read': {
@@ -1369,6 +1390,7 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
       const at = Math.min(Date.now(), Number(msg.at) || 0);
       if (at <= (reads[msg.conv] ?? 0)) return true;
       reads[msg.conv] = at;
+      inboxPartJson.reads.delete(me.name);
       saveInbox();
       sendToNames([me.name], { t: 'read', conv: msg.conv, at });
       return true;
@@ -1390,6 +1412,7 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
         plan.event = ev.id;
       }
       if (ev) { ev.attendees = who('yes'); ev.maybe = who('maybe'); ev.declined = who('no'); saveHome(); broadcastEvents(); }
+      inboxPartJson.convs.delete(msg.conv);
       saveInbox();
       sendToNames(convMembers(msg.conv) ?? [], { t: 'msg', conv: msg.conv, m });
       return true;
