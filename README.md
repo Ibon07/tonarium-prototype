@@ -21,15 +21,9 @@
 
 Web 版と同じ 2D・3D・ゲームを専用ウィンドウで利用する別アプリ。サーバーに配信された Web 版の更新に追従する。Linux / Windows のビルドとインストールは [Electron 版](docs/electron.md) を参照。
 
-## Linux ネイティブ版
+## ネイティブ版の廃止
 
-Linux x86_64版のビルド・インストール・AUR用PKGBUILDは [Linux ネイティブ版](docs/native-linux.md) を参照。2DはAvalonia、3DはUnity Linuxプレイヤーを使用する。
-
-## Windows ネイティブ版
-
-`native/` に Avalonia の 2D クライアントと Unity の 3D クライアントがある。同じサーバーとセッションに接続する。2DはWeb版と共通の画像・アイコン・フォントを使用し、お絵描きアバターもネイティブでアニメーション表示する。起動は `powershell -ExecutionPolicy Bypass -File native/run-desktop.ps1`。初回は .NET 10 SDK が必要。3D のビルド、配布、確認状況は [Windows ネイティブ版](docs/native-windows.md) を参照。
-
-Windows版はローカルでビルドしたZIPをGit LFSでコミットし、`v0.0.1` のようなタグのpushでGitHub ActionsからReleaseへ添付する。[ビルドとリリース手順](docs/native-release.md)。
+Avalonia／Unity による Windows／Linux ネイティブ版は廃止しました。今後は Web 版または [Electron 版](docs/electron.md) を利用してください。ネイティブ版のコード・専用設定・自動配布処理は削除しました。公開済みの配布物は削除していません。
 
 ## セットアップ
 ```bash
