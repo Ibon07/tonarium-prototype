@@ -32,9 +32,18 @@ const vertexShader = `
     float angle = aSeed.z * TAU + uTime * speed * 1.8;
     vec3 p;
     if (aSeed.w < 0.3) {
-      // A local cloud makes the running reactor itself visibly busier.
-      float radius = 0.38 + aSeed.y * 0.35;
-      p = uFrom + vec3(cos(angle) * radius, sin(angle * 1.3 + aSeed.x * TAU) * 0.5, sin(angle) * radius);
+      // Rotate circular orbits into seeded planes to fill a spherical shell.
+      float radius = 0.55 + aSeed.y * 0.55;
+      float orbitAngle = (aSeed.w / 0.3) * TAU + uTime * speed * 1.8;
+      float node = aSeed.x * TAU;
+      float cosInclination = aSeed.z * 2.0 - 1.0;
+      float sinInclination = sqrt(max(0.0, 1.0 - cosInclination * cosInclination));
+      vec3 orbit = vec3(cos(orbitAngle), sin(orbitAngle) * cosInclination, sin(orbitAngle) * sinInclination) * radius;
+      p = uFrom + vec3(
+        orbit.x * cos(node) - orbit.y * sin(node),
+        orbit.x * sin(node) + orbit.y * cos(node),
+        orbit.z
+      );
       vAlpha = 0.38 + aSeed.z * 0.4;
     } else {
       // High tiers feed the previous tier; tier 1 feeds the antimatter core.
@@ -119,7 +128,7 @@ function DimensionProductionStream({ view, target }: { view: AdDimensionView; ta
     <points
       name={`ad-dimension-${view.tier}-production-particles`}
       geometry={geometry} material={material} frustumCulled={false}
-      userData={{ noRay: true, producing: view.producing, particleCount: count }}
+      userData={{ noRay: true, producing: view.producing, particleCount: count, localOrbitRadius: [0.55, 1.1] }}
     />
   );
 }
