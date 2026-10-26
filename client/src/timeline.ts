@@ -14,6 +14,10 @@ export const repostPost = (id: string, on: boolean) => send({ t: 'postRepost', i
 
 export const openPost = (id: string) => set({ timelineSide: `post:${id}` });
 export const openCompose = (quote: string | null = null) => set({ timelineSide: 'compose', composeQuote: quote });
+/** ポストに付けられる写真は 1 枚なので、最初の画像だけを書く欄へ渡す */
+export function offerPostImage(files: File[]) {
+  set({ timelineSide: 'compose', composeImage: files.find((f) => f.type.startsWith('image/')) ?? 'unsupported' });
+}
 export const closeTimelineSide = () => set({ timelineSide: null, composeQuote: null });
 export function setTimelineTab(timelineTab: TimelineTab) { save('tonarium.timelineTab', timelineTab); set({ timelineTab }); }
 
