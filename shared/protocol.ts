@@ -8,6 +8,7 @@ import type { SyncConfig } from './session-wire.ts';
 import type { PeerOperation } from './session-events.ts';
 import type { AssetCommand, AssetView } from './shared-assets.ts';
 import type { AssetDelta } from './shared-sync.ts';
+import type { SystemCommand, SystemCommandResult, SystemView } from './system-types.ts';
 
 export type Mode = '2d' | '3d';
 
@@ -16,7 +17,7 @@ export type Mode = '2d' | '3d';
  * 約束事を壊す変更（メッセージの追加・意味の変更など）を入れたら +1 する。
  * hello で申告が無い・一致しないクライアントはサーバーが接続を断ち、画面は全面で更新を促す（docs/sync.md）
  */
-export const COMPAT_VERSION = 3;
+export const COMPAT_VERSION = 5;
 
 /** セッションを見られる人。省略時は public */
 export type Visibility = 'public' | 'friends' | 'groupPlus' | 'group' | 'invite';
@@ -266,6 +267,7 @@ export interface Snapshot {
 export interface SessionSnapshot {
   sid: string;
   sharedAssets?: AssetView;
+  systems?: SystemView;
   chats: ChatMessage[];
   avatars: Record<string, AvatarState>;
   items: Item[];
@@ -316,6 +318,9 @@ export type HomeClientMsg =
 
 /** kokosync でサーバーへ送るもの（セッションの中だけ）。 */
 export type RoomClientMsg =
+  | { t: 'systemLoad'; mapId: string }
+  | { t: 'systemCommand'; command: Exclude<SystemCommand, { kind: 'map' }> }
+  | { t: 'systemResync' }
   | { t: 'sharedCommand'; command: AssetCommand }
   | { t: 'sharedResync' }
   | { t: 'peerOperation'; event: PeerOperation }
@@ -368,6 +373,7 @@ export type ClientMsg = HomeClientMsg | RoomClientMsg;
 
 /** 部屋へ送る種類の一覧（送り先の振り分けに使う。型と同じ並び） */
 const ROOM_CLIENT_TYPES: Record<RoomClientMsg['t'], true> = {
+  systemLoad: true, systemCommand: true, systemResync: true,
   sharedCommand: true, sharedResync: true,
   peerOperation: true,
   sync: true, mode: true, status: true, follow: true, dropFollowers: true, place2d: true, displayMove: true, chat: true, avatar: true,
@@ -410,6 +416,7 @@ export type HomeServerMsg =
 
 /** kokosync でサーバーから届くもの。 */
 export type RoomServerMsg =
+  | { t: 'systemState'; sid: string; view: SystemView; error?: string; commandResult?: SystemCommandResult }
   | { t: 'sharedDelta'; sid: string; delta: AssetDelta; commandId?: string }
   | { t: 'sharedState'; sid: string; view: AssetView; commandId?: string; error?: string }
   | { t: 'presence'; sid: string; all: Record<string, Presence> }

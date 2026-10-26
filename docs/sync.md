@@ -1,6 +1,8 @@
 # セッションの同期（kokosync）
 
-共有アセットの追加により互換性バージョンは3です。`sharedCommand` を既存の認証済み操作経路で処理し、保存後の `sharedDelta` を受信者別に暗号化して届けます。欠落時の `sharedResync` と初回snapshotで全量を補完します。状態範囲と制約は [shared-assets.md](shared-assets.md) を参照してください。
+互換性バージョンは5です。共有システムは `systemState.commandResult` で命令IDと適用・重複・拒否の結果を返します。クライアントは入力を直列化し、明示的なrevision衝突の拒否だけを最新状態で再試行します。応答不明・切断時の入力は再送せず、再接続のsnapshotで共有システムと実アイテムをまとめて復元します。[共有システムの契約](shared-systems.md)を参照してください。
+
+共有アセットの `sharedCommand` は既存の認証済み操作経路で処理し、保存後の `sharedDelta` を受信者別に暗号化して届けます。欠落時の `sharedResync` と初回snapshotで全量を補完します。状態範囲と制約は [shared-assets.md](shared-assets.md) を参照してください。
 
 セッション内のデータは kokosync、フレンド・DM・ホームは既存の WebSocket、音声・映像は LiveKit を使う。アプリ側の `send()` とメッセージ型は維持している。
 
@@ -103,3 +105,7 @@ npm run test:chess
 確実配送の追加後も5画面で確認し、チャット・サイコロ・キャンバス操作の3件について、送り主はP2P送信12件、残り4人はそれぞれP2P受信3件・中継0件を記録した。統合テストでは5接続で240 KBの添付、描画と全消去の競合、イベントの再送、秘密のサイコロ、P2P本文欠落時の補完、途中参加による状態復元を確認している。
 
 SDK は `vendor/kokosync/` に同梱してあり、別リポジトリのチェックアウトを必要としない。出典と変更点は同ディレクトリの README を参照。
+
+## 공유 시스템 동기화
+
+호환성 버전 4는 `systemLoad`, `systemCommand`, `systemResync` 요청과 `systemState`, snapshot의 `systems`를 추가합니다. 코드로 등록한 맵을 선택하고, 기존 kokosync 서버 경로로 확정 상태를 배송합니다. 시스템 입력은 서버의 연결 사용자를 실행 문맥으로 사용하며, 사용자·오브젝트 payload를 검사합니다. 늦은 입장·재접속은 전체 snapshot으로 복원하고 오래된 revision은 무시합니다. 설정과 버전 갱신·현재 상태 계약은 [공유 시스템](shared-systems.md)을 참고합니다.

@@ -10,6 +10,10 @@ import { SURVIVOR_STYLES } from '../i18n/static.ts';
 import { get, set, useStore, heldHammer, heldCamera, nameOf, solidsOf, worldKindOf, gameOfSession, elevatorOfSession, serverNow, spawnPoint } from '../store.ts';
 import { useSharedAssets } from '../shared-assets/state.ts';
 import { sharedSolids } from '../../../shared/shared-presentation.ts';
+import { useSystems } from '../systems/state.ts';
+import { systemSeat, systemSolids } from '../../../shared/system-presentation.ts';
+import { avatarHipHeight, seatedBodyOffset, stepSeatedWeight } from './seatedPose.ts';
+import { DEFAULT_PARAMS } from '../../../shared/avatar.ts';
 import type { AssetView, Catalog } from '../../../shared/shared-assets.ts';
 import { CAR, CITY_HALF, CITY_SURFACES, SHAFT_RECT, clampCity, elevatorY, type Surface } from '../../../shared/city.ts';
 import { STEP_UP, carPose, cityGround, citySolids, keepInCar, toCarLocal } from './cityPhysics.ts';
@@ -57,7 +61,7 @@ const clampTo = (onTower: boolean, city: boolean) => (onTower
 const SENS = 0.0025;
 
 const isTyping = (t: EventTarget | null) =>
-  t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+  t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
 
 function hintFor(aim: { data: Interactable; hit: THREE.Intersection } | null): string | null {
   if (riddenBike()) return tr('mergeBikeControls');
@@ -108,6 +112,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
   const aim = useRef<ReturnType<typeof aimAt>>(null);
   const previousMode = useRef<MovementMode>('walk');
   const syncAirHeight = useRef(false);
+  const seatedWeight = useRef(0);
   const hammerRef = useRef<THREE.Group>(null);
   const cameraRef = useRef<THREE.Group>(null);
   const dragging = useRef<{ data: Interactable; obj: THREE.Object3D; hit: THREE.Intersection | null } | null>(null);
@@ -115,7 +120,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
   // 共有配置はセッションで絞った view と catalog の参照が変わったときに再計算する。
   const collCache = useRef<{
     padsItems: Store['items'] | null; padsCarrying: string | undefined; pads: JumpPad[]; padSolids: Solid[];
-    sharedView?: AssetView; sharedCatalog?: Catalog; sharedSolids: Solid[];
+    sharedView?: AssetView; sharedCatalog?: Catalog; sharedSolids: Solid[]; systemRevision?: number; systemSid?: string;
     solidsBase: Solid[] | null; solidsPads: Solid[] | null; solids: Solid[];
     cityY: number | null; citySurfaces: Surface[];
     goneFlags: Uint8Array; goneScratch: Uint8Array; tileSurfaces: Surface[] | null;
@@ -184,13 +189,16 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e.target)) return;
       if (rig.keyDown(e)) return;
+      const systems = useSystems.getState();
+      const seat = systems.sid === get().session ? systemSeat(systems.view, get().selfId) : undefined;
+      if (seat && e.code === 'Space') { e.preventDefault(); return; }
       const freshPress = !e.repeat && !keys.current[e.code];
       keys.current[e.code] = true;
       if ((e.code === 'KeyQ' || e.code === 'KeyE') && (heldHammer(get()) || heldCamera(get()) || carrying.current || dragging.current || riddenBike() || aim.current?.data.bike)) {
         leanConsumed.current[e.code] = true;
         rig.lean = 0;
       }
-      if (e.code === 'KeyE' && !e.repeat) {
+      if (e.code === 'KeyE' && !e.repeat && !seat) {
         const bike = riddenBike();
         if (bike) {
           const d = driving.current;
@@ -278,6 +286,8 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     if (carrying.current) { finishCarry(); return; }
     const s = get();
     const target = aim.current;
+    const systems = useSystems.getState();
+    if (target?.data.bike && systems.sid === s.session && systemSeat(systems.view, s.selfId)) return;
     if (target?.data.bike && (!body.current.grounded || body.current.car !== null || Math.abs(body.current.y) > 0.3)) return;
     const cam = heldCamera(s);
     if (cam) { takePhoto(cam); return; }
@@ -367,17 +377,23 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     if (cc.padsItems !== s.items || cc.padsCarrying !== carrying.current?.id) {
       cc.padsItems = s.items;
       cc.padsCarrying = carrying.current?.id;
-      cc.pads = Object.values(s.items).filter((item): item is JumpPad => item.kind === 'jumpPad' && item.id !== carrying.current?.id);
+      cc.pads = Object.values(s.items).filter((item): item is JumpPad => item.kind === 'jumpPad' && item.mapPlacement?.mode !== 'system' && item.id !== carrying.current?.id);
       cc.padSolids = cc.pads.map(jumpPadSolid);
     }
     const pads = cc.pads;
     const padSolids = cc.padSolids;
     const shared = useSharedAssets.getState();
+    const systemState = useSystems.getState();
+    const systemView = systemState.sid === s.session ? systemState.view : undefined;
+    const seated = systemSeat(systemView, s.selfId);
+    seatedWeight.current = stepSeatedWeight(seatedWeight.current, !!seated, dt);
     const sharedView = shared.sid === s.session ? shared.view : undefined;
-    if (cc.sharedView !== sharedView || cc.sharedCatalog !== shared.catalog) {
+    if (cc.sharedView !== sharedView || cc.sharedCatalog !== shared.catalog || cc.systemRevision !== systemView?.revision || cc.systemSid !== s.session) {
       cc.sharedView = sharedView;
       cc.sharedCatalog = shared.catalog;
-      cc.sharedSolids = sharedSolids(sharedView, shared.catalog);
+      cc.systemRevision = systemView?.revision;
+      cc.systemSid = s.session ?? undefined;
+      cc.sharedSolids = [...sharedSolids(sharedView, shared.catalog), ...systemSolids(systemView)];
       cc.solidsBase = null;
     }
     const solidsWithPads = (base: Solid[]): Solid[] => {
@@ -389,7 +405,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       return cc.solids;
     };
     const now0 = serverNow();
-    const bike = !tp && !survivorPlaying(s) ? riddenBike() : undefined;
+    const bike = !seated && !tp && !survivorPlaying(s) ? riddenBike() : undefined;
     if (!bike) {
       const previousBike = riddenBike();
       if (previousBike) itemAction(previousBike.id, { a: 'bikeDismount' });
@@ -442,7 +458,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       driving.current = null;
       aim.current = null;
     }
-    const mode = s.movementMode;
+    const mode = seated ? 'walk' : s.movementMode;
     const solids = solidsWithPads(city ? citySolids(now0, elevatorOfSession(s)) : solidsOf(s));
     let surfaces: Surface[];
     if (city) {
@@ -478,7 +494,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       const height = Math.max(1.7, eye.current + 0.1);
       return bounds(p.x, ARENA.x) === p.x && bounds(p.z, ARENA.z) === p.z && !blocked(p, solids, surfaces, height) && !(city && blockedByTrain(p, now0, height));
     };
-    if (mode !== previousMode.current || (tp && mode !== 'noclip') || (mode === 'fly' && !valid({ x: position.current.x, y: b.y, z: position.current.z }))) {
+    if (!seated && (mode !== previousMode.current || (tp && mode !== 'noclip') || (mode === 'fly' && !valid({ x: position.current.x, y: b.y, z: position.current.z })))) {
       syncAirHeight.current = mode === 'walk';
       b.vy = 0;
       b.extraJump = false;
@@ -524,8 +540,8 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     camera.rotation.set(pitch - shake * 0.15, yaw + (rig.thirdPerson ? 0 : Math.sin(performance.now() / 30) * shake * 0.03), rig.lean);
 
     const k = keys.current;
-    const f = survivorPaused ? 0 : (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0) - (immersive ? xr.move[1] : 0);
-    const r = survivorPaused ? 0 : (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0) + (immersive ? xr.move[0] : 0);
+    const f = survivorPaused || seated ? 0 : (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0) - (immersive ? xr.move[1] : 0);
+    const r = survivorPaused || seated ? 0 : (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0) + (immersive ? xr.move[0] : 0);
     const onTower = worldKindOf(s) === 'game' && inArena(position.current.x, position.current.z);
     const cl = clampTo(onTower, city);
     const beforeMove = { x: position.current.x, z: position.current.z };
@@ -554,7 +570,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       position.current.z = cl(p.z, 0);
     }
     if (mode === 'walk' && onTower) {
-      const p = pushOut(position.current.x, position.current.z, BODY_R, padSolids, b.y);
+      const p = pushOut(position.current.x, position.current.z, BODY_R, [...padSolids, ...cc.sharedSolids], b.y);
       position.current.x = cl(p.x, ARENA.x);
       position.current.z = cl(p.z, ARENA.z);
     }
@@ -584,6 +600,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       b.stepped = ground.tile;
       if (g.players.some((p) => p.id === s.selfId && p.out === null)) send({ t: 'gameStep', tile: ground.tile });
     }
+    if (seated) { position.current.x = seated.x; position.current.z = seated.z; b.y = seated.y; b.vy = 0; b.grounded = true; b.car = null; walking.current = false; }
     if (survivors && !rig.thirdPerson) {
       camera.up.set(0, 0, -1);
       position.current.set(position.current.x, eye.current + (16 - DEFAULT_EYE_HEIGHT), position.current.z);
@@ -591,7 +608,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       camera.lookAt(position.current.x, 0, position.current.z);
     } else {
       camera.up.set(0, 1, 0);
-      position.current.y = eye.current + b.y - shake * 0.12;
+      position.current.y = eye.current + b.y - shake * 0.12 - (eye.seatOffset ?? seatedBodyOffset(avatarHipHeight(DEFAULT_PARAMS))) * seatedWeight.current;
     }
 
     const now = performance.now();
@@ -601,7 +618,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     const jumped = b.n !== st.jump;
     // 塔の上・落ちている間・高い足場（街の上の階や駅）にいる間は高さも送る。
     // 床でのジャンプは回数だけ送り、相手の画面で放物線を描く（途中の高さを送るとカクつく）
-    const sendY = mode !== 'walk' || syncAirHeight.current || onTower || b.y < -0.01 || (ground?.y ?? 0) > 0.01;
+    const sendY = !!seated || mode !== 'walk' || syncAirHeight.current || onTower || b.y < -0.01 || (ground?.y ?? 0) > 0.01;
     const yNow = sendY ? b.y : undefined;
     const changed = Math.abs(x - st.x) > 0.01 || Math.abs(z - st.z) > 0.01 || Math.abs(yaw - st.ry) > 0.01
       || rig.lean !== st.lean || Math.abs(pitch - st.pitch) > 0.03 || (yNow ?? 0) !== st.y;

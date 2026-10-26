@@ -24,6 +24,7 @@ import { DiceBody } from './DiceBody.tsx';
 import { TelephoneBody } from '../items/TelephoneBody.tsx';
 import { SurvivorLibrary, SurvivorPanel } from './SurvivorPanel.tsx';
 import { AntimatterSpaceWindowBody, AntimatterWindowBody } from './antimatter/windowBodies.tsx';
+import { SystemItemPanel } from '../systems/SystemItem.tsx';
 
 const BAR = 40;
 type Kind = 'video' | 'panel' | 'note' | 'media' | 'face' | 'dice' | 'survivor';
@@ -122,6 +123,7 @@ function useResolved(key: string, compact: boolean): Resolved | null {
   const item = items[id];
   if (!item) return null;
   const sub = <>{item.createdBy === selfId ? tr("ui84") : name(item.createdBy)} {tr("ui840")}<ItemDist id={item.id} /></>;
+  if (item.mapPlacement?.mode === 'system') return { kind: 'panel', dark: false, item, title: itemLabel(item), sub, width: 360, body: <SystemItemPanel item={item} /> };
   if (key.startsWith('cam:')) {
     if (item.kind !== 'camera' || !item.live || !camFeeds[id]) return null;
     return {
@@ -253,7 +255,7 @@ function WinButtons({ win, r, max }: { win: Win; r: Resolved; max: boolean }) {
     <>
         <Viewers keyName={win.key} dark={r.dark} />
         {r.item && /^(item|cam):/.test(win.key) && <AttentionButton keyName={win.key} />}
-        {r.item && r.kind !== 'video' && (
+        {r.item && r.item.mapPlacement?.mode !== 'system' && r.kind !== 'video' && (
           <button className="ib wbtn" aria-label={tr("ui618")} title={tr("ui846")} onClick={() => removeItem(r.item!.id)}><Icon name="trash" size={14} /></button>
         )}
         {!r.noMax && <button className="ib wbtn" onClick={() => toggleMax(win.key)} aria-label={max ? tr("ui847") : tr("ui848")}><Icon name="maximize" size={14} /></button>}

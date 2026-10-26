@@ -31,6 +31,7 @@ import { Telephone3D } from './telephone3d.tsx';
 import { Mirror3D } from './mirror3d.tsx';
 import { JumpPad3D } from './jumpPad3d.tsx';
 import { createImageTexture } from './imageTexture.ts';
+import { SystemItemBoundary } from '../systems/SystemItem.tsx';
 
 const TABLE_Y = 0.78;
 
@@ -355,6 +356,11 @@ export function AttentionGlow({ item }: { item: Item }) {
 }
 
 export function Item3D({ item }: { item: Item }) {
+  const content = <NativeItem3D item={item} />;
+  return item.mapPlacement?.mode === 'system' ? <SystemItemBoundary item={item}>{content}</SystemItemBoundary> : content;
+}
+
+function NativeItem3D({ item }: { item: Item }) {
   switch (item.kind) {
     case 'telephone': return <Telephone3D item={item} />;
     case 'jumpPad': return <JumpPad3D item={item} />;

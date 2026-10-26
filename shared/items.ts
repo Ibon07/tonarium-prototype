@@ -27,6 +27,15 @@ export interface Stroke { id: string; by: string; color: string; size: number; p
 
 export const NOTE_COLORS = ['#fde68a', '#fca5a5', '#86efac', '#93c5fd', '#d8b4fe'];
 
+export interface ItemMapPlacement {
+  mapId: string;
+  objectId: string;
+  itemId: string;
+  mode: 'native' | 'system';
+  position: [number, number, number];
+  rotation: number;
+}
+
 interface ItemBase {
   id: string;
   x: number;
@@ -34,6 +43,7 @@ interface ItemBase {
   ry: number;
   createdBy: string;
   updatedBy: string;
+  mapPlacement?: ItemMapPlacement;
 }
 
 export type Item =

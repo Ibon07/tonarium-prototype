@@ -1,4 +1,5 @@
 export default {
+  sharedSystems: '공유 시스템',
   updateSettings: '업데이트 설정',
   updateRetry: '다시 시도',
   updateAudioNeedsClick: '브라우저의 자동 재생 제한으로 소리가 멈췄습니다. 다시 시도를 누르면 재생을 재개합니다.',

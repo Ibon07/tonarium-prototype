@@ -35,6 +35,10 @@ import { getOgp } from './ogp.ts';
 import { MEDIA_DIR, mediaExists, pipeFile, saveMedia, serveMedia } from './media.ts';
 import { SharedService } from './shared-service.ts';
 import { sharedSolids } from '../shared/shared-presentation.ts';
+import { SystemService } from './system-service.ts';
+import { systemMaps } from './system-maps.ts';
+import { isSystemControlledItem, reconcileSystemItems } from './system-items.ts';
+import { systemSeat, systemSolids } from '../shared/system-presentation.ts';
 import { assetDelta } from '../shared/shared-sync.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
 import { clearGame, eliminate, gameOf, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
@@ -53,6 +57,8 @@ const CLIENT_VERSION = (() => {
 })();
 const DATA_DIR = process.env.DATA_DIR ?? path.join(ROOT, 'data');
 const sharedAssets = new SharedService(DATA_DIR);
+const systems = new SystemService(DATA_DIR, ROOT);
+for (const error of systems.startupErrors) console.error(error);
 const ICON_DIR = path.join(DATA_DIR, 'icons');
 const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
 const PROFILE_DIR = path.join(DATA_DIR, 'profiles');
@@ -272,6 +278,7 @@ const sockets = new Map<string, Set<WebSocket>>(); // 同じIDで複数タブを
 const chats = new Map<string, ChatMessage[]>();
 const avatars = new Map<string, Map<string, AvatarState>>();
 const items = new Map<string, Map<string, Item>>();
+const systemItemRooms = new Set<string>();
 const broadcastMode = new Map<string, boolean>();
 const lastAttention = new Map<string, number>();
 const emoteUntil = new WeakMap<Participant, number>();
@@ -607,6 +614,20 @@ function sendItemRemove(sid: string, id: string) {
   roomSend(sid, { t: 'itemRemove', sid, id });
   broadcastSessionInfo();
 }
+function syncSystemItems(sid: string, createMissingNative = !systemItemRooms.has(sid), notify = true) {
+  const current = items.get(sid);
+  if (!current) return;
+  const changes = reconcileSystemItems(current, systems.view(sid), { createMissingNative });
+  for (const id of changes.removed) current.delete(id);
+  for (const item of changes.changed) current.set(item.id, item);
+  systemItemRooms.add(sid);
+  if (!changes.changed.length && !changes.removed.length) return;
+  markItemsDirty(sid);
+  if (notify) {
+    for (const id of changes.removed) sendItemRemove(sid, id);
+    for (const item of changes.changed) sendItem(sid, item);
+  }
+}
 /** 移動の配信は位置だけにし、アイテムごとに間引く。止まったときの最後の位置は必ず届ける */
 const ITEM_MOVE_MS = 80;
 const itemMoveSentAt = new Map<string, number>();
@@ -631,7 +652,7 @@ function refreshTelephones(sid: string) {
   const present = new Set(inSession(sid).map(u => u.id));
   const presenceKey = [...present].sort().join('\0');
   for (const it of items.get(sid)?.values() ?? []) {
-    if (it.kind !== 'telephone') continue;
+    if (it.kind !== 'telephone' || isSystemControlledItem(it)) continue;
     const g = telephoneState(it);
     const progressed = tickTelephone(g, Date.now());
     const hostChanged = reconcileTelephoneHost(g, present, Math.random);
@@ -643,10 +664,12 @@ function refreshTelephones(sid: string) {
 setInterval(() => { for (const sid of items.keys()) refreshTelephones(sid); }, 250);
 
 function sendSessionSnapshot(sid: string, id: string) {
+  syncSystemItems(sid);
   refreshTelephones(sid);
   roomSendSnapshot(sid, id, {
     sid,
     sharedAssets: sharedAssets.view(sid, id),
+    systems: systems.view(sid),
     chats: (chats.get(sid) ?? []).filter((m) => !m.to || m.to.includes(id)),
     avatars: Object.fromEntries(avatars.get(sid) ?? []),
     items: [...(items.get(sid)?.values() ?? [])].map(it => telephoneItemFor(it, id, new Set(inSession(sid).map(u => u.id)))),
@@ -671,7 +694,7 @@ const modeLabel = (m: Mode) => (m === '3d' ? '3D' : '2D');
 const clampRoom = (v: number) => Math.max(-ROOM_HALF + 0.5, Math.min(ROOM_HALF - 0.5, v));
 /** クライアント由来の数値を有限数にする（NaN や Infinity が共有状態に残らないように） */
 const finNum = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
-const solidsOf = (sid: string) => [...WORLDS[worldOf.get(sid) ?? 'room'].solids, ...sharedSolids(sharedAssets.view(sid, 'server'), sharedAssets.catalog.current())];
+const solidsOf = (sid: string) => [...WORLDS[worldOf.get(sid) ?? 'room'].solids, ...sharedSolids(sharedAssets.view(sid, 'server'), sharedAssets.catalog.current()), ...systemSolids(systems.view(sid))];
 /** 部屋（街なら街）の中に収め、家具にめり込んでいたら外へ出す。アイテムと 2D の人は地上にいる */
 function placeIn(sid: string, x: number, z: number, r: number) {
   const world = worldOf.get(sid) ?? 'room';
@@ -700,9 +723,10 @@ function switchWorld(sid: string, world: WorldKind, clear: boolean, byName: stri
   const sessItems = items.get(sid)!;
   for (const u of inSession(sid)) releaseBikes(sid, u.id);
   if (clear) {
-    for (const id of [...sessItems.keys()]) { sessItems.delete(id); sendItemRemove(sid, id); }
+    for (const [id, item] of [...sessItems]) if (!isSystemControlledItem(item)) { sessItems.delete(id); sendItemRemove(sid, id); }
   } else {
     for (const it of sessItems.values()) {
+      if (isSystemControlledItem(it)) continue;
       if ('holder' in it && it.holder) continue;
       const p = placeIn(sid, it.x, it.z, itemRadius(it) * 0.6);
       if (Math.abs(p.x - it.x) + Math.abs(p.z - it.z) < 1e-3) continue;
@@ -762,6 +786,12 @@ function leaveSession(u: Participant) {
   u.follow = null;
   u.pos = null;
   u.session = null;
+  try {
+    const changed = systems.leave(sid, u.id);
+    syncSystemItems(sid, false);
+    if (changed) roomSend(sid, { t: 'systemState', sid, view: systems.view(sid) });
+  }
+  catch (error) { console.error('system departure cleanup', error); }
   refreshTelephones(sid);
   thumbnails.update(sid, inSession(sid));
   u.mode = '2d';
@@ -772,7 +802,7 @@ function leaveSession(u: Participant) {
   u.display = null;
   event(sid, `${u.name} が退出しました`);
   if (inSession(sid).length) sendPresence(sid);
-  else { finishVisit(sid); sharedAssets.release(sid); void leaveRoom(sid); scheduleEmptyCheck(sid); }
+  else { finishVisit(sid); sharedAssets.release(sid); systems.release(sid); void leaveRoom(sid); scheduleEmptyCheck(sid); }
 }
 
 function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string }, msg: ClientMsg) {
@@ -921,6 +951,30 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
 function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPositions = false, peerEvent?: PeerOperation) {
   const sessItems = items.get(sid)!;
   switch (msg.t) {
+    case 'systemResync':
+      syncSystemItems(sid);
+      roomSend(sid, { t: 'systemState', sid, view: systems.view(sid) }, [me.id]);
+      return;
+    case 'systemLoad':
+    case 'systemCommand': {
+      let error: string | undefined;
+      let outcome: 'applied' | 'duplicate' = 'applied';
+      try {
+        const participants = inSession(sid).map(u => u.id);
+        if (msg.t === 'systemLoad') {
+          const map = systemMaps.get(msg.mapId);
+          if (!map) throw new Error('Unknown registered code map');
+          systems.load(sid, me.id, map, participants);
+        } else outcome = systems.apply(sid, me.id, msg.command, participants);
+        syncSystemItems(sid, msg.t === 'systemLoad');
+      } catch (reason) { error = reason instanceof Error ? reason.message : 'System operation failed'; }
+      roomSend(sid, { t: 'systemState', sid, view: systems.view(sid), ...(error ? { error } : {}),
+        ...(msg.t === 'systemCommand' && typeof msg.command?.id === 'string' ? {
+          commandResult: { id: msg.command.id, outcome: error ? 'rejected' : outcome },
+        } : {}),
+      }, error ? [me.id] : undefined);
+      return;
+    }
     case 'sharedResync': {
       roomSend(sid, { t: 'sharedState', sid, view: sharedAssets.view(sid, me.id) }, [me.id]);
       return;
@@ -1114,14 +1168,14 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     }
     case 'itemRemove': {
       const it = sessItems.get(msg.id);
-      if (!it || (it.kind === 'bike' && it.rider) || !sessItems.delete(msg.id)) return;
+      if (!it || isSystemControlledItem(it) || (it.kind === 'bike' && it.rider) || !sessItems.delete(msg.id)) return;
       sendItemRemove(sid, msg.id);
       event(sid, `${me.name} が ${ITEM_INFO[it.kind].name} をしまいました`);
       return;
     }
     case 'itemMove': {
       const it = sessItems.get(msg.id);
-      if (!it || (it.kind === 'hammer' && it.holder) || (it.kind === 'bike' && it.rider)) return;
+      if (!it || isSystemControlledItem(it) || (it.kind === 'hammer' && it.holder) || (it.kind === 'bike' && it.rider)) return;
       const p = placeIn(sid, msg.x, msg.z, itemRadius(it) * 0.6);
       const ry = finNum(msg.ry);
       // 位置が変わっていなければ送らない
@@ -1132,7 +1186,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     }
     case 'itemAction': {
       const it = sessItems.get(msg.id);
-      if (!it) return;
+      if (!it || isSystemControlledItem(it)) return;
       if (it.kind === 'telephone') {
         if (!msg.action || typeof msg.action.a !== 'string' || !msg.action.a.startsWith('telephone')) return;
         const present = new Set(inSession(sid).map(u => u.id));
@@ -1258,7 +1312,8 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     }
     case 'avatar': {
       // 2D の人の分も覚えるが、使う側はみな mode を見て 3D の人の分だけ使う（mode より先に届くことがある）
-      const s = clampAvatar(worldOf.get(sid) ?? 'room', msg.s);
+      const seat = systemSeat(systems.view(sid), me.id);
+      const s = seat ? { ...clampAvatar(worldOf.get(sid) ?? 'room', msg.s), x: seat.x, y: seat.y, z: seat.z, walking: false } : clampAvatar(worldOf.get(sid) ?? 'room', msg.s);
       avatars.get(sid)!.set(me.id, s);
       roomSend(sid, { t: 'avatar', sid, id: me.id, s }, inSession(sid).filter((u) => u.id !== me.id).map((u) => u.id), peerPositions);
       // 2D から 3D に入ったときは、入った場所の前に立てる
@@ -1301,6 +1356,7 @@ function destroyUserSession(sessionId: string) {
   chats.delete(def.id);
   avatars.delete(def.id);
   items.delete(def.id);
+  systemItemRooms.delete(def.id);
   markItemsDirty(def.id);
   broadcastMode.delete(def.id);
   worldPending.delete(def.id);
@@ -1576,6 +1632,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   let url: URL;
   try { url = new URL(req.url ?? '/', 'http://x'); } catch { res.statusCode = 400; res.end('bad path'); return; }
   if (sharedAssets.http(req, res, url.pathname)) return;
+  if (systems.http(req, res, url.pathname)) return;
   if (url.pathname === '/api/translate') { await handleTranslation(req, res); return; }
   if (url.pathname === '/sync/offer') { await handleSyncOffer(req, res); return; }
   if (url.pathname.startsWith('/group-image/')) {
@@ -1867,7 +1924,23 @@ setInterval(() => {
   }
 }, 200);
 
+const systemTick = setInterval(() => {
+  const rooms = new Map<string, string[]>();
+  for (const user of users.values()) if (user.session) { const ids = rooms.get(user.session) ?? []; ids.push(user.id); rooms.set(user.session, ids); }
+  for (const [sid, participants] of rooms) {
+    try {
+      const changed = systems.tick(sid, participants);
+      syncSystemItems(sid, false);
+      if (changed) roomSend(sid, { t: 'systemState', sid, view: systems.view(sid) });
+    }
+    catch (error) { console.error('system tick', sid, error); }
+  }
+}, 100);
+systemTick.unref();
+
 for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => {
+  clearInterval(systemTick);
+  systems.dispose();
   // 遅延保存の保留分は落とす前に書き出す。broadcast の later は保存ではないので対象外
   saveMarketLikes.flush();
   saveSurvivorProfiles.flush();

@@ -1,6 +1,6 @@
 import { sourceText as uiSource } from '../i18n/core.ts';
+import { SystemLibrary } from '../systems/SystemLibrary.tsx';
 import { useUpdateDraft } from '../updateDraft.ts';
-import { SharedAssetsPanel } from '../shared-assets/SharedAssetsPanel.tsx';
 import { t as tr, systemText } from '../i18n/index.ts';
 import { contentAvailable, productFor } from '../../../shared/market.ts';
 import { MOVEMENT_MODES } from '../view3d/movement.ts';
@@ -578,7 +578,7 @@ export function WorldScreen() {
       <div className="front">
         {worldKind === 'survivors' && mode === '3d' && <SurvivorPanel overlay />}
         <WorldBadge />
-        <SharedAssetsPanel />
+        <SystemLibrary />
         <NearList />
         <FaceStrip />
         <NoticeLog />
