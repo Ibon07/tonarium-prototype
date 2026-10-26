@@ -1404,5 +1404,6 @@ export default {
   "followNoFollowers": "No followers yet.",
   "followNoFollowing": "You aren't following anyone yet.",
   "followNoFriends": "No friends yet. Follow people from their profile or the timeline; when they follow you back, you become friends.",
-  "tlReplyToRoot": "Reply to the post instead"
+  "tlReplyToRoot": "Reply to the post instead",
+  "followUnfollowFriendConfirm": "Unfollow {0}? You will no longer be friends and your DMs will be hidden (they come back if you follow each other again)."
 };

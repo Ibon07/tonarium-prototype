@@ -25,11 +25,9 @@ import { Face } from '../world/common.tsx';
 import { Icon } from '../world/Icon.tsx';
 import { SessionCard } from './SessionCard.tsx';
 import { CreateEventDialog, CreateGroupDialog, CreateSessionDialog, InviteFriendDialog, InviteToGroupDialog } from './dialogs.tsx';
-import { Chip, Empty, EventAnswer, EventHost, FollowButton, ModeIcon, NameFace, Tabs, dateKey, timeLabel, uniqueByName, WEEKDAYS } from './common.tsx';
+import { Chip, Empty, EventAnswer, EventHost, FollowButton, ModeIcon, NameFace, Tabs, match, dateKey, timeLabel, uniqueByName, WEEKDAYS } from './common.tsx';
 import { Composer, Thread } from './messages.tsx';
 import { StatusDot, StatusText, useStatusOf } from './status.tsx';
-
-const match = (q: string, ...texts: (string | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q.toLowerCase()));
 
 export function ChangelogPage({ q }: { q: string }) {
   const [includeMaintenance, setIncludeMaintenance] = useUpdateDraft('changelog.maintenance', false);

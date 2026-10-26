@@ -1404,5 +1404,6 @@ export default {
   "followNoFollowers": "まだフォロワーはいません",
   "followNoFollowing": "まだだれもフォローしていません",
   "followNoFriends": "まだフレンドがいません。プロフィールやタイムラインからフォローし、相手もフォローし返すとフレンドになります",
-  "tlReplyToRoot": "ポストへの返信に戻す"
+  "tlReplyToRoot": "ポストへの返信に戻す",
+  "followUnfollowFriendConfirm": "{0} のフォローを外しますか？フレンドではなくなり、DM も見えなくなります（もう一度お互いにフォローすると戻ります）"
 };

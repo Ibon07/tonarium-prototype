@@ -1404,5 +1404,6 @@ export default {
   "followNoFollowers": "아직 팔로워가 없습니다",
   "followNoFollowing": "아직 아무도 팔로우하지 않았습니다",
   "followNoFriends": "아직 친구가 없습니다. 프로필이나 타임라인에서 팔로우하고 상대도 맞팔로우하면 친구가 됩니다",
-  "tlReplyToRoot": "포스트에 대한 답글로 되돌리기"
+  "tlReplyToRoot": "포스트에 대한 답글로 되돌리기",
+  "followUnfollowFriendConfirm": "{0} 팔로우를 해제할까요? 친구가 아니게 되고 DM도 보이지 않게 됩니다(다시 서로 팔로우하면 돌아옵니다)"
 };

@@ -9,10 +9,16 @@ export interface PostContext { place: PostPlace | null; session: (id: string) =>
 
 /** アップロードだけされてポストに使われなかった画像を消すまでの猶予 */
 const ORPHAN_IMAGE_MS = 60 * 60 * 1000;
+/** 1 人がこの間にできる投稿（返信を含む）とアップロードの数。全体の件数上限で他人のポストを押し出させないため */
+export const POST_RATE = { limit: 10, ms: 60 * 1000 };
+export const UPLOAD_RATE = { limit: 10, ms: 10 * 60 * 1000 };
 
 export class Timeline {
   posts: Post[];
   private changed: () => void;
+  /** 画像 ID → 上げた人。上げた本人が 1 つのポストにだけ使える（他人の画像を付けて消させないため） */
+  private uploads = new Map<string, string>();
+  private hits = new Map<string, number[]>();
 
   constructor(private file: string, private imageDir: string, changed: () => void, now = Date.now()) {
     this.changed = changed;
@@ -30,11 +36,22 @@ export class Timeline {
 
   newImageId() { return randomUUID(); }
 
+  registerUpload(id: string, name: string) { this.uploads.set(id, name); }
+
+  /** key ごとに直近 ms の回数を数え、limit 未満なら数えて true */
+  allow(key: string, rate: { limit: number; ms: number }, now = Date.now()) {
+    const recent = (this.hits.get(key) ?? []).filter((t) => t > now - rate.ms);
+    if (recent.length >= rate.limit) { this.hits.set(key, recent); return false; }
+    recent.push(now);
+    this.hits.set(key, recent);
+    return true;
+  }
+
   find(id: unknown) { return typeof id === 'string' ? this.posts.find((p) => p.id === id) : undefined; }
 
   create(author: string, input: PostInput, ctx: PostContext, now = Date.now()): Post | null {
     const text = String(input.text ?? '').trim().slice(0, POST_MAX_CHARS);
-    const image = isImageId(input.image) && fs.existsSync(this.imageFile(input.image)) ? input.image : undefined;
+    const image = isImageId(input.image) && this.uploads.get(input.image) === author && fs.existsSync(this.imageFile(input.image)) ? input.image : undefined;
     let attach: PostAttach | undefined = cleanAttach(input.attach);
     if (attach?.kind === 'session') {
       const s = ctx.session(attach.id);
@@ -45,7 +62,7 @@ export class Timeline {
     if (!text && !image && !attach && !quote) return null;
     const post: Post = { id: randomUUID().slice(0, 12), author, text, at: now, reactions: {}, reposts: [] };
     if (ctx.place) post.place = ctx.place;
-    if (image) post.image = image;
+    if (image) { post.image = image; this.uploads.delete(image); }
     if (attach) post.attach = attach;
     if (quote) post.quote = quote;
     if (replyTo) post.replyTo = replyTo;
@@ -97,7 +114,9 @@ export class Timeline {
       const id = f.replace(/\.jpg$/, '');
       if (used.has(id)) continue;
       const file = path.join(this.imageDir, f);
-      try { if (fs.statSync(file).mtimeMs < now - ORPHAN_IMAGE_MS) fs.rmSync(file, { force: true }); } catch { /* 消えていてもよい */ }
+      try {
+        if (fs.statSync(file).mtimeMs < now - ORPHAN_IMAGE_MS) { fs.rmSync(file, { force: true }); this.uploads.delete(id); }
+      } catch { /* 消えていてもよい */ }
     }
   }
 

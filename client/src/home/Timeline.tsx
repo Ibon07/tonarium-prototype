@@ -10,13 +10,13 @@ import { MARKET_PRODUCTS, contentAvailable } from '../../../shared/market.ts';
 import type { ItemKind } from '../../../shared/items.ts';
 import type { Mode } from '../../../shared/protocol.ts';
 import { POST_MAX_CHARS, REACTIONS, TIMELINE_TABS, threadOf, timelineEntries, type Post, type PostAttach, type TimelineEntry, type TimelineTab } from '../../../shared/timeline.ts';
-import { followUser, joinSession } from '../actions.ts';
+import { joinSession } from '../actions.ts';
 import { spawnItem } from '../items/actions.ts';
 import { useOwnedItems } from '../market/items.ts';
 import { useOwnedContent } from '../market/store.ts';
 import { Icon, type IconName } from '../world/Icon.tsx';
 import { CreateSessionDialog } from './dialogs.tsx';
-import { Empty, NameFace } from './common.tsx';
+import { Empty, NameFace, match, toggleFollow } from './common.tsx';
 import { goHome, WORLD_FACE } from './pages.tsx';
 import { agoLabel, closeTimelineSide, createPost, deletePost, openCompose, openPost, postImageUrl, reactPost, repostPost, setTimelineTab, uploadPostImage } from '../timeline.ts';
 
@@ -24,19 +24,43 @@ const TAB_ICON: Record<TimelineTab, IconName> = { home: 'home', session: 'door',
 const TAB_LABEL: Record<TimelineTab, string> = { home: 'tlTabHome', session: 'tlTabSession', social: 'tlTabSocial', global: 'tlTabGlobal' };
 const TAB_DESC: Record<TimelineTab, string> = { home: 'tlTabHomeDesc', session: 'tlTabSessionDesc', social: 'tlTabSocialDesc', global: 'tlTabGlobalDesc' };
 
-const match = (q: string, ...texts: (string | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q.toLowerCase()));
-
-/** 外を押したら閉じる小さなメニュー */
+/** 外を押すかスクロールしたら閉じる小さなメニュー */
 function usePopover() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
+  const pop = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const outside = (t: EventTarget | null) => !ref.current?.contains(t as Node) && !pop.current?.contains(t as Node);
+    const onDown = (e: MouseEvent) => { if (outside(e.target)) setOpen(false); };
+    // 画面に固定して出すので、下の一覧が動いたら閉じてずれたまま残さない
+    const onScroll = (e: Event) => { if (outside(e.target)) setOpen(false); };
     document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    window.addEventListener('scroll', onScroll, true);
+    return () => { document.removeEventListener('mousedown', onDown); window.removeEventListener('scroll', onScroll, true); };
   }, [open]);
-  return { open, setOpen, ref };
+  return { open, setOpen, ref, pop };
+}
+
+/** 一覧や右の欄のスクロール領域で切れないよう、body に出してボタンの位置に合わせる */
+function Popover({ p, className = '', label, children }: { p: ReturnType<typeof usePopover>; className?: string; label?: string; children: React.ReactNode }) {
+  const r = p.ref.current?.getBoundingClientRect();
+  if (!p.open || !r) return null;
+  const style: React.CSSProperties = { right: Math.max(8, innerWidth - r.right) };
+  if (innerHeight - r.bottom < 220) style.bottom = innerHeight - r.top + 4; else style.top = r.bottom + 4;
+  return createPortal(<span ref={p.pop} className={`tlpop ${className}`} style={style} role="menu" aria-label={label}>{children}</span>, document.body);
+}
+
+/** 返信の数。カードごとに全ポストを数え直さないよう、ポストの配列ごとに 1 回だけ数える */
+const replyCounts = new WeakMap<Post[], Map<string, number>>();
+function replyCountOf(posts: Post[], id: string) {
+  let map = replyCounts.get(posts);
+  if (!map) {
+    map = new Map();
+    for (const x of posts) if (x.replyTo) map.set(x.replyTo, (map.get(x.replyTo) ?? 0) + 1);
+    replyCounts.set(posts, map);
+  }
+  return map.get(id) ?? 0;
 }
 
 /** セッションの外ではセッションのタブを出さない */
@@ -119,7 +143,8 @@ function Head({ p, small }: { p: Post; small?: boolean }) {
 function SessionAttach({ a }: { a: Extract<PostAttach, { kind: 'session' }> }) {
   const def = useStore((s) => s.guild.sessions.find((d) => d.id === a.id));
   const world = useStore((s) => (def ? s.worldBy[def.id] ?? def.world ?? 'room' : 'room'));
-  const here = useStore((s) => s.users.filter((u) => u.session === a.id));
+  const users = useStore((s) => s.users);
+  const here = users.filter((u) => u.session === a.id);
   const friends = useStore((s) => s.friends);
   const current = useStore((s) => s.session === a.id);
   const nf = here.filter((u) => friends.includes(u.name)).length;
@@ -233,14 +258,12 @@ function ReactButton({ p, small }: { p: Post; small?: boolean }) {
   return (
     <span className="tlpopwrap" ref={pop.ref}>
       <button className={`ib tlact ${small ? 'small' : ''}`} aria-label={tr('tlReact')} title={tr('tlReact')} aria-expanded={pop.open} onClick={() => pop.setOpen(!pop.open)}><Icon name="emote" size={15} /></button>
-      {pop.open && (
-        <span className="tlpop tlemojis" role="menu" aria-label={tr('tlReact')}>
-          {REACTIONS.map((e) => {
-            const on = !!p.reactions[e]?.includes(self);
-            return <button key={e} role="menuitemcheckbox" aria-checked={on} className={`ib ${on ? 'on' : ''}`} onClick={() => { reactPost(p.id, e, !on); pop.setOpen(false); }}>{e}</button>;
-          })}
-        </span>
-      )}
+      <Popover p={pop} className="tlemojis" label={tr('tlReact')}>
+        {REACTIONS.map((e) => {
+          const on = !!p.reactions[e]?.includes(self);
+          return <button key={e} role="menuitemcheckbox" aria-checked={on} className={`ib ${on ? 'on' : ''}`} onClick={() => { reactPost(p.id, e, !on); pop.setOpen(false); }}>{e}</button>;
+        })}
+      </Popover>
     </span>
   );
 }
@@ -255,12 +278,10 @@ function RepostButton({ p, small }: { p: Post; small?: boolean }) {
       <button className={`ib tlact ${small ? 'small' : ''} ${mine ? 'reposted' : ''}`} aria-label={tr('tlRepost')} title={tr('tlRepost')} aria-expanded={pop.open} onClick={() => pop.setOpen(!pop.open)}>
         <Icon name="repost" size={15} />{p.reposts.length > 0 && p.reposts.length}
       </button>
-      {pop.open && (
-        <span className="tlpop" role="menu">
-          <button role="menuitem" className="ib" onClick={() => { repostPost(p.id, !mine); pop.setOpen(false); }}><Icon name="repost" size={15} />{mine ? tr('tlUndoRepost') : tr('tlRepost')}</button>
-          <button role="menuitem" className="ib" onClick={() => { openCompose(p.id); pop.setOpen(false); }}><Icon name="pen" size={15} />{tr('tlQuote')}</button>
-        </span>
-      )}
+      <Popover p={pop} label={tr('tlRepost')}>
+        <button role="menuitem" className="ib" onClick={() => { repostPost(p.id, !mine); pop.setOpen(false); }}><Icon name="repost" size={15} />{mine ? tr('tlUndoRepost') : tr('tlRepost')}</button>
+        <button role="menuitem" className="ib" onClick={() => { openCompose(p.id); pop.setOpen(false); }}><Icon name="pen" size={15} />{tr('tlQuote')}</button>
+      </Popover>
     </span>
   );
 }
@@ -272,19 +293,17 @@ function MoreButton({ p, small }: { p: Post; small?: boolean }) {
   return (
     <span className="tlpopwrap" ref={pop.ref}>
       <button className={`ib tlact ${small ? 'small' : ''}`} aria-label={tr('tlMore')} title={tr('tlMore')} aria-expanded={pop.open} onClick={() => pop.setOpen(!pop.open)}><Icon name="more" size={15} /></button>
-      {pop.open && (
-        <span className="tlpop" role="menu">
-          {p.author === self
-            ? <button role="menuitem" className="ib danger" onClick={() => { if (confirm(tr('tlDeleteConfirm'))) deletePost(p.id); pop.setOpen(false); }}><Icon name="trash" size={15} />{tr('tlDelete')}</button>
-            : <button role="menuitem" className="ib" onClick={() => { followUser(p.author, !following); pop.setOpen(false); }}><Icon name="user" size={15} />{following ? tr('followUnfollow', p.author) : tr('followDo', p.author)}</button>}
-        </span>
-      )}
+      <Popover p={pop} label={tr('tlMore')}>
+        {p.author === self
+          ? <button role="menuitem" className="ib danger" onClick={() => { if (confirm(tr('tlDeleteConfirm'))) deletePost(p.id); pop.setOpen(false); }}><Icon name="trash" size={15} />{tr('tlDelete')}</button>
+          : <button role="menuitem" className="ib" onClick={() => { pop.setOpen(false); toggleFollow(p.author, !following); }}><Icon name="user" size={15} />{following ? tr('followUnfollow', p.author) : tr('followDo', p.author)}</button>}
+      </Popover>
     </span>
   );
 }
 
 function Actions({ p, small }: { p: Post; small?: boolean }) {
-  const replies = useStore((s) => s.posts.filter((x) => x.replyTo === p.id).length);
+  const replies = replyCountOf(useStore((s) => s.posts), p.id);
   return (
     <div className="tlacts">
       {!small && <ReactionChips p={p} />}

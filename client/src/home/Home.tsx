@@ -27,7 +27,7 @@ import { ChangelogPage, EventsPage, FriendTile, FriendsPage, GroupsPage, ItemsPa
 import { GroupActions, GroupPage, GroupTitle } from './GroupPage.tsx';
 import { GroupAvatar } from './GroupAvatar.tsx';
 import { StatusDialog, StatusDot, StatusText, useStatusOf } from './status.tsx';
-import { Chip, Empty, EventAnswer, EventHost, NameFace, WEEKDAYS, dateKey, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
+import { Chip, Empty, EventAnswer, EventHost, NameFace, WEEKDAYS, dateKey, match, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
 import { touchOnly, usePhone } from '../phone.ts';
 import { FEEDBACK_URL } from '../feedback.ts';
 import { CHANGELOG } from '../i18n/static.ts';
@@ -357,8 +357,6 @@ function SideArea() {
     </aside>
   );
 }
-
-const match = (q: string, ...texts: (string | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q.toLowerCase()));
 
 /** ホームの 1 段だけのセクション。続きはタイトルの横の「もっと見る」から各ページへ */
 function RowSection({ title, sub, onMore, empty, children }: { title: string; sub?: string; onMore: () => void; empty?: string; children: React.ReactNode[] }) {
