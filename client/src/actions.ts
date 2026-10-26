@@ -81,6 +81,12 @@ export function joinSession(sid: string) {
   return withSessionOperation(() => enterSession(sid));
 }
 
+export async function reconnectForUpdate(sid: string) {
+  if (sessionOperation) throw new Error('セッションの接続操作が進行中です。');
+  sessionOperation = true;
+  try { await enterSession(sid); } finally { sessionOperation = false; }
+}
+
 export function leaveSession() {
   return withSessionOperation(exitSession);
 }

@@ -8,6 +8,7 @@ import { MARKET_PRODUCTS, contentAvailable, productFor } from '../../../shared/m
 import { useOwnedContent } from '../market/store.ts';
 import { OriginBadge } from '../market/OriginBadge.tsx';
 import { useEffect, useRef, useState } from 'react';
+import { useUpdateDraft } from '../updateDraft.ts';
 import { createPortal } from 'react-dom';
 import { CHANGELOG } from '../../../shared/changelog.ts';
 import { localized } from '../i18n/core.ts';
@@ -31,7 +32,7 @@ import { StatusDot, StatusText, useStatusOf } from './status.tsx';
 const match = (q: string, ...texts: (string | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q.toLowerCase()));
 
 export function ChangelogPage({ q }: { q: string }) {
-  const [includeMaintenance, setIncludeMaintenance] = useState(false);
+  const [includeMaintenance, setIncludeMaintenance] = useUpdateDraft('changelog.maintenance', false);
   useEffect(() => markChangelogSeen(), []);
   const entries = filterChangelog(localized(filterChangelog(CHANGELOG, '', includeMaintenance)), q, true);
   return (
@@ -272,7 +273,7 @@ function EventRow({ ev }: { ev: EventDef }) {
 
 /** 月曜はじまりの月のカレンダー。日を押すとその日のイベントだけを下に出す */
 function MonthCalendar({ events, picked, onPick }: { events: EventDef[]; picked: string | null; onPick: (key: string | null) => void }) {
-  const [offset, setOffset] = useState(0);
+  const [offset, setOffset] = useUpdateDraft('events.month', 0);
   const base = new Date();
   const month = new Date(base.getFullYear(), base.getMonth() + offset, 1);
   const lead = (month.getDay() + 6) % 7;
@@ -312,8 +313,8 @@ export function EventsPage({ q }: { q: string }) {
   const events = useStore((s) => s.events);
   const groups = useStore((s) => s.groups);
   const [create, setCreate] = useState(false);
-  const [view, setView] = useState<'list' | 'month'>('list');
-  const [picked, setPicked] = useState<string | null>(null);
+  const [view, setView] = useUpdateDraft<'list' | 'month'>('events.view', 'list');
+  const [picked, setPicked] = useUpdateDraft<string | null>('events.day', null);
   const all = events.filter((ev) => match(q, ev.title, groups.find((g) => g.id === ev.group)?.name));
   const list = view === 'month' && picked ? all.filter((ev) => dateKey(ev.at) === picked) : all;
   const days = new Map<string, EventDef[]>();

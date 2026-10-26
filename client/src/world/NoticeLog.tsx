@@ -1,3 +1,4 @@
+import { useUpdateDraft } from '../updateDraft.ts';
 import { sourceText as uiSource } from '../i18n/core.ts';
 import { TranslatedText } from '../TranslatedText.tsx';
 import { localized, t as tr, systemText } from '../i18n/index.ts';
@@ -88,8 +89,9 @@ function NoticeRow({ n, onMessage }: { n: Notice; onMessage: (conv: string) => v
 }
 
 function Composer() {
-  const [text, setText] = useState('');
-  const [scope, setScope] = useState<ChatScope>('near');
+  const session = useStore(s => s.session);
+  const [text, setText] = useUpdateDraft(`chat.${session}`, '');
+  const [scope, setScope] = useUpdateDraft<ChatScope>(`chatScope.${session}`, 'near');
   const fileRef = useRef<HTMLInputElement>(null);
   const cur = SCOPES.find((x) => x.scope === scope)!;
   const submit = (e?: React.FormEvent) => {
