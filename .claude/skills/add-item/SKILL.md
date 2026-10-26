@@ -11,6 +11,8 @@ description: Tonarium に新しいアイテム（サイコロ・チェス・付�
 
 カタログの保存場所は `docs/shared-systems/`。[全体の目次](../../../docs/shared-systems/README.md)からIDを選ぶか、[アイテム別の `items/`](../../../docs/shared-systems/items/)と[システム別の `systems/`](../../../docs/shared-systems/systems/)を開く。各文書のファイル名は `<itemId>.md` または `<systemId>.md`。
 
+既存モデルのまま別の所持アイテムとして選ばせる場合は、`shared/item-variants.ts` の `camera-timer` を参考にする。通常の `kind: 'camera'` と区別する `variant` を作成要求・保存・メニューに渡し、カメラごとのサーバー処理とクライアント操作を接続する。登録だけでは新しい動作は実装されない。5秒タイマーカメラは `server/timed-camera-items.ts` と `client/src/items/useTimedCamera.ts` で共有タイマーを使い、通常の出現時にそのアイテムだけの実行状態を作る。セッションのコードマップは置き換えない。使い方は[接続例](../../../docs/shared-systems/camera-timer-test.md)を参照する。
+
 ## 触るファイル
 
 1. `shared/items.ts`（必須）

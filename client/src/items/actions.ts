@@ -1,5 +1,6 @@
 import { sourceText as uiSource } from '../i18n/core.ts';
 import { applyItemAction, type ItemAction, type ItemKind, type MediaInit } from '../../../shared/items.ts';
+import type { ItemVariant } from '../../../shared/item-variants.ts';
 import { isCameraTimerItem } from '../../../shared/camera-timer-demo.ts';
 import { ROOM_HALF, spawnSlot, type AvatarState } from '../../../shared/protocol.ts';
 import { approach } from '../../../shared/places.ts';
@@ -13,14 +14,14 @@ const clamp = (v: number) => Math.max(-LIMIT, Math.min(LIMIT, v));
 export const clampRoomPos = (p: AvatarState): AvatarState => ({ ...p, x: clamp(p.x), z: clamp(p.z) });
 
 /** 自分の前に出す */
-export function spawnItem(kind: ItemKind, text?: string, media?: MediaInit) {
+export function spawnItem(kind: ItemKind, text?: string, media?: MediaInit, variant?: ItemVariant) {
   const s = get();
   if (!s.session) return;
   const me = placesOf(s).get(s.selfId) ?? { ...spawnSlot(0), ry: 0 };
   const gap = s.mode === '3d' ? 2.2 : 1.2;
   const x = me.x - Math.sin(me.ry) * gap;
   const z = me.z - Math.cos(me.ry) * gap;
-  send({ t: 'itemCreate', kind, text, media, x: clamp(x), z: clamp(z), ry: me.ry });
+  send({ t: 'itemCreate', kind, text, media, variant, x: clamp(x), z: clamp(z), ry: me.ry });
 }
 
 /** 入力が途切れないよう手元にすぐ反映してから送る */

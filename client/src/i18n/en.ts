@@ -1,4 +1,8 @@
 export default {
+  cameraTimerShoot: 'Take photo in 5 seconds',
+  cameraTimerStart: 'Click or C: take a photo in 5 seconds',
+  cameraTimerPreparing: 'Preparing the camera. Try again in a moment.',
+  cameraTimerFailed: 'Could not take the photo. Try again.',
   sessionLinkCopy: 'Copy session URL',
   sessionActions: 'Session actions',
   sessionLinkCopied: 'Session URL copied',

@@ -1,4 +1,8 @@
 export default {
+  cameraTimerShoot: '5초 뒤 촬영',
+  cameraTimerStart: '클릭 또는 C: 5초 뒤 촬영',
+  cameraTimerPreparing: '카메라를 준비 중입니다. 잠시 후 다시 조작해 주세요.',
+  cameraTimerFailed: '사진을 찍지 못했습니다. 다시 조작해 주세요.',
   sessionLinkCopy: '세션 URL 복사',
   sessionActions: '세션 작업',
   sessionLinkCopied: '세션 URL을 복사했습니다',

@@ -688,10 +688,28 @@
       "sourceLanguage": "ja",
       "fields": {
         "name": {
-          "source": "バイク"
+          "source": "バイク",
+          "translations": {
+            "ja": "バイク",
+            "en": "Motorcycle",
+            "ko": "오토바이"
+          }
         },
         "description": {
-          "source": "街や庭を走れる一人乗りバイク。3D 専用。アクセルとブレーキ、ハンドルで運転し、急旋回では車体が傾いて滑ります。"
+          "source": "街や庭を走れる一人乗りバイク。3D 専用。アクセルとブレーキ、ハンドルで運転し、急旋回では車体が傾いて滑ります。",
+          "translations": {
+            "ja": "街や庭を走れる一人乗りバイク。3D 専用。アクセルとブレーキ、ハンドルで運転し、急旋回では車体が傾いて滑ります。",
+            "en": "A single-rider motorcycle for exploring the city and garden. Available in 3D only. Drive with the throttle, brakes, and handlebars; sharp turns make it lean and skid.",
+            "ko": "도시와 정원을 달릴 수 있는 1인승 오토바이입니다. 3D 전용이며 가속·브레이크·핸들로 운전합니다. 급하게 회전하면 차체가 기울며 미끄러집니다."
+          }
+        },
+        "text": {
+          "source": "E: 乗降 / W: アクセル / S: ブレーキ / A・D: ハンドル",
+          "translations": {
+            "ja": "E: 乗降 / W: アクセル / S: ブレーキ / A・D: ハンドル",
+            "en": "E: Mount/dismount / W: Accelerate / S: Brake / A・D: Steer",
+            "ko": "E: 타기/내리기 / W: 가속 / S: 브레이크 / A・D: 조향"
+          }
         }
       }
     },
@@ -734,6 +752,14 @@
             "en": "Break the ice with editable question notes for everyone.",
             "ko": "처음 만난 대화의 작은 계기. 질문이 담긴 메모를 놓고 함께 고쳐 쓰는 카드."
           }
+        },
+        "text": {
+          "source": "おしゃべりカード\n最近、ちょっとうれしかったことは？\n次の人への質問も書いてみよう。",
+          "translations": {
+            "ja": "おしゃべりカード\n最近、ちょっとうれしかったことは？\n次の人への質問も書いてみよう。",
+            "en": "Conversation cards\nWhat is something that made you a little happy recently?\nWrite a question for the next person, too.",
+            "ko": "대화 카드\n최근에 조금이라도 기뻤던 일은 무엇인가요?\n다음 사람에게 할 질문도 적어 보세요."
+          }
         }
       }
     },
@@ -754,6 +780,98 @@
             "ja": "部屋に来た人を迎える、編集できるメッセージ付箋。挨拶や今日の予定を自由に書き込めます。",
             "en": "An editable welcome note. Write greetings or today's plans.",
             "ko": "방문자를 맞는 편집 가능한 메모. 인사와 오늘 일정을 자유롭게 적을 수 있습니다."
+          }
+        },
+        "text": {
+          "source": "ようこそ！\nここではのんびりお話ししています。\n初めての方も、気軽にどうぞ。",
+          "translations": {
+            "ja": "ようこそ！\nここではのんびりお話ししています。\n初めての方も、気軽にどうぞ。",
+            "en": "Welcome!\nWe're chatting and relaxing here.\nNew here? Feel free to join us.",
+            "ko": "환영합니다!\n이곳에서는 느긋하게 이야기하고 있어요.\n처음 오신 분도 편하게 함께해 주세요."
+          }
+        }
+      }
+    },
+    "product/sparkle-sound": {
+      "sourceLanguage": "ja",
+      "fields": {
+        "name": {
+          "source": "きらめきチャイム",
+          "translations": {
+            "ja": "きらめきチャイム",
+            "en": "Sparkle Chime",
+            "ko": "반짝이는 차임"
+          }
+        },
+        "description": {
+          "source": "いいことがあった瞬間に、きらきらと上がる短いチャイム。近くにいる人にも聞こえます。",
+          "translations": {
+            "ja": "いいことがあった瞬間に、きらきらと上がる短いチャイム。近くにいる人にも聞こえます。",
+            "en": "A short, sparkling chime that rises to celebrate a happy moment. People nearby can hear it too.",
+            "ko": "기쁜 순간에 반짝이며 음이 올라가는 짧은 차임입니다. 가까이 있는 사람에게도 들립니다."
+          }
+        }
+      }
+    },
+    "product/fanfare-sound": {
+      "sourceLanguage": "ja",
+      "fields": {
+        "name": {
+          "source": "小さなファンファーレ",
+          "translations": {
+            "ja": "小さなファンファーレ",
+            "en": "Little Fanfare",
+            "ko": "작은 팡파르"
+          }
+        },
+        "description": {
+          "source": "ゲームの勝利や友達のお祝いに。軽やかな電子音で、ひと区切りをにぎやかに。",
+          "translations": {
+            "ja": "ゲームの勝利や友達のお祝いに。軽やかな電子音で、ひと区切りをにぎやかに。",
+            "en": "Celebrate a game victory or a friend with cheerful electronic notes that mark the occasion.",
+            "ko": "게임에서 이겼을 때나 친구를 축하할 때 사용하세요. 경쾌한 전자음으로 특별한 순간을 신나게 기념합니다."
+          }
+        }
+      }
+    },
+    "product/cheer-emote": {
+      "sourceLanguage": "ja",
+      "fields": {
+        "name": {
+          "source": "ばんざい！",
+          "translations": {
+            "ja": "ばんざい！",
+            "en": "Hooray!",
+            "ko": "만세!"
+          }
+        },
+        "description": {
+          "source": "両手を上げて、うれしい気持ちを伝えるエモート。2D のアイコンでも 3D のアバターでも使えます。",
+          "translations": {
+            "ja": "両手を上げて、うれしい気持ちを伝えるエモート。2D のアイコンでも 3D のアバターでも使えます。",
+            "en": "Raise both hands to express your joy. This emote works with both 2D icons and 3D avatars.",
+            "ko": "두 팔을 들어 기쁜 마음을 전하는 이모트입니다. 2D 아이콘과 3D 아바타에서 모두 사용할 수 있습니다."
+          }
+        }
+      }
+    },
+    "product/bow-emote": {
+      "sourceLanguage": "ja",
+      "fields": {
+        "name": {
+          "source": "ぺこり",
+          "translations": {
+            "ja": "ぺこり",
+            "en": "Gentle Bow",
+            "ko": "꾸벅"
+          }
+        },
+        "description": {
+          "source": "「ありがとう」も「よろしく」も、やさしくおじぎで。会話を邪魔しない、短いご挨拶。",
+          "translations": {
+            "ja": "「ありがとう」も「よろしく」も、やさしくおじぎで。会話を邪魔しない、短いご挨拶。",
+            "en": "A gentle bow to say “thank you” or “nice to meet you.” A brief greeting that keeps the conversation flowing.",
+            "ko": "가볍게 고개를 숙여 “고마워요”나 “잘 부탁해요”를 전합니다. 대화를 방해하지 않는 짧은 인사입니다."
           }
         }
       }
@@ -1030,6 +1148,43 @@
             "ko": "선택한 참가자를 일으킵니다.",
             "en": "Make the selected participant stand up.",
             "ja": "選択した参加者を立たせます。"
+          }
+        }
+      }
+    },
+    "item/camera-timer": {
+      "sourceLanguage": "ja",
+      "fields": {
+        "name": {
+          "source": "5秒タイマーカメラ",
+          "translations": {
+            "ja": "5秒タイマーカメラ",
+            "en": "5-second timer camera",
+            "ko": "5초 딜레이 카메라"
+          }
+        },
+        "desc": {
+          "source": "カメラを押すと5秒のカウントダウン後、押した人の画面から一度撮影します。残り秒はカメラの上に表示され、複数台を置いたり、移動・片付けたりできます。",
+          "translations": {
+            "ja": "カメラを押すと5秒のカウントダウン後、押した人の画面から一度撮影します。残り秒はカメラの上に表示され、複数台を置いたり、移動・片付けたりできます。",
+            "en": "Interact with the camera to count down for 5 seconds and take one photo from the initiating tab. Remaining seconds appear above the camera. Place multiple cameras, move them, or put them away independently.",
+            "ko": "카메라를 누르면 5초를 센 뒤 조작한 탭에서 한 번 촬영합니다. 남은 초는 카메라 위에 표시됩니다. 여러 대를 각각 배치하고 이동하거나 삭제할 수 있습니다."
+          }
+        },
+        "genre": {
+          "source": "ツール",
+          "translations": {
+            "ja": "ツール",
+            "en": "Tools",
+            "ko": "도구"
+          }
+        },
+        "usage": {
+          "source": "アイテムメニューから出し、カメラをクリックまたはCで操作すると5秒後に撮影します。残り秒はカメラの上に表示されます。右クリックで移動、Xまたはメニューで片付けできます。",
+          "translations": {
+            "ja": "アイテムメニューから出し、カメラをクリックまたはCで操作すると5秒後に撮影します。残り秒はカメラの上に表示されます。右クリックで移動、Xまたはメニューで片付けできます。",
+            "en": "Place it from the item menu, then click the camera or press C to take a photo after 5 seconds. Remaining seconds appear above the camera. Right-click to move it; press X or use the menu to put it away.",
+            "ko": "아이템 메뉴에서 꺼낸 뒤 카메라를 클릭하거나 C 키로 조작하면 5초 후 촬영합니다. 남은 초는 카메라 위에 표시됩니다. 오른쪽 클릭으로 옮기고 X 키나 메뉴에서 삭제할 수 있습니다."
           }
         }
       }

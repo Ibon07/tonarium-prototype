@@ -453,7 +453,7 @@ export function ItemsPage({ q }: { q: string }) {
     if (selectedId) heading.current?.focus();
     else if (lastCard.current) cards.current.get(lastCard.current)?.focus();
   }, [selectedId]);
-  const spawn = (entry: OwnedItem) => { spawnItem(entry.kind, entry.text); set({ hubOpen: false }); };
+  const spawn = (entry: OwnedItem) => { spawnItem(entry.kind, entry.text, undefined, entry.variant); set({ hubOpen: false }); };
   const spawnButton = (entry: OwnedItem) => {
     const only3d = !!ONLY_3D[entry.kind] && mode !== '3d';
     return session && <button className="primary small ispawn" disabled={only3d} title={only3d ? tr("ui310") : undefined} onClick={() => spawn(entry)}><Icon name="plus" size={12} />{tr("ui197")}</button>;
@@ -463,7 +463,7 @@ export function ItemsPage({ q }: { q: string }) {
       headingRef={heading} onBack={() => setSelectedId(null)}
       visual={<ItemVisual kind={selected.kind} product={MARKET_PRODUCTS.find((p) => p.id === selected.productId)} />}
       tags={<>{selected.info.in2d && <span>{tr("ui311")}</span>}{selected.info.in3d && <span>{tr("ui312")}</span>}</>}
-      usage={<span style={{ whiteSpace: 'pre-wrap' }}>{selected.productId && selected.text ? contentText(`product/${selected.productId}`, 'text', selected.text) : selected.kind === 'bike' ? selected.info.desc : selected.productId ? tr("ui313") : ITEM_USAGE[selected.kind]}</span>}>
+      usage={<span style={{ whiteSpace: 'pre-wrap' }}>{selected.usage ?? (selected.productId && selected.text ? contentText(`product/${selected.productId}`, 'text', selected.text) : selected.kind === 'bike' ? selected.info.desc : selected.productId ? tr("ui313") : ITEM_USAGE[selected.kind])}</span>}>
       {spawnButton(selected)}
     </ItemDetail> : <>
       <h2>{tr("ui154")}<span className="sub">{session ? tr("ui314") : tr("ui315")}</span></h2>

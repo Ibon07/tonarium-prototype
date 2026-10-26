@@ -241,7 +241,7 @@ function ItemAttach({ id }: { id: string }) {
   const mine = useOwnedItems().find((e) => e.id === id);
   const info = itemOf(id);
   if (!info) return null;
-  const use = () => { if (inSession && mine) { spawnItem(mine.kind, mine.text); set({ hubOpen: false }); } else goHome(mine ? 'items' : 'market'); };
+  const use = () => { if (inSession && mine) { spawnItem(mine.kind, mine.text, undefined, mine.variant); set({ hubOpen: false }); } else goHome(mine ? 'items' : 'market'); };
   return (
     <div className="tlattach">
       <span className="tlthumb" style={{ background: info.tint, color: info.ink, fontWeight: 800, fontSize: info.mark.length > 2 ? 11 : 16 }}>{info.mark}</span>

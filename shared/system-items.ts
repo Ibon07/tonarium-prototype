@@ -1,16 +1,20 @@
 import { ITEM_INFO, type ItemInfo, type ItemKind } from './items.ts';
 import { MARKET_PRODUCTS } from './market.ts';
+import { ITEM_VARIANTS, type ItemVariant } from './item-variants.ts';
 
 export interface SystemItemDefinition {
   id: string;
   kind: ItemKind;
   info: ItemInfo;
+  variant?: ItemVariant;
 }
 
 export function systemItemDefinitions(): SystemItemDefinition[] {
-  return (Object.keys(ITEM_INFO) as ItemKind[])
+  const basics: SystemItemDefinition[] = (Object.keys(ITEM_INFO) as ItemKind[])
     .filter(kind => !ITEM_INFO[kind].media && !MARKET_PRODUCTS.some(product => product.category === 'items' && (product.id === kind || product.kind === kind)))
     .map(kind => ({ id: kind, kind, info: { ...ITEM_INFO[kind] } }));
+  return [...basics, ...Object.values(ITEM_VARIANTS).filter(entry => !entry.info.media && !MARKET_PRODUCTS.some(product => product.category === 'items' && product.id === entry.id))
+    .map(entry => ({ id: entry.id, kind: entry.kind, variant: entry.id, info: { ...entry.info } }))];
 }
 
 export function systemItemDefinition(itemId: unknown): SystemItemDefinition | undefined {

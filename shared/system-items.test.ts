@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { test } from 'node:test';
 import { ITEM_INFO, type ItemInfo, type ItemKind } from './items.ts';
 import { MARKET_PRODUCTS } from './market.ts';
+import { ITEM_VARIANTS } from './item-variants.ts';
 import { systemItemDefinition, systemItemDefinitions, systemItemInstanceId } from './system-items.ts';
 import { createSystemMap } from './system-map.ts';
 import type { SystemCatalog, SystemManifest, SystemObject } from './system-types.ts';
@@ -12,9 +13,13 @@ const manifest = JSON.parse(fs.readFileSync(new URL('../shared-systems/button/1.
 const catalog: SystemCatalog = { schema: 1, commit: 'a'.repeat(40), entries: [{ id: manifest.id, version: manifest.version, integrity: 'sha256-' + 'b'.repeat(64), manifest }] };
 const mapWith = (object: SystemObject) => ({ schema: 1 as const, id: 'map', objects: [object], systems: [], connections: [] });
 
-test('registry exposes only non-market builtins without mutating shared metadata or the normal market', () => {
+test('registry exposes non-market builtins and explicit variants without mutating their metadata or the normal market', () => {
   const originalItems = structuredClone(ITEM_INFO), originalMarket = structuredClone(MARKET_PRODUCTS);
   const definitions = systemItemDefinitions();
+  const builtinIds = (Object.keys(ITEM_INFO) as ItemKind[]).filter(kind => !ITEM_INFO[kind].media && !MARKET_PRODUCTS.some(product => product.category === 'items' && (product.id === kind || product.kind === kind)));
+  assert.deepEqual(definitions.map(definition => definition.id), [...builtinIds, ...Object.keys(ITEM_VARIANTS)]);
+  assert.equal(systemItemDefinition('camera-timer')?.kind, 'camera');
+  assert.equal(systemItemDefinition('camera-timer')?.variant, 'camera-timer');
   assert.equal(new Set(definitions.map(definition => definition.id)).size, definitions.length);
   for (const kind of Object.keys(ITEM_INFO) as ItemKind[]) {
     const marketKind = MARKET_PRODUCTS.some(product => product.category === 'items' && (product.id === kind || product.kind === kind));
