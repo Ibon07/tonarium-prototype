@@ -1230,6 +1230,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
         id: randomUUID(), x: at.x, z: at.z, ry: finNum(msg.ry), createdBy: me.id,
       }, Math.random, msg.media);
       if (!it) return;
+      if (it.kind === 'image') it.createdByName = me.name;
       if (it.kind === 'note' && msg.text) it.text = msg.text.slice(0, 300);
       sessItems.set(it.id, it);
       sendItem(sid, it);

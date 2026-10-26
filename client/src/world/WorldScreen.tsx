@@ -419,7 +419,10 @@ function useMediaInput() {
   useEffect(() => {
     let depth = 0;
     const asItem = () => get().mode === '3d';
+    // ホームを重ねている間はそちらのページ（タイムラインなど）に任せる
+    const covered = () => get().hubOpen;
     const onPaste = (e: ClipboardEvent) => {
+      if (covered()) return;
       const files = mediaFiles(e.clipboardData?.files);
       if (files.length) { e.preventDefault(); void shareFiles(files, asItem()); return; }
       if (isTyping(e.target)) return;
@@ -427,13 +430,15 @@ function useMediaInput() {
       if (id) { e.preventDefault(); void shareYouTube(id, asItem()); }
     };
     const wanted = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].some((t) => t === 'Files' || t === 'text/uri-list' || t === 'text/plain');
-    const onEnter = (e: DragEvent) => { if (wanted(e)) { depth++; setDragging(true); } };
+    const onEnter = (e: DragEvent) => { if (wanted(e) && !covered()) { depth++; setDragging(true); } };
     const onLeave = () => { depth = Math.max(0, depth - 1); if (!depth) setDragging(false); };
     const onOver = (e: DragEvent) => { if (wanted(e)) e.preventDefault(); };
     const onDrop = (e: DragEvent) => {
       depth = 0;
       setDragging(false);
       if (!e.dataTransfer) return;
+      // 受け取らないページでも、落としたファイルを窓で開いてセッションから抜けないようにする
+      if (covered()) { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); return; }
       const files = mediaFiles(e.dataTransfer.files);
       const text = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
       const id = youTubeId(text);
