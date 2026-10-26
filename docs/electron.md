@@ -97,6 +97,8 @@ Electronの「Tonarium Electron → マイク・スピーカー…」から、�
 
 ## Nightly配布
 
+配布ページは [GitHub Releases 一覧](https://github.com/katteni-kaihatu/tonarium-prototype/releases)。Web 版のログイン画面下部から、ログインせず別タブで開けます。現在の Electron 配布物は `nightly-<コミットSHA>` の各 Release にあります。固定 `nightly` は更新用情報と過去の配布物を保持するため、初回ダウンロードの案内には一覧を使います。
+
 main更新時はLinux／Windowsの独立したジョブでビルドし、成功したOSから `nightly-<コミットSHA>` Releaseへ公開します。固定 `nightly` には自動更新の参照情報だけを上書きします。各成果物のソースコミットは対応する `.build.json` を確認してください。構成は [.github/workflows/electron-nightly.yml](../.github/workflows/electron-nightly.yml)、公開処理は [.github/scripts/publish-nightly.py](../.github/scripts/publish-nightly.py) にあります。
 
 `updates.cjs` はローカルページと実際の更新設定画面・コントローラーを用い、更新取得・適用だけを偽物に置き換えて初回選択、設定復元、確認のみ、自動適用、再起動操作を検証する。実際のReleaseへのアクセスやアプリの置換は行わない。
