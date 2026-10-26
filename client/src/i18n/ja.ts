@@ -1,4 +1,5 @@
 export default {
+  imageItemBy: '{0}の画像',
   sharedSystems: '共有システム',
   updateSettings: '更新設定',
   updateRetry: '再試行',

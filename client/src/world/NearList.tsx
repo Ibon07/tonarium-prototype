@@ -12,6 +12,8 @@ import { follow, goNear, poke } from '../actions.ts';
 import { dropHammer, hitAndMove, itemAction, removeItem, spawnItem } from '../items/actions.ts';
 import { formatDistance, useTrend } from '../spatial.ts';
 import { Icon } from './Icon.tsx';
+import { ImageItemMark } from './ImageItemMark.tsx';
+import { imageItemCreator } from './imageItemCreator.ts';
 import {
   BANDS, Badge3D, Face, ItemMark, Popover, glowStyle, itemLabel, useItemsNear, usePlayers, windowKeyOf,
   type Band, type PlayerEntry,
@@ -116,14 +118,18 @@ function ItemRow({ item, d, band, heldBy, onMenu, menuOpen }: {
   const camFeeds = useStore((s) => s.camFeeds);
   const selfId = useStore((s) => s.selfId);
   useStore((s) => s.participants);
+  const creatorName = useStore((s) => imageItemCreator(item, s.users));
   const key = windowKeyOf(item, camFeeds);
   const attn = useStore((s) => (s.attention[item.id] ?? 0) > performance.now());
   const open = useIsOpen(key ?? '');
-  const label = itemLabel(item);
+  const label = itemLabel(item, creatorName);
+  const mark = (size: number) => item.kind === 'image'
+    ? <ImageItemMark key={`${item.id}:${item.url}`} item={item} size={size} label={label} />
+    : <ItemMark item={item} size={size} />;
   if (band === 'far') {
     return (
       <button className="farchip ib" title={formatDistance(d)} onClick={() => key && openWindow(key)}>
-        <ItemMark item={item} size={20} />{label}
+        {mark(20)}{label}
       </button>
     );
   }
@@ -132,7 +138,7 @@ function ItemRow({ item, d, band, heldBy, onMenu, menuOpen }: {
   return (
     <div className={`prow item ${big ? 'big' : ''} ${open ? 'winon' : ''} ${menuOpen ? 'menuon' : ''} ${attn ? 'attn' : ''}`}>
       <button className="pmain" data-popanchor onClick={(ev) => (key ? openWindow(key) : onMenu(ev.currentTarget.getBoundingClientRect()))}>
-        <ItemMark item={item} size={big ? 32 : 22} />
+        {mark(big ? 32 : 22)}
         <span className="ptext">
           <span className="pname">{label}{!big && status && <span className="pstat">{status}</span>}</span>
           {big && status && <span className="pstat">{status}</span>}
