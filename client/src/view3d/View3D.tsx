@@ -207,6 +207,7 @@ export function Avatar3D({ id, self = false, rig }: { id: string; self?: boolean
         <Suspense fallback={null}>
           <OekakiAvatar userId={id} name={name} version={avatarV} speaking={speaking} look={() => pitchOf(id)}
             seated={() => !!seatOf(id)} onSeatOffset={onSeatOffset}
+            crouching={() => (self ? get().selfAvatar : get().avatars[id])?.crouching === true}
             walking={() => {
               const s = get();
               const a = self ? s.selfAvatar : s.avatars[id];

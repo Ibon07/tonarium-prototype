@@ -59,6 +59,7 @@ export class SessionPositions {
     if (result.value?.t !== 'avatar' || !s || ![s.x, s.z, s.ry].every(Number.isFinite) ||
       (s.y !== undefined && !Number.isFinite(s.y)) || (s.pitch !== undefined && !Number.isFinite(s.pitch)) ||
       (s.lean !== undefined && !Number.isFinite(s.lean)) ||
+      (s.crouching !== undefined && typeof s.crouching !== 'boolean') ||
       (s.jump !== undefined && (!Number.isSafeInteger(s.jump) || s.jump < 0)) ||
       (s.walking !== undefined && typeof s.walking !== 'boolean')) return;
     member.seq = result.seq;

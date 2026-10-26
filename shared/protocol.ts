@@ -224,6 +224,7 @@ export interface AvatarState {
   /** 3D の人の顔の上下の向き（上向きが正） */
   pitch?: number;
   lean?: number;
+  crouching?: boolean;
   /**
    * 跳んだ回数。高さは送らず、増えたのを見た側が受け取った瞬間から jumpHeight で放物線を描く
    * （途中の高さを送ると、届く間隔のむらでカクつく）

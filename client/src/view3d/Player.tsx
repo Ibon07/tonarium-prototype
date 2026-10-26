@@ -35,6 +35,7 @@ import { PlayerCamera } from './playerCamera.ts';
 import { blocked, blockedByTrain, fallToGround, moveFlight, recoverPosition, walkingAfterMove, type MovementMode } from './movement.ts';
 import { canLean, leanAngle, pressJump } from './movementAbilities.ts';
 import { xr, xrState } from '../xr/runtime.ts';
+import { CrouchInput, CROUCH_WEIGHT } from './crouch.ts';
 
 const SPEED = 4;
 const BODY_R = 0.3;
@@ -105,6 +106,12 @@ export function Player({ rig }: { rig: PlayerCamera }) {
   // NaN だと比較が常に false になり一度も送られないので Infinity
   const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, lean: 0, jump: 0, y: 0, walking: false });
   const walking = useRef(false);
+  const crouch = useRef<CrouchInput | null>(null);
+  if (!crouch.current) crouch.current = new CrouchInput((crouching) => {
+    const a = { ...get().selfAvatar, crouching };
+    set({ selfAvatar: a });
+    send({ t: 'avatar', s: a });
+  });
   // 足元の高さ・上下の速さ・跳んだ回数。stepped は最後に踏んだと伝えた板、round は塔の上に移ったゲームの回
   // car は街の電車に乗っている号車。乗っている間は毎フレーム電車が動いた分だけ一緒に動かす
   const body = useRef({ y: get().selfAvatar.y ?? 0, vy: 0, grounded: true, extraJump: false, n: get().selfAvatar.jump ?? 0, stepped: -1, round: -1, survivorRun: -1, car: null as number | null });
@@ -154,7 +161,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     const onLock = () => {
       const locked = document.pointerLockElement === canvas;
       set({ locked });
-      if (!locked) { keys.current = {}; leanConsumed.current = {}; rig.lean = 0; }
+      if (!locked) { crouch.current!.release(); keys.current = {}; leanConsumed.current = {}; rig.lean = 0; }
     };
     const onMouseDown = (e: MouseEvent) => {
       if (xrState().active) return;
@@ -187,6 +194,17 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       look.current.pitch = Math.max(-1.4, Math.min(1.4, look.current.pitch - e.movementY * SENS));
     };
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'KeyC') {
+        const id = aim.current?.data.carry;
+        const camera = id ? get().items[id] : undefined;
+        const systems = useSystems.getState();
+        const seat = systems.sid === get().session && systemSeat(systems.view, get().selfId);
+        const photo = crouch.current!.down({ typing: isTyping(e.target) || isTyping(document.activeElement),
+          operating: (get().locked || xrState().active) && !riddenBike() && !seat,
+          camera: camera?.kind === 'camera' && !riddenBike(), repeat: e.repeat });
+        if (photo === 'photo' && camera?.kind === 'camera') takePhoto(camera);
+        return;
+      }
       if (isTyping(e.target)) return;
       if (rig.keyDown(e)) return;
       const systems = useSystems.getState();
@@ -225,7 +243,6 @@ export function Player({ rig }: { rig: PlayerCamera }) {
         return it?.kind === 'camera' ? it : undefined;
       };
       if (e.code === 'KeyL') { const c = heldCamera(get()) ?? aimedCam(); if (c) toggleLive(c.id); }
-      if (e.code === 'KeyC') { const c = aimedCam(); if (c) takePhoto(c); }
       if (e.code === 'KeyX' && !carrying.current) aim.current?.data.remove?.();
     };
     const onWheel = (e: WheelEvent) => {
@@ -233,8 +250,10 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       e.preventDefault();
       rig.zoom(e.deltaY);
     };
-    const onKeyUp = (e: KeyboardEvent) => { keys.current[e.code] = false; leanConsumed.current[e.code] = false; };
-    const onBlur = () => { keys.current = {}; leanConsumed.current = {}; rig.lean = 0; };
+    const onKeyUp = (e: KeyboardEvent) => { if (e.code === 'KeyC') crouch.current!.release(); keys.current[e.code] = false; leanConsumed.current[e.code] = false; };
+    const onBlur = () => { crouch.current!.release(); keys.current = {}; leanConsumed.current = {}; rig.lean = 0; };
+    const onVisibility = () => { if (document.hidden) onBlur(); };
+    const onFocus = () => { if (isTyping(document.activeElement)) crouch.current!.cancel(); };
     xr.use = () => { aim.current = aimAt(scene, camera, xr.ray); use(); };
     xr.release = () => {
       if (dragging.current) { dragging.current.data.drag!('end', dragging.current.hit); dragging.current = null; }
@@ -258,6 +277,8 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
+    document.addEventListener('visibilitychange', onVisibility);
+    document.addEventListener('focusin', onFocus);
     return () => {
       if (world.camera === camera) { world.camera = null; world.scene = null; }
       document.removeEventListener('pointerlockchange', onLock);
@@ -269,6 +290,9 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
+      document.removeEventListener('visibilitychange', onVisibility);
+      document.removeEventListener('focusin', onFocus);
+      crouch.current!.release();
       if (document.pointerLockElement === canvas) document.exitPointerLock();
       rig.lean = 0;
       xr.release?.();
@@ -386,6 +410,8 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     const systemState = useSystems.getState();
     const systemView = systemState.sid === s.session ? systemState.view : undefined;
     const seated = systemSeat(systemView, s.selfId);
+    if ((!s.locked && !immersive) || isTyping(document.activeElement) || seated || riddenBike()) crouch.current!.cancel();
+    const crouching = crouch.current!.active;
     seatedWeight.current = stepSeatedWeight(seatedWeight.current, !!seated, dt);
     const sharedView = shared.sid === s.session ? shared.view : undefined;
     if (cc.sharedView !== sharedView || cc.sharedCatalog !== shared.catalog || cc.systemRevision !== systemView?.revision || cc.systemSid !== s.session) {
@@ -608,7 +634,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       camera.lookAt(position.current.x, 0, position.current.z);
     } else {
       camera.up.set(0, 1, 0);
-      position.current.y = eye.current + b.y - shake * 0.12 - (eye.seatOffset ?? seatedBodyOffset(avatarHipHeight(DEFAULT_PARAMS))) * seatedWeight.current;
+      position.current.y = eye.current + b.y - shake * 0.12 - (eye.seatOffset ?? seatedBodyOffset(avatarHipHeight(DEFAULT_PARAMS))) * Math.max(seatedWeight.current, crouching ? CROUCH_WEIGHT : 0);
     }
 
     const now = performance.now();
@@ -629,7 +655,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       const cp = b.car !== null ? carPose(now0, b.car) : null;
       const l = cp ? toCarLocal(cp, x, z) : null;
       const ride = cp && l && b.car !== null ? { car: b.car, along: l.along, side: Math.max(-CAR.w, Math.min(CAR.w, l.side)), ry: yaw - cp.ry } : undefined;
-      const a: AvatarState = { x, z, ry: yaw, pitch, lean: rig.lean, jump: b.n, walking: walking.current, ...(yNow !== undefined ? { y: yNow } : {}), ...(ride ? { ride } : {}) };
+      const a: AvatarState = { x, z, ry: yaw, pitch, lean: rig.lean, crouching, jump: b.n, walking: walking.current, ...(yNow !== undefined ? { y: yNow } : {}), ...(ride ? { ride } : {}) };
       set({ selfAvatar: a });
       send({ t: 'avatar', s: a });
     }
