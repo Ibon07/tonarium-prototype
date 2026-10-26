@@ -6,6 +6,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { Participant } from '../../../shared/protocol.ts';
 import { ITEM_INFO } from '../i18n/static.ts';
 import { ONLY_3D, type Item, type ItemKind } from '../../../shared/items.ts';
+import { isCameraTimerItem } from '../../../shared/camera-timer-demo.ts';
 import { useStore, get, set, save, nameOf, heldHammer } from '../store.ts';
 import { follow, goNear, poke } from '../actions.ts';
 import { dropHammer, hitAndMove, itemAction, removeItem, spawnItem } from '../items/actions.ts';
@@ -202,7 +203,13 @@ function ActionMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   const it = s.items[menu.id];
   if (!it) return null;
   const key = windowKeyOf(it, s.camFeeds);
-  if (it.mapPlacement?.mode === 'system') return <Popover anchor={menu.rect} onClose={onClose} className="menu"><span className="menutitle">{itemLabel(it)}</span><MenuItem icon="near" label={tr("ui611")} onClick={run(() => goNear(`item:${it.id}`))} /><MenuItem icon="window" label={tr("ui617")} onClick={run(() => openWindow(`item:${it.id}`))} /><SystemItemPanel item={it} /></Popover>;
+  if (it.mapPlacement?.mode === 'system') return <Popover anchor={menu.rect} onClose={onClose} className="menu">
+    <span className="menutitle">{itemLabel(it)}</span>
+    <MenuItem icon="near" label={tr("ui611")} onClick={run(() => goNear(`item:${it.id}`))} />
+    <MenuItem icon="window" label={tr("ui617")} onClick={run(() => openWindow(`item:${it.id}`))} />
+    <SystemItemPanel item={it} />
+    {isCameraTimerItem(it) && <MenuItem icon="trash" label={tr("ui618")} onClick={run(() => removeItem(it.id))} />}
+  </Popover>;
   const holder = 'holder' in it ? it.holder : null;
   const iHold = !!heldHammer(s);
   return (

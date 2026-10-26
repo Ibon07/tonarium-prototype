@@ -42,6 +42,7 @@ import { sharedSolids } from '../shared/shared-presentation.ts';
 import { SystemService } from './system-service.ts';
 import { systemMaps } from './system-maps.ts';
 import { isSystemControlledItem, reconcileSystemItems } from './system-items.ts';
+import { cameraTimerRemoval } from '../shared/camera-timer-demo.ts';
 import { systemSeat, systemSolids } from '../shared/system-presentation.ts';
 import { assetDelta } from '../shared/shared-sync.ts';
 import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing.ts';
@@ -1235,6 +1236,19 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     }
     case 'itemRemove': {
       const it = sessItems.get(msg.id);
+      if (it && isSystemControlledItem(it)) {
+        const map = cameraTimerRemoval(systems.view(sid), it);
+        if (!map) return;
+        try {
+          systems.load(sid, me.id, map, inSession(sid).map(user => user.id));
+          syncSystemItems(sid, false);
+          roomSend(sid, { t: 'systemState', sid, view: systems.view(sid) });
+          event(sid, `${me.name} が ${ITEM_INFO[it.kind].name} をしまいました`);
+        } catch (reason) {
+          roomSend(sid, { t: 'systemState', sid, view: systems.view(sid), error: reason instanceof Error ? reason.message : 'System removal failed' }, [me.id]);
+        }
+        return;
+      }
       if (!it || isSystemControlledItem(it) || (it.kind === 'bike' && it.rider) || !sessItems.delete(msg.id)) return;
       sendItemRemove(sid, msg.id);
       event(sid, `${me.name} が ${ITEM_INFO[it.kind].name} をしまいました`);

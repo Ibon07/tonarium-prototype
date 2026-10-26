@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { ITEM_INFO } from '../i18n/static.ts';
 import { NOTE_COLORS, type Item } from '../../../shared/items.ts';
+import { isCameraTimerItem } from '../../../shared/camera-timer-demo.ts';
 import { useStore, get, nameOf, type Win } from '../store.ts';
 import { useDistanceLabel } from '../spatial.ts';
 import { PANELS } from '../items/panels.ts';
@@ -255,7 +256,7 @@ function WinButtons({ win, r, max }: { win: Win; r: Resolved; max: boolean }) {
     <>
         <Viewers keyName={win.key} dark={r.dark} />
         {r.item && /^(item|cam):/.test(win.key) && <AttentionButton keyName={win.key} />}
-        {r.item && r.item.mapPlacement?.mode !== 'system' && r.kind !== 'video' && (
+        {r.item && (r.item.mapPlacement?.mode !== 'system' || isCameraTimerItem(r.item)) && r.kind !== 'video' && (
           <button className="ib wbtn" aria-label={tr("ui618")} title={tr("ui846")} onClick={() => removeItem(r.item!.id)}><Icon name="trash" size={14} /></button>
         )}
         {!r.noMax && <button className="ib wbtn" onClick={() => toggleMax(win.key)} aria-label={max ? tr("ui847") : tr("ui848")}><Icon name="maximize" size={14} /></button>}

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 test('catalog connection examples satisfy the published target and config contracts without pinning versions', () => {
   const root = fileURLToPath(new URL('../../../', import.meta.url));
   const catalog = validateSystemSubmission(root).catalog;
-  assert.deepEqual([...new Set(catalog.entries.map(entry => entry.id))].sort(), ['button', 'chair', 'timer']);
+  assert.deepEqual([...new Set(catalog.entries.map(entry => entry.id))].sort(), ['button', 'camera-trigger', 'chair', 'timer']);
   for (const { manifest } of catalog.entries) {
     const map = catalogExampleMap(manifest);
     assert.doesNotThrow(() => validateSystemMap(map, catalog));

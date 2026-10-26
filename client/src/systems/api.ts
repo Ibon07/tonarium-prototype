@@ -26,7 +26,7 @@ const unsubscribeStore = useStore.subscribe((state, previous) => {
 const unsubscribeSystems = useSystems.subscribe((state, previous) => {
   if (state.sid !== previous.sid || state.view?.map.id !== previous.view?.map.id) commands.reset();
 });
-if (import.meta.hot) import.meta.hot.dispose(() => { unsubscribeStore(); unsubscribeSystems(); commands.dispose(); });
+if (import.meta.hot) import.meta.hot.dispose(() => { unsubscribeStore(); unsubscribeSystems(); commands.dispose(); interactions.clear(); });
 export function useSystemTransport(transport: NonNullable<typeof localTransport>) {
   commands.reset();
   localTransport = transport;
@@ -42,8 +42,17 @@ function current() {
   if (!state.view || state.sid !== get().session) throw new Error('System map is not synchronized');
   return state.view;
 }
+const interactions = new Map<string, () => void>();
+export function bindSystemInteraction(scope: { sessionId: string; mapId: string; objectId: string }, handler: () => void) {
+  const key = JSON.stringify([scope.sessionId, scope.mapId, scope.objectId]);
+  if (interactions.has(key)) throw new Error('System interaction is already bound');
+  interactions.set(key, handler);
+  return () => { if (interactions.get(key) === handler) interactions.delete(key); };
+}
 export function interactSystemObject(objectId: string) {
   const view = current();
+  const handler = interactions.get(JSON.stringify([get().session, view.map.id, objectId]));
+  if (handler) { handler(); return; }
   command({ kind: 'interact', id: `input-${crypto.randomUUID()}`, revision: view.revision, objectId });
 }
 export function inputSystem(instanceId: string, input: string, payload: Record<string, SystemValue> = {}) {
