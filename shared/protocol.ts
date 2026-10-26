@@ -1,4 +1,5 @@
 import type { Item, ItemAction, ItemKind, MediaInit } from './items.ts';
+import type { ItemVariant } from './item-variants.ts';
 import type { WorldKind } from './worlds.ts';
 import type { DiceRoll } from './dice.ts';
 import type { GameState } from './game.ts';
@@ -352,7 +353,7 @@ export type RoomClientMsg =
   /** ついていっている相手に視点のライブを頼む */
   | { t: 'liveRequest'; to: string }
   | { t: 'viewLive'; on: boolean }
-  | { t: 'itemCreate'; kind: ItemKind; x: number; z: number; ry: number; text?: string; media?: MediaInit }
+  | { t: 'itemCreate'; kind: ItemKind; x: number; z: number; ry: number; text?: string; media?: MediaInit; variant?: ItemVariant }
   /** key はウィンドウのキー（item:<id> / cam:<id>） */
   | { t: 'attention'; key: string }
   | { t: 'broadcast'; on: boolean }

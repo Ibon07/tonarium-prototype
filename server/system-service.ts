@@ -58,7 +58,10 @@ export class SystemService {
     this.rates.delete(JSON.stringify([sid, actor]));
     return this.rooms.get(sid)?.leave(actor) ?? false;
   }
-  release(sid: string) { this.rooms.get(sid)?.dispose(); this.rooms.delete(sid); }
+  release(sid: string) {
+    this.rooms.get(sid)?.dispose(); this.rooms.delete(sid);
+    for (const key of this.rates.keys()) if ((JSON.parse(key) as [string, string])[0] === sid) this.rates.delete(key);
+  }
   dispose() { for (const runtime of this.rooms.values()) runtime.dispose(); this.rooms.clear(); this.rates.clear(); }
 
   http(req: IncomingMessage, res: ServerResponse, pathname: string) {

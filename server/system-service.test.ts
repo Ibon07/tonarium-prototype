@@ -129,3 +129,26 @@ test('central version registration upgrades live instances and survives incompat
   restarted.apply('room', 'alice', input(restarted, 'countdown', 'reset', 'reset'), ['alice']);
   assert.equal(restarted.view('room').objects['timer-text'].text, '00:10');
 });
+
+test('releasing an item scope clears every actor budget while retaining saved state and other scopes limits', t => {
+  t.mock.method(Date, 'now', () => 1700000000000);
+  const service = new SystemService(temporary(t), root); t.after(() => service.dispose());
+  const released = JSON.stringify(['timed-camera', 'room', 'first']), kept = JSON.stringify(['timed-camera', 'room', 'second']);
+  const participants = ['alice', 'bob'];
+  for (const scope of [released, kept]) {
+    service.load(scope, 'server', systemDemoMap, ['server']);
+    for (const actor of participants) {
+      const command: Exclude<SystemCommand, { kind: 'map' }> = { kind: 'input', id: `budget-${actor}`, revision: service.view(scope).revision, instanceId: 'countdown', input: 'reset', payload: {} };
+      for (let count = 0; count < 20; count++) service.apply(scope, actor, command, participants);
+      assert.throws(() => service.apply(scope, actor, command, participants), /rate exceeded/);
+    }
+  }
+  const before = serialized(service.view(released));
+  service.release(released);
+  assert.deepEqual(serialized(service.view(released)), before);
+  for (const actor of participants) {
+    const command = (scope: string): Exclude<SystemCommand, { kind: 'map' }> => ({ kind: 'input', id: `after-release-${actor}`, revision: service.view(scope).revision, instanceId: 'countdown', input: 'reset', payload: {} });
+    assert.doesNotThrow(() => service.apply(released, actor, command(released), participants));
+    assert.throws(() => service.apply(kept, actor, command(kept), participants), /rate exceeded/);
+  }
+});

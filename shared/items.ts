@@ -2,6 +2,8 @@ import { emptyTelephoneView, type TelephoneAction, type TelephoneView } from './
 import { newChess, chessBoard, playChess, type ChessState, type Promotion } from './chess.ts';
 import type { DiceRoll, DieSides } from './dice.ts';
 import { BIKE, releaseBike, vehicleInitial, type VehicleState } from './vehicle.ts';
+import { validItemVariant, type ItemVariant } from './item-variants.ts';
+import type { SystemView } from './system-types.ts';
 
 export type ItemKind = 'telephone' | 'note' | 'hammer' | 'chess' | 'chessAi' | 'g2048' | 'canvas' | 'camera' | 'image' | 'video' | 'youtube' | 'dice' | 'antimatter' | 'bike' | 'mirror' | 'jumpPad';
 
@@ -60,7 +62,7 @@ export type Item =
   | (ItemBase & { kind: 'g2048'; grid: number[]; score: number; over: boolean })
   | (ItemBase & { kind: 'canvas'; strokes: Stroke[] })
   /** live 中は operator のブラウザがカメラ視点を描いて配信する */
-  | (ItemBase & { kind: 'camera'; holder: string | null; pitch: number; live: boolean; operator: string | null; cameraY?: number; groundY?: number })
+  | (ItemBase & { kind: 'camera'; holder: string | null; pitch: number; live: boolean; operator: string | null; cameraY?: number; groundY?: number; variant?: ItemVariant; timerState?: SystemView })
   | (ItemBase & { kind: 'image'; url: string; w: number; h: number; createdByName?: string })
   | (ItemBase & { kind: 'video'; url: string; w: number; h: number; clock: MediaClock })
   | (ItemBase & { kind: 'youtube'; videoId: string; title: string; clock: MediaClock })
@@ -91,6 +93,7 @@ export type ItemAction =
   | { a: 'pick' }
   | { a: 'drop'; x: number; z: number; ry: number; pitch?: number; cameraY?: number; groundY?: number }
   | { a: 'camLive'; on: boolean }
+  | { a: 'timedCameraRequest'; token: string }
   | { a: 'chessMove'; from: number; to: number; revision: number; promotion?: Promotion }
   | { a: 'chessReset' }
   | { a: 'slide'; dir: Dir }
@@ -210,9 +213,11 @@ function canMove(grid: number[]) {
 
 /** 画像・動画・YouTube は media が必要。合わなければ null */
 export function createItem(
-  kind: ItemKind, base: Omit<ItemBase, 'updatedBy'>, rng: () => number, media?: MediaInit,
+  kind: ItemKind, base: Omit<ItemBase, 'updatedBy'> & { variant?: ItemVariant }, rng: () => number, media?: MediaInit,
 ): Item | null {
-  const b = { ...base, updatedBy: base.createdBy };
+  const { variant, ...properties } = base;
+  if (!validItemVariant(kind, variant)) return null;
+  const b = { ...properties, updatedBy: base.createdBy };
   const clock: MediaClock = { playing: false, base: 0, at: 0 };
   const size = (n: number) => Math.max(1, Math.min(10000, Math.round(Number(n) || 1)));
   switch (kind) {
@@ -235,7 +240,7 @@ export function createItem(
     case 'g2048': return { ...b, kind, grid: g2048Initial(rng), score: 0, over: false };
     case 'telephone': return { ...b, kind, game: emptyTelephoneView() };
     case 'canvas': return { ...b, kind, strokes: [] };
-    case 'camera': return { ...b, kind, holder: null, pitch: 0, live: false, operator: null };
+    case 'camera': return { ...b, kind, holder: null, pitch: 0, live: false, operator: null, ...(variant ? { variant } : {}) };
     case 'dice': return { ...b, kind, roll: null };
     case 'jumpPad':
     case 'mirror':
@@ -281,6 +286,7 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
       }
       return false;
     case 'camera':
+      if (item.variant === 'camera-timer') return false;
       if (act.a === 'pick' && item.holder === null) {
         item.holder = userId;
         if (item.live && item.operator !== userId) { item.live = false; item.operator = null; }

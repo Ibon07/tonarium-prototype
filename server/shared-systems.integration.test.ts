@@ -15,6 +15,7 @@ import type { Item } from '../shared/items.ts';
 import type { SystemCommand, SystemValue, SystemView } from '../shared/system-types.ts';
 import { systemDemoMap } from '../shared/system-demo.ts';
 import { SystemCommandQueue } from '../client/src/systems/command-queue.ts';
+import { CameraCountdown } from '../client/src/systems/camera-countdown.ts';
 
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 async function until<T>(read: () => T | undefined, label: string, timeout = 15_000): Promise<T> {
@@ -130,7 +131,7 @@ test('live shared systems: code-map load, late snapshots, native items, occupied
       error(message) { failures.push(message); },
     });
     queues.add(queue);
-    return { id, home, client, config, frames, failures, items, send, queue, sentCommands, forceNextTickConflict() { holdNextCommand = true; }, get view() { return view!; }, get snapshot() { return snapshot!; }, get ordinal() { return ordinal; } };
+    return { id, home, homeMessages, client, config, frames, failures, items, send, queue, sentCommands, forceNextTickConflict() { holdNextCommand = true; }, get view() { return view!; }, get snapshot() { return snapshot!; }, get ordinal() { return ordinal; } };
   }
   type Peer = Awaited<ReturnType<typeof peer>>;
   const timer = (p: Peer) => p.view.systems.find(system => system.instanceId === 'countdown')!;
@@ -234,10 +235,88 @@ test('live shared systems: code-map load, late snapshots, native items, occupied
   assert.deepEqual(a2.view, b2.view);
   const c = await peer('systems-c');
   assert.deepEqual(c.snapshot.systems, b2.view); assert.equal(text(c), '00:00'); assert.equal(c.view.seats['chair-object'], b2.id);
+
+  const globalBeforeCameras = serialized(b2.view);
+  await b2.send({ t: 'mode', mode: '3d' });
+  await until(() => b2.homeMessages.findLast(message => message.t === 'users')?.list.some((user: { id: string; mode: string }) => user.id === b2.id && user.mode === '3d') ? true : undefined, 'camera requester enters 3D mode');
+  const camera = (p: Peer, id: string) => { const item = p.items.get(id); return item?.kind === 'camera' ? item : undefined; };
+  const shot = (p: Peer, id: string) => camera(p, id)?.timerState?.systems.find(system => system.instanceId === 'camera-shot')?.state;
+  const cameraTimer = (p: Peer, id: string) => camera(p, id)?.timerState?.systems.find(system => system.instanceId === 'camera-delay')?.state;
+  async function spawnCamera(x: number, variant?: 'camera-timer') {
+    const previous = new Set(b2.items.keys());
+    await b2.send({ t: 'itemCreate', kind: 'camera', variant, x, z: -4, ry: Math.PI });
+    return until(() => [...b2.items.values()].find(item => item.kind === 'camera' && item.variant === variant && item.createdBy === b2.id && !previous.has(item.id)), 'normal itemCreate camera result');
+  }
+  const firstCamera = await spawnCamera(-2, 'camera-timer'), secondCamera = await spawnCamera(0, 'camera-timer'), nativeCamera = await spawnCamera(2);
+  assert.notEqual(firstCamera.id, secondCamera.id); assert.notEqual(firstCamera.id, nativeCamera.id);
+  for (const item of [firstCamera, secondCamera, nativeCamera]) assert.equal(item.mapPlacement, undefined);
+  await until(() => [a2, c].every(p => [firstCamera, secondCamera, nativeCamera].every(item => p.items.has(item.id))) ? true : undefined, 'all normal menu camera items reach peers');
+  assert.equal(shot(b2, firstCamera.id)?.busy, false); assert.equal(shot(b2, secondCamera.id)?.busy, false);
+  assert.equal(cameraTimer(b2, firstCamera.id)?.remaining, 5); assert.equal(cameraTimer(b2, secondCamera.id)?.remaining, 5);
+  assert.equal(camera(b2, nativeCamera.id)?.timerState, undefined);
+  assert.deepEqual(b2.view, globalBeforeCameras, 'normal timer camera creation must not replace the global code map');
+
+  const photoToken = crypto.randomUUID(), firstStarted = Date.now(), ownerCountdown = new CameraCountdown();
+  ownerCountdown.begin(photoToken);
+  await b2.send({ t: 'itemAction', id: firstCamera.id, action: { a: 'timedCameraRequest', token: photoToken } });
+  await until(() => shot(b2, firstCamera.id)?.busy === true && shot(b2, firstCamera.id)?.token === photoToken ? true : undefined, 'real itemAction starts only the requested camera');
+  assert.equal(shot(b2, firstCamera.id)?.requester, b2.id); assert.equal(shot(b2, firstCamera.id)?.sequence, 1);
+  assert.equal(ownerCountdown.update(camera(b2, firstCamera.id)!.timerState, b2.id, Date.now()).capture, false);
+  assert.equal(shot(b2, secondCamera.id)?.busy, false); assert.equal(shot(b2, secondCamera.id)?.token, '');
+  assert.equal(cameraTimer(b2, secondCamera.id)?.remaining, 5);
+  const runningSnapshotAfter = c.ordinal; await c.send({ t: 'sync' });
+  const runningSnapshot = await until(() => c.frames.find(frame => frame.ordinal > runningSnapshotAfter && frame.value.kind === 'snapshot')?.value.snapshot as SessionSnapshot | undefined, 'fresh encrypted snapshot contains active normal camera timers');
+  const activeSnapshotCamera = runningSnapshot.items.find(item => item.id === firstCamera.id);
+  assert.equal(activeSnapshotCamera?.kind, 'camera');
+  if (activeSnapshotCamera?.kind !== 'camera') assert.fail('camera missing from active snapshot');
+  assert.equal(activeSnapshotCamera.variant, 'camera-timer');
+  assert.equal(activeSnapshotCamera.timerState?.systems.find(system => system.instanceId === 'camera-shot')?.state.token, photoToken);
+  assert.equal(activeSnapshotCamera.timerState?.systems.find(system => system.instanceId === 'camera-shot')?.state.busy, true);
+  assert.deepEqual(runningSnapshot.systems, globalBeforeCameras);
+  await until(() => [a2, b2, c].every(p => shot(p, firstCamera.id)?.['completed-token'] === photoToken && shot(p, firstCamera.id)?.busy === false) ? true : undefined, 'normal timer camera completes after five real server seconds', 12_000);
+  assert.ok(Date.now() - firstStarted >= 4900, 'photo completed before its five-second delay');
+  assert.equal(shot(b2, firstCamera.id)?.['completed-by'], b2.id); assert.equal(cameraTimer(b2, firstCamera.id)?.remaining, 0);
+  assert.equal(ownerCountdown.update(camera(b2, firstCamera.id)!.timerState, b2.id, Date.now()).capture, true);
+  assert.equal(ownerCountdown.update(camera(b2, firstCamera.id)!.timerState, b2.id, Date.now()).capture, false);
+  assert.equal(shot(b2, secondCamera.id)?.['completed-token'], ''); assert.equal(shot(b2, secondCamera.id)?.busy, false);
+  assert.equal(camera(b2, nativeCamera.id)?.timerState, undefined);
+  const cameraLate = await peer('camera-systems-late');
+  const lateSnapshotCamera = cameraLate.snapshot.items.find(item => item.id === firstCamera.id);
+  assert.equal(lateSnapshotCamera?.kind, 'camera');
+  if (lateSnapshotCamera?.kind !== 'camera') assert.fail('camera missing from late snapshot');
+  assert.equal(lateSnapshotCamera.timerState?.systems.find(system => system.instanceId === 'camera-shot')?.state['completed-token'], photoToken);
+  assert.equal(new CameraCountdown().update(lateSnapshotCamera.timerState, b2.id, Date.now()).capture, false, 'a late tab must not replay a completed photo');
+  assert.deepEqual(cameraLate.snapshot.systems, globalBeforeCameras);
+
+  await b2.send({ t: 'itemMove', id: nativeCamera.id, x: 4, z: 3, ry: 0.5 });
+  await until(() => [a2, b2, c, cameraLate].every(p => camera(p, nativeCamera.id)?.ry === 0.5) ? true : undefined, 'ordinary camera still moves independently');
+  assert.equal(camera(b2, nativeCamera.id)?.timerState, undefined);
+  const cancelledToken = crypto.randomUUID();
+  await b2.send({ t: 'itemAction', id: secondCamera.id, action: { a: 'timedCameraRequest', token: cancelledToken } });
+  await until(() => shot(b2, secondCamera.id)?.busy === true && shot(b2, secondCamera.id)?.token === cancelledToken ? true : undefined, 'second independent camera starts');
+  const cancelledDeadline = Number(shot(b2, secondCamera.id)?.deadline);
+  await b2.send({ t: 'itemRemove', id: secondCamera.id });
+  const cameraPeers = [a2, b2, c, cameraLate];
+  await until(() => cameraPeers.every(p => !p.items.has(secondCamera.id)) ? true : undefined, 'running camera removal reaches every peer');
+  const removedOrdinals = new Map(cameraPeers.map(p => [p, p.ordinal]));
+  await delay(Math.max(0, cancelledDeadline - Date.now()) + 300);
+  for (const p of cameraPeers) {
+    assert.equal(p.items.has(secondCamera.id), false);
+    assert.equal(laterMessage(p, removedOrdinals.get(p)!, message => message?.t === 'item' && message.item?.id === secondCamera.id), undefined, 'removed camera must not receive a late completion or respawn');
+    assert.equal(shot(p, firstCamera.id)?.['completed-token'], photoToken);
+    assert.equal(camera(p, nativeCamera.id)?.timerState, undefined);
+    assert.deepEqual(p.view, globalBeforeCameras);
+  }
+  const afterRemovalSnapshot = c.ordinal; await c.send({ t: 'sync' });
+  const removedSnapshot = await until(() => c.frames.find(frame => frame.ordinal > afterRemovalSnapshot && frame.value.kind === 'snapshot')?.value.snapshot as SessionSnapshot | undefined, 'post-deadline snapshot confirms camera removal');
+  assert.equal(removedSnapshot.items.some(item => item.id === secondCamera.id), false);
+  assert.equal(removedSnapshot.items.some(item => item.id === firstCamera.id), true);
+  assert.equal(removedSnapshot.items.some(item => item.id === nativeCamera.id), true);
+
   await resync(other); assert.equal(other.view.map.id, 'empty'); assert.equal(other.items.size, 0);
-  for (const p of [a, b, b2, a2, c, other]) assert.deepEqual(p.failures, []);
+  for (const p of [a, b, b2, a2, c, cameraLate, other]) assert.deepEqual(p.failures, []);
   assert.equal(/bad room message|system tick|System registration:/.test(logs), false, logs);
   const revisionRetries = [a, b, b2, a2, c, other].reduce((total, p) => total + p.frames.filter(frame => frame.value.message?.commandResult?.outcome === 'rejected' && frame.value.message.error === 'system revision conflict' && p.sentCommands.some(input => input.id === frame.value.message.commandResult.id)).length, 0);
   const forcedRetries = recoveredFrames.filter(message => message.commandResult.outcome === 'rejected' && message.error === 'system revision conflict').length;
-  t.diagnostic(`Full Node server + encrypted kokosync relay: verified ${catalog.entries.length} hashed originals across ${systemIds.length} system IDs, load, two late joins, reconnect, native items, occupancy, raw same-revision rejection, actual client queue recovery, rapid controls and real 10s completion in ${Date.now() - began}ms; queue revision-conflict retries=${revisionRetries}, forced-pause retries=${forcedRetries}, other control retries=${revisionRetries - forcedRetries}. Raw same-revision commands returned applied then rejected, and all queued controls eventually applied. Audio and browser rendering were outside this test.`);
+  t.diagnostic(`Full Node server + encrypted kokosync relay: verified ${catalog.entries.length} hashed originals across ${systemIds.length} system IDs, load, late joins, reconnect, native items, occupancy, raw same-revision rejection, actual client queue recovery, rapid controls, real 10s completion, two normal-menu timer-camera spawns, independent real 5s completion, active/late snapshots, native-camera movement and deletion before its deadline without replay in ${Date.now() - began}ms; queue revision-conflict retries=${revisionRetries}, forced-pause retries=${forcedRetries}, other control retries=${revisionRetries - forcedRetries}. Raw same-revision commands returned applied then rejected, and all queued controls eventually applied. Audio and browser rendering were outside this test.`);
 });

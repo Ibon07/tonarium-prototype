@@ -1,4 +1,8 @@
 export default {
+  cameraTimerShoot: '5秒後に撮影',
+  cameraTimerStart: 'クリック・C: 5秒後に撮影',
+  cameraTimerPreparing: 'カメラを準備中です。少し待って再操作してください。',
+  cameraTimerFailed: '撮影できませんでした。もう一度操作してください。',
   sessionLinkCopy: 'セッションURLをコピー',
   sessionActions: 'セッションの操作',
   sessionLinkCopied: 'セッションURLをコピーしました',

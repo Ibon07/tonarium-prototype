@@ -12,6 +12,8 @@ import { itemAction, removeItem } from '../items/actions.ts';
 import { cameraModels, localFeeds, makeRenderer, renderCamera } from './cameraRender.ts';
 import { DEFAULT_CAMERA_Y } from './cameraPlacement.ts';
 import { carrying, type Interactable } from './interact.ts';
+import { useTimedCamera } from '../items/useTimedCamera.ts';
+import { Label } from './Label.tsx';
 
 type CameraItem = Item & { kind: 'camera' };
 
@@ -53,6 +55,7 @@ export function CamMonitor({ item, position }: { item: CameraItem; position: [nu
 }
 
 export function Camera3D({ item }: { item: CameraItem }) {
+  const timed = useTimedCamera(item), isTimed = item.variant === 'camera-timer';
   const ref = useRef<THREE.Group>(null);
   const model = useRef<THREE.Group>(null);
   useFrame((_, dt) => {
@@ -76,13 +79,14 @@ export function Camera3D({ item }: { item: CameraItem }) {
   const data: Interactable = {
     carry: item.id,
     remove: () => removeItem(item.id),
-    hint: tr("ui473", item.live ? tr("ui474") : ''),
-    use: () => itemAction(item.id, { a: 'pick' }),
+    hint: isTimed ? tr('cameraTimerStart') : tr("ui473", item.live ? tr("ui474") : ''),
+    use: () => { if (isTimed) timed.start(); else itemAction(item.id, { a: 'pick' }); },
   };
   return (
     <group ref={ref} position={[item.x, groundY, item.z]} rotation-y={item.ry} userData={data}>
-      <CameraStand height={height} pitch={item.pitch} live={item.live} modelRef={model} />
-      <CamMonitor item={item} position={[0, height + 0.42, 0]} />
+      <CameraStand height={height} pitch={item.pitch} live={!isTimed && item.live} modelRef={model} />
+      {!isTimed && <CamMonitor item={item} position={[0, height + 0.42, 0]} />}
+      {timed.seconds && <Label text={timed.seconds} position={[0, height + 0.42, 0]} height={0.22} />}
     </group>
   );
 }
@@ -129,6 +133,7 @@ export function CameraStreamer({ item }: { item: CameraItem }) {
 }
 
 export function cameraHelp(item: CameraItem) {
+  if (item.variant === 'camera-timer') return tr('cameraTimerStart');
   return tr("ui476", item.live ? tr("ui474") : tr("ui477"));
 }
 

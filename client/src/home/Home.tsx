@@ -302,7 +302,7 @@ function ItemsWidget() {
   const session = useStore((s) => s.session);
   const entries = useOwnedItems();
   // セッション中はそのまま目の前に出す。外ではアイテムのページへ
-  const pick = (entry: OwnedItem) => { if (session) { spawnItem(entry.kind, entry.text); set({ hubOpen: false }); } else goHome('items'); };
+  const pick = (entry: OwnedItem) => { if (session) { spawnItem(entry.kind, entry.text, undefined, entry.variant); set({ hubOpen: false }); } else goHome('items'); };
   return (
     <div className="hwlist">
       {entries.map((entry) => (

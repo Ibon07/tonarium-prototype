@@ -66,7 +66,7 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 - 개발용 공유 시스템·아이템 ID 카탈로그 → [공유 시스템 문서 폴더](docs/shared-systems/README.md)
 - 코드로 맵을 만드는 순서와 복사 가능한 연결 예제 → [add-world 사용법](.claude/skills/add-world/SKILL.md)
 - 새 시스템 PR 등록·배포와 로컬 시험 → [등록 가이드](docs/shared-systems/registration.md) · [시험 가이드](docs/shared-systems/playtest.md)
-- 기존 카메라 하나에 5초 타이머·초 표시·효과음·삭제를 연결하는 예제 → [카메라 촬영 시험](docs/shared-systems/camera-timer-test.md)
+- 아이템 메뉴에서 꺼내는 5초 딜레이 카메라·초 표시·효과음·삭제와 타이머 연결 예제 → [타이머 카메라 사용법](docs/shared-systems/camera-timer-test.md)
 
 - 共有アセット・非空間システムの提出契約、原本保全、配置編集と実装途中の範囲 → [docs/shared-assets.md](docs/shared-assets.md)・[検証記録](docs/shared-assets-verification.md)
 - 単体ブラウザのWebXR初期実装（VR操作・仮想端末・対応表・検証範囲）→ [docs/webxr.md](docs/webxr.md)。Quest 3／Steam Frame実機は未検証、Electron版はVR非対応
