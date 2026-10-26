@@ -41,6 +41,8 @@ interface ItemBase {
   x: number;
   z: number;
   ry: number;
+  y?: number;
+  scale?: number;
   createdBy: string;
   updatedBy: string;
   mapPlacement?: ItemMapPlacement;
