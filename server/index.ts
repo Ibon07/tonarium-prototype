@@ -21,6 +21,7 @@ import { COMPAT_VERSION, PLAN_QUORUM, ROOM_HALF, STATUS_INFO, STATUS_TEXT_MAX, V
 import { GROUP_COLORS, canSeeSession } from '../shared/home.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, isWorldKind, pushOut, type WorldKind } from '../shared/worlds.ts';
 import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, canAddMirror, createItem, isDeltaAction, isHandheld, itemSummary, type Item } from '../shared/items.ts';
+import { mediaTransform } from '../shared/media-placement.ts';
 import { telephoneAction, telephoneItemFor, telephoneState, tickTelephone, reconcileTelephoneHost, hasTelephoneHistory } from './telephone.ts';
 import type { TelephoneAction } from '../shared/telephone.ts';
 import { sanitizeParams } from '../shared/avatar.ts';
@@ -702,7 +703,8 @@ function broadcastItemMove(sid: string, it: Item) {
   const key = `${sid}\0${it.id}`;
   const send = () => {
     itemMoveSentAt.set(key, Date.now());
-    roomSend(sid, { t: 'itemMove', sid, id: it.id, x: it.x, z: it.z, ry: it.ry });
+    roomSend(sid, { t: 'itemMove', sid, id: it.id, x: it.x, z: it.z, ry: it.ry,
+      ...((it.kind === 'image' || it.kind === 'video') ? mediaTransform(it) : {}) });
   };
   const wait = ITEM_MOVE_MS - (Date.now() - (itemMoveSentAt.get(key) ?? 0));
   if (wait <= 0) { send(); return; }
@@ -1258,11 +1260,16 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     case 'itemMove': {
       const it = sessItems.get(msg.id);
       if (!it || isSystemControlledItem(it) || (it.kind === 'hammer' && it.holder) || (it.kind === 'bike' && it.rider)) return;
-      const p = placeIn(sid, msg.x, msg.z, itemRadius(it) * 0.6);
+      const media = it.kind === 'image' || it.kind === 'video';
+      const half = (worldOf.get(sid) === 'city' ? CITY_HALF : ROOM_HALF) - 0.5;
+      const p = media ? { x: Math.max(-half, Math.min(half, finNum(msg.x))), z: Math.max(-half, Math.min(half, finNum(msg.z))) }
+        : placeIn(sid, msg.x, msg.z, itemRadius(it) * 0.6);
       const ry = finNum(msg.ry);
+      const transform = media ? mediaTransform({ y: msg.y ?? it.y, scale: msg.scale ?? it.scale }) : null;
       // 位置が変わっていなければ送らない
-      if (p.x === it.x && p.z === it.z && ry === it.ry) return;
+      if (p.x === it.x && p.z === it.z && ry === it.ry && (!transform || (transform.y === it.y && transform.scale === it.scale))) return;
       it.x = p.x; it.z = p.z; it.ry = ry;
+      if (transform) Object.assign(it, transform);
       broadcastItemMove(sid, it);
       return;
     }

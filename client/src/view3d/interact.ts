@@ -23,7 +23,7 @@ const LIMIT = ROOM_HALF - 0.5;
 export const clampRoom = (v: number) => Math.max(-LIMIT, Math.min(LIMIT, v));
 
 export const carrying = {
-  current: null as null | { id: string; x: number; z: number; ry: number; last: number },
+  current: null as null | { id: string; x: number; z: number; ry: number; last: number; y?: number; scale?: number; distance?: number },
 };
 
 export function findInteractable(obj: THREE.Object3D | null): { data: Interactable; obj: THREE.Object3D } | null {

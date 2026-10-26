@@ -37,6 +37,7 @@ import { canLean, leanAngle, pressJump } from './movementAbilities.ts';
 import { xr, xrState } from '../xr/runtime.ts';
 import { carryPosition } from '../xr/pose.ts';
 import { CrouchInput, CROUCH_WEIGHT } from './crouch.ts';
+import { MEDIA_PLACEMENT, adjustMediaPlacement, mediaPosition, mediaTransform } from '../../../shared/media-placement.ts';
 
 const SPEED = 4;
 const BODY_R = 0.3;
@@ -67,7 +68,7 @@ const isTyping = (t: EventTarget | null) =>
 
 function hintFor(aim: { data: Interactable; hit: THREE.Intersection } | null): string | null {
   if (riddenBike()) return tr('mergeBikeControls');
-  if (carrying.current) return tr("ui525");
+  if (carrying.current) return carrying.current.distance === undefined ? tr("ui525") : tr('mediaPlacementControls');
   const s = get();
   const cam = heldCamera(s);
   if (cam) return cameraHelp(cam);
@@ -81,11 +82,18 @@ function hintFor(aim: { data: Interactable; hit: THREE.Intersection } | null): s
 }
 
 /** `user:<ID>` は 2D の人の立ち姿、`display:<ID>` はその人の配信ディスプレイ */
-function sendCarry(c: { id: string; x: number; z: number; ry: number }) {
+function sendCarry(c: NonNullable<typeof carrying.current>) {
   // 立ち姿の前は -Z なので、運ぶ人の方を向けるには +180°
   if (c.id.startsWith('user:')) place2d(c.id.slice(5), { x: c.x, z: c.z, ry: c.ry + Math.PI });
   else if (c.id.startsWith('display:')) send({ t: 'displayMove', target: c.id.slice(8), x: c.x, z: c.z, ry: c.ry });
-  else moveItem(c.id, c.x, c.z, c.ry);
+  else moveItem(c.id, c.x, c.z, c.ry, c.distance === undefined ? {} : { y: c.y, scale: c.scale });
+}
+
+function startCarry(id: string) {
+  const item = get().items[id];
+  const media = item?.kind === 'image' || item?.kind === 'video';
+  carrying.current = { id, x: item?.x ?? 0, z: item?.z ?? 0, ry: item?.ry ?? 0, last: 0,
+    ...(media ? { ...mediaTransform(item), distance: MEDIA_PLACEMENT.distance } : {}) };
 }
 
 function finishCarry() {
@@ -171,7 +179,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       if (e.button === 2) {
         if (document.pointerLockElement !== canvas) return;
         if (carrying.current) finishCarry();
-        else if (aim.current?.data.carry) carrying.current = { id: aim.current.data.carry, x: 0, z: 0, ry: 0, last: 0 };
+        else if (aim.current?.data.carry) startCarry(aim.current.data.carry);
         return;
       }
       if (e.button !== 0) return;
@@ -253,6 +261,15 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       if (e.code === 'KeyX' && !carrying.current) aim.current?.data.remove?.();
     };
     const onWheel = (e: WheelEvent) => {
+      const c = carrying.current;
+      if (c?.distance !== undefined && c.scale !== undefined) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const value = { distance: c.distance, scale: c.scale };
+        adjustMediaPlacement(value, e.deltaY, e.shiftKey);
+        Object.assign(c, value);
+        return;
+      }
       if (!rig.thirdPerson || (!xrState().active && document.pointerLockElement !== canvas && e.target !== canvas)) return;
       e.preventDefault();
       rig.zoom(e.deltaY);
@@ -270,7 +287,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       if (riddenBike()) return false;
       aim.current = aimAt(scene, camera, xr.ray);
       if (carrying.current) finishCarry();
-      else if (aim.current?.data.carry) carrying.current = { id: aim.current.data.carry, x: 0, z: 0, ry: 0, last: 0 };
+      else if (aim.current?.data.carry) startCarry(aim.current.data.carry);
       return !!carrying.current;
     };
 
@@ -281,7 +298,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     document.addEventListener('contextmenu', onContextMenu);
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-    canvas.addEventListener('wheel', onWheel, { passive: false });
+    canvas.addEventListener('wheel', onWheel, { passive: false, capture: true });
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
@@ -294,7 +311,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       document.removeEventListener('contextmenu', onContextMenu);
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
-      canvas.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener('wheel', onWheel, true);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
@@ -668,21 +685,29 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       send({ t: 'avatar', s: a });
     }
 
+    rig.avatarPosition.set(x, b.y, z);
+    rig.yaw = immersive ? look.current.yaw : yaw;
+    rig.place(camera, scene, position.current);
+
     const c = carrying.current;
     if (c) {
       const held = immersive && xr.carryRay ? carryPosition(xr.carryRay) : null;
       c.x = (city ? clampCity : clampRoom)(held?.x ?? x - Math.sin(yaw) * 2);
       c.z = (city ? clampCity : clampRoom)(held?.z ?? z - Math.cos(yaw) * 2);
       c.ry = immersive && xr.carryRay ? Math.atan2(-xr.carryRay.direction.x, -xr.carryRay.direction.z) : yaw;
+      if (c.distance !== undefined) {
+        const direction = camera.getWorldDirection(new THREE.Vector3());
+        const at = mediaPosition(camera.getWorldPosition(new THREE.Vector3()), direction, c.distance);
+        c.x = (city ? clampCity : clampRoom)(at.x);
+        c.z = (city ? clampCity : clampRoom)(at.z);
+        c.y = mediaTransform({ y: at.y }).y;
+        c.ry = Math.atan2(-direction.x, -direction.z);
+      }
       if (now - c.last > 80) {
         c.last = now;
         sendCarry(c);
       }
     }
-
-    rig.avatarPosition.set(x, b.y, z);
-    rig.yaw = immersive ? look.current.yaw : yaw;
-    rig.place(camera, scene, position.current);
 
     const d = dragging.current;
     if (d) {
