@@ -131,6 +131,8 @@ interface State extends AdSlice {
   timelineSide: string | null;
   /** 引用して書くポスト */
   composeQuote: string | null;
+  /** タイムラインのページに貼った・落とした写真。書く欄が受け取って上げる。'unsupported' は写真以外だったとき */
+  composeImage: File | 'unsupported' | null;
   posts: Post[];
   /** スマホ幅のセッション画面で、下のタブで選んでいるもの */
   phoneTab: 'screen' | 'list' | 'log';
@@ -311,6 +313,7 @@ export const useStore = create<State>((set, get) => ({
   // スマホでは右の欄が下からのシートになるので、開いた途端に覆わないよう閉じておく
   timelineSide: typeof matchMedia === 'function' && matchMedia('(max-width: 720px)').matches ? null : 'compose',
   composeQuote: null,
+  composeImage: null,
   posts: [],
   sideWidget: load('tonarium.sideWidget', 'events'),
   joinMode: load('tonarium.joinMode', '2d'),

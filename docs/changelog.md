@@ -35,4 +35,4 @@ Web は Vite が `shared/changelog.ts` を取り込む際に、共通履歴と�
 
 タスク完了前に `npm run check:completion` を実行する。`npm run check:changelog` は比較元に存在しない作業別ファイルが一つ以上あること、全作業別ファイルの形式・内容重複、既存履歴の保持を確認する。コミット済み・ステージ済み・未ステージ・未追跡の現在のファイルを対象とする。共通履歴の追記だけでは通過しない。記載内容と実際の差分の一致はレビューで確認する。
 
-比較元は既定で `git merge-base HEAD origin/main`。タスク開始時のコミットを明示する場合は `CHANGELOG_BASE` を設定するか、`npm run check:changelog -- --base <比較元コミット>` を使う。比較元を取得できない場合も失敗する。PR の Web checks も同じ検証を使う。回帰テストは `npm run test:changelog`。
+比較元は既定で `git merge-base HEAD origin/develop`（`origin/develop` が無ければ `origin/main`）。タスク開始時のコミットを明示する場合は `CHANGELOG_BASE` を設定するか、`npm run check:changelog -- --base <比較元コミット>` を使う。比較元を取得できない場合も失敗する。PR の Web checks も同じ検証を使う。回帰テストは `npm run test:changelog`。

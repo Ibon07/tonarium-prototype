@@ -42,9 +42,9 @@ npm run dev
 ```
 修正・文書更新・保守を含む全タスクで、`changelog/YYYY-MM-DD-<識別子>.json` を新規追加する。`date`・`title`・`items` が必須、`tag` は任意。共通履歴の手動編集は不要。配置・命名規則・記載例・識別と並び順・ビルド時の集約は [変更履歴の開発ガイド](docs/changelog.md) を参照。記載内容と実際の差分の一致はレビューで確認する。
 
-タスク完了前に `npm run check:completion` を実行する。新規の作業別履歴ファイルと形式の検証、型チェック、ビルドの順で実行し、失敗したら完了にしない。履歴チェックだけなら `npm run check:changelog`、回帰テストは `npm run test:changelog`。比較元は既定で `git merge-base HEAD origin/main`。別の比較元は `CHANGELOG_BASE`、または `npm run check:changelog -- --base <タスク開始時のコミット>` で指定できる。比較元に存在しないファイルの追加が必須で、既存履歴の編集・削除・改名や複製だけでは通過しない。失敗時は案内に従い、新しい作業別ファイルを追加する。共通履歴の既存項目は残す。
+タスク完了前に `npm run check:completion` を実行する。新規の作業別履歴ファイルと形式の検証、型チェック、ビルドの順で実行し、失敗したら完了にしない。履歴チェックだけなら `npm run check:changelog`、回帰テストは `npm run test:changelog`。比較元は既定で `git merge-base HEAD origin/develop`（`origin/develop` が無ければ `origin/main`）。別の比較元は `CHANGELOG_BASE`、または `npm run check:changelog -- --base <タスク開始時のコミット>` で指定できる。比較元に存在しないファイルの追加が必須で、既存履歴の編集・削除・改名や複製だけでは通過しない。失敗時は案内に従い、新しい作業別ファイルを追加する。共通履歴の既存項目は残す。
 
-`main` 宛ての全 PR はファイル種別による除外なしで GitHub Actions の Web checks を実行する。PR の比較元コミットからの新規履歴、型チェック、ビルド、クライアント・同期テストを確認する。手動実行では対象コミットの親を比較元にする。Discord のフィードバックから作った PR も同じチェックを通してからマージする。
+作業ブランチは `develop` から切って `develop` 宛てに PR を出し、`main` へは `develop` からまとめて出す。`main` と `develop` 宛ての全 PR はファイル種別による除外なしで GitHub Actions の Web checks を実行する。Electron checks と Nightly configuration checks は、どの宛て先の PR でも、`main`・`develop` への push でも動く（対象のファイルが変わったときだけ）。Electron の nightly ビルド・配布と、共有アセット・共有システムの投稿の検査と配布の準備は `main` だけ。PR の比較元コミットからの新規履歴、型チェック、ビルド、クライアント・同期テストを確認する。手動実行では対象コミットの親を比較元にする。Discord のフィードバックから作った PR も同じチェックを通してからマージする。
 http://localhost:5173 を開く。同じブラウザで別人として入るには `?as=b` のように付ける（名前はブラウザ共通で覚えるので、入る前に変える）。
 動作確認で作ったセッション・グループ・イベントを消したいときは `data/home.json` を消してサーバーを再起動する。
 
