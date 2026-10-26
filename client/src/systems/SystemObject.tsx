@@ -45,7 +45,7 @@ export function SystemObject({ objectId, children, sessionId, hint, initialText 
     apply();
     const unsubscribe = useSystems.subscribe(apply);
     return () => { unsubscribe(); bindings.dispose(); };
-  }, [objectId, expectedSession, mapId]);
+  }, [objectId, expectedSession, mapId, hint]);
 
   return <group ref={object} onClick={event => {
     const use = object.current?.userData.use;

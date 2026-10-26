@@ -32,7 +32,7 @@ test('button/timer/mover composition changes existing objects and survives resta
   runtime.apply('alice', { kind: 'interact', id: 'click', revision: 1, objectId: 'switch-object' });
   assert.equal(saved!.schedules.length, 1); assert.equal(runtime.view().systems[1].state.running, true);
   const restarted = new SystemRuntime(() => source, state => { saved = state; }, saved, () => time);
-  time = 1500; assert.equal(restarted.tick(['alice', 'bob']), true); assert.equal(restarted.view().objects['clock-object'].text, '00:01');
+  time = 1500; assert.equal(restarted.tick(['alice', 'bob']), true); assert.equal(restarted.view().objects['clock-object'].text, '00:00.5');
   time = 2000; restarted.tick(['alice', 'bob']); assert.deepEqual(restarted.view().objects['mover-object'].position, [8, 0, 0]);
   assert.equal(restarted.view().systems[2].state.opened, true); assert.deepEqual(other.view().objects['mover-object'].position, [5, 0, 0]);
 });
@@ -223,4 +223,79 @@ test('map changes dispose old instances against the old map before starting reus
   runtime.apply('alice', { kind: 'map', id: 'switch', revision: runtime.view().revision, map: second });
   assert.equal(runtime.view().systems[0].systemId, 'button'); assert.deepEqual(runtime.view().systems[0].state, {});
   assert.deepEqual(runtime.view().objects.target, { position: [5, 0, 0], text: 'new' }); assert.deepEqual(saved!.schedules, []); assert.deepEqual(runtime.view().traces, []);
+});
+
+test('clock text preserves millisecond fractions, normalizes float noise and never displays zero before completion', () => {
+  const display = manifest('clock-display', {
+    targets: { display: { capabilities: ['text'], required: true } },
+    inputs: { show: { payload: { seconds: 'number' } } },
+    handlers: { show: [{ op: 'text', target: 'display', value: { calc: 'clock', args: [{ event: 'seconds' }] } }] },
+  });
+  const source = catalog(display), runtime = new SystemRuntime(() => source, () => {});
+  const definition: SystemMap = { schema: 1, id: 'clock-display-map', objects: [{ id: 'clock', position: [0, 1, 0], capabilities: ['text'] }], systems: [{ instanceId: 'display', systemId: 'clock-display', bindings: { display: ['clock'] }, config: {} }], connections: [] };
+  install(runtime, definition);
+  const examples: [number, string][] = [[0, '00:00'], [-1, '00:00'], [0.001, '00:00.001'], [0.00001, '00:00.001'], [0.125, '00:00.125'], [0.5, '00:00.5'], [1.25, '00:01.25'], [12.5, '00:12.5'], [0.1 + 0.2, '00:00.3'], [59.999999999, '01:00'], [60.000000001, '01:00'], [61.125, '01:01.125'], [86400, '1440:00']];
+  examples.forEach(([seconds, expected], index) => {
+    runtime.apply('alice', { kind: 'input', id: `show-${index}`, revision: runtime.view().revision, instanceId: 'display', input: 'show', payload: { seconds } });
+    assert.equal(runtime.view().objects.clock.text, expected, String(seconds));
+  });
+});
+
+test('registered timer accepts fractional second configuration down to one millisecond without changing integer displays', () => {
+  const released = JSON.parse(fs.readFileSync(new URL('../shared-systems/timer/1.0.1/system.json', import.meta.url), 'utf8')) as SystemManifest;
+  const source = catalog(released);
+  const definition = (duration: number): SystemMap => ({ schema: 1, id: 'fractional-timer-map', objects: [{ id: 'clock', capabilities: ['text'], position: [0, 1, 0] }], systems: [{ instanceId: 'timer', systemId: 'timer', bindings: { display: ['clock'] }, config: { duration } }], connections: [] });
+  const examples: [number, string][] = [[0.001, '00:00.001'], [0.125, '00:00.125'], [0.5, '00:00.5'], [1.25, '00:01.25'], [12.5, '00:12.5'], [10, '00:10']];
+  for (const [duration, expected] of examples) {
+    let time = 0, saved: SystemRuntimeState | undefined;
+    const runtime = new SystemRuntime(() => source, state => { saved = state; }, undefined, () => time); install(runtime, definition(duration));
+    assert.equal(runtime.view().systems[0].version, '1.0.1');
+    assert.equal(runtime.view().systems[0].state.remaining, duration);
+    assert.equal(runtime.view().objects.clock.text, expected);
+    runtime.apply('alice', { kind: 'input', id: 'start', revision: runtime.view().revision, instanceId: 'timer', input: 'start', payload: {} });
+    assert.equal(saved!.schedules[0].due, Math.min(200, duration * 1000));
+    time = duration * 1000; assert.equal(runtime.tick(['alice']), true);
+    assert.equal(runtime.view().systems[0].state.remaining, 0); assert.equal(runtime.view().systems[0].state.running, false);
+    assert.equal(runtime.view().objects.clock.text, '00:00'); assert.equal(saved!.schedules.length, 0);
+    time++; assert.equal(runtime.tick(['alice']), false);
+  }
+  for (const duration of [0, -1, 0.0009, NaN, Infinity]) {
+    const runtime = new SystemRuntime(() => source, () => {});
+    assert.throws(() => install(runtime, definition(duration)), /number range|value type/);
+    assert.equal(runtime.view().revision, 0);
+  }
+});
+
+test('fractional remaining state survives pause, persistence, restart and a compatible timer release while running', () => {
+  const oldTimer = JSON.parse(fs.readFileSync(new URL('../shared-systems/timer/1.0.0/system.json', import.meta.url), 'utf8')) as SystemManifest;
+  const newTimer = JSON.parse(fs.readFileSync(new URL('../shared-systems/timer/1.0.1/system.json', import.meta.url), 'utf8')) as SystemManifest;
+  const completed = manifest('completion-counter', { state: { count: { type: 'number', default: 0 } }, inputs: { complete: { payload: {} } }, handlers: { complete: [{ op: 'set', field: 'count', value: { calc: 'add', args: [{ state: 'count' }, 1] } }] } });
+  let source = catalog(button, oldTimer, chair, completed), time = 1000, saved: SystemRuntimeState | undefined;
+  const persist = (state: SystemRuntimeState) => { saved = JSON.parse(JSON.stringify(state)) as SystemRuntimeState; };
+  const definition = structuredClone(systemDemoMap); definition.systems.find(system => system.instanceId === 'countdown')!.config.duration = 1.25;
+  definition.systems.push({ instanceId: 'finishes', systemId: 'completion-counter', bindings: {}, config: {} });
+  definition.connections.push({ from: 'countdown', output: 'finished', to: 'finishes', input: 'complete' });
+  let runtime = new SystemRuntime(() => source, persist, undefined, () => time); install(runtime, definition);
+  const input = (id: string, name: string) => runtime.apply('alice', { kind: 'input', id, revision: runtime.view().revision, instanceId: 'countdown', input: name, payload: {} });
+  const current = () => runtime.view().systems.find(system => system.instanceId === 'countdown')!;
+  input('start', 'start'); time = 1125; input('pause', 'pause');
+  assert.equal(current().state.remaining, 1.125); assert.equal(current().state.running, false); assert.equal(saved!.schedules.length, 0);
+  assert.equal(runtime.view().objects['timer-text'].text, '00:01.125');
+  runtime = new SystemRuntime(() => source, persist, saved, () => time);
+  assert.equal(current().state.remaining, 1.125); assert.equal(current().config.duration, 1.25);
+  time = 5000; input('resume', 'start'); assert.equal(current().state.deadline, 6125);
+  time = 5500; runtime.tick(['alice']); assert.equal(current().state.remaining, 0.625);
+  assert.equal(runtime.view().objects['timer-text'].text, '00:00.625');
+  const before = structuredClone(current()), schedules = structuredClone(saved!.schedules);
+  source = catalog(button, oldTimer, newTimer, chair, completed); assert.equal(runtime.refresh(), true);
+  assert.equal(current().version, '1.0.1'); assert.equal(current().instanceId, before.instanceId);
+  assert.deepEqual(current().bindings, before.bindings); assert.deepEqual(current().config, before.config); assert.deepEqual(current().state, before.state);
+  assert.deepEqual(saved!.schedules, schedules);
+  runtime = new SystemRuntime(() => source, persist, saved, () => time);
+  assert.deepEqual(current().state, before.state); assert.equal(current().version, '1.0.1');
+  time = 6124; runtime.tick(['alice']); assert.equal(current().state.remaining, 0.001); assert.equal(runtime.view().objects['timer-text'].text, '00:00.001');
+  time = 6125; runtime.tick(['alice']); assert.equal(current().state.remaining, 0); assert.equal(current().state.running, false);
+  assert.equal(runtime.view().objects['timer-text'].text, '00:00'); assert.equal(saved!.schedules.length, 0);
+  assert.equal(runtime.view().systems.find(system => system.instanceId === 'finishes')!.state.count, 1);
+  time = 7000; assert.equal(runtime.tick(['alice']), false); assert.equal(runtime.view().systems.find(system => system.instanceId === 'finishes')!.state.count, 1);
 });

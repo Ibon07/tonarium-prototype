@@ -60,7 +60,8 @@ test('live shared systems: code-map load, late snapshots, native items, occupied
   const catalogResponse = await fetch(`${base}/api/shared-systems`);
   assert.equal(catalogResponse.status, 200);
   const catalog = await catalogResponse.json();
-  assert.deepEqual(catalog.entries.map((entry: { id: string }) => entry.id).sort(), ['button', 'chair', 'timer']);
+  const systemIds = [...new Set(catalog.entries.map((entry: { id: string }) => entry.id))].sort();
+  assert.deepEqual(systemIds, ['button', 'chair', 'timer']);
   for (const entry of catalog.entries) {
     const originalResponse = await fetch(`${base}/system-originals/${entry.integrity}`);
     assert.equal(originalResponse.status, 200);
@@ -238,5 +239,5 @@ test('live shared systems: code-map load, late snapshots, native items, occupied
   assert.equal(/bad room message|system tick|System registration:/.test(logs), false, logs);
   const revisionRetries = [a, b, b2, a2, c, other].reduce((total, p) => total + p.frames.filter(frame => frame.value.message?.commandResult?.outcome === 'rejected' && frame.value.message.error === 'system revision conflict' && p.sentCommands.some(input => input.id === frame.value.message.commandResult.id)).length, 0);
   const forcedRetries = recoveredFrames.filter(message => message.commandResult.outcome === 'rejected' && message.error === 'system revision conflict').length;
-  t.diagnostic(`Full Node server + encrypted kokosync relay: verified three hashed originals, load, two late joins, reconnect, native items, occupancy, raw same-revision rejection, actual client queue recovery, rapid controls and real 10s completion in ${Date.now() - began}ms; queue revision-conflict retries=${revisionRetries}, forced-pause retries=${forcedRetries}, other control retries=${revisionRetries - forcedRetries}. Raw same-revision commands returned applied then rejected, and all queued controls eventually applied. Audio and browser rendering were outside this test.`);
+  t.diagnostic(`Full Node server + encrypted kokosync relay: verified ${catalog.entries.length} hashed originals across ${systemIds.length} system IDs, load, two late joins, reconnect, native items, occupancy, raw same-revision rejection, actual client queue recovery, rapid controls and real 10s completion in ${Date.now() - began}ms; queue revision-conflict retries=${revisionRetries}, forced-pause retries=${forcedRetries}, other control retries=${revisionRetries - forcedRetries}. Raw same-revision commands returned applied then rejected, and all queued controls eventually applied. Audio and browser rendering were outside this test.`);
 });

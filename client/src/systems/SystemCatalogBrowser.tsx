@@ -1,68 +1,92 @@
 import { useEffect, useState } from 'react';
-import type { Capability, SystemCatalog, SystemEntry, SystemPort, ValueSchema } from '../../../shared/system-types.ts';
-import { latestSystem } from '../../../shared/systems.ts';
+import type { Capability, SystemCatalog, SystemEntry, SystemPort, ValueSchema, ValueType } from '../../../shared/system-types.ts';
+import { compareVersions } from '../../../shared/systems.ts';
 import { catalogExampleCode } from './catalog-example.ts';
 import './catalog.css';
 import { SystemItemCatalog } from './SystemItemCatalog.tsx';
 import { SystemLibraryGuide } from './SystemLibraryGuide.tsx';
+import { t, useLanguage } from '../i18n/index.ts';
+import { systemDescription, systemTitle } from './catalog-labels.ts';
+import { systemErrorText } from './messages.ts';
+import { CatalogPagination } from './CatalogPagination.tsx';
+import { catalogPage, uniqueSystemIds } from './pagination.ts';
 
-const capabilities: Record<Capability, string> = { interact: '상호작용', move: '이동', text: '텍스트 표시', seat: '착석 기준점' };
+const capabilities: Record<Capability, string> = { interact: 'ssCatalogCapabilityInteract', move: 'ssCatalogCapabilityMove', text: 'ssCatalogCapabilityText', seat: 'ssCatalogCapabilitySeat' };
+const types: Record<ValueType, string> = { number: 'ssCatalogTypeNumber', string: 'ssCatalogTypeString', boolean: 'ssCatalogTypeBoolean', user: 'ssCatalogTypeUser', object: 'ssCatalogTypeObject' };
 
 function Fields({ fields }: { fields: Record<string, ValueSchema> }) {
-  return Object.keys(fields).length ? <div className="system-catalog-table"><table><thead><tr><th>이름</th><th>자료형</th><th>기본값</th><th>범위</th></tr></thead><tbody>{Object.entries(fields).map(([name, field]) => <tr key={name}><td><code>{name}</code></td><td>{field.type}</td><td><code>{JSON.stringify(field.default)}</code></td><td>{field.min === undefined && field.max === undefined ? '제한 없음' : `${field.min ?? '제한 없음'} ~ ${field.max ?? '제한 없음'}`}</td></tr>)}</tbody></table></div> : <p>없음</p>;
+  useLanguage();
+  return Object.keys(fields).length ? <div className="system-catalog-table"><table><thead><tr><th>{t('ssCatalogName')}</th><th>{t('ssCatalogType')}</th><th>{t('ssCatalogDefault')}</th><th>{t('ssCatalogRange')}</th></tr></thead><tbody>{Object.entries(fields).map(([name, field]) => <tr key={name}><td><code>{name}</code></td><td>{t(types[field.type])}</td><td><code>{JSON.stringify(field.default)}</code></td><td>{field.min === undefined && field.max === undefined ? t('ssCatalogUnlimited') : t('ssCatalogRangeValues', field.min ?? t('ssCatalogUnlimited'), field.max ?? t('ssCatalogUnlimited'))}</td></tr>)}</tbody></table></div> : <p>{t('ssCatalogNone')}</p>;
 }
 
 function Ports({ ports }: { ports: Record<string, SystemPort> }) {
-  return Object.keys(ports).length ? <dl className="system-catalog-ports">{Object.entries(ports).map(([name, port]) => <div key={name}><dt><code>{name}</code></dt><dd>{Object.entries(port.payload).map(([key, type]) => `${key}: ${type}`).join(', ') || '전달 데이터 없음'}</dd></div>)}</dl> : <p>없음</p>;
+  useLanguage();
+  return Object.keys(ports).length ? <dl className="system-catalog-ports">{Object.entries(ports).map(([name, port]) => <div key={name}><dt><code>{name}</code></dt><dd>{Object.entries(port.payload).map(([key, type]) => `${key}: ${t(types[type])}`).join(', ') || t('ssCatalogNoPayload')}</dd></div>)}</dl> : <p>{t('ssCatalogNone')}</p>;
 }
 
 function CatalogItem({ entries, latest }: { entries: SystemEntry[]; latest: SystemEntry }) {
+  useLanguage();
   const [version, setVersion] = useState(''), [copyMessage, setCopyMessage] = useState('');
   const entry = entries.find(item => item.version === version) ?? latest, manifest = entry.manifest;
   const code = catalogExampleCode(latest.manifest);
   const copy = async () => {
-    try { await navigator.clipboard.writeText(code); setCopyMessage('연결 예제를 복사했습니다.'); }
-    catch { setCopyMessage('아래 코드를 선택해서 복사해 주세요.'); }
+    try { await navigator.clipboard.writeText(code); setCopyMessage('ssCatalogCopied'); }
+    catch { setCopyMessage('ssCatalogCopyFallback'); }
   };
-  return <details className="system-catalog-item"><summary><span><strong>{latest.manifest.title}</strong><code>{latest.id}</code></span><span>최신 {latest.version} · {entries.length}개 버전</span></summary>
+  return <details className="system-catalog-item"><summary><span><strong>{systemTitle(latest.manifest)}</strong><code>{latest.id}</code></span><span>{t('ssCatalogLatestVersions', latest.version, entries.length)}</span></summary>
     <div className="system-catalog-detail">
-      <label>공개된 버전<select value={entry.version} onChange={event => { setVersion(event.target.value === latest.version ? '' : event.target.value); setCopyMessage(''); }}>{[latest, ...entries.filter(item => item.version !== latest.version)].map(item => <option value={item.version} key={item.version}>{item.version}{item.version === latest.version ? ' (최신)' : ''}</option>)}</select></label>
-      <p>{manifest.description}</p>
-      <dl className="system-catalog-meta"><div><dt>이용 조건</dt><dd>{manifest.license}</dd></div><div><dt>제작·출처</dt><dd>{manifest.credits.join(', ') || '없음'}</dd></div><div><dt>실행 규격</dt><dd>{manifest.sdk}</dd></div></dl>
-      <h3>연결할 대상</h3>
-      {Object.entries(manifest.targets).length ? <ul>{Object.entries(manifest.targets).map(([name, target]) => <li key={name}><code>{name}</code> — {target.capabilities.map(capability => capabilities[capability]).join(', ')} · {target.required ? '필수' : '선택'} · {target.multiple ? '여러 오브젝트' : '오브젝트 1개'}</li>)}</ul> : <p>없음</p>}
-      {manifest.interaction && <p>상호작용: <code>{manifest.interaction.target}</code>에 연결한 오브젝트를 누르면 <code>{manifest.interaction.input}</code> 입력을 호출합니다.</p>}
-      <h3>설정</h3><Fields fields={manifest.config} />
-      <h3>입력 이벤트</h3><Ports ports={manifest.inputs} />
-      <h3>출력 이벤트</h3><Ports ports={manifest.outputs} />
-      <details><summary>초기 상태와 업데이트 규칙</summary><Fields fields={manifest.state} /><p>맵은 시스템 ID로 연결합니다. 호환되는 업데이트는 기존 연결과 실행 상태를 유지하며, 호환되지 않으면 보존된 버전을 사용합니다.</p>{manifest.migrations?.length ? <pre>{JSON.stringify(manifest.migrations, null, 2)}</pre> : <p>별도 상태 이름 변경 규칙 없음</p>}</details>
-      <h3>맵 코드 연결 예제 · 최신 {latest.version}</h3><p>새 맵 연결 예제는 최신 버전 기준입니다. 대상 ID·위치·설정을 내 맵에 맞게 수정하고, 외형은 맵 코드에서 만드세요. 위 버전 선택은 정보 조회용이며 예제에는 버전을 고정하지 않습니다.</p><button type="button" onClick={() => void copy()}>연결 예제 복사</button><span role="status">{copyMessage}</span><pre>{code}</pre>
-      <details><summary>작동 로직과 원본 보기</summary><p><a href={`/system-originals/${encodeURIComponent(entry.integrity)}`} target="_blank" rel="noreferrer">서버에 보관된 원본 JSON 열기</a></p><p className="system-catalog-hash">원본 식별값: {entry.integrity}</p><pre>{JSON.stringify(manifest, null, 2)}</pre></details>
+      <label>{t('ssCatalogPublishedVersion')}<select value={entry.version} onChange={event => { setVersion(event.target.value === latest.version ? '' : event.target.value); setCopyMessage(''); }}>{[latest, ...entries.filter(item => item.version !== latest.version)].map(item => <option value={item.version} key={item.version}>{item.version}{item.version === latest.version ? t('ssCatalogLatestSuffix') : ''}</option>)}</select></label>
+      <p>{systemDescription(manifest)}</p>
+      <dl className="system-catalog-meta"><div><dt>{t('ssCatalogLicense')}</dt><dd>{manifest.license}</dd></div><div><dt>{t('ssCatalogCredits')}</dt><dd>{manifest.credits.join(', ') || t('ssCatalogNone')}</dd></div><div><dt>{t('ssCatalogSdk')}</dt><dd>{manifest.sdk}</dd></div></dl>
+      <h3>{t('ssCatalogTargets')}</h3>
+      {Object.entries(manifest.targets).length ? <ul>{Object.entries(manifest.targets).map(([name, target]) => <li key={name}><code>{name}</code> — {target.capabilities.map(capability => t(capabilities[capability])).join(', ')} · {t(target.required ? 'ssCatalogRequired' : 'ssCatalogOptional')} · {t(target.multiple ? 'ssCatalogMultiple' : 'ssCatalogSingle')}</li>)}</ul> : <p>{t('ssCatalogNone')}</p>}
+      {manifest.interaction && <p>{t('ssCatalogInteraction', manifest.interaction.target, manifest.interaction.input)}</p>}
+      <h3>{t('ssCatalogConfig')}</h3><Fields fields={manifest.config} />
+      <h3>{t('ssCatalogInputs')}</h3><Ports ports={manifest.inputs} />
+      <h3>{t('ssCatalogOutputs')}</h3><Ports ports={manifest.outputs} />
+      <details><summary>{t('ssCatalogStateUpdates')}</summary><Fields fields={manifest.state} /><p>{t('ssCatalogUpdatePolicy')}</p>{manifest.migrations?.length ? <pre>{JSON.stringify(manifest.migrations, null, 2)}</pre> : <p>{t('ssCatalogNoMigrations')}</p>}</details>
+      <h3>{t('ssCatalogExampleTitle', latest.version)}</h3><p>{t('ssCatalogExampleHelp')}</p><button type="button" onClick={() => void copy()}>{t('ssCatalogCopyExample')}</button><span role="status">{copyMessage && t(copyMessage)}</span><pre>{code}</pre>
+      <details><summary>{t('ssCatalogLogicOriginal')}</summary><p><a href={`/system-originals/${encodeURIComponent(entry.integrity)}`} target="_blank" rel="noreferrer">{t('ssCatalogOpenOriginal')}</a></p><p className="system-catalog-hash">{t('ssCatalogIntegrity', entry.integrity)}</p><pre>{JSON.stringify(manifest, null, 2)}</pre></details>
     </div>
   </details>;
 }
 
 export function SystemCatalogBrowser() {
-  const [catalog, setCatalog] = useState<SystemCatalog>(), [error, setError] = useState(''), [loading, setLoading] = useState(true), [revision, setRevision] = useState(0), [search, setSearch] = useState('');
+  useLanguage();
+  const [catalog, setCatalog] = useState<SystemCatalog>(), [error, setError] = useState(''), [loading, setLoading] = useState(true), [revision, setRevision] = useState(0), [search, setSearch] = useState(''), [page, setPage] = useState(1);
   useEffect(() => {
     const controller = new AbortController(); setLoading(true); setError('');
     void fetch('/api/shared-systems', { signal: controller.signal, cache: 'no-store' }).then(async response => {
-      if (!response.ok) throw new Error('등록된 시스템 목록을 불러오지 못했습니다.');
+      if (!response.ok) throw new Error('ssCatalogLoadFailed');
       const next = await response.json() as SystemCatalog;
-      if (next.schema !== 1 || !Array.isArray(next.entries)) throw new Error('시스템 목록 형식을 확인해 주세요.');
+      if (next.schema !== 1 || !Array.isArray(next.entries)) throw new Error('ssCatalogInvalidCatalog');
       if (!controller.signal.aborted) setCatalog(next);
     }).catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason)); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [revision]);
-  const ids = catalog ? [...new Set(catalog.entries.map(entry => entry.id))].sort() : [], query = search.trim().toLocaleLowerCase();
-  const visible = ids.filter(id => catalog!.entries.some(entry => entry.id === id && [id, entry.version, entry.manifest.title, entry.manifest.description, ...entry.manifest.credits, ...Object.keys(entry.manifest.inputs), ...Object.keys(entry.manifest.outputs)].join(' ').toLocaleLowerCase().includes(query)));
+  const catalogEntries = catalog?.entries ?? [], query = search.trim().toLocaleLowerCase();
+  const groups = new Map<string, SystemEntry[]>(), matches = new Set<string>();
+  for (const entry of catalogEntries) {
+    const versions = groups.get(entry.id);
+    if (versions) versions.push(entry); else groups.set(entry.id, [entry]);
+    if (!matches.has(entry.id) && (!query || [entry.id, entry.version, entry.manifest.title, entry.manifest.description, systemTitle(entry.manifest), systemDescription(entry.manifest), ...entry.manifest.credits, ...Object.keys(entry.manifest.inputs), ...Object.keys(entry.manifest.outputs)].join(' ').toLocaleLowerCase().includes(query))) matches.add(entry.id);
+  }
+  const ids = uniqueSystemIds(catalogEntries), visible = ids.filter(id => matches.has(id));
+  const result = catalogPage(visible, page);
+  const pageEntries = result.entries.map(id => {
+    const entries = groups.get(id)!;
+    return { id, entries, latest: entries.reduce((latest, entry) => compareVersions(entry.version, latest.version) > 0 ? entry : latest) };
+  });
+  useEffect(() => { if (page !== result.page) setPage(result.page); }, [page, result.page]);
   return <div className="system-catalog">
-    <p>중앙 서버에 공개된 동작 시스템입니다. 오브젝트는 맵에서 만들고 아래 대상 이름과 연결하세요.</p>
+    <p>{t('ssCatalogIntro')}</p>
     <SystemLibraryGuide />
-    <div className="system-catalog-actions"><button type="button" onClick={() => setRevision(value => value + 1)} disabled={loading}>목록 새로고침</button></div>
-    <label className="system-catalog-search">시스템 검색<input type="search" placeholder="이름, ID, 설명, 이벤트" value={search} onChange={event => setSearch(event.target.value)} /></label>
-    {loading && <p role="status">시스템 목록을 불러오는 중…</p>}{error && <p role="alert">{error}</p>}
-    {catalog && <><p className="system-catalog-count">등록된 시스템 {ids.length}개 · 공개된 버전 {catalog.entries.length}개{query && ` · 검색 결과 ${visible.length}개`}</p>{!loading && !ids.length && <p>아직 등록된 시스템이 없습니다. 등록 가이드에 따라 첫 시스템을 제출하세요.</p>}{!!ids.length && !visible.length && <p>검색 결과가 없습니다.</p>}{visible.map(id => <CatalogItem key={id} entries={catalog.entries.filter(entry => entry.id === id)} latest={latestSystem(catalog, id)!} />)}<details className="system-catalog-release"><summary>현재 서버의 등록 기록</summary><p>{catalog.commit}</p><a href="/api/shared-systems" target="_blank" rel="noreferrer">카탈로그 JSON 열기</a></details></>}
+    <details className="system-catalog-item"><summary><strong>{t('ssCatalogSystemsTitle')}</strong></summary><div className="system-catalog-detail">
+      <div className="system-catalog-actions"><button type="button" onClick={() => setRevision(value => value + 1)} disabled={loading}>{t('ssCatalogRefresh')}</button></div>
+      <label className="system-catalog-search">{t('ssCatalogSearch')}<input type="search" placeholder={t('ssCatalogSearchHint')} value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></label>
+      {loading && <p role="status">{t('ssCatalogLoading')}</p>}{error && <p role="alert">{systemErrorText(error)}</p>}
+      {catalog && <><p className="system-catalog-count">{t('ssCatalogCount', ids.length, catalog.entries.length)}{query && t('ssCatalogSearchCount', visible.length)}</p>{!loading && !ids.length && <p>{t('ssCatalogEmpty')}</p>}{!!ids.length && !visible.length && <p>{t('ssCatalogNoResults')}</p>}{pageEntries.map(({ id, entries, latest }) => <CatalogItem key={id} entries={entries} latest={latest} />)}{!!result.total && <CatalogPagination page={result.page} pageCount={result.pageCount} onChange={setPage} label={t('ssCatalogSystemsPages')} />}<details className="system-catalog-release"><summary>{t('ssCatalogServerRelease')}</summary><p>{catalog.commit}</p><a href="/api/shared-systems" target="_blank" rel="noreferrer">{t('ssCatalogOpenJson')}</a></details></>}
+    </div></details>
     <SystemItemCatalog />
   </div>;
 }

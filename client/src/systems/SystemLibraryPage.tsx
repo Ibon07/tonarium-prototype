@@ -1,5 +1,8 @@
 import { SystemCatalogBrowser } from './SystemCatalogBrowser.tsx';
+import { t, useLanguage } from '../i18n/index.ts';
+import { LanguageSelect } from '../i18n/LanguageSelect.tsx';
 
 export default function SystemLibraryPage() {
-  return <main className="system-library-page"><header><div><p>TONARIUM</p><h1>공유 시스템 라이브러리</h1></div><a href="/">돌아가기</a></header><SystemCatalogBrowser /></main>;
+  useLanguage();
+  return <main className="system-library-page"><header><div><p>TONARIUM</p><h1>{t('ssCatalogLibraryTitle')}</h1></div><LanguageSelect /><a href="/">{t('ssCatalogBack')}</a></header><SystemCatalogBrowser /></main>;
 }
