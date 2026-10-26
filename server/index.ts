@@ -47,6 +47,9 @@ import { PERSON as PERSON_R, freeSpot, itemRadius, pushApart2D } from './spacing
 import { clearGame, eliminate, gameOf, resetGame, startGame, stepTile, type GameDeps } from './game.ts';
 import { chooseSurvivorGear, chooseSurvivorStyle, clearSurvivor, moveSurvivor, removeSurvivor, resetSurvivorUpgrades, rerollSurvivorChoice, startSurvivor, tickSurvivors, upgradeSurvivor, survivorOf, type SurvivorDeps } from './survivors.ts';
 import { newSurvivorProfile, SURVIVOR_META_UPGRADES, SURVIVOR_PROFILE_VERSION, SURVIVOR_TICK_MS, survivorUpgradeRefund, type SurvivorMetaUpgrade, type SurvivorProfile, type SurvivorStyle } from '../shared/survivor.ts';
+import { Follows } from './follows.ts';
+import { POST_RATE, Timeline, UPLOAD_RATE } from './timeline.ts';
+import { POST_IMAGE_MAX_BYTES, isImageId, type Post } from '../shared/timeline.ts';
 import { createSyncGrant, handleSyncOffer, upgradeSync, revokeSync, revokeUserSync, leaveRoom, livekitRoom, roomSend, roomSendSnapshot, shutdownRooms, type RoomHandlers } from './rooms.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
@@ -79,6 +82,9 @@ const ICON_DIR = path.join(DATA_DIR, 'icons');
 const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
 const PROFILE_DIR = path.join(DATA_DIR, 'profiles');
 const FRIENDS_FILE = path.join(DATA_DIR, 'friends.json');
+const FOLLOWS_FILE = path.join(DATA_DIR, 'follows.json');
+const TIMELINE_FILE = path.join(DATA_DIR, 'timeline.json');
+const TIMELINE_IMAGE_DIR = path.join(DATA_DIR, 'timeline-images');
 const HOME_FILE = path.join(DATA_DIR, 'home.json');
 const GROUP_IMAGE_DIR = path.join(DATA_DIR, 'group-images');
 const REPORTS_FILE = path.join(DATA_DIR, 'reports.log');
@@ -273,21 +279,17 @@ setInterval(() => {
 const sessionIds = new Set(guild.sessions.map((w) => w.id));
 const shortId = () => randomUUID().slice(0, 8);
 
-// フレンドは名前の組で保存する（アイコンなどと同じく名前が本人の識別）
-const pairKey = (a: string, b: string) => [a, b].sort().join('\u0000');
-const friendPairs = new Set<string>();
-try { for (const [a, b] of JSON.parse(fs.readFileSync(FRIENDS_FILE, 'utf-8')) as [string, string][]) friendPairs.add(pairKey(a, b)); } catch { /* まだ無い */ }
-const saveFriends = () => fs.writeFileSync(FRIENDS_FILE, JSON.stringify([...friendPairs].map((k) => k.split('\u0000'))));
-function friendsOf(name: string) {
-  const out: string[] = [];
-  for (const k of friendPairs) {
-    const [a, b] = k.split('\u0000');
-    if (a === name) out.push(b); else if (b === name) out.push(a);
-  }
-  return out;
-}
-/** 申請先の名前 → 申請した人の名前 */
-const pendingFriends = new Map<string, Set<string>>();
+// フォローは名前の組で保存する（アイコンなどと同じく名前が本人の識別）。お互いにフォローしているとフレンド。
+// follows.json が無いときは旧 friends.json のフレンドを相互フォローとして引き継ぐ（friends.json は書き換えない）
+const follows = fs.existsSync(FOLLOWS_FILE)
+  ? new Follows(readJson<[string, string][]>(FOLLOWS_FILE, []))
+  : Follows.fromFriendPairs(readJson<[string, string][]>(FRIENDS_FILE, []));
+const saveFollows = later(() => fs.writeFileSync(FOLLOWS_FILE, JSON.stringify(follows.edges())));
+if (!fs.existsSync(FOLLOWS_FILE)) saveFollows();
+const friendsOf = (name: string) => follows.friendsOf(name);
+/** 付け外しを繰り返しても、同じ人からのフォロー通知はこの間に 1 回だけ */
+const FOLLOW_NOTICE_MS = 60 * 60 * 1000;
+const followNoticeAt = new Map<string, number>();
 
 const users = new Map<string, Participant>();
 const sockets = new Map<string, Set<WebSocket>>(); // 同じIDで複数タブを開ける
@@ -378,17 +380,10 @@ for (const w of guild.sessions) {
 interface UserSnapshot { all: Participant[]; friendsByName: Map<string, string[]>; onlineNames: Set<string> }
 function snapshotUsers(): UserSnapshot {
   const all = [...users.values()];
-  const friendsByName = new Map<string, string[]>();
-  const add = (n: string, f: string) => { const l = friendsByName.get(n); if (l) l.push(f); else friendsByName.set(n, [f]); };
-  for (const k of friendPairs) {
-    const [a, b] = k.split('\u0000');
-    add(a, b);
-    if (b !== a) add(b, a);
-  }
-  return { all, friendsByName, onlineNames: new Set(all.map((u) => u.name)) };
+  return { all, friendsByName: follows.friendMap(), onlineNames: new Set(all.map((u) => u.name)) };
 }
 // 写しが渡されたとき（配信の一括計算）だけそれを使い、単発呼び出しでは全体の写しを作らない。
-// friendsOf は friendsByName と同じ friendPairs を同じ順に走査するので、対象者の一覧は写し経由と一致する
+// friendsOf と friendsByName は同じ follows から求めるので、対象者の集合は写し経由と一致する
 const sessionsVisibleTo = (name: string, snap?: UserSnapshot) => {
   const friends = snap ? snap.friendsByName.get(name) ?? [] : friendsOf(name);
   const all = snap ? snap.all : [...users.values()];
@@ -418,7 +413,7 @@ const isOnline = (name: string) => [...users.values()].some((u) => u.name === na
 function convMembers(conv: string): string[] | null {
   if (conv.startsWith('dm:')) {
     const pair = conv.slice(3).split('\u0000');
-    return pair.length === 2 && friendPairs.has(pairKey(pair[0], pair[1])) ? pair : null;
+    return pair.length === 2 && follows.isFriend(pair[0], pair[1]) ? pair : null;
   }
   const m = /^ch:([^:]+):([^:]+)$/.exec(conv);
   const g = m && home.groups.find((x) => x.id === m[1]);
@@ -468,6 +463,58 @@ function sendWatching(name: string) {
 function broadcastPeople() {
   const snap = snapshotUsers();
   for (const u of users.values()) sendTo([u.id], { t: 'people', list: knownPeopleOf(u.name, snap.friendsByName).map((n) => personOf(n, snap.onlineNames)) });
+}
+function followsMsg(name: string, friendMap?: Map<string, string[]>): ServerMsg {
+  return { t: 'follows', following: follows.following(name), followers: follows.followers(name), fof: follows.friendsOfFriends(name, friendMap) };
+}
+// フレンドのフレンドはだれかのフォロー 1 つで遠くの人まで変わるので、全員に送り直す
+function broadcastFollows() {
+  const map = follows.friendMap();
+  for (const name of new Set([...users.values()].map((u) => u.name))) sendToNames([name], followsMsg(name, map));
+}
+
+const saveTimeline = later(() => fs.writeFileSync(TIMELINE_FILE, timeline.serialize()));
+const timeline = new Timeline(TIMELINE_FILE, TIMELINE_IMAGE_DIR, () => saveTimeline());
+timeline.sweepImages();
+setInterval(() => {
+  const gone = timeline.prune();
+  if (gone.length) broadcast({ t: 'postsRemoved', ids: gone });
+  timeline.sweepImages();
+}, 60 * 60 * 1000);
+/** 非公開のセッション名はポストに残さない（ポストは全員に配るため） */
+const publicSessionName = (def: SessionDef) => ((def.visibility ?? 'public') === 'public' ? def.name : null);
+
+function handleTimeline(me: User, msg: ClientMsg): boolean {
+  switch (msg.t) {
+    case 'postCreate': {
+      if (!timeline.allow(`post:${me.name}`, POST_RATE)) return true;
+      const here = me.session ? guild.sessions.find((d) => d.id === me.session) : undefined;
+      const post = timeline.create(me.name, msg, {
+        place: msg.withPlace && here ? { sid: here.id, name: publicSessionName(here), mode: me.mode } : null,
+        session: (id) => {
+          const def = guild.sessions.find((d) => d.id === id);
+          return def && canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()]) ? { name: publicSessionName(def) } : null;
+        },
+      });
+      if (!post) return true;
+      broadcast({ t: 'post', p: post });
+      const gone = timeline.prune();
+      if (gone.length) broadcast({ t: 'postsRemoved', ids: gone });
+      return true;
+    }
+    case 'postDelete': {
+      const gone = timeline.remove(msg.id, me.name);
+      if (gone.length) broadcast({ t: 'postsRemoved', ids: gone });
+      return true;
+    }
+    case 'postReact':
+    case 'postRepost': {
+      const p: Post | null = msg.t === 'postReact' ? timeline.react(msg.id, me.name, msg.emoji, !!msg.on) : timeline.repost(msg.id, me.name, !!msg.on);
+      if (p) broadcast({ t: 'post', p });
+      return true;
+    }
+  }
+  return false;
 }
 
 function finishVisit(sid: string) {
@@ -864,6 +911,8 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
     });
     send(ws, { t: 'survivorProfile', profile: survivorProfile(msg.id) });
     send(ws, { t: 'marketLikes', ...marketLikes.snapshot(msg.id) });
+    send(ws, followsMsg(name));
+    send(ws, { t: 'posts', list: timeline.posts });
     broadcastUsers();
     if (cameOnline) {
       // 来たら知らせる は 1 回きり
@@ -892,24 +941,25 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
     broadcastUsers();
     return;
   }
-  if (msg.t === 'friendRequest' || msg.t === 'friendAccept') {
-    const other = users.get(msg.to);
-    if (!other || other.name === me.name || friendPairs.has(pairKey(me.name, other.name))) return;
-    if (msg.t === 'friendRequest') {
-      const set = pendingFriends.get(other.name) ?? new Set();
-      set.add(me.name);
-      pendingFriends.set(other.name, set);
-      sendTo(idsByName(other.name), { t: 'friendRequest', from: me.id, fromName: me.name });
-      return;
+  if (msg.t === 'followUser') {
+    const target = typeof msg.name === 'string' ? msg.name : '';
+    // 一度でも来たことのある名前だけ。打ち間違いや存在しない名前の辺を溜めない
+    if (target === me.name || !Object.hasOwn(people, target)) return;
+    const changed = msg.on ? follows.add(me.name, target) : follows.remove(me.name, target);
+    if (!changed) return;
+    saveFollows();
+    const noticeKey = `${me.name}\u0000${target}`;
+    if (msg.on && !(Date.now() - (followNoticeAt.get(noticeKey) ?? 0) < FOLLOW_NOTICE_MS)) {
+      followNoticeAt.set(noticeKey, Date.now());
+      sendToNames([target], { t: 'followed', from: me.id, fromName: me.name });
     }
-    if (!pendingFriends.get(me.name)?.delete(other.name)) return;
-    friendPairs.add(pairKey(me.name, other.name));
-    saveFriends();
-    for (const n of [me.name, other.name]) sendTo(idsByName(n), { t: 'friends', names: friendsOf(n) });
+    for (const n of [me.name, target]) sendToNames([n], { t: 'friends', names: friendsOf(n) });
+    broadcastFollows();
     broadcastSessions();
     broadcastPeople();
     return;
   }
+  if (handleTimeline(me, msg)) return;
   if (handleHome(me, msg, ws)) return;
   const sid = me.session;
 
@@ -1658,6 +1708,31 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   if (systems.http(req, res, url.pathname)) return;
   if (url.pathname === '/api/translate') { await handleTranslation(req, res); return; }
   if (url.pathname === '/sync/offer') { await handleSyncOffer(req, res); return; }
+  if (url.pathname === '/timeline-image') {
+    if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+    // 名前だけの本人確認は /icon と同じ。少なくともいまつないでいる人からしか受けない
+    const uploader = normalizeName(url.searchParams.get('name') ?? '');
+    if (!isOnline(uploader)) { res.statusCode = 403; res.end(); return; }
+    if (!timeline.allow(`upload:${uploader}`, UPLOAD_RATE)) { res.statusCode = 429; res.end(); return; }
+    const body = await readBody(req, POST_IMAGE_MAX_BYTES);
+    if (!body) { res.statusCode = 413; res.end(); return; }
+    if (!isJpeg(body)) { res.statusCode = 400; res.end(); return; }
+    const id = timeline.newImageId();
+    fs.writeFileSync(timeline.imageFile(id), body);
+    timeline.registerUpload(id, uploader);
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ id }));
+    return;
+  }
+  if (url.pathname.startsWith('/timeline-image/')) {
+    const id = url.pathname.slice('/timeline-image/'.length);
+    if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
+    if (!isImageId(id) || !fs.existsSync(timeline.imageFile(id))) { res.statusCode = 404; res.end(); return; }
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    pipeFile(res, timeline.imageFile(id));
+    return;
+  }
   if (url.pathname.startsWith('/group-image/')) {
     const g = home.groups.find((x) => x.id === url.pathname.slice('/group-image/'.length));
     if (req.method === 'POST') {
@@ -1969,6 +2044,8 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => {
   saveSurvivorProfiles.flush();
   flushItems();
   saveHome.flush();
+  saveFollows.flush();
+  saveTimeline.flush();
   savePeople.flush();
   saveInbox.flush();
   shutdownRooms().finally(() => process.exit(0));

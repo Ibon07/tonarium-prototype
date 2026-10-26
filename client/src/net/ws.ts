@@ -307,9 +307,30 @@ export function onMessage(msg: ServerMsg) {
     case 'liveRequest':
       if (msg.sid === get().session) pushNotice('live', msg.from);
       return;
-    case 'friendRequest':
-      pushNotice('friend', msg.from, msg.fromName);
+    case 'followed':
+      pushNotice('follow', msg.from, msg.fromName);
       return;
+    case 'follows':
+      set({ following: msg.following, followers: msg.followers, fof: msg.fof });
+      return;
+    case 'posts':
+      set({ posts: msg.list });
+      return;
+    case 'post':
+      set((s) => {
+        const i = s.posts.findIndex((p) => p.id === msg.p.id);
+        return { posts: i < 0 ? [...s.posts, msg.p] : s.posts.map((p, j) => (j === i ? msg.p : p)) };
+      });
+      return;
+    case 'postsRemoved': {
+      const gone = new Set(msg.ids);
+      set((s) => ({
+        posts: s.posts.filter((p) => !gone.has(p.id)),
+        timelineSide: s.timelineSide?.startsWith('post:') && gone.has(s.timelineSide.slice(5)) ? null : s.timelineSide,
+        composeQuote: s.composeQuote && gone.has(s.composeQuote) ? null : s.composeQuote,
+      }));
+      return;
+    }
     case 'friends':
       set({ friends: msg.names });
       return;

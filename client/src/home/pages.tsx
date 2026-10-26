@@ -20,18 +20,16 @@ import { dmKey, type EventDef, type Group, type User } from '../../../shared/pro
 import { sortForHome } from '../../../shared/home.ts';
 import { WORLDS } from '../i18n/static.ts';
 import { WORLD_KINDS, type WorldKind } from '../../../shared/worlds.ts';
-import { askJoin, deleteEvent, deleteGroup, friendAccept, joinGroup, joinSession, leaveGroup, leaveSession, openDm, openGroup, removeNotice, toggleBlock, watchFriend } from '../actions.ts';
+import { askJoin, deleteEvent, deleteGroup, joinGroup, joinSession, leaveGroup, leaveSession, openDm, openGroup, toggleBlock, watchFriend } from '../actions.ts';
 import { spawnItem } from '../items/actions.ts';
 import { ONLY_3D } from '../../../shared/items.ts';
 import { Face } from '../world/common.tsx';
 import { Icon } from '../world/Icon.tsx';
 import { SessionCard } from './SessionCard.tsx';
 import { CreateEventDialog, CreateGroupDialog, CreateSessionDialog, InviteFriendDialog, InviteToGroupDialog } from './dialogs.tsx';
-import { Chip, Empty, EventAnswer, EventHost, ModeIcon, NameFace, Tabs, dateKey, timeLabel, uniqueByName, WEEKDAYS } from './common.tsx';
+import { Chip, Empty, EventAnswer, EventHost, FollowButton, ModeIcon, NameFace, Tabs, match, dateKey, timeLabel, uniqueByName, WEEKDAYS } from './common.tsx';
 import { Composer, Thread } from './messages.tsx';
 import { StatusDot, StatusText, useStatusOf } from './status.tsx';
-
-const match = (q: string, ...texts: (string | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q.toLowerCase()));
 
 export function ChangelogPage({ q }: { q: string }) {
   const [includeMaintenance, setIncludeMaintenance] = useUpdateDraft('changelog.maintenance', false);
@@ -135,18 +133,18 @@ function DmPane({ u }: { u: FriendLike }) {
   );
 }
 
-function FriendRequests() {
-  const notices = useStore((s) => s.notices).filter((n) => n.kind === 'friend');
+function FollowList({ kind, q }: { kind: 'followers' | 'following'; q: string }) {
+  const names = useStore((s) => s[kind]).filter((n) => match(q, n));
+  const friends = useStore((s) => s.friends);
   return (
     <section className="hsec">
-      <h3 className="hsub">{tr("ui274")}</h3>
-      {notices.length === 0 && <Empty>{tr("ui275")}</Empty>}
-      {notices.map((n) => (
-        <div key={n.id} className="ftile">
-          <Face id={n.from} name={n.fromName} size={36} />
-          <span className="finfo"><b>{n.fromName}</b><span className="sub">{timeLabel(n.at)}</span></span>
-          <button onClick={() => removeNotice(n.id)}>{tr("ui276")}</button>
-          <button className="primary" onClick={() => friendAccept(n.from, n.id)}>{tr("ui277")}</button>
+      <p className="sub wrap">{tr(kind === 'followers' ? 'followFollowersDesc' : 'followFollowingDesc')}</p>
+      {names.length === 0 && <Empty>{tr(kind === 'followers' ? 'followNoFollowers' : 'followNoFollowing')}</Empty>}
+      {names.map((name) => (
+        <div key={name} className="ftile">
+          <NameFace name={name} size={36} />
+          <span className="finfo"><b>{name}</b>{friends.includes(name) && <span className="sub">{tr('ui153')}</span>}</span>
+          <FollowButton name={name} />
         </div>
       ))}
     </section>
@@ -174,7 +172,8 @@ export function FriendsPage({ q }: { q: string }) {
   const users = useStore((s) => s.users);
   const friends = useStore((s) => s.friends);
   const dmWith = useStore((s) => s.dmWith);
-  const requests = useStore((s) => s.notices).filter((n) => n.kind === 'friend').length;
+  const following = useStore((s) => s.following);
+  const notBack = useStore((s) => s.followers).filter((n) => !following.includes(n)).length;
   const tab = useStore((s) => s.friendsTab);
   const setTab = (friendsTab: typeof tab) => set({ friendsTab });
   const sessions = useStore((s) => s.guild.sessions);
@@ -185,13 +184,13 @@ export function FriendsPage({ q }: { q: string }) {
   const selected = [...online, ...offline].find((u) => u.name === dmWith) ?? online[0] ?? offline[0];
   return (
     <>
-      <Tabs value={tab} onChange={setTab} items={[{ id: 'all', label: tr("ui281") }, { id: 'now', label: tr("ui198") }, { id: 'req', label: tr("ui282"), badge: requests }, { id: 'block', label: tr("ui283") }]} />
+      <Tabs value={tab} onChange={setTab} items={[{ id: 'all', label: tr("ui281") }, { id: 'now', label: tr("ui198") }, { id: 'followers', label: tr('followFollowers'), badge: notBack }, { id: 'following', label: tr('followFollowingTab') }, { id: 'block', label: tr("ui283") }]} />
       {tab === 'now' && (withFriends.length === 0
         ? <Empty>{tr("ui190")}</Empty>
         : <div className="scards">{withFriends.map((d) => <SessionCard key={d.id} s={d} />)}</div>)}
-      {tab === 'req' && <FriendRequests />}
+      {(tab === 'followers' || tab === 'following') && <FollowList kind={tab} q={q} />}
       {tab === 'block' && <BlockedList />}
-      {tab === 'all' && friends.length === 0 && <Empty>{tr("ui284")}</Empty>}
+      {tab === 'all' && friends.length === 0 && <Empty>{tr('followNoFriends')}</Empty>}
       {tab === 'all' && friends.length > 0 && (
         <div className="fpage">
           <section className="flist" aria-label={tr("ui285")}>

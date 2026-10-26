@@ -27,8 +27,8 @@ async function enterSession(sid: string, requireVoice = false) {
   }
   selectNote(null);
   dropSession(get().session);
-  // フレンド申請と招待はセッションをまたいで残す
-  set((s) => ({ ...initialArrivalState(), session: sid, mode: '2d', hubOpen: false, selfAvatar: spawnPoint(), windows: [], maxWin: null, notices: s.notices.filter((n) => n.kind === 'friend' || n.kind === 'invite' || n.kind === 'online') }));
+  // フォローの通知と招待はセッションをまたいで残す
+  set((s) => ({ ...initialArrivalState(), session: sid, mode: '2d', hubOpen: false, selfAvatar: spawnPoint(), windows: [], maxWin: null, notices: s.notices.filter((n) => n.kind === 'follow' || n.kind === 'invite' || n.kind === 'online') }));
   recompute();
   startSessionSync();
   await connectVoice(sid);
@@ -190,11 +190,10 @@ export function goNear(target: string) {
 }
 
 export const poke = (to: string) => send({ t: 'poke', to });
-export const friendRequest = (to: string) => send({ t: 'friendRequest', to });
-
-export function friendAccept(to: string, noticeId: number) {
-  send({ t: 'friendAccept', to });
-  set((s) => ({ notices: s.notices.filter((n) => n.id !== noticeId) }));
+/** フォローはすぐ手元にも反映する（届いた follows で上書きされる） */
+export function followUser(name: string, on: boolean) {
+  send({ t: 'followUser', name, on });
+  set((s) => ({ following: on ? [...new Set([...s.following, name])] : s.following.filter((n) => n !== name) }));
 }
 
 export const removeNotice = (noticeId: number) => set((s) => ({ notices: s.notices.filter((n) => n.id !== noticeId) }));

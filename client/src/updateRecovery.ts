@@ -9,7 +9,7 @@ import { room, toggleMic } from './net/livekit.ts';
 import { abandonRecordings, prepareRecordings } from './updateRecording.ts';
 
 const KEY = 'tonarium.updateRecovery';
-const UI_KEYS = ['homePage', 'homeGroup', 'homeChannel', 'dmWith', 'hubOpen', 'friendsTab', 'phoneTab', 'sideWidget',
+const UI_KEYS = ['homePage', 'homeGroup', 'homeChannel', 'dmWith', 'hubOpen', 'friendsTab', 'timelineSide', 'composeQuote', 'phoneTab', 'sideWidget',
   'rightView', 'rightConversation', 'windows', 'maxWin', 'winMode', 'folded', 'itemUi', 'volumes', 'marketProductId',
   'profileOf', 'lightbox', 'joinMode', 'movementMode', 'doubleJump', 'lean', 'micEnabled', 'walk'] as const;
 type Ui = Pick<ReturnType<typeof get>, typeof UI_KEYS[number]>;

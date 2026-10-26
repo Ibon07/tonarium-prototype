@@ -16,6 +16,7 @@ import { newSurvivorProfile, type SurvivorProfile, type SurvivorState } from '..
 import { createAdSlice, type AdSlice } from './ad/slice.ts';
 import type { AdPanelTarget } from '../../shared/antimatterLayout.ts';
 import { deriveSession } from './sessionView.ts';
+import type { Post, TimelineTab } from '../../shared/timeline.ts';
 import type { Walk } from './walk.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
@@ -23,8 +24,8 @@ export type WinMode = 'simple' | 'free';
 /** ウィンドウのキー: share（画面共有）/ cam:<アイテムID> / view:<ユーザーID> / item:<アイテムID> */
 export interface Win { key: string; x: number; y: number }
 /** key は attention ならウィンドウのキー、invite なら session:<id> / group:<id>、askJoin なら session:<id> */
-export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean }
-export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items' | 'systems' | 'market' | 'changelog' | 'sounds' | 'emotes';
+export interface Notice { id: number; kind: 'poke' | 'hit' | 'follow' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean }
+export type HomePage = 'home' | 'timeline' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items' | 'systems' | 'market' | 'changelog' | 'sounds' | 'emotes';
 /** ホームの右の欄に出すもの */
 export type SideWidget = 'now' | 'events' | 'sessions' | 'worlds' | 'items';
 
@@ -123,7 +124,13 @@ interface State extends AdSlice {
   /** セッション中にホームを重ねて開いている */
   hubOpen: boolean;
   /** フレンドのページで開いているタブ（ホームの「もっと見る」から選んで開く） */
-  friendsTab: 'all' | 'now' | 'req' | 'block';
+  friendsTab: 'all' | 'now' | 'followers' | 'following' | 'block';
+  timelineTab: TimelineTab;
+  /** タイムラインの右の欄を上書きしているもの。compose か post:<ID>。null なら通常の右の欄 */
+  timelineSide: string | null;
+  /** 引用して書くポスト */
+  composeQuote: string | null;
+  posts: Post[];
   /** スマホ幅のセッション画面で、下のタブで選んでいるもの */
   phoneTab: 'screen' | 'list' | 'log';
   sideWidget: SideWidget;
@@ -159,6 +166,10 @@ interface State extends AdSlice {
   profileOf: string | null;
   notices: Notice[];
   friends: string[];
+  following: string[];
+  followers: string[];
+  /** フレンドのフレンド（自分とフレンドは除く） */
+  fof: string[];
   /** 名前単位。手元だけに保存する */
   blocked: string[];
   /** 3D で「そばにいく」したとき Player が拾う */
@@ -290,11 +301,19 @@ export const useStore = create<State>((set, get) => ({
   hubOpen: false,
   phoneTab: 'screen',
   friendsTab: 'all',
+  timelineTab: load('tonarium.timelineTab', 'home'),
+  // スマホでは右の欄が下からのシートになるので、開いた途端に覆わないよう閉じておく
+  timelineSide: typeof matchMedia === 'function' && matchMedia('(max-width: 720px)').matches ? null : 'compose',
+  composeQuote: null,
+  posts: [],
   sideWidget: load('tonarium.sideWidget', 'events'),
   joinMode: load('tonarium.joinMode', '2d'),
   dice: load('tonarium.dice', { sides: 6 as DieSides, count: 2, secret: false }),
   notices: [],
   friends: [],
+  following: [],
+  followers: [],
+  fof: [],
   blocked: load('tonarium.blocked', []),
   teleport: null,
   hits: {},

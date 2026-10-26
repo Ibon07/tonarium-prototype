@@ -8,6 +8,7 @@ import type { SyncConfig } from './session-wire.ts';
 import type { PeerOperation } from './session-events.ts';
 import type { AssetCommand, AssetView } from './shared-assets.ts';
 import type { AssetDelta } from './shared-sync.ts';
+import type { Post, PostAttach } from './timeline.ts';
 import type { SystemCommand, SystemCommandResult, SystemView } from './system-types.ts';
 
 export type Mode = '2d' | '3d';
@@ -17,7 +18,7 @@ export type Mode = '2d' | '3d';
  * 約束事を壊す変更（メッセージの追加・意味の変更など）を入れたら +1 する。
  * hello で申告が無い・一致しないクライアントはサーバーが接続を断ち、画面は全面で更新を促す（docs/sync.md）
  */
-export const COMPAT_VERSION = 5;
+export const COMPAT_VERSION = 6;
 
 /** セッションを見られる人。省略時は public */
 export type Visibility = 'public' | 'friends' | 'groupPlus' | 'group' | 'invite';
@@ -291,8 +292,13 @@ export type HomeClientMsg =
   | { t: 'prepareSync'; requestId: string; peerPositions?: boolean; peerDelivery?: boolean }
   /** /icon・/avatar・/profile へ保存した後に、同じ名前のオンラインの人へ反映させる */
   | { t: 'profileUpdated' }
-  | { t: 'friendRequest'; to: string }
-  | { t: 'friendAccept'; to: string }
+  /** name をフォローする（on: false で外す）。お互いにフォローするとフレンド */
+  | { t: 'followUser'; name: string; on: boolean }
+  /** withPlace ならサーバーがいまのセッションと 2D/3D を場所として付ける */
+  | { t: 'postCreate'; text: string; withPlace: boolean; image?: string; attach?: PostAttach; quote?: string; replyTo?: string }
+  | { t: 'postDelete'; id: string }
+  | { t: 'postReact'; id: string; emoji: string; on: boolean }
+  | { t: 'postRepost'; id: string; on: boolean }
   | { t: 'sessionCreate'; name: string; topic: string; world: WorldKind; visibility: Visibility; group?: string; requestId?: string }
   | { t: 'sessionDelete'; id: string }
   | { t: 'groupCreate'; name: string; color: string }
@@ -397,8 +403,14 @@ export type HomeServerMsg =
   | { t: 'snapshot'; s: Snapshot }
   | { t: 'users'; list: User[] }
   | { t: 'sessionInfo'; sessions: Record<string, SessionInfo> }
-  | { t: 'friendRequest'; from: string; fromName: string }
+  | { t: 'followed'; from: string; fromName: string }
   | { t: 'friends'; names: string[] }
+  /** fof はフレンドのフレンド（自分とフレンドは除く） */
+  | { t: 'follows'; following: string[]; followers: string[]; fof: string[] }
+  | { t: 'posts'; list: Post[] }
+  /** 新しいポストか、同じ ID のものの更新（リアクション・リポスト） */
+  | { t: 'post'; p: Post }
+  | { t: 'postsRemoved'; ids: string[] }
   | { t: 'sessions'; list: SessionDef[] }
   | { t: 'groups'; list: Group[] }
   | { t: 'events'; list: EventDef[] }
