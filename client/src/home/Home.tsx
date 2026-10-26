@@ -33,7 +33,7 @@ import { FEEDBACK_URL } from '../feedback.ts';
 import { CHANGELOG } from '../i18n/static.ts';
 import { useChangelog } from './changelog.ts';
 import { XRLaunch } from '../xr/XRControls.tsx';
-import { SystemCatalogBrowser } from '../systems/SystemCatalogBrowser.tsx';
+import { homePageOf } from '../homePage.ts';
 
 const NAV: { page: HomePage; name: string; icon: IconName }[] = localized([
   { page: 'home', name: uiSource('ui152'), icon: 'home' },
@@ -43,7 +43,6 @@ const NAV: { page: HomePage; name: string; icon: IconName }[] = localized([
   { page: 'groups', name: uiSource('ui108'), icon: 'flag' },
   { page: 'worlds', name: uiSource('ui105'), icon: 'globe' },
   { page: 'items', name: uiSource('ui154'), icon: 'box' },
-  { page: 'systems', name: uiSource('sharedSystems'), icon: 'layers' },
   { page: 'market', name: uiSource('ui155'), icon: 'market' },
 ]);
 
@@ -87,7 +86,7 @@ function ClientMode() {
 export function Sidebar({ inSession, onPick }: { inSession?: boolean; onPick?: () => void }) {
   const seen = useChangelog((s) => s.seen);
   const changelogUnread = !!CHANGELOG[0] && CHANGELOG[0].date > seen;
-  const page = useStore((s) => s.homePage);
+  const page = useStore((s) => homePageOf(s.homePage));
   const selfId = useStore((s) => s.selfId);
   const selfName = useStore((s) => s.selfName);
   const onlineFriends = useOnlineFriends().length;
@@ -476,7 +475,7 @@ function HomePageView({ q }: { q: string }) {
 
 /** sheet はセッション中に重ねて開く形（SessionMenu） */
 export function Home({ sheet }: { sheet?: boolean }) {
-  const page = useStore((s) => s.homePage);
+  const page = useStore((s) => homePageOf(s.homePage));
   const wsConnected = useStore((s) => s.wsConnected);
   const [q, setQ] = useUpdateDraft('search.home', '');
   const previousPage = useRef(page);
@@ -494,10 +493,9 @@ export function Home({ sheet }: { sheet?: boolean }) {
           {page === 'group' ? <GroupTitle /> : title && <h1>{title}</h1>}
           {!wsConnected && <span className="reconn">{tr("ui226")}</span>}
           <span className="spacer" />
-          {/* 共有システムはライブラリ内の検索を使う。 */}
-          {page !== 'group' && page !== 'systems' && <label className="hsearch"><Icon name="search" size={16} /><input value={q} aria-label={page === 'changelog' ? tr("ui227") : page === 'market' ? tr("ui228") : tr("ui229")} placeholder={page === 'changelog' ? tr("ui230") : page === 'market' ? tr("ui228") : tr("ui231")} onChange={(e) => setQ(e.target.value)} /></label>}
+          {page !== 'group' && <label className="hsearch"><Icon name="search" size={16} /><input value={q} aria-label={page === 'changelog' ? tr("ui227") : page === 'market' ? tr("ui228") : tr("ui229")} placeholder={page === 'changelog' ? tr("ui230") : page === 'market' ? tr("ui228") : tr("ui231")} onChange={(e) => setQ(e.target.value)} /></label>}
           <Bell />
-          {page === 'group' ? <GroupActions /> : page !== 'systems' && <button className="dark hcreate" onClick={() => setCreate(true)}><Icon name="plus" size={16} />{tr("ui101")}</button>}
+          {page === 'group' ? <GroupActions /> : <button className="dark hcreate" onClick={() => setCreate(true)}><Icon name="plus" size={16} />{tr("ui101")}</button>}
         </header>
         <div className="hcontent" key={page} tabIndex={sheet ? 0 : undefined}>
           {page === 'home' && <HomePageView q={q} />}
@@ -508,7 +506,6 @@ export function Home({ sheet }: { sheet?: boolean }) {
           {page === 'group' && <GroupPage />}
           {page === 'worlds' && <WorldsPage q={q} />}
           {page === 'items' && <ItemsPage q={q} />}
-          {page === 'systems' && <section className="hsec" aria-label={tr('sharedSystems')}><SystemCatalogBrowser /></section>}
           {page === 'market' && <MarketPage q={q} />}
           {page === 'changelog' && <ChangelogPage q={q} />}
           {(page === 'sounds' || page === 'emotes') && <ReactionLibrary category={page} q={q} />}

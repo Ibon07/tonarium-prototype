@@ -16,6 +16,8 @@ import { newSurvivorProfile, type SurvivorProfile, type SurvivorState } from '..
 import { createAdSlice, type AdSlice } from './ad/slice.ts';
 import type { AdPanelTarget } from '../../shared/antimatterLayout.ts';
 import { deriveSession } from './sessionView.ts';
+import { storedHomePageOf, type HomePage } from './homePage.ts';
+export type { HomePage } from './homePage.ts';
 import type { Walk } from './walk.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
@@ -24,7 +26,6 @@ export type WinMode = 'simple' | 'free';
 export interface Win { key: string; x: number; y: number }
 /** key は attention ならウィンドウのキー、invite なら session:<id> / group:<id>、askJoin なら session:<id> */
 export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean }
-export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items' | 'systems' | 'market' | 'changelog' | 'sounds' | 'emotes';
 /** ホームの右の欄に出すもの */
 export type SideWidget = 'now' | 'events' | 'sessions' | 'worlds' | 'items';
 
@@ -235,8 +236,7 @@ export const useStore = create<State>((set, get) => ({
   presence: {},
   session: null,
   mode: '2d',
-  // 個別のグループは開き直せないので一覧に戻す
-  homePage: ((p: HomePage) => (p === 'group' ? 'groups' : p))(load<HomePage>('tonarium.homePage', 'home')),
+  homePage: storedHomePageOf(load<unknown>('tonarium.homePage', 'home')),
   marketProductId: null,
   marketLikes: null,
   homeGroup: null,

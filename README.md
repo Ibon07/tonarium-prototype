@@ -63,11 +63,9 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 
 ## 主な機能
 
-- 코드로 작성하는 맵의 공유 시스템·오브젝트 연결·버전 갱신 → [공통 규칙과 사용법](docs/shared-systems.md) · [새 시스템 작성·PR 등록 가이드](docs/shared-systems-registration.md)
-- 기본 아이템 12종의 ID로 코드 맵에 배치하고 버튼·타이머·의자 대상에 연결 → [아이템 ID와 제어 모드](docs/shared-systems.md#아이템-메뉴의-아이템을-id로-배치)
-- 중앙에 등록된 의자·버튼·타이머와 공개 버전·원본 확인 → 게임의 **공유 시스템**, 로컬 시험 화면의 **등록된 공유 시스템 보기** · `/?systemLibrary=1` · `/api/shared-systems`
-- 공유 시스템 화면에서 **공유 시스템 사용법**·**새 시스템 등록 가이드** 제목을 눌러 사용·등록 절차와 코드 예제를 펼쳐 읽기
-- 공유 시스템의 모델·착석 동작을 로컬에서 시험 → `npm run dev:systems` · [로컬 테스트 안내](docs/shared-systems-playtest.md)
+- 개발용 공유 시스템·아이템 ID 카탈로그 → [공유 시스템 문서 폴더](docs/shared-systems/README.md)
+- 코드로 맵을 만드는 순서와 복사 가능한 연결 예제 → [add-world 사용법](.claude/skills/add-world/SKILL.md)
+- 새 시스템 PR 등록·배포와 로컬 시험 → [등록 가이드](docs/shared-systems/registration.md) · [시험 가이드](docs/shared-systems/playtest.md)
 
 - 共有アセット・非空間システムの提出契約、原本保全、配置編集と実装途中の範囲 → [docs/shared-assets.md](docs/shared-assets.md)・[検証記録](docs/shared-assets-verification.md)
 - 単体ブラウザのWebXR初期実装（VR操作・仮想端末・対応表・検証範囲）→ [docs/webxr.md](docs/webxr.md)。Quest 3／Steam Frame実機は未検証、Electron版はVR非対応
