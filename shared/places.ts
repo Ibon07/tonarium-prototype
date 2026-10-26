@@ -1,6 +1,7 @@
 import { LEAN_ANGLE, ROOM_HALF, spawnSlot, type AvatarState, type Participant } from './protocol.ts';
 import { WORLDS, type WorldKind } from './worlds.ts';
 import { CAR } from './city.ts';
+import { copyAvatarXR, validAvatarXR } from './xr-pose.ts';
 
 /** y は足元の高さ（地上は 0）。マンションの別の階の人とは声が届く距離が離れる */
 export interface Place { x: number; z: number; ry: number; small: boolean; y?: number }
@@ -74,6 +75,7 @@ export function clampAvatar(world: WorldKind, s: AvatarState): AvatarState {
   const within = (v: unknown, lo: number, hi: number) => Math.max(lo + 0.2, Math.min(hi - 0.2, Number(v) || 0));
   const y = Number(s.y);
   return {
+    ...(validAvatarXR(s.xr) ? { xr: copyAvatarXR(s.xr) } : {}),
     x: ext ? within(s.x, ext.minX, ext.maxX) : clampRoom(Number(s.x) || 0),
     z: ext ? within(s.z, ext.minZ, ext.maxZ) : clampRoom(Number(s.z) || 0),
     ry: Number(s.ry) || 0,

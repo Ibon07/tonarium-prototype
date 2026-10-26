@@ -35,6 +35,7 @@ import { PlayerCamera } from './playerCamera.ts';
 import { blocked, blockedByTrain, fallToGround, moveFlight, recoverPosition, walkingAfterMove, type MovementMode } from './movement.ts';
 import { canLean, leanAngle, pressJump } from './movementAbilities.ts';
 import { xr, xrState } from '../xr/runtime.ts';
+import { carryPosition } from '../xr/pose.ts';
 import { CrouchInput, CROUCH_WEIGHT } from './crouch.ts';
 
 const SPEED = 4;
@@ -260,10 +261,11 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     };
     xr.cancel = finishCarry;
     xr.carry = () => {
-      if (riddenBike()) return;
+      if (riddenBike()) return false;
       aim.current = aimAt(scene, camera, xr.ray);
       if (carrying.current) finishCarry();
       else if (aim.current?.data.carry) carrying.current = { id: aim.current.data.carry, x: 0, z: 0, ry: 0, last: 0 };
+      return !!carrying.current;
     };
 
     document.addEventListener('pointerlockchange', onLock);
@@ -650,21 +652,22 @@ export function Player({ rig }: { rig: PlayerCamera }) {
       || rig.lean !== st.lean || Math.abs(pitch - st.pitch) > 0.03 || (yNow ?? 0) !== st.y;
     const interval = 33;
     // 跳んだことは待たずに送る（相手の放物線が遅れて始まらないように）
-    if (jumped || (rig.lean === 0 && st.lean !== 0) || walking.current !== st.walking || (now - st.t > interval && changed)) {
+    if (jumped || (rig.lean === 0 && st.lean !== 0) || walking.current !== st.walking || (now - st.t > interval && (changed || immersive || !!s.selfAvatar.xr))) {
       Object.assign(st, { t: now, x, z, ry: yaw, pitch, lean: rig.lean, jump: b.n, y: yNow ?? 0, walking: walking.current });
       const cp = b.car !== null ? carPose(now0, b.car) : null;
       const l = cp ? toCarLocal(cp, x, z) : null;
       const ride = cp && l && b.car !== null ? { car: b.car, along: l.along, side: Math.max(-CAR.w, Math.min(CAR.w, l.side)), ry: yaw - cp.ry } : undefined;
-      const a: AvatarState = { x, z, ry: yaw, pitch, lean: rig.lean, crouching, jump: b.n, walking: walking.current, ...(yNow !== undefined ? { y: yNow } : {}), ...(ride ? { ride } : {}) };
+      const a: AvatarState = { x, z, ry: immersive ? viewYaw : yaw, pitch, lean: rig.lean, crouching, jump: b.n, walking: walking.current, ...(immersive && xr.pose ? { xr: xr.pose } : {}), ...(yNow !== undefined ? { y: yNow } : {}), ...(ride ? { ride } : {}) };
       set({ selfAvatar: a });
       send({ t: 'avatar', s: a });
     }
 
     const c = carrying.current;
     if (c) {
-      c.x = (city ? clampCity : clampRoom)(x - Math.sin(yaw) * 2);
-      c.z = (city ? clampCity : clampRoom)(z - Math.cos(yaw) * 2);
-      c.ry = yaw;
+      const held = immersive && xr.carryRay ? carryPosition(xr.carryRay) : null;
+      c.x = (city ? clampCity : clampRoom)(held?.x ?? x - Math.sin(yaw) * 2);
+      c.z = (city ? clampCity : clampRoom)(held?.z ?? z - Math.cos(yaw) * 2);
+      c.ry = immersive && xr.carryRay ? Math.atan2(-xr.carryRay.direction.x, -xr.carryRay.direction.z) : yaw;
       if (now - c.last > 80) {
         c.last = now;
         sendCarry(c);

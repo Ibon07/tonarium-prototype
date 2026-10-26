@@ -6,7 +6,7 @@ import { t as tr, systemText } from '../i18n/index.ts';
 import { contentAvailable, productFor } from '../../../shared/market.ts';
 import { MOVEMENT_MODES } from '../view3d/movement.ts';
 import { KeyHelp } from '../view3d/KeyHelp.tsx';
-import { XRLaunch, XRSettings } from '../xr/XRControls.tsx';
+import { XRSettings } from '../xr/XRControls.tsx';
 import { useOwnedContent } from '../market/store.ts';
 import { OriginBadge } from '../market/OriginBadge.tsx';
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
@@ -91,7 +91,6 @@ function WorldBadge() {
       {!wsConnected && <span className="reconn">{tr("ui854")}</span>}
       {kind === 'antimatter' && mode === '2d' && <button className="chipbtn" onClick={() => openWindow('antimatter')}>{antimatterWindowOpen ? tr('mergeAdLab') : tr('mergeOpenAd')}</button>}
       <span className="vline" />
-      <XRLaunch />
       <button
         className="ib" aria-label={tr("ui855")} title={tr("ui855")} data-popanchor
         onClick={(e) => setMenu(menu ? null : e.currentTarget.getBoundingClientRect())}

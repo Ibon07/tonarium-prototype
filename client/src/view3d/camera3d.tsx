@@ -3,7 +3,7 @@ import { CameraStand } from './cameraModel.tsx';
 export { CameraModel } from './cameraModel.tsx';
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Billboard } from '@react-three/drei';
+import { UprightBillboard } from './UprightBillboard.tsx';
 import * as THREE from 'three';
 import type { Item } from '../../../shared/items.ts';
 import { useStore, get, set, nameOf } from '../store.ts';
@@ -34,7 +34,7 @@ export function CamMonitor({ item, position }: { item: CameraItem; position: [nu
   useFrame(() => { if (own && tex) tex.needsUpdate = true; });
   if (!item.live) return null;
   return (
-    <Billboard position={position}>
+    <UprightBillboard position={position}>
       <mesh userData={{ noRay: true }}>
         <planeGeometry args={[0.72, 0.42]} />
         <meshBasicMaterial color="#111" />
@@ -47,7 +47,7 @@ export function CamMonitor({ item, position }: { item: CameraItem; position: [nu
         <circleGeometry args={[0.02, 12]} />
         <meshBasicMaterial color="#ef4444" />
       </mesh>
-    </Billboard>
+    </UprightBillboard>
   );
 }
 
