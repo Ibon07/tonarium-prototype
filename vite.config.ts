@@ -35,6 +35,7 @@ export default defineConfig(({ mode }) => {
         '/token': `http://${api}`,
         '/icon': `http://${api}`,
         '/group-image': `http://${api}`,
+        '/timeline-image': `http://${api}`,
         '/avatar': `http://${api}`,
         '/profile': `http://${api}`,
         '/report': `http://${api}`,
