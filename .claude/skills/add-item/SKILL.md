@@ -9,6 +9,8 @@ description: Tonarium に新しいアイテム（サイコロ・チェス・付�
 
 既存の付箋やチェス盤などのモデルにボタン・タイマー・着席の動作をつなぐには、先に[ワールド制作の共有システム例](../add-world/SKILL.md#共有システムを使ってマップを作る)を参照する。新しいアイテムの種類を作らず、コードマップの `.item()` と `bindings` で既存モデルを再利用できる。対応するアイテムと制約は[共有システムの案内](../../../docs/shared-systems/README.md)を参照する。
 
+カタログの保存場所は `docs/shared-systems/`。[全体の目次](../../../docs/shared-systems/README.md)からIDを選ぶか、[アイテム別の `items/`](../../../docs/shared-systems/items/)と[システム別の `systems/`](../../../docs/shared-systems/systems/)を開く。各文書のファイル名は `<itemId>.md` または `<systemId>.md`。
+
 ## 触るファイル
 
 1. `shared/items.ts`（必須）

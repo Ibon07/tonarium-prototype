@@ -41,6 +41,16 @@ description: Tonarium に新しいワールド（セッションが読み込む 
 
 ### 1. 必要なIDを確認する
 
+カタログは、このリポジトリの **`docs/shared-systems/`** にあります。まず[カタログの目次](../../../docs/shared-systems/README.md)を開き、使いたいアイテムやシステムのIDを選んでください。GitHubでも、下のリンクから対応する文書を開けます。
+
+| 探したいもの | 保存場所・リンク |
+|---|---|
+| 対応する基本アイテム・共有システムの一覧 | [`docs/shared-systems/README.md`](../../../docs/shared-systems/README.md) |
+| アイテムごとのID・説明・配置例 | [`docs/shared-systems/items/`](../../../docs/shared-systems/items/)内の`<itemId>.md`。例：[付箋 `note`](../../../docs/shared-systems/items/note.md) |
+| システムごとの設定・接続先・入出力・使用例 | [`docs/shared-systems/systems/`](../../../docs/shared-systems/systems/)内の`<systemId>.md`。例：[ボタン `button`](../../../docs/shared-systems/systems/button.md)・[タイマー `timer`](../../../docs/shared-systems/systems/timer.md)・[椅子 `chair`](../../../docs/shared-systems/systems/chair.md) |
+
+カタログで確認した`itemId`・`systemId`を、以下のマップコードに使います。配置ごとの`id`・`instanceId`は、制作者がマップ内で重複しない名前を決めます。
+
 | コードのキー | この例 | 意味 |
 |---|---|---|
 | `itemId` | `note` | 既存アイテムの種類ID。この例ではメモのモデルを再利用します。 |
