@@ -41,7 +41,8 @@
     "test:telephone": "tsx --test server/telephone.test.ts",
     "test:events": "tsx --test server/events.test.ts",
     "test:bike": "tsx --test shared/vehicle.test.ts client/src/view3d/bikePhysics.test.ts",
-    "test:survivor": "tsx --test shared/survivor.test.ts server/survivors.test.ts"
+    "test:survivor": "tsx --test shared/survivor.test.ts server/survivors.test.ts",
+    "test:timeline": "tsx --test shared/timeline.test.ts server/follows.test.ts"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.3",

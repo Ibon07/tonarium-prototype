@@ -37,4 +37,5 @@ jobs:
       - run: npm run check:completion
       - run: npm run test:client
       - run: npm run test:sync
+      - run: npm run test:timeline
       - run: npm run test:shared-assets
