@@ -17,7 +17,7 @@ import type {
 import { COMPAT_VERSION, PLAN_QUORUM, ROOM_HALF, STATUS_INFO, STATUS_TEXT_MAX, VISIBILITY_INFO, channelKey, isGroupVisibility } from '../shared/protocol.ts';
 import { GROUP_COLORS, canSeeSession } from '../shared/home.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, isWorldKind, pushOut, type WorldKind } from '../shared/worlds.ts';
-import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, createItem, isDeltaAction, isHandheld, itemSummary, type Item } from '../shared/items.ts';
+import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, canAddMirror, createItem, isDeltaAction, isHandheld, itemSummary, type Item } from '../shared/items.ts';
 import { telephoneAction, telephoneItemFor, telephoneState, tickTelephone, reconcileTelephoneHost, hasTelephoneHistory } from './telephone.ts';
 import type { TelephoneAction } from '../shared/telephone.ts';
 import { sanitizeParams } from '../shared/avatar.ts';
@@ -1091,6 +1091,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     case 'itemCreate': {
       if (!Object.hasOwn(ITEM_INFO, msg.kind)) return;
       if (ONLY_3D[msg.kind] && me.mode !== '3d') return;
+      if (msg.kind === 'mirror' && !canAddMirror(sessItems.values())) return;
       if (msg.media && 'url' in msg.media && !mediaExists(msg.media.url)) return;
       let at = placeIn(sid, msg.x, msg.z, 0.4);
       // 2D は細かい位置を選べないので、出す瞬間だけ空いている場所へずらす

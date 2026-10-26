@@ -62,6 +62,9 @@ export const isChessItem = (item: Item): item is ChessItem => item.kind === 'che
 
 export const isHandheld = (i: Item) => i.kind === 'hammer' || i.kind === 'camera';
 export const ONLY_3D: Partial<Record<ItemKind, boolean>> = { camera: true, bike: true, mirror: true, jumpPad: true };
+// 鏡は1枚ごとに全員の3D画面でシーン全体を追加描画するため、同時設置数に上限を設ける（ワールド常設の鏡は数えない）
+export const MIRROR_MAX = 4;
+export const canAddMirror = (items: Iterable<Item>) => [...items].filter((i) => i.kind === 'mirror').length < MIRROR_MAX;
 
 export type Dir = 'up' | 'down' | 'left' | 'right';
 
