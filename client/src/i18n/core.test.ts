@@ -21,6 +21,21 @@ Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
 } });
 const { setLanguage, getLanguage, subscribeLanguage, t, msg, systemText, localized, formatDate, sourceText } = await import('./core.ts');
 
+test('hammer hit counts are displayed in each supported language', () => {
+  const previous = getLanguage();
+  try {
+    for (const count of [1, 4]) {
+      const text = `A がピコピコハンマーで B を${count}回叩きました`;
+      setLanguage('ja');
+      assert.equal(systemText(text), text);
+      setLanguage('en');
+      assert.equal(systemText(text), `A hit B with a toy hammer ${count} time(s)`);
+      setLanguage('ko');
+      assert.equal(systemText(text), `A님이 장난감 망치로 B님을 ${count}번 두드렸습니다`);
+    }
+  } finally { setLanguage(previous); }
+});
+
 test('browser initialization and document metadata follow preferred supported language', () => {
   assert.equal(getLanguage(), 'en');
   assert.equal(page.documentElement.lang, 'en');
