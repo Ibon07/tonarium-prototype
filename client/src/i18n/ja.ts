@@ -1,4 +1,5 @@
 export default {
+  desktopDownload: 'デスクトップ版をダウンロード',
   shareDrawingStart: 'ラクガキを開始',
   shareDrawingColor: 'ペンの色 {0}',
   shareDrawingStop: 'ラクガキを終了',

@@ -1,4 +1,5 @@
 export default {
+  desktopDownload: '데스크톱 버전 다운로드',
   shareDrawingStart: '낙서 시작',
   shareDrawingColor: '펜 색상 {0}',
   shareDrawingStop: '낙서 종료',

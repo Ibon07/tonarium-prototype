@@ -91,6 +91,7 @@ function JoinScreen() {
           <LanguageSelect />
           <button className="primary" onClick={join}>{tr("ui12")}</button>
           <small>{tr("ui13")}</small>
+          <a className="join-download" href="https://github.com/katteni-kaihatu/tonarium-prototype/releases" target="_blank" rel="noreferrer">{tr('desktopDownload')}</a>
         </div>
       </div>
       <aside className="joinnotice" aria-label={tr("ui14")}>

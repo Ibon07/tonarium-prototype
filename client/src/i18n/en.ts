@@ -1,4 +1,5 @@
 export default {
+  desktopDownload: 'Download the desktop app',
   shareDrawingStart: 'Start drawing',
   shareDrawingColor: 'Pen color {0}',
   shareDrawingStop: 'Stop drawing',
