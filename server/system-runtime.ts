@@ -59,7 +59,15 @@ export class SystemRuntime {
       case 'max': value = Math.max(...numbers); break;
       case 'gt': return numbers[0] > numbers[1];
       case 'ceil': value = Math.ceil(numbers[0]); break;
-      case 'clock': { const seconds = Math.max(0, Math.ceil(numbers[0])); return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`; }
+      case 'clock': {
+        const seconds = Math.max(0, numbers[0]);
+        let whole = Math.floor(seconds), milliseconds = Math.round((seconds - whole) * 1000);
+        if (milliseconds === 1000) { whole++; milliseconds = 0; }
+        // 残り時間が正の間は、表示だけが先にゼロにならないようにする。
+        if (seconds > 0 && whole === 0 && milliseconds === 0) milliseconds = 1;
+        const fraction = milliseconds ? `.${milliseconds.toString().padStart(3, '0').replace(/0+$/, '')}` : '';
+        return `${Math.floor(whole / 60).toString().padStart(2, '0')}:${(whole % 60).toString().padStart(2, '0')}${fraction}`;
+      }
       default: throw new Error('unsupported calculation');
     }
     check(Number.isFinite(value), 'nonfinite expression'); return value;

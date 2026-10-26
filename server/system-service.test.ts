@@ -26,7 +26,8 @@ test('central service bootstraps packages, serves verified originals, and persis
   const directory = temporary(t);
   const service = new SystemService(directory, root); t.after(() => service.dispose());
   assert.deepEqual(service.startupErrors, []);
-  assert.deepEqual(service.catalog.current().entries.map(e => e.id).sort(), ['button', 'chair', 'timer']);
+  assert.deepEqual([...new Set(service.catalog.current().entries.map(e => e.id))].sort(), ['button', 'chair', 'timer']);
+  assert.deepEqual(service.catalog.current().entries, validateSystemSubmission(root).catalog.entries);
   const server = http.createServer((req, res) => {
     if (!service.http(req, res, new URL(req.url ?? '/', 'http://local').pathname)) res.writeHead(404).end();
   });
@@ -37,7 +38,7 @@ test('central service bootstraps packages, serves verified originals, and persis
   const response = await fetch(`${base}/api/shared-systems`);
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
-  assert.deepEqual((await response.json()).entries.map((e: { id: string }) => e.id).sort(), ['button', 'chair', 'timer']);
+  assert.deepEqual(await response.json(), service.catalog.current());
   const entry = service.catalog.current().entries[0];
   const original = await fetch(`${base}/system-originals/${entry.integrity}`);
   assert.equal(original.status, 200);
@@ -81,7 +82,7 @@ test('Docker bundle startup and failed replacement preserve registered packages 
   fs.writeFileSync(path.join(source, 'system-bundle', 'objects', bundle.catalog.entries[0].integrity), 'corrupt artifact');
   const replacement = new SystemService(data, source); t.after(() => replacement.dispose());
   assert.equal(replacement.startupErrors.length, 1);
-  assert.equal(replacement.catalog.current().entries.length, 3);
+  assert.equal(replacement.catalog.current().entries.length, bundle.catalog.entries.length);
   assert.deepEqual(serialized(replacement.view('room')), serialized(before));
 });
 
@@ -97,7 +98,7 @@ test('central version registration upgrades live instances and survives incompat
   const objects = service.view('room').objects;
   const oldTimer = service.view('room').systems.find(s => s.instanceId === 'countdown')!;
   assert.equal(oldTimer.state.remaining, 8.75);
-  const original: SystemManifest = JSON.parse(fs.readFileSync(path.join(source, 'shared-systems/timer/1.0.0/system.json'), 'utf8'));
+  const original: SystemManifest = service.catalog.current().entries.find(entry => entry.id === oldTimer.systemId && entry.version === oldTimer.version)!.manifest;
   const upgraded = { ...structuredClone(original), version: '1.1.0', title: 'Updated timer', state: { ...original.state, visits: { type: 'number' as const, default: 17 } } };
   const folder = path.join(source, 'shared-systems/timer/1.1.0'); fs.mkdirSync(folder);
   fs.writeFileSync(path.join(folder, 'system.json'), JSON.stringify(upgraded));

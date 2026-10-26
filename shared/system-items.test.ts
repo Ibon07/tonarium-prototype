@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { test } from 'node:test';
-import { ITEM_INFO, type ItemKind } from './items.ts';
+import { ITEM_INFO, type ItemInfo, type ItemKind } from './items.ts';
 import { MARKET_PRODUCTS } from './market.ts';
 import { systemItemDefinition, systemItemDefinitions, systemItemInstanceId } from './system-items.ts';
 import { createSystemMap } from './system-map.ts';
@@ -37,6 +37,45 @@ test('catalog IDs keep existing camelCase while unknown, media and other catalog
     assert.equal(systemItemDefinition(id), undefined);
     assert.throws(() => validateSystemMap(mapWith({ id: 'object', itemId: id as string, capabilities: [], position: [0, 0, 0] }), catalog), /item ID/);
   }
+});
+
+test('new basic item metadata appears immediately while future media and market items stay excluded', () => {
+  const metadata = ITEM_INFO as Record<string, ItemInfo>;
+  const ids = ['future-basic', 'future-media', 'future-market-kind', 'future-market-id'];
+  const originalItems = structuredClone(ITEM_INFO), originalMarket = structuredClone(MARKET_PRODUCTS);
+  const marketLength = MARKET_PRODUCTS.length, before = systemItemDefinitions();
+  for (const id of ids) assert.equal(Object.hasOwn(metadata, id), false);
+  assert.equal(systemItemDefinition('future-basic'), undefined);
+  try {
+    metadata['future-basic'] = { ...ITEM_INFO.note, name: 'Future basic item' };
+    metadata['future-media'] = { ...ITEM_INFO.note, name: 'Future media item', media: true };
+    metadata['future-market-kind'] = { ...ITEM_INFO.note, name: 'Future market kind' };
+    metadata['future-market-id'] = { ...ITEM_INFO.note, name: 'Future market ID' };
+    MARKET_PRODUCTS.push({
+      id: 'future-product', category: 'items', content: 'future-market-kind', kind: 'future-market-kind' as ItemKind, text: '',
+      name: 'Future market product', creator: 'Test', price: 1, mark: 'F', color: '#ffffff', ink: '#000000', description: 'Future market product',
+    }, {
+      id: 'future-market-id', category: 'items', content: 'future-market-id', text: '',
+      name: 'Future market ID', creator: 'Test', price: 1, mark: 'F', color: '#ffffff', ink: '#000000', description: 'Future market ID',
+    });
+    const after = systemItemDefinitions(), listed = after.find(definition => definition.id === 'future-basic');
+    const found = systemItemDefinition('future-basic');
+    assert.equal(after.length, before.length + 1);
+    assert.equal(listed?.kind, 'future-basic'); assert.equal(found?.info.name, 'Future basic item');
+    listed!.info.name = 'Changed list result'; found!.info.tint = '#123456';
+    assert.equal(metadata['future-basic'].name, 'Future basic item');
+    assert.equal(metadata['future-basic'].tint, ITEM_INFO.note.tint);
+    assert.equal(systemItemDefinition('future-basic')?.info.name, 'Future basic item');
+    for (const id of ['future-media', 'future-market-kind', 'future-market-id', 'future-product']) {
+      assert.equal(after.some(definition => definition.id === id), false, id);
+      assert.equal(systemItemDefinition(id), undefined, id);
+    }
+  } finally {
+    for (const id of ids) delete metadata[id];
+    MARKET_PRODUCTS.splice(marketLength);
+  }
+  assert.deepEqual(ITEM_INFO, originalItems); assert.deepEqual(MARKET_PRODUCTS, originalMarket);
+  assert.deepEqual(systemItemDefinitions(), before);
 });
 
 test('native item placements default to native functionality and independent stable instance identities', () => {

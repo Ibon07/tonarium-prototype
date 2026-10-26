@@ -8,7 +8,11 @@ import { LANGUAGES, initialLanguage, LANGUAGE_STORAGE_KEY } from './locale.ts';
 const saved = new Map<string, string>();
 let rejectWrites = false;
 const page = { title: '', documentElement: { lang: '' }, querySelector: () => ({ setAttribute() {} }) };
-Object.defineProperty(globalThis, 'window', { configurable: true, value: {} });
+const windowEvents = new Map<string, (event: StorageEvent) => void>();
+Object.defineProperty(globalThis, 'window', { configurable: true, value: {
+  addEventListener: (name: string, listener: (event: StorageEvent) => void) => windowEvents.set(name, listener),
+  removeEventListener: (name: string) => windowEvents.delete(name),
+} });
 Object.defineProperty(globalThis, 'document', { configurable: true, value: page });
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { languages: ['fr-CA', 'en-GB'], language: 'ja' } });
 Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
@@ -67,6 +71,25 @@ test('open notifications and static metadata switch language without changing th
   assert.equal(raw.name, 'ホール');
   setLanguage('ja');
   assert.equal(view.detail.desc, raw.detail.desc);
+});
+
+test('language settings in another app tab update open views without writing preferences back', () => {
+  setLanguage('ja');
+  let notifications = 0;
+  const unsubscribe = subscribeLanguage(() => notifications++);
+  const receive = (newValue: string, key = LANGUAGE_STORAGE_KEY, storageArea: unknown = globalThis.localStorage) => windowEvents.get('storage')!({ key, newValue, storageArea } as StorageEvent);
+  try {
+    receive('en');
+    assert.equal(getLanguage(), 'en'); assert.equal(page.documentElement.lang, 'en');
+    assert.equal(t('ssCatalogSearch'), 'Search systems');
+    assert.equal(saved.get(LANGUAGE_STORAGE_KEY), 'ja');
+    assert.equal(notifications, 1);
+    receive('en'); receive('invalid'); receive('ko', 'unrelated'); receive('ko', LANGUAGE_STORAGE_KEY, {});
+    assert.equal(notifications, 1);
+    receive('ko');
+    assert.equal(getLanguage(), 'ko'); assert.equal(t('ssCatalogSearch'), '시스템 검색');
+    assert.equal(notifications, 2);
+  } finally { unsubscribe(); setLanguage('ja'); }
 });
 
 test('user values stay verbatim, including text identical to UI strings and template syntax', () => {
