@@ -18,7 +18,7 @@ import { Icon, type IconName } from '../world/Icon.tsx';
 import { CreateSessionDialog } from './dialogs.tsx';
 import { Empty, NameFace, match, toggleFollow } from './common.tsx';
 import { goHome, WORLD_FACE } from './pages.tsx';
-import { agoLabel, closeTimelineSide, createPost, deletePost, openCompose, openPost, postImageUrl, reactPost, repostPost, setTimelineTab, uploadPostImage } from '../timeline.ts';
+import { agoLabel, closeTimelineSide, createPost, deletePost, offerPostImage, openCompose, openPost, postImageUrl, reactPost, repostPost, setTimelineTab, uploadPostImage } from '../timeline.ts';
 
 const TAB_ICON: Record<TimelineTab, IconName> = { home: 'home', session: 'door', social: 'people', global: 'globe' };
 const TAB_LABEL: Record<TimelineTab, string> = { home: 'tlTabHome', session: 'tlTabSession', social: 'tlTabSocial', global: 'tlTabGlobal' };
@@ -98,8 +98,52 @@ function useEntries(q: string) {
     .filter((e) => match(q, e.post.text, e.post.author, e.repostBy));
 }
 
+/** 書く欄以外の入力欄（検索・返信）に貼った物は横取りしない */
+const isOtherField = (t: EventTarget | null) =>
+  t instanceof HTMLElement && (t.tagName === 'INPUT' || (t.tagName === 'TEXTAREA' && !t.closest('.tlcompose')) || t.isContentEditable);
+
+/** ページのどこに貼っても・落としても、写真を書く欄に付ける。セッション中はワールド側が受け取らないようにしてある */
+function usePhotoInput() {
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    let depth = 0;
+    const onPaste = (e: ClipboardEvent) => {
+      const files = [...(e.clipboardData?.files ?? [])];
+      if (!files.length || isOtherField(e.target)) return;
+      e.preventDefault();
+      offerPostImage(files);
+    };
+    const wanted = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
+    const onEnter = (e: DragEvent) => { if (wanted(e)) { depth++; setDragging(true); } };
+    const onLeave = () => { depth = Math.max(0, depth - 1); if (!depth) setDragging(false); };
+    const onOver = (e: DragEvent) => { if (wanted(e)) e.preventDefault(); };
+    const onDrop = (e: DragEvent) => {
+      depth = 0;
+      setDragging(false);
+      const files = [...(e.dataTransfer?.files ?? [])];
+      if (!files.length) return;
+      e.preventDefault();
+      offerPostImage(files);
+    };
+    window.addEventListener('paste', onPaste);
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('paste', onPaste);
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, []);
+  return dragging;
+}
+
 export function TimelinePage({ q }: { q: string }) {
   const { tab } = useTabs();
+  const dragging = usePhotoInput();
   const entries = useEntries(q);
   const session = useStore((s) => s.guild.sessions.find((d) => d.id === s.session));
   const here = useStore((s) => s.participants.length);
@@ -116,6 +160,11 @@ export function TimelinePage({ q }: { q: string }) {
         ? <Empty>{q ? tr('ui223') : tr(tab === 'home' ? 'tlEmptyHome' : 'tlEmpty')}</Empty>
         : <div className="tllist">{entries.map((e) => <PostCard key={e.post.id} entry={e} />)}</div>}
       <button className="tlfab" aria-label={tr('tlWrite')} onClick={() => openCompose()}><Icon name="pen" size={20} />{tr('tlPostShort')}</button>
+      {dragging && (
+        <div className="drophint" aria-hidden="true">
+          <div><Icon name="image" size={36} stroke={1.6} /><b>{tr('tlDropPhoto')}</b><span>{tr('tlDropPhotoSub')}</span></div>
+        </div>
+      )}
     </section>
   );
 }
@@ -434,6 +483,13 @@ function Composer() {
     } catch { setError(tr('tlPhotoFailed')); }
     setUploading(false);
   };
+  const incoming = useStore((s) => s.composeImage);
+  useEffect(() => {
+    if (!incoming) return;
+    set({ composeImage: null });
+    if (incoming === 'unsupported') setError(tr('tlPhotoOnly'));
+    else void pick(incoming);
+  }, [incoming]);
   const insert = (emoji: string) => {
     const el = area.current;
     const at = el ? el.selectionStart : text.length;

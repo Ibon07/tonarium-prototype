@@ -82,8 +82,9 @@ export function windowKeyOf(item: Item, camFeeds: Record<string, number>) {
   return `item:${item.id}`;
 }
 
-export const itemLabel = (item: Item) =>
-  item.kind === 'note' ? (item.text.split('\n')[0].slice(0, 16) || tr("ui559"))
+export const itemLabel = (item: Item, imageCreatorName?: string) =>
+  item.kind === 'image' && imageCreatorName?.trim() ? tr('imageItemBy', imageCreatorName.trim())
+    : item.kind === 'note' ? (item.text.split('\n')[0].slice(0, 16) || tr("ui559"))
     : item.kind === 'youtube' && item.title ? item.title.slice(0, 24)
     : ITEM_INFO[item.kind].name;
 

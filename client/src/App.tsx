@@ -10,7 +10,8 @@ import { iconUrl } from './icon.ts';
 import { ProfileDialog } from './Profile.tsx';
 import { HammerCursor, Lightbox } from './world/common.tsx';
 import { Home } from './home/Home.tsx';
-import { WorldScreen } from './world/WorldScreen.tsx';
+import { Toast, WorldScreen } from './world/WorldScreen.tsx';
+import { SharedSession } from './home/SharedSession.tsx';
 import { PeekMascot, type MascotHandle } from './world/Mascot.tsx';
 import { FEEDBACK_URL } from './feedback.ts';
 import { CompatOverlay, MaintenanceOverlay, UpdateBanner } from './world/ServerNotices.tsx';
@@ -125,6 +126,8 @@ export function App() {
     <>
       <UpdateRecoveryNotice />
       {!joined ? <JoinScreen /> : incompatible ? <CompatOverlay /> : session ? <WorldScreen /> : <Home />}
+      <SharedSession />
+      {!session && <Toast />}
       <Lightbox />
       <HammerCursor />
       <UpdateBanner />

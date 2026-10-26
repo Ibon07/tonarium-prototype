@@ -41,6 +41,8 @@ interface ItemBase {
   x: number;
   z: number;
   ry: number;
+  y?: number;
+  scale?: number;
   createdBy: string;
   updatedBy: string;
   mapPlacement?: ItemMapPlacement;
@@ -59,7 +61,7 @@ export type Item =
   | (ItemBase & { kind: 'canvas'; strokes: Stroke[] })
   /** live 中は operator のブラウザがカメラ視点を描いて配信する */
   | (ItemBase & { kind: 'camera'; holder: string | null; pitch: number; live: boolean; operator: string | null; cameraY?: number; groundY?: number })
-  | (ItemBase & { kind: 'image'; url: string; w: number; h: number })
+  | (ItemBase & { kind: 'image'; url: string; w: number; h: number; createdByName?: string })
   | (ItemBase & { kind: 'video'; url: string; w: number; h: number; clock: MediaClock })
   | (ItemBase & { kind: 'youtube'; videoId: string; title: string; clock: MediaClock })
   /** 結果をサーバーで検証・確定し、チャットにも残す。roll は最後に振った回 */

@@ -374,7 +374,7 @@ export type RoomClientMsg =
   /** 街のマンションのエレベーターを呼ぶ・行き先を押す（floor は 0 = 1 階 … 10 = 屋上） */
   | { t: 'elevatorCall'; floor: number }
   | { t: 'itemRemove'; id: string }
-  | { t: 'itemMove'; id: string; x: number; z: number; ry: number }
+  | { t: 'itemMove'; id: string; x: number; z: number; ry: number; y?: number; scale?: number }
   | { t: 'itemAction'; id: string; action: ItemAction }
   | { t: 'hit'; to: string };
 
@@ -440,7 +440,7 @@ export type RoomServerMsg =
   | { t: 'avatarRemove'; sid: string; id: string }
   | { t: 'item'; sid: string; item: Item }
   /** 移動は中身を送らず位置だけ。受けた側は保持済みのアイテムへ適用する */
-  | { t: 'itemMove'; sid: string; id: string; x: number; z: number; ry: number }
+  | { t: 'itemMove'; sid: string; id: string; x: number; z: number; ry: number; y?: number; scale?: number }
   | { t: 'itemRemove'; sid: string; id: string }
   | { t: 'itemAction'; sid: string; id: string; action: ItemAction; by: string }
   | { t: 'hit'; sid: string; from: string; to: string }
