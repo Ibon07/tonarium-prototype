@@ -24,6 +24,7 @@ export function spawnItem(kind: ItemKind, text?: string, media?: MediaInit) {
 
 /** 入力が途切れないよう手元にすぐ反映してから送る */
 export function editNote(id: string, patch: { text?: string; color?: string }) {
+  if (get().items[id]?.mapPlacement?.mode === 'system') return;
   const sid = get().session;
   if (!sid) return;
   set((s) => {
@@ -39,14 +40,17 @@ export function postImage(text: string, image: string) {
 }
 
 export function removeItem(id: string) {
+  if (get().items[id]?.mapPlacement?.mode === 'system') return;
   send({ t: 'itemRemove', id });
 }
 
 export function itemAction(id: string, action: ItemAction) {
+  if (get().items[id]?.mapPlacement?.mode === 'system') return;
   send({ t: 'itemAction', id, action });
 }
 
 export function moveItem(id: string, x: number, z: number, ry: number) {
+  if (get().items[id]?.mapPlacement?.mode === 'system') return;
   const sid = get().session;
   if (!sid) return;
   set((s) => {
@@ -63,7 +67,7 @@ export function setItemUi(id: string, ui: ItemUi) {
 
 export function applyDelta(sid: string, id: string, action: ItemAction, by: string) {
   const cur = get().itemsBy[sid]?.[id];
-  if (!cur) return;
+  if (!cur || cur.mapPlacement?.mode === 'system') return;
   const next = cur.kind === 'canvas' ? { ...cur, strokes: [...cur.strokes] } : { ...cur };
   if (!applyItemAction(next, action, by, Math.random)) return;
   set((s) => ({ itemsBy: { ...s.itemsBy, [sid]: { ...s.itemsBy[sid], [id]: next } } }));
@@ -71,6 +75,7 @@ export function applyDelta(sid: string, id: string, action: ItemAction, by: stri
 }
 
 export function deltaAction(id: string, action: ItemAction) {
+  if (get().items[id]?.mapPlacement?.mode === 'system') return;
   const s = get();
   if (!s.session) return;
   // P2P対応時は全消去との競合も送り主を含めて同じ順序で確定する。
