@@ -1,6 +1,7 @@
 import type { SystemManifest, SystemObject, SystemView } from '../../../shared/system-types.ts';
 import { t } from '../i18n/core.ts';
 import { systemCatalogLocales } from './locales/catalog.ts';
+import { contentFieldText, contentText } from '../content-translations.ts';
 
 const stock = {
   button: { title: 'ssCatalogButtonTitle', description: 'ssCatalogButtonDescription' },
@@ -15,8 +16,10 @@ function stockLabels(manifest: SystemManifest) {
     && manifest.credits.includes('Tonarium contributors') ? labels : undefined;
 }
 
-export function systemTitle(manifest: SystemManifest) { const labels = stockLabels(manifest); return labels ? t(labels.title) : manifest.title; }
-export function systemDescription(manifest: SystemManifest) { const labels = stockLabels(manifest); return labels ? t(labels.description) : manifest.description; }
+export const systemContentKey = (manifest: SystemManifest) => `system/${manifest.id}/${manifest.version}`;
+export function systemTitle(manifest: SystemManifest) { const labels = stockLabels(manifest); return contentText(systemContentKey(manifest), 'title', manifest.title, labels ? t(labels.title) : manifest.title); }
+export function systemDescription(manifest: SystemManifest) { const labels = stockLabels(manifest); return contentText(systemContentKey(manifest), 'description', manifest.description, labels ? t(labels.description) : manifest.description); }
+export const systemDocumentation = (manifest: SystemManifest, field: string) => contentFieldText(systemContentKey(manifest), field);
 
 const demoLabels = {
   'start-button': { source: 'start-button', key: 'ssCatalogDemoStart' },

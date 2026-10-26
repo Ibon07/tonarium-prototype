@@ -54,7 +54,7 @@ export function SystemLibraryGuide() {
       <pre>{`import { myMap } from '../my-map.ts';
 
 systemMaps.set(myMap.id, myMap);`}</pre>
-      <p><GuideText message="ssGuideLoadCodeMap" values={[<code>client/src/systems/api.ts</code>, <code>loadSystemMap('my-map')</code>, <strong>{t('ssGuideDemoMenu')}</strong>]} /></p>
+      <p><GuideText message="ssGuideLoadCodeMap" values={[<code>client/src/systems/api.ts</code>, <code>loadSystemMap('my-map')</code>, <code>npm run dev:systems</code>]} /></p>
       <h3>{t('ssGuideConnectionsTitle')}</h3>
       <ul>
         <li><GuideText message="ssGuideTimerBehavior" values={[<code>duration</code>, <code>pause</code>, <code>reset</code>, <code>00:00</code>, <code>display</code>]} /></li>
@@ -80,6 +80,7 @@ npm run systems -- init my-system .`}</pre>
         <li><GuideText message="ssGuideFieldValues" values={[<code>config</code>, <code>state</code>]} /></li>
         <li><GuideText message="ssGuideFieldHandlers" values={[<code>inputs</code>, <code>outputs</code>, <code>handlers</code>, <code>interaction</code>]} /></li>
       </ul>
+      <p><GuideText message="ssGuideContentTranslation" values={[<code>content-locales/metadata.json</code>]} /></p>
       <p><GuideText message="ssGuideBuiltinRefs" values={[<code>shared-systems/button/</code>, <code>timer/</code>, <code>chair/</code>, <code>shared/system-types.ts</code>]} /></p>
       <h3>{t('ssGuideValidateTitle')}</h3>
       <pre>{`npm run systems -- validate .

@@ -6,28 +6,35 @@ import './catalog.css';
 import { SystemItemCatalog } from './SystemItemCatalog.tsx';
 import { SystemLibraryGuide } from './SystemLibraryGuide.tsx';
 import { t, useLanguage } from '../i18n/index.ts';
-import { systemDescription, systemTitle } from './catalog-labels.ts';
+import { systemDescription, systemDocumentation, systemTitle } from './catalog-labels.ts';
 import { systemErrorText } from './messages.ts';
 import { CatalogPagination } from './CatalogPagination.tsx';
 import { catalogPage, uniqueSystemIds } from './pagination.ts';
+import { startContentTranslations } from '../content-translations.ts';
 
 const capabilities: Record<Capability, string> = { interact: 'ssCatalogCapabilityInteract', move: 'ssCatalogCapabilityMove', text: 'ssCatalogCapabilityText', seat: 'ssCatalogCapabilitySeat' };
 const types: Record<ValueType, string> = { number: 'ssCatalogTypeNumber', string: 'ssCatalogTypeString', boolean: 'ssCatalogTypeBoolean', user: 'ssCatalogTypeUser', object: 'ssCatalogTypeObject' };
 
-function Fields({ fields }: { fields: Record<string, ValueSchema> }) {
-  useLanguage();
-  return Object.keys(fields).length ? <div className="system-catalog-table"><table><thead><tr><th>{t('ssCatalogName')}</th><th>{t('ssCatalogType')}</th><th>{t('ssCatalogDefault')}</th><th>{t('ssCatalogRange')}</th></tr></thead><tbody>{Object.entries(fields).map(([name, field]) => <tr key={name}><td><code>{name}</code></td><td>{t(types[field.type])}</td><td><code>{JSON.stringify(field.default)}</code></td><td>{field.min === undefined && field.max === undefined ? t('ssCatalogUnlimited') : t('ssCatalogRangeValues', field.min ?? t('ssCatalogUnlimited'), field.max ?? t('ssCatalogUnlimited'))}</td></tr>)}</tbody></table></div> : <p>{t('ssCatalogNone')}</p>;
+function FieldDocumentation({ manifest, field }: { manifest: SystemEntry['manifest']; field: string }) {
+  const label = systemDocumentation(manifest, `${field}.label`), description = systemDocumentation(manifest, `${field}.description`);
+  return label || description ? <span style={{ display: 'block', whiteSpace: 'pre-wrap' }}>{label && <strong>{label}</strong>}{label && description && ' — '}{description}</span> : null;
 }
 
-function Ports({ ports }: { ports: Record<string, SystemPort> }) {
+function Fields({ fields, manifest, group }: { fields: Record<string, ValueSchema>; manifest: SystemEntry['manifest']; group: 'config' | 'state' }) {
   useLanguage();
-  return Object.keys(ports).length ? <dl className="system-catalog-ports">{Object.entries(ports).map(([name, port]) => <div key={name}><dt><code>{name}</code></dt><dd>{Object.entries(port.payload).map(([key, type]) => `${key}: ${t(types[type])}`).join(', ') || t('ssCatalogNoPayload')}</dd></div>)}</dl> : <p>{t('ssCatalogNone')}</p>;
+  return Object.keys(fields).length ? <div className="system-catalog-table"><table><thead><tr><th>{t('ssCatalogName')}</th><th>{t('ssCatalogType')}</th><th>{t('ssCatalogDefault')}</th><th>{t('ssCatalogRange')}</th></tr></thead><tbody>{Object.entries(fields).map(([name, field]) => <tr key={name}><td><code>{name}</code><FieldDocumentation manifest={manifest} field={`${group}.${name}`} /></td><td>{t(types[field.type])}</td><td><code>{JSON.stringify(field.default)}</code></td><td>{field.min === undefined && field.max === undefined ? t('ssCatalogUnlimited') : t('ssCatalogRangeValues', field.min ?? t('ssCatalogUnlimited'), field.max ?? t('ssCatalogUnlimited'))}</td></tr>)}</tbody></table></div> : <p>{t('ssCatalogNone')}</p>;
 }
 
-function CatalogItem({ entries, latest }: { entries: SystemEntry[]; latest: SystemEntry }) {
+function Ports({ ports, manifest, group }: { ports: Record<string, SystemPort>; manifest: SystemEntry['manifest']; group: 'inputs' | 'outputs' }) {
+  useLanguage();
+  return Object.keys(ports).length ? <dl className="system-catalog-ports">{Object.entries(ports).map(([name, port]) => <div key={name}><dt><code>{name}</code></dt><dd><FieldDocumentation manifest={manifest} field={`${group}.${name}`} />{Object.entries(port.payload).map(([key, type]) => `${key}: ${t(types[type])}`).join(', ') || t('ssCatalogNoPayload')}</dd></div>)}</dl> : <p>{t('ssCatalogNone')}</p>;
+}
+
+export function CatalogItem({ entries, latest }: { entries: SystemEntry[]; latest: SystemEntry }) {
   useLanguage();
   const [version, setVersion] = useState(''), [copyMessage, setCopyMessage] = useState('');
   const entry = entries.find(item => item.version === version) ?? latest, manifest = entry.manifest;
+  const usage = systemDocumentation(manifest, 'usage');
   const code = catalogExampleCode(latest.manifest);
   const copy = async () => {
     try { await navigator.clipboard.writeText(code); setCopyMessage('ssCatalogCopied'); }
@@ -37,14 +44,15 @@ function CatalogItem({ entries, latest }: { entries: SystemEntry[]; latest: Syst
     <div className="system-catalog-detail">
       <label>{t('ssCatalogPublishedVersion')}<select value={entry.version} onChange={event => { setVersion(event.target.value === latest.version ? '' : event.target.value); setCopyMessage(''); }}>{[latest, ...entries.filter(item => item.version !== latest.version)].map(item => <option value={item.version} key={item.version}>{item.version}{item.version === latest.version ? t('ssCatalogLatestSuffix') : ''}</option>)}</select></label>
       <p>{systemDescription(manifest)}</p>
+      {usage && <><h3>{t('ui372')}</h3><p style={{ whiteSpace: 'pre-wrap' }}>{usage}</p></>}
       <dl className="system-catalog-meta"><div><dt>{t('ssCatalogLicense')}</dt><dd>{manifest.license}</dd></div><div><dt>{t('ssCatalogCredits')}</dt><dd>{manifest.credits.join(', ') || t('ssCatalogNone')}</dd></div><div><dt>{t('ssCatalogSdk')}</dt><dd>{manifest.sdk}</dd></div></dl>
       <h3>{t('ssCatalogTargets')}</h3>
-      {Object.entries(manifest.targets).length ? <ul>{Object.entries(manifest.targets).map(([name, target]) => <li key={name}><code>{name}</code> — {target.capabilities.map(capability => t(capabilities[capability])).join(', ')} · {t(target.required ? 'ssCatalogRequired' : 'ssCatalogOptional')} · {t(target.multiple ? 'ssCatalogMultiple' : 'ssCatalogSingle')}</li>)}</ul> : <p>{t('ssCatalogNone')}</p>}
+      {Object.entries(manifest.targets).length ? <ul>{Object.entries(manifest.targets).map(([name, target]) => <li key={name}><code>{name}</code> — {target.capabilities.map(capability => t(capabilities[capability])).join(', ')} · {t(target.required ? 'ssCatalogRequired' : 'ssCatalogOptional')} · {t(target.multiple ? 'ssCatalogMultiple' : 'ssCatalogSingle')}<FieldDocumentation manifest={manifest} field={`targets.${name}`} /></li>)}</ul> : <p>{t('ssCatalogNone')}</p>}
       {manifest.interaction && <p>{t('ssCatalogInteraction', manifest.interaction.target, manifest.interaction.input)}</p>}
-      <h3>{t('ssCatalogConfig')}</h3><Fields fields={manifest.config} />
-      <h3>{t('ssCatalogInputs')}</h3><Ports ports={manifest.inputs} />
-      <h3>{t('ssCatalogOutputs')}</h3><Ports ports={manifest.outputs} />
-      <details><summary>{t('ssCatalogStateUpdates')}</summary><Fields fields={manifest.state} /><p>{t('ssCatalogUpdatePolicy')}</p>{manifest.migrations?.length ? <pre>{JSON.stringify(manifest.migrations, null, 2)}</pre> : <p>{t('ssCatalogNoMigrations')}</p>}</details>
+      <h3>{t('ssCatalogConfig')}</h3><Fields fields={manifest.config} manifest={manifest} group="config" />
+      <h3>{t('ssCatalogInputs')}</h3><Ports ports={manifest.inputs} manifest={manifest} group="inputs" />
+      <h3>{t('ssCatalogOutputs')}</h3><Ports ports={manifest.outputs} manifest={manifest} group="outputs" />
+      <details><summary>{t('ssCatalogStateUpdates')}</summary><Fields fields={manifest.state} manifest={manifest} group="state" /><p>{t('ssCatalogUpdatePolicy')}</p>{manifest.migrations?.length ? <pre>{JSON.stringify(manifest.migrations, null, 2)}</pre> : <p>{t('ssCatalogNoMigrations')}</p>}</details>
       <h3>{t('ssCatalogExampleTitle', latest.version)}</h3><p>{t('ssCatalogExampleHelp')}</p><button type="button" onClick={() => void copy()}>{t('ssCatalogCopyExample')}</button><span role="status">{copyMessage && t(copyMessage)}</span><pre>{code}</pre>
       <details><summary>{t('ssCatalogLogicOriginal')}</summary><p><a href={`/system-originals/${encodeURIComponent(entry.integrity)}`} target="_blank" rel="noreferrer">{t('ssCatalogOpenOriginal')}</a></p><p className="system-catalog-hash">{t('ssCatalogIntegrity', entry.integrity)}</p><pre>{JSON.stringify(manifest, null, 2)}</pre></details>
     </div>
@@ -54,6 +62,7 @@ function CatalogItem({ entries, latest }: { entries: SystemEntry[]; latest: Syst
 export function SystemCatalogBrowser() {
   useLanguage();
   const [catalog, setCatalog] = useState<SystemCatalog>(), [error, setError] = useState(''), [loading, setLoading] = useState(true), [revision, setRevision] = useState(0), [search, setSearch] = useState(''), [page, setPage] = useState(1);
+  useEffect(() => revision ? startContentTranslations() : undefined, [revision]);
   useEffect(() => {
     const controller = new AbortController(); setLoading(true); setError('');
     void fetch('/api/shared-systems', { signal: controller.signal, cache: 'no-store' }).then(async response => {

@@ -73,6 +73,7 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 - 単体ブラウザのWebXR初期実装（VR操作・仮想端末・対応表・検証範囲）→ [docs/webxr.md](docs/webxr.md)。Quest 3／Steam Frame実機は未検証、Electron版はVR非対応
 - 日本語・英語・韓国語の表示切り替え（端末保存・ブラウザ言語判定）→ [docs/languages.md](docs/languages.md)
 - チャットの自動翻訳・小さな原文と発言言語の表示（サーバーのOpenAI連携・ローカルモック）→ [docs/chat-translation.md](docs/chat-translation.md)
+- 아이템·월드·공유 시스템의 등록 시 자동 번역과 수동 교정 → [원문·번역 저장 및 등록 안내](docs/content-translations.md)
 - 変更履歴（主な更新の一覧・検索・未読の赤い点）→ [docs/home.md の変更履歴](docs/home.md#変更履歴)・[開発ガイド](docs/changelog.md)
 - Web 版をそのまま使う Electron クライアント → [docs/electron.md](docs/electron.md)
 - 自動更新の設定、カウントダウン、更新後の状態復元と検証結果 → [docs/updates.md](docs/updates.md)

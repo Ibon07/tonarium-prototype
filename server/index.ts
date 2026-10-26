@@ -1,6 +1,9 @@
 import { scheduleChessAiReply } from './chess-ai.ts';
 import 'dotenv/config';
 import { configuredTranslationModel, createTranslationHandler, createTranslator } from './translation.ts';
+import { ContentTranslationStore } from './content-translations.ts';
+import { collectContentDocuments, readContentMetadata } from './content-translation-sources.ts';
+import { contentTranslationConfig } from './content-translation-config.ts';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -59,6 +62,19 @@ const DATA_DIR = process.env.DATA_DIR ?? path.join(ROOT, 'data');
 const sharedAssets = new SharedService(DATA_DIR);
 const systems = new SystemService(DATA_DIR, ROOT);
 for (const error of systems.startupErrors) console.error(error);
+const contentConfig = contentTranslationConfig(process.env, DEV);
+const contentMetadata = (() => {
+  try { return readContentMetadata(ROOT); }
+  catch { console.error('Content translation metadata is invalid; original text remains available.'); return { schema: 1 as const, glossary: {}, entries: {} }; }
+})();
+const contentTranslations = new ContentTranslationStore(path.join(DATA_DIR, 'content-translations'), contentConfig.translate, {
+  glossary: contentMetadata.glossary, profile: contentConfig.profile,
+});
+try {
+  void contentTranslations.register(collectContentDocuments(systems.catalog.current(), contentMetadata)).catch(() => {
+    console.error('Content translation registration failed; original text remains available.');
+  });
+} catch { console.error('Content translation registration failed; original text remains available.'); }
 const ICON_DIR = path.join(DATA_DIR, 'icons');
 const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
 const PROFILE_DIR = path.join(DATA_DIR, 'profiles');
@@ -1631,6 +1647,13 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   // 絶対形式の壊れたリクエストターゲット（例: http://[::1）でも new URL が例外になるため、ここで 400 にする
   let url: URL;
   try { url = new URL(req.url ?? '/', 'http://x'); } catch { res.statusCode = 400; res.end('bad path'); return; }
+  if (url.pathname === '/api/content-translations') {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    if (req.method !== 'GET' && req.method !== 'HEAD') { res.statusCode = 405; res.setHeader('Allow', 'GET, HEAD'); res.end('{}'); return; }
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify(contentTranslations.catalog()));
+    return;
+  }
   if (sharedAssets.http(req, res, url.pathname)) return;
   if (systems.http(req, res, url.pathname)) return;
   if (url.pathname === '/api/translate') { await handleTranslation(req, res); return; }

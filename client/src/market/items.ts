@@ -1,6 +1,5 @@
-import { ITEM_INFO } from '../i18n/static.ts';
+import { ITEM_INFO, MARKET_PRODUCTS } from '../i18n/static.ts';
 import { type ItemInfo, type ItemKind } from '../../../shared/items.ts';
-import { MARKET_PRODUCTS } from '../../../shared/market.ts';
 import { useOwnedContent } from './store.ts';
 
 export interface OwnedItem { id: string; kind: ItemKind; info: ItemInfo; creator: string; productId?: string; text?: string }

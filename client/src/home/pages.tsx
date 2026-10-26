@@ -4,7 +4,9 @@ import { ItemArt, ItemVisual } from '../market/ItemVisual.tsx';
 import { ITEM_USAGE } from '../market/itemUsage.ts';
 import { GroupAvatar } from './GroupAvatar.tsx';
 import { useOwnedItems, type OwnedItem } from '../market/items.ts';
-import { MARKET_PRODUCTS, contentAvailable, productFor } from '../../../shared/market.ts';
+import { contentAvailable, productFor } from '../../../shared/market.ts';
+import { MARKET_PRODUCTS } from '../i18n/static.ts';
+import { contentFieldEntries, contentText } from '../content-translations.ts';
 import { useOwnedContent } from '../market/store.ts';
 import { OriginBadge } from '../market/OriginBadge.tsx';
 import { useEffect, useRef, useState } from 'react';
@@ -425,6 +427,7 @@ export function WorldsPage({ q, onSelected }: { q: string; onSelected?: () => vo
               <div className="wface" style={{ background: WORLD_FACE[k] }}><Icon name="globe" size={28} />{now && <span className="hhere"><i />{tr("ui306")}</span>}</div>
               <h3>{WORLDS[k].name}</h3><OriginBadge productId={productFor('worlds', k)?.id} />
               <p className="sub wrap">{WORLDS[k].desc}</p>
+              {!!contentFieldEntries(`world/${k}`, 'instructions.').length && <details><summary>{tr('ui372')}</summary><ul>{contentFieldEntries(`world/${k}`, 'instructions.').map(([id, text]) => <li key={id} style={{ whiteSpace: 'pre-wrap' }}>{text}</li>)}</ul></details>}
               <span className="sub">{tr("ui307")}{n} {tr("ui196")}</span>
               {session && <button className="primary" disabled={now || pending} onClick={() => pick(k)}>{now ? tr("ui306") : tr("ui308")}</button>}
               {!onSelected && <button className={session ? '' : 'dark'} onClick={() => setCreate(k)}><Icon name="plus" size={14} />{tr("ui309")}</button>}
@@ -461,7 +464,7 @@ export function ItemsPage({ q }: { q: string }) {
       headingRef={heading} onBack={() => setSelectedId(null)}
       visual={<ItemVisual kind={selected.kind} product={MARKET_PRODUCTS.find((p) => p.id === selected.productId)} />}
       tags={<>{selected.info.in2d && <span>{tr("ui311")}</span>}{selected.info.in3d && <span>{tr("ui312")}</span>}</>}
-      usage={selected.kind === 'bike' ? selected.info.desc : selected.productId ? tr("ui313") : ITEM_USAGE[selected.kind]}>
+      usage={<span style={{ whiteSpace: 'pre-wrap' }}>{selected.productId && selected.text ? contentText(`product/${selected.productId}`, 'text', selected.text) : selected.kind === 'bike' ? selected.info.desc : selected.productId ? tr("ui313") : ITEM_USAGE[selected.kind]}</span>}>
       {spawnButton(selected)}
     </ItemDetail> : <>
       <h2>{tr("ui154")}<span className="sub">{session ? tr("ui314") : tr("ui315")}</span></h2>
