@@ -10,7 +10,7 @@ test('removed developer pages and malformed saved navigation fall back to the no
 });
 
 test('ordinary pages remain available and saved group details reopen their existing list', () => {
-  for (const page of ['home', 'friends', 'sessions', 'events', 'groups', 'worlds', 'items', 'market', 'changelog', 'sounds', 'emotes']) {
+  for (const page of ['home', 'timeline', 'friends', 'sessions', 'events', 'groups', 'worlds', 'items', 'market', 'changelog', 'sounds', 'emotes']) {
     assert.equal(homePageOf(page), page);
     assert.equal(storedHomePageOf(page), page);
   }

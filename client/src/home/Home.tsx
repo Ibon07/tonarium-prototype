@@ -16,7 +16,7 @@ import { joinSession } from '../actions.ts';
 import { spawnItem } from '../items/actions.ts';
 import { sortForHome } from '../../../shared/home.ts';
 import { type EventDef } from '../../../shared/protocol.ts';
-import { friendAccept, leaveSession, markNoticesRead, openDm, openGroup, removeNotice, switchMode } from '../actions.ts';
+import { followUser, leaveSession, markNoticesRead, openDm, openGroup, removeNotice, switchMode } from '../actions.ts';
 import { ProfileDialog } from '../Profile.tsx';
 import { Face } from '../world/common.tsx';
 import { Icon, type IconName } from '../world/Icon.tsx';
@@ -27,16 +27,18 @@ import { ChangelogPage, EventsPage, FriendTile, FriendsPage, GroupsPage, ItemsPa
 import { GroupActions, GroupPage, GroupTitle } from './GroupPage.tsx';
 import { GroupAvatar } from './GroupAvatar.tsx';
 import { StatusDialog, StatusDot, StatusText, useStatusOf } from './status.tsx';
-import { Chip, Empty, EventAnswer, EventHost, NameFace, WEEKDAYS, dateKey, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
+import { Chip, Empty, EventAnswer, EventHost, NameFace, WEEKDAYS, dateKey, match, timeLabel, useMyGroups, useOnlineFriends } from './common.tsx';
 import { touchOnly, usePhone } from '../phone.ts';
 import { FEEDBACK_URL } from '../feedback.ts';
 import { CHANGELOG } from '../i18n/static.ts';
 import { useChangelog } from './changelog.ts';
 import { XRLaunch } from '../xr/XRControls.tsx';
 import { homePageOf } from '../homePage.ts';
+import { TimelinePage, TimelinePhoneSheet, TimelineSide, TimelineTabs } from './Timeline.tsx';
 
 const NAV: { page: HomePage; name: string; icon: IconName }[] = localized([
   { page: 'home', name: uiSource('ui152'), icon: 'home' },
+  { page: 'timeline', name: uiSource('tlTitle'), icon: 'timeline' },
   { page: 'friends', name: uiSource('ui153'), icon: 'people' },
   { page: 'sessions', name: uiSource('ui119'), icon: 'headset' },
   { page: 'events', name: uiSource('ui131'), icon: 'calendar' },
@@ -162,15 +164,16 @@ export function Sidebar({ inSession, onPick }: { inSession?: boolean; onPick?: (
 
 function NoticeItem({ n }: { n: Notice }) {
   const target = useStore((s) => inviteTarget(s, n));
+  const followingBack = useStore((s) => s.following.includes(n.fromName));
   const isGroup = n.key?.startsWith('group:');
   return (
     <div className="hnotice">
       <Face id={n.from} name={n.fromName} size={28} />
       <span className="ntext">
-        <span><b>{n.fromName}</b>{n.kind === 'friend' ? tr("ui175") : n.kind === 'online' ? tr("ui176") : tr("ui177", target ? `「${target.name}」` : tr("ui178"))}</span>
+        <span><b>{n.fromName}</b>{n.kind === 'follow' ? tr('followNotice') : n.kind === 'online' ? tr("ui176") : tr("ui177", target ? `「${target.name}」` : tr("ui178"))}</span>
         <span className="sub">{timeLabel(n.at)}</span>
       </span>
-      {n.kind === 'friend' && <button className="primary" onClick={() => friendAccept(n.from, n.id)}>{tr("ui179")}</button>}
+      {n.kind === 'follow' && !followingBack && <button className="primary" onClick={() => { followUser(n.fromName, true); removeNotice(n.id); }}>{tr('followBack')}</button>}
       {n.kind === 'invite' && <button className="primary" disabled={!target} onClick={() => acceptInvite(n)}>{isGroup ? tr("ui146") : tr("ui180")}</button>}
       {n.kind === 'online' && <button className="primary" onClick={() => { openDm(n.fromName); removeNotice(n.id); }}>{tr("ui181")}</button>}
       <button className="ib" aria-label={tr("ui182")} onClick={() => removeNotice(n.id)}><Icon name="close" size={14} /></button>
@@ -179,7 +182,7 @@ function NoticeItem({ n }: { n: Notice }) {
 }
 
 function Bell() {
-  const notices = useStore((s) => s.notices).filter((n) => n.kind === 'friend' || n.kind === 'invite' || n.kind === 'online');
+  const notices = useStore((s) => s.notices).filter((n) => n.kind === 'follow' || n.kind === 'invite' || n.kind === 'online');
   const unread = notices.some((n) => n.unread);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -356,8 +359,6 @@ function SideArea() {
   );
 }
 
-const match = (q: string, ...texts: (string | undefined)[]) => !q || texts.some((t) => t?.toLowerCase().includes(q.toLowerCase()));
-
 /** ホームの 1 段だけのセクション。続きはタイトルの横の「もっと見る」から各ページへ */
 function RowSection({ title, sub, onMore, empty, children }: { title: string; sub?: string; onMore: () => void; empty?: string; children: React.ReactNode[] }) {
   // empty が無いセクションは、出すものが無ければセクションごと出さない
@@ -476,6 +477,7 @@ function HomePageView({ q }: { q: string }) {
 /** sheet はセッション中に重ねて開く形（SessionMenu） */
 export function Home({ sheet }: { sheet?: boolean }) {
   const page = useStore((s) => homePageOf(s.homePage));
+  const timelineSide = useStore((s) => s.timelineSide);
   const wsConnected = useStore((s) => s.wsConnected);
   const [q, setQ] = useUpdateDraft('search.home', '');
   const previousPage = useRef(page);
@@ -491,14 +493,16 @@ export function Home({ sheet }: { sheet?: boolean }) {
       <main className="hmain">
         <header className="hhead">
           {page === 'group' ? <GroupTitle /> : title && <h1>{title}</h1>}
+          {page === 'timeline' && <TimelineTabs />}
           {!wsConnected && <span className="reconn">{tr("ui226")}</span>}
           <span className="spacer" />
-          {page !== 'group' && <label className="hsearch"><Icon name="search" size={16} /><input value={q} aria-label={page === 'changelog' ? tr("ui227") : page === 'market' ? tr("ui228") : tr("ui229")} placeholder={page === 'changelog' ? tr("ui230") : page === 'market' ? tr("ui228") : tr("ui231")} onChange={(e) => setQ(e.target.value)} /></label>}
+          {page !== 'group' && <label className="hsearch"><Icon name="search" size={16} /><input value={q} aria-label={page === 'changelog' ? tr("ui227") : page === 'market' ? tr("ui228") : page === 'timeline' ? tr('tlSearch') : tr("ui229")} placeholder={page === 'changelog' ? tr("ui230") : page === 'market' ? tr("ui228") : page === 'timeline' ? tr('tlSearch') : tr("ui231")} onChange={(e) => setQ(e.target.value)} /></label>}
           <Bell />
           {page === 'group' ? <GroupActions /> : <button className="dark hcreate" onClick={() => setCreate(true)}><Icon name="plus" size={16} />{tr("ui101")}</button>}
         </header>
         <div className="hcontent" key={page} tabIndex={sheet ? 0 : undefined}>
           {page === 'home' && <HomePageView q={q} />}
+          {page === 'timeline' && <TimelinePage q={q} />}
           {page === 'friends' && <FriendsPage q={q} />}
           {page === 'sessions' && <SessionsPage q={q} />}
           {page === 'events' && <EventsPage q={q} />}
@@ -512,7 +516,10 @@ export function Home({ sheet }: { sheet?: boolean }) {
         </div>
       </main>
       {/* グループの画面は自分の右の列を持っているので出さない */}
-      {page !== 'group' && page !== 'market' && <SideArea />}
+      {page === 'timeline' && timelineSide
+        ? <aside className="hevents tlaside" aria-label={tr('tlSideLabel')}><TimelineSide /></aside>
+        : page !== 'group' && page !== 'market' && <SideArea />}
+      {page === 'timeline' && <TimelinePhoneSheet />}
       {create && <CreateSessionDialog onClose={() => setCreate(false)} />}
     </div>
   );

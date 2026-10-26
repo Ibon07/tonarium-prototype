@@ -1,4 +1,4 @@
-const pages = ['home', 'friends', 'sessions', 'events', 'groups', 'group', 'worlds', 'items', 'market', 'changelog', 'sounds', 'emotes'] as const;
+const pages = ['home', 'timeline', 'friends', 'sessions', 'events', 'groups', 'group', 'worlds', 'items', 'market', 'changelog', 'sounds', 'emotes'] as const;
 export type HomePage = typeof pages[number];
 
 export function homePageOf(value: unknown): HomePage {
