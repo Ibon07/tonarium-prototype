@@ -1290,6 +1290,7 @@ export default {
   "ui1242": "{0} placed {1}",
   "ui1243": "{0} put away {1}",
   "ui1244": "{0} hit {1} with a toy hammer",
+  "hammerHitCount": "{0} hit {1} with a toy hammer {2} time(s)",
   "ui1245": "{0} switched to {1}",
   "ui1246": "{0} started following {1}",
   "ui1247": "{0} released their followers",

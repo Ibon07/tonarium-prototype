@@ -203,7 +203,9 @@ export function onMessage(msg: ServerMsg) {
       set((s) => ({
         ...(msg.sid === s.session && msg.m.from && msg.m.from !== s.selfId && !s.blocked.includes(msg.m.fromName)
           && !(s.chats[msg.sid] ?? []).some((m) => m.id === msg.m.id) ? arrivalPatch('chat', s) : {}),
-        chats: { ...s.chats, [msg.sid]: [...(s.chats[msg.sid] ?? []), msg.m].slice(-500) },
+        chats: { ...s.chats, [msg.sid]: (s.chats[msg.sid] ?? []).some((m) => m.id === msg.m.id)
+          ? s.chats[msg.sid].map((m) => m.id === msg.m.id ? msg.m : m)
+          : [...(s.chats[msg.sid] ?? []), msg.m].slice(-500) },
       }));
       return;
     case 'avatar':

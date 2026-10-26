@@ -35,6 +35,21 @@ beforeEach(() => {
 });
 
 const systemView = revision => ({ revision, map: { schema: 1, id: 'test-map', objects: [], systems: [], connections: [] }, systems: [], objects: {}, seats: {}, diagnostics: [], traces: [] });
+test('hammer chat updates replace the same row and new IDs append separately', () => {
+  const first = { id: 'hit-1', from: null, text: 'A がピコピコハンマーで B を1回叩きました', at: 1000 };
+  Object.assign(state, { chats: {}, selfId: 'self', blocked: [] });
+  onMessage({ t: 'chat', sid: 'existing', m: first });
+  onMessage({ t: 'chat', sid: 'existing', m: { id: 'other', from: null, text: '別のログ', at: 2000 } });
+  const updated = { ...first, text: 'A がピコピコハンマーで B を2回叩きました', hammer: { from: 'a', to: 'b', count: 2, lastHitAt: 3000 } };
+  onMessage({ t: 'chat', sid: 'existing', m: updated });
+  assert.equal(state.chats.existing.length, 2);
+  assert.deepEqual(state.chats.existing[0], updated);
+  onMessage({ t: 'chat', sid: 'existing', m: { ...first, id: 'hit-2', at: 14000 } });
+  assert.equal(state.chats.existing.length, 3);
+  onMessage({ t: 'chat', sid: 'another', m: first });
+  assert.equal(state.chats.another.length, 1);
+  assert.equal(state.chats.existing.length, 3);
+});
 test('system results reach their queue even when the attached view is older, while other rooms are ignored', () => {
   const fresh = systemView(9), stale = systemView(8), result = { id: 'input-test', outcome: 'rejected' };
   onMessage({ t: 'systemState', sid: 'existing', view: fresh });

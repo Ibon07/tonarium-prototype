@@ -211,6 +211,7 @@ export interface ChatMessage {
   about?: string;
   /** サイコロの結果。シークレットのとき本人以外には results が null */
   dice?: DiceRoll;
+  hammer?: { from: string; to: string; count: number; lastHitAt: number };
 }
 
 export interface ChatMedia { kind: 'image' | 'video'; url: string; w: number; h: number }

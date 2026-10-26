@@ -28,6 +28,7 @@ import { VOICE_RANGE, clampAvatar, computePlaces, placeDistance } from '../share
 import { CITY_HALF, clampCity } from '../shared/city.ts';
 import { callElevator, elevatorOf, resetElevator } from './city.ts';
 import { isStaleEvent, pruneEvents } from './events.ts';
+import { logHammerHit } from './hammer.ts';
 import { MarketLikes } from './market.ts';
 import { BIKE, clampBike, releaseBike } from '../shared/vehicle.ts';
 import { SOUNDS } from '../shared/sounds.ts';
@@ -1308,7 +1309,8 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
       const target = users.get(msg.to);
       if (!holding || !target || target.session !== sid || target.id === me.id) return;
       roomSend(sid, { t: 'hit', sid, from: me.id, to: target.id });
-      event(sid, `${me.name} がピコピコハンマーで ${target.name} を叩きました`, target.id);
+      const list = chats.get(sid);
+      if (list) roomSend(sid, { t: 'chat', sid, m: logHammerHit(list, me, target, Date.now()) });
       return;
     }
     case 'mode': {
