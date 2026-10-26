@@ -69,7 +69,7 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 - 기존 카메라 하나에 5초 타이머·초 표시·효과음·삭제를 연결하는 예제 → [카메라 촬영 시험](docs/shared-systems/camera-timer-test.md)
 
 - 共有アセット・非空間システムの提出契約、原本保全、配置編集と実装途中の範囲 → [docs/shared-assets.md](docs/shared-assets.md)・[検証記録](docs/shared-assets-verification.md)
-- 単体ブラウザのWebXR初期実装（VR操作・仮想端末・対応表・検証範囲）→ [docs/webxr.md](docs/webxr.md)。Quest 3／Steam Frame実機は未検証、Electron版はVR非対応
+- 単体ブラウザのWebXR初期実装（VR操作・仮想端末・対応表・検証範囲）→ [docs/webxr.md](docs/webxr.md)。座標変換・吹き出し全種別・今回の修正と確認手順は [docs/webxr-coordinates.md](docs/webxr-coordinates.md)。Quest 3／Steam Frame実機は未検証、Electron版はVR非対応
 - 日本語・英語・韓国語の表示切り替え（端末保存・ブラウザ言語判定）→ [docs/languages.md](docs/languages.md)
 - チャットの自動翻訳・小さな原文と発言言語の表示（サーバーのOpenAI連携・ローカルモック）→ [docs/chat-translation.md](docs/chat-translation.md)
 - 아이템·월드·공유 시스템의 등록 시 자동 번역과 수동 교정 → [원문·번역 저장 및 등록 안내](docs/content-translations.md)

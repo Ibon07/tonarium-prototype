@@ -29,7 +29,7 @@ export class PanelSurfaces {
   }
   private place(panel: Panel) {
     const head = xr.renderer!.xr.getCamera();
-    head.getWorldPosition(panel.group.position);
+    panel.group.position.setFromMatrixPosition(head.matrixWorld);
     uprightQuaternion(head, panel.group.quaternion);
     const count = [...this.panels.values()].filter(p => p.shown && !p.utility).length;
     const places: Record<string, [number, number, number]> = {
@@ -80,6 +80,7 @@ export class PanelSurfaces {
   }
   hit(ray: THREE.Raycaster) {
     const candidates = [...this.panels.values()].filter(p => p.group.visible && p.surface.mesh);
+    for (const panel of candidates) panel.group.updateWorldMatrix(true, true);
     const hit = ray.intersectObjects(candidates.map(p => p.surface.mesh!), false)[0];
     const panel = hit && candidates.find(p => p.surface.mesh === hit.object);
     return panel && hit.uv ? { panel, hit } : null;
