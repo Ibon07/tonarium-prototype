@@ -237,7 +237,13 @@ export function Player({ rig }: { rig: PlayerCamera }) {
         const b = body.current;
         if (get().movementMode === 'walk' && pressJump(b, get().doubleJump, freshPress) === 'extra') syncAirHeight.current = true;
       }
-      if (e.code === 'KeyQ') { dropHammer(); dropCamera(look.current.pitch); }
+      if (e.code === 'KeyQ') {
+        // 手持ち解除でモデルが消える前に、親の変換を含めた高さを確定する。
+        const cameraY = cameraRef.current?.getWorldPosition(new THREE.Vector3()).y;
+        dropHammer();
+        dropCamera(look.current.pitch, cameraY,
+          (x, z) => groundAt(get(), x, z, body.current.y)?.y ?? 0);
+      }
       const aimedCam = () => {
         const id = aim.current?.data.carry;
         const it = id ? get().items[id] : undefined;
