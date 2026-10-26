@@ -5,17 +5,27 @@ import os from 'node:os';
 import path from 'node:path';
 import type { SystemCommand } from '../shared/system-types.ts';
 import { createSystemPlaytestServer } from './system-playtest.ts';
+import { ITEM_INFO } from '../shared/items.ts';
+import type { ContentMetadata } from '../server/content-translation-sources.ts';
+import { setTimeout as pause } from 'node:timers/promises';
 
-async function local(t: { after(fn: () => unknown): void }) {
+async function local(t: { after(fn: () => unknown): void }, metadata?: ContentMetadata) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tonarium-local-systems-'));
-  const app = createSystemPlaytestServer({ directory, tickMs: 0 });
+  let source: string | undefined;
+  if (metadata) {
+    source = path.join(directory, 'source');
+    fs.mkdirSync(path.join(source, 'content-locales'), { recursive: true });
+    fs.cpSync(new URL('../shared-systems/', import.meta.url), path.join(source, 'shared-systems'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'content-locales', 'metadata.json'), JSON.stringify(metadata));
+  }
+  const app = createSystemPlaytestServer({ directory, source, tickMs: 0 });
   await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve));
   t.after(async () => { await app.close(); fs.rmSync(directory, { recursive: true, force: true }); });
   const address = app.server.address(); assert.ok(address && typeof address !== 'string');
   const base = `http://127.0.0.1:${address.port}`;
   const post = (endpoint: string, value: unknown, token?: string) => fetch(base + endpoint, { method: 'POST', headers: { Origin: base, 'Content-Type': 'application/json', ...(token ? { 'x-system-playtest-token': token } : {}) }, body: JSON.stringify(value) });
   const join = async (slot: string) => { const response = await post('/api/system-playtest/join', { slot }); assert.equal(response.status, 200); return response.json(); };
-  return { app, base, post, join };
+  return { app, base, post, join, directory };
 }
 
 test('local adapter executes real composed systems for two independent browser slots without external services', async t => {
@@ -82,4 +92,40 @@ test('local adapter keeps a seat while another tab for the same slot remains con
   assert.equal(app.service.view('system-playtest').seats['chair-object'], 'alice');
   await post('/api/system-playtest/leave', {}, second.token);
   assert.equal(app.service.view('system-playtest').seats['chair-object'], undefined);
+});
+
+test('local adapter serves saved metadata and sidecar documentation with mock translation only', async t => {
+  const settings = ['CONTENT_TRANSLATION_PROVIDER', 'CHAT_TRANSLATION_PROVIDER'] as const;
+  const previous = settings.map(key => process.env[key]);
+  for (const key of settings) process.env[key] = 'openai';
+  t.after(() => settings.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; }));
+  const request = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', ((url, init) => {
+    const address = new URL(typeof url === 'string' || url instanceof URL ? url : url.url);
+    assert.equal(address.hostname, '127.0.0.1', 'standalone translation must never call an external provider');
+    return request(url, init);
+  }) satisfies typeof fetch);
+  const metadata: ContentMetadata = { schema: 1, glossary: {}, entries: {
+    'item/note': { sourceLanguage: 'ja', fields: { name: { source: ITEM_INFO.note.name, translations: { ko: '로컬 메모' } } } },
+    'world/cafe': { fields: { 'instructions.welcome': { source: 'Hello' } } },
+    'system/timer/1.0.1': { fields: {
+      usage: { source: 'Press start to begin.' },
+      'config.duration.label': { source: 'Duration', translations: { ko: '설정 시간' } },
+    } },
+  } };
+  const { base, directory } = await local(t, metadata);
+  let response = await fetch(`${base}/api/content-translations`);
+  assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
+  let catalog = await response.json();
+  for (let attempt = 0; catalog.pending && attempt < 100; attempt++) { await pause(1); response = await fetch(`${base}/api/content-translations`); catalog = await response.json(); }
+  assert.equal(catalog.schema, 1); assert.equal(catalog.pending, false); assert.match(catalog.revision, /^[a-f0-9]{64}$/);
+  assert.equal(catalog.entries['item/note'].fields.name.translations.ko, '로컬 메모');
+  assert.equal(catalog.entries['world/cafe'].fields['instructions.welcome'].translations.ko, '안녕하세요');
+  assert.equal(catalog.entries['system/timer/1.0.1'].fields.usage.translations.ko, '[ko mock] Press start to begin.');
+  assert.equal(catalog.entries['system/timer/1.0.1'].fields['config.duration.label'].translations.ko, '설정 시간');
+  assert.ok(fs.readdirSync(path.join(directory, 'content-translations')).some(file => file.endsWith('.json')));
+  const head = await fetch(`${base}/api/content-translations`, { method: 'HEAD' });
+  assert.equal(head.status, 200); assert.equal(head.headers.get('cache-control'), 'no-store'); assert.equal(await head.text(), '');
+  const write = await fetch(`${base}/api/content-translations`, { method: 'POST', body: '{}' });
+  assert.equal(write.status, 405); assert.equal(write.headers.get('allow'), 'GET, HEAD');
 });

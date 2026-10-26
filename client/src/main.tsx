@@ -3,6 +3,10 @@ import { lazy, Suspense } from 'react';
 import { t, useLanguage } from './i18n/index.ts';
 import { App } from './App.tsx';
 import './style.css';
+import { startContentTranslations } from './content-translations.ts';
+
+const stopContentTranslations = startContentTranslations();
+if (import.meta.hot) import.meta.hot.dispose(stopContentTranslations);
 
 const localPlaytest = import.meta.env.DEV && import.meta.env.VITE_SYSTEM_PLAYTEST === '1';
 const systemLibrary = new URLSearchParams(location.search).get('systemLibrary') === '1';

@@ -10,6 +10,9 @@ import { reconcileSystemItems } from '../server/system-items.ts';
 import { atomicJSON } from '../server/shared-catalog.ts';
 import type { Item } from '../shared/items.ts';
 import type { SystemCommand } from '../shared/system-types.ts';
+import { ContentTranslationStore } from '../server/content-translations.ts';
+import { collectContentDocuments, readContentMetadata } from '../server/content-translation-sources.ts';
+import { createTranslator, mockTranslationModel } from '../server/translation.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SID = 'system-playtest';
@@ -22,6 +25,17 @@ export function createSystemPlaytestServer(options: PlaytestOptions) {
   if (process.env.NODE_ENV === 'production') throw new Error('System playtest is local development only');
   const service = new SystemService(options.directory, options.source ?? ROOT);
   if (service.startupErrors.length) throw new Error(service.startupErrors.join('; '));
+  const metadata = (() => {
+    try { return readContentMetadata(options.source ?? ROOT); }
+    catch { console.error('Local content translation metadata is invalid; original text remains available.'); return { schema: 1 as const, glossary: {}, entries: {} }; }
+  })();
+  const contentTranslations = new ContentTranslationStore(path.join(options.directory, 'content-translations'), createTranslator(mockTranslationModel), { glossary: metadata.glossary, profile: 'system-playtest:mock:1' });
+  let translationReady = Promise.resolve();
+  try {
+    translationReady = contentTranslations.register(collectContentDocuments(service.catalog.current(), metadata)).catch(() => {
+      console.error('Local content translation registration failed; original text remains available.');
+    });
+  } catch { console.error('Local content translation registration failed; original text remains available.'); }
   service.load(SID, 'alice', systemDemoMap, ['alice']);
   const itemFile = path.join(options.directory, 'system-playtest-items.json');
   let mapItems = new Map<string, Item>((fs.existsSync(itemFile) ? JSON.parse(fs.readFileSync(itemFile, 'utf8')) as Item[] : []).map(item => [item.id, item]));
@@ -51,6 +65,10 @@ export function createSystemPlaytestServer(options: PlaytestOptions) {
       if (!['127.0.0.1', 'localhost', '[::1]'].includes(host.hostname)) throw new RequestError('Loopback host required', 403);
       if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '')) throw new RequestError('Loopback connection required', 403);
       const pathname = new URL(req.url ?? '/', 'http://local').pathname;
+      if (pathname === '/api/content-translations') {
+        if (req.method !== 'GET' && req.method !== 'HEAD') { res.setHeader('Allow', 'GET, HEAD'); json(res, 405, { error: 'GET or HEAD required' }); return; }
+        json(res, 200, req.method === 'HEAD' ? undefined : contentTranslations.catalog()); return;
+      }
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         let origin: URL;
         try { origin = new URL(req.headers.origin ?? ''); } catch { throw new RequestError('Local origin required', 403); }
@@ -107,6 +125,7 @@ export function createSystemPlaytestServer(options: PlaytestOptions) {
     server, service, tick,
     async close() {
       if (interval) clearInterval(interval);
+      await translationReady;
       for (const actor of participants()) service.leave(SID, actor);
       service.dispose(); sessions.clear();
       await new Promise<void>((resolve, reject) => { server.close(error => error ? reject(error) : resolve()); server.closeAllConnections(); });
