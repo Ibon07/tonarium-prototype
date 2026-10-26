@@ -8,6 +8,9 @@ import { ARENA, FALL_Y, LAYER_Y, TILE_COUNT, TILE, inArena, startTile, tileBelow
 import { SURVIVOR_MOVE_SPEED } from '../../../shared/survivor.ts';
 import { SURVIVOR_STYLES } from '../i18n/static.ts';
 import { get, set, useStore, heldHammer, heldCamera, nameOf, solidsOf, worldKindOf, gameOfSession, elevatorOfSession, serverNow, spawnPoint } from '../store.ts';
+import { useSharedAssets } from '../shared-assets/state.ts';
+import { sharedSolids } from '../../../shared/shared-presentation.ts';
+import type { AssetView, Catalog } from '../../../shared/shared-assets.ts';
 import { CAR, CITY_HALF, CITY_SURFACES, SHAFT_RECT, clampCity, elevatorY, type Surface } from '../../../shared/city.ts';
 import { STEP_UP, carPose, cityGround, citySolids, keepInCar, toCarLocal } from './cityPhysics.ts';
 import { pushOut, type Solid } from '../../../shared/worlds.ts';
@@ -108,13 +111,14 @@ export function Player({ rig }: { rig: PlayerCamera }) {
   const cameraRef = useRef<THREE.Group>(null);
   const dragging = useRef<{ data: Interactable; obj: THREE.Object3D; hit: THREE.Intersection | null } | null>(null);
   // 毎フレームの当たり判定用配列の再利用 (#205)。材料が変わらない間は前フレームの配列・面オブジェクトをそのまま使う。
-  // 材料は items の参照＋運搬中の id（台）、元配列と台の組（solids）、かごの高さ（街の面）、板の消え具合（ゲームの面）で全て決まる。
+  // 共有配置はセッションで絞った view と catalog の参照が変わったときに再計算する。
   const collCache = useRef<{
     padsItems: Store['items'] | null; padsCarrying: string | undefined; pads: JumpPad[]; padSolids: Solid[];
+    sharedView?: AssetView; sharedCatalog?: Catalog; sharedSolids: Solid[];
     solidsBase: Solid[] | null; solidsPads: Solid[] | null; solids: Solid[];
     cityY: number | null; citySurfaces: Surface[];
     goneFlags: Uint8Array; goneScratch: Uint8Array; tileSurfaces: Surface[] | null;
-  }>({ padsItems: null, padsCarrying: undefined, pads: [], padSolids: [], solidsBase: null, solidsPads: null, solids: [], cityY: null, citySurfaces: [], goneFlags: new Uint8Array(TILE_COUNT), goneScratch: new Uint8Array(TILE_COUNT), tileSurfaces: null });
+  }>({ padsItems: null, padsCarrying: undefined, pads: [], padSolids: [], sharedSolids: [], solidsBase: null, solidsPads: null, solids: [], cityY: null, citySurfaces: [], goneFlags: new Uint8Array(TILE_COUNT), goneScratch: new Uint8Array(TILE_COUNT), tileSurfaces: null });
 
   useEffect(() => {
     if (survivorActive && document.pointerLockElement === gl.domElement) document.exitPointerLock();
@@ -352,11 +356,19 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     }
     const pads = cc.pads;
     const padSolids = cc.padSolids;
+    const shared = useSharedAssets.getState();
+    const sharedView = shared.sid === s.session ? shared.view : undefined;
+    if (cc.sharedView !== sharedView || cc.sharedCatalog !== shared.catalog) {
+      cc.sharedView = sharedView;
+      cc.sharedCatalog = shared.catalog;
+      cc.sharedSolids = sharedSolids(sharedView, shared.catalog);
+      cc.solidsBase = null;
+    }
     const solidsWithPads = (base: Solid[]): Solid[] => {
       if (cc.solidsBase !== base || cc.solidsPads !== padSolids) {
         cc.solidsBase = base;
         cc.solidsPads = padSolids;
-        cc.solids = [...base, ...padSolids];
+        cc.solids = [...base, ...padSolids, ...cc.sharedSolids];
       }
       return cc.solids;
     };

@@ -1,5 +1,8 @@
 import { arrivalPatch } from '../newArrival.ts';
 import { sourceText as uiSource } from '../i18n/core.ts';
+import { receiveShared } from '../shared-assets/state.ts';
+import { useSharedAssets } from '../shared-assets/state.ts';
+import { applyAssetDelta } from '../../../shared/shared-sync.ts';
 import { COMPAT_VERSION, isRoomClientMsg, type ClientMsg, type ServerMsg, type SessionInfo, type SessionSnapshot } from '../../../shared/protocol.ts';
 import type { SurvivorState } from '../../../shared/survivor.ts';
 import { applyAvatars } from '../sessionView.ts';
@@ -115,6 +118,7 @@ function playSurvivorTransitions(sid: string, next: SurvivorState) {
 export function applySessionSnapshot(snap: SessionSnapshot) {
   const sid = snap.sid;
   if (sid !== get().session) return;
+  if (snap.sharedAssets) receiveShared(sid, snap.sharedAssets, undefined, true);
   const previousSelf = get().survivors[sid]?.players[get().selfId];
   const nextSelf = snap.survivor?.players[get().selfId];
   if (nextSelf?.alive && nextSelf.choiceQueue.length > 0 && !(previousSelf?.choiceQueue.length ?? 0)) playSurvivorSound('choice');
@@ -135,6 +139,17 @@ export function applySessionSnapshot(snap: SessionSnapshot) {
 
 export function onMessage(msg: ServerMsg) {
   switch (msg.t) {
+    case 'sharedDelta': {
+      if (msg.sid !== get().session) return;
+      const current = useSharedAssets.getState();
+      const result = applyAssetDelta(current.sid === msg.sid ? current.view : undefined, msg.delta);
+      if (result === 'resync') send({ t: 'sharedResync' });
+      else if (result !== 'stale') receiveShared(msg.sid, result);
+      return;
+    }
+    case 'sharedState':
+      if (msg.sid === get().session) receiveShared(msg.sid, msg.view, msg.error);
+      return;
     case 'sessionCreated':
     case 'sessionResult': {
       const request = msg.requestId ? sessionRequests.get(msg.requestId) : undefined;
