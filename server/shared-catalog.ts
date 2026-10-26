@@ -40,6 +40,7 @@ export function validateSubmission(root: string, commit: string, previous?: Cata
     check(files.every(f => claimed.has(f)), 'unlisted file');
   }
   const byKey = new Map(entries.map(e => [refKey(e), e]));
+  if (previous) for (const old of previous.entries) check(byKey.get(refKey(old))?.integrity === old.integrity, 'published asset immutable');
   const visited = new Set<string>(), visiting = new Set<string>();
   function visit(e: CatalogEntry) {
     const key = refKey(e); check(!visiting.has(key), 'dependency cycle'); if (visited.has(key)) return; visiting.add(key);
@@ -55,7 +56,6 @@ export function validateSubmission(root: string, commit: string, previous?: Cata
   }
   check(maps.length <= 1024, 'maps limit');
   if (previous) {
-    for (const old of previous.entries) check(byKey.get(refKey(old))?.integrity === old.integrity, 'published asset immutable');
     for (const old of previous.maps) { const file = `${old.id}/${old.revision}.json`; check(mapIntegrity[file] === previous.mapIntegrity[file], 'published map immutable'); }
   }
   return { catalog: { schema: 2, commit, entries, maps, mapIntegrity }, objects };

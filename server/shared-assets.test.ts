@@ -73,10 +73,11 @@ test('manifest contracts reject code, URI, SDK, invalid ranges and incompatible 
 test('CI rejects immutable modifications/deletions, unlisted files, unresolved LFS and symlinks', t => {
   const directory = temp(t); const release = bundle();
   for (const folder of ['shared-assets', 'shared-maps']) fs.cpSync(path.join(root, folder), path.join(directory, folder), { recursive: true });
+  assert.deepEqual(validateSubmission(directory, nextCommit, release.catalog).catalog.entries, release.catalog.entries);
   const file = path.join(directory, 'shared-assets/pulse-gate/1.0.0/manifest.json'); const original = fs.readFileSync(file);
-  fs.writeFileSync(file, original.toString() + '\n'); assert.throws(() => validateSubmission(directory, nextCommit, release.catalog), /immutable/); fs.writeFileSync(file, original);
+  fs.writeFileSync(file, original.toString() + '\n'); assert.throws(() => validateSubmission(directory, nextCommit, release.catalog), /immutable/); assert.throws(() => validateSubmission(directory, nextCommit), /asset unavailable/); fs.writeFileSync(file, original);
   fs.writeFileSync(file, 'version https://git-lfs.github.com/spec/v1\noid sha256:aaa\nsize 1\n'); assert.throws(() => validateSubmission(directory, commit), /LFS/); fs.writeFileSync(file, original);
   const extra = path.join(directory, 'shared-assets/pulse-gate/1.0.0/extra.js'); fs.writeFileSync(extra, 'throw 1'); assert.throws(() => validateSubmission(directory, commit), /unlisted/); fs.unlinkSync(extra);
   if (process.platform !== 'win32') { fs.symlinkSync(file, extra); assert.throws(() => validateSubmission(directory, commit), /symlink/); fs.unlinkSync(extra); }
-  fs.unlinkSync(file); assert.throws(() => validateSubmission(directory, nextCommit, release.catalog));
+  fs.unlinkSync(file); assert.throws(() => validateSubmission(directory, nextCommit, release.catalog), /immutable/);
 });

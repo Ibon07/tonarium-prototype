@@ -24,9 +24,17 @@
 - 状態に対応する3Dプリミティブ用の衝突Solid生成を確認する。
 - 原文hash、原本永続化、release切替失敗、公開済み版の変更・削除、実ファイル未列挙、LFS pointer、Linux上のsymlinkを検査する。
 
-`client/src/shared-assets/loader.test.ts` にはhash cache、破損応答の再試行、古い応答の取消、部分失敗、返却bytesの外部変更、dispose後のcache消去を追加した。`npm run test:shared-assets` はNode 24の型変換機能だけで実行でき、追加パッケージは不要。
+`client/src/shared-assets/loader.test.ts` にはhash cache、破損応答の再試行、古い応答の取消、部分失敗、返却bytesの外部変更、dispose後のcache消去を追加した。`npm run test:shared-assets` は既存のTypeScriptテストと同じく、開発依存の `tsx --test` でサーバーとローダーのテストを実行する。Nodeの `--experimental-transform-types` は不要。
 
 ## この環境での実行結果
+
+### 2026-10-26 不変性検査の修正
+
+公開済みアセットの不変性検査を、依存関係とマップ参照の検査より前へ移した。manifestの改行変更や削除を、マップの `asset unavailable` ではなく `published asset immutable` として検出する。変更のない提出物は引き続き受理し、基準カタログを指定しない場合はマップの参照不一致を拒否する。
+
+Volta経由のnpm起動は権限エラーで失敗したが、利用可能なNode v24.19.0から既存のtsxを直接起動し、共有アセットの全10テストが成功した。Windowsのため、既存テストのsymlink作成を伴う検証は対象外。
+
+`npm run check:completion` も同じVolta権限エラーで起動できなかった。構成するチェックをNode実体から個別実行し、`scripts/check-changelog.mjs --base HEAD`、`tsc --noEmit -p tsconfig.json`、`vite build` は成功した。ビルドにはチャンクサイズの警告がある。`git diff --check` も成功した。必須のnpmコマンド自体は成功していないため、完了条件は未達。
 
 | 確認 | 結果 |
 | --- | --- |
