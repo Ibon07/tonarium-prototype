@@ -9,6 +9,7 @@ import { emotePose, type ActiveEmote } from '../../../shared/emotes.ts';
 import { get } from '../store.ts';
 import { useReducedMotion } from '../emotes.ts';
 import { applySeatedFoot, avatarHipHeight, seatedBodyOffset, stepSeatedWeight } from './seatedPose.ts';
+import { CROUCH_WEIGHT } from './crouch.ts';
 
 const MODEL = '/oekaki/avatar.glb';
 const X_AXIS = new THREE.Vector3(1, 0, 0);
@@ -49,7 +50,7 @@ function baseAnimation(p: AvatarParams) {
 
 /** モデルは +Z 向きなので、こちらの「前 = -Z」に合わせて回してある */
 /** look は顔の上下の向き（ラジアン、上向きが正）を返す */
-export function OekakiAvatar({ name, version, speaking, look, walking, seated, userId, previewEmote, onEyeHeight, onSeatOffset, textureUrl }: { name: string; version: string | null; speaking: boolean; look?: () => number; walking?: () => boolean; seated?: () => boolean; userId?: string; previewEmote?: ActiveEmote | null; onEyeHeight?: (height: number) => void; onSeatOffset?: (offset: number) => void; textureUrl?: string }) {
+export function OekakiAvatar({ name, version, speaking, look, walking, seated, crouching, userId, previewEmote, onEyeHeight, onSeatOffset, textureUrl }: { name: string; version: string | null; speaking: boolean; look?: () => number; walking?: () => boolean; seated?: () => boolean; crouching?: () => boolean; userId?: string; previewEmote?: ActiveEmote | null; onEyeHeight?: (height: number) => void; onSeatOffset?: (offset: number) => void; textureUrl?: string }) {
   const { scene, animations } = useGLTF(MODEL);
   const clone = useMemo(() => scene.clone(), [scene]);
   const { nodes } = useGraph(clone);
@@ -127,7 +128,7 @@ export function OekakiAvatar({ name, version, speaking, look, walking, seated, u
     for (const h of hands) if (h) { h.o.quaternion.copy(h.q); h.o.position.copy(h.p); }
     for (const f of feet) if (f) { f.o.quaternion.copy(f.q); f.o.position.copy(f.p); }
     sitWeight.current = stepSeatedWeight(sitWeight.current, seated?.() === true, dt, reduced);
-    const sitting = sitWeight.current;
+    const sitting = Math.max(sitWeight.current, seated?.() !== true && crouching?.() === true ? CROUCH_WEIGHT : 0);
     const moving = walking?.() === true && sitting < 0.01;
     for (const action of walkActions) {
       if (moving && !action.isRunning()) action.reset().play();
