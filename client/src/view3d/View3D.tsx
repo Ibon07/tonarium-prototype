@@ -27,6 +27,7 @@ import { WORLD_BG, WorldMesh } from './worlds3d.tsx';
 import { useLastSaid } from '../world/common.tsx';
 import { ShareDisplay } from './shareDisplay.tsx';
 import { XRScene } from '../xr/XRScene.tsx';
+import { xr, xrState } from '../xr/runtime.ts';
 import { useSystems } from '../systems/state.ts';
 import { systemSeat } from '../../../shared/system-presentation.ts';
 import { avatarHipHeight, seatedBodyOffset } from './seatedPose.ts';
@@ -148,7 +149,7 @@ export function Avatar3D({ id, self = false, rig }: { id: string; self?: boolean
     if (!state) return;
     const r = state.ride;
     const bike = !seat && Object.values(get().items).find(i => i.kind === 'bike' && i.rider === id);
-    const k = bike ? 1 - Math.exp(-12 * dt) : Math.min(1, dt * 10);
+    const k = state.xr ? 1 : bike ? 1 - Math.exp(-12 * dt) : Math.min(1, dt * 10);
     if (seat) {
       ride.current = null;
       g.position.x += (seat.x - g.position.x) * k;
@@ -188,15 +189,15 @@ export function Avatar3D({ id, self = false, rig }: { id: string; self?: boolean
     g.rotation.z = bike ? 0 : state.lean ?? 0;
     const s = get();
     if (self && rig) {
-      g.visible = rig.thirdPerson;
+      g.visible = rig.thirdPerson || xrState().active;
       g.position.copy(rig.avatarPosition);
       g.rotation.order = 'YXZ';
-      g.rotation.set(0, rig.yaw, rig.lean);
+      g.rotation.set(0, rig.yaw + (xrState().active ? xr.headYaw : 0), rig.lean);
     }
     const b = bump(s.hits[id]);
     body.current?.scale.set(1 + 0.3 * b, 1 - 0.45 * b, 1 + 0.3 * b);
     if (hand.current) hand.current.rotation.x = -0.4 - bump(s.swings[id], performance.now(), 350) * 1.6;
-  });
+  }, -.1);
   if (!name) return null;
   return (
     <group
@@ -206,6 +207,7 @@ export function Avatar3D({ id, self = false, rig }: { id: string; self?: boolean
       <group ref={body}>
         <Suspense fallback={null}>
           <OekakiAvatar userId={id} name={name} version={avatarV} speaking={speaking} look={() => pitchOf(id)}
+            tracked={() => self && xrState().active ? xr.pose : get().avatars[id]?.xr} handsOnly={() => self && xrState().active}
             seated={() => !!seatOf(id)} onSeatOffset={onSeatOffset}
             crouching={() => (self ? get().selfAvatar : get().avatars[id])?.crouching === true}
             walking={() => {
@@ -254,7 +256,7 @@ function NoteEditor() {
     moveItem(note.id, note.x, note.z, Math.atan2(a.x - note.x, a.z - note.z));
   };
   return (
-    <div className="noteeditor">
+    <div className="noteeditor" data-xr-surface="note-editor" data-xr-title="付箋の編集">
       <textarea
         autoFocus value={note.text} placeholder={tr("ui537")}
         style={{ background: note.color }}

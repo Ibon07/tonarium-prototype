@@ -219,6 +219,7 @@ export interface ChatMedia { kind: 'image' | 'video'; url: string; w: number; h:
 export const LEAN_ANGLE = Math.PI / 18;
 
 export interface AvatarState {
+  xr?: import('./xr-pose.ts').AvatarXR;
   x: number;
   z: number;
   ry: number;

@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Billboard } from '@react-three/drei';
+import { UprightBillboard as Billboard } from '../view3d/UprightBillboard.tsx';
 import * as THREE from 'three';
 import type { SystemObject as ObjectDefinition } from '../../../shared/system-types.ts';
 import { useSystems } from './state.ts';
