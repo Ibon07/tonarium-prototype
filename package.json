@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:updates": "tsx --test client/src/updateFlow.test.ts && node --experimental-test-module-mocks --test client/src/updateRecovery.test.mjs client/src/updateRecording.test.mjs",
     "test:share": "tsx --test client/src/shareAnnotations.test.ts",
     "items:png": "node scripts/rasterize-items.mjs",
     "dev": "concurrently -k -n server,client \"tsx watch --include sessions.json server/index.ts --dev\" \"vite\"",

@@ -1,5 +1,7 @@
 import { t as tr, useLanguage } from './i18n/index.ts';
 import { LanguageSelect } from './i18n/LanguageSelect.tsx';
+import { UpdateRecoveryNotice } from './UpdateRecoveryNotice.tsx';
+import { useUpdateDraft } from './updateDraft.ts';
 import { useMarketNavigation } from './market/navigation.ts';
 import { useEffect, useRef, useState } from 'react';
 import { useStore, set } from './store.ts';
@@ -41,7 +43,7 @@ function JoinScreen() {
     }, 250);
     return () => { alive = false; clearTimeout(t); };
   }, [name]);
-  const [profile, setProfile] = useState(false);
+  const [profile, setProfile] = useUpdateDraft('profile.join', false);
   const closeProfile = () => {
     setProfile(false);
     const n = name.trim();
@@ -119,11 +121,10 @@ export function App() {
   const joined = useStore((s) => s.joined);
   const session = useStore((s) => s.session);
   const incompatible = useStore((s) => s.incompatible);
-  if (!joined) return <JoinScreen />;
-  if (incompatible) return <CompatOverlay />;
   return (
     <>
-      {session ? <WorldScreen /> : <Home />}
+      <UpdateRecoveryNotice />
+      {!joined ? <JoinScreen /> : incompatible ? <CompatOverlay /> : session ? <WorldScreen /> : <Home />}
       <Lightbox />
       <HammerCursor />
       <UpdateBanner />

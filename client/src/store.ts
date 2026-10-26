@@ -35,6 +35,7 @@ interface State extends AdSlice {
   selfName: string;
   joined: boolean;
   wsConnected: boolean;
+  wsReady: boolean;
   /** つなぎ直した先のサーバーが、このページと違う版の画面を出している */
   updateVersion: string | null;
   /** 互換性バージョンがサーバーと合わず、接続を断たれた。更新するまで全面表示で止める */
@@ -220,6 +221,7 @@ export const useStore = create<State>((set, get) => ({
   selfName: '',
   joined: false,
   wsConnected: false,
+  wsReady: false,
   updateVersion: null,
   incompatible: false,
   guild: { name: 'Tonarium', sessions: [] },

@@ -1,4 +1,5 @@
 import { sourceText as uiSource } from '../i18n/core.ts';
+import { useUpdateDraft } from '../updateDraft.ts';
 import { localized, t as tr, msg } from '../i18n/index.ts';
 import { useOwnedItems, type OwnedItem } from '../market/items.ts';
 import { OriginBadge } from '../market/OriginBadge.tsx';
@@ -94,8 +95,8 @@ export function Sidebar({ inSession, onPick }: { inSession?: boolean; onPick?: (
   const unread = useUnreadConvs();
   const unreadDm = unread.filter((c) => c.startsWith('dm:')).length;
   const st = useStatusOf(selfName);
-  const [profile, setProfile] = useState(false);
-  const [status, setStatus] = useState(false);
+  const [profile, setProfile] = useUpdateDraft('profile.home', false);
+  const [status, setStatus] = useUpdateDraft('status.home', false);
   // スマホでは下のバーに主なページだけ並べ、残りは「その他」で全部を下から出す
   const phone = usePhone();
   const [more, setMore] = useState(false);
@@ -475,10 +476,14 @@ function HomePageView({ q }: { q: string }) {
 export function Home({ sheet }: { sheet?: boolean }) {
   const page = useStore((s) => s.homePage);
   const wsConnected = useStore((s) => s.wsConnected);
-  const [q, setQ] = useState('');
+  const [q, setQ] = useUpdateDraft('search.home', '');
+  const previousPage = useRef(page);
   const [create, setCreate] = useState(false);
   const title = NAV.find((n) => n.page === page)?.name ?? (page === 'sounds' ? tr("ui224") : page === 'emotes' ? tr("ui225") : undefined);
-  useEffect(() => setQ(''), [page]);
+  useEffect(() => {
+    if (previousPage.current !== page) setQ('');
+    previousPage.current = page;
+  }, [page, setQ]);
   return (
     <div className={`home ${sheet ? 'sheet' : ''} ${page === 'market' ? 'market-home' : ''}`} role={sheet ? 'dialog' : undefined} aria-label={sheet ? title : undefined}>
       <Sidebar inSession={sheet} />

@@ -25,6 +25,7 @@ import { useEyeHeight } from './eyeHeight.ts';
 import { DEFAULT_EYE_HEIGHT } from '../../../shared/avatar.ts';
 import { HammerModel } from './items3d.tsx';
 import { takePhoto, world } from './cameraRender.ts';
+import { cameraView, recoveryTasks } from '../updateRecovery.ts';
 import { CameraModel, cameraHelp } from './camera3d.tsx';
 import { PlayerCamera } from './playerCamera.ts';
 import { blocked, blockedByTrain, fallToGround, moveFlight, recoverPosition, walkingAfterMove, type MovementMode } from './movement.ts';
@@ -96,7 +97,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
   const position = useRef(new THREE.Vector3(get().selfAvatar.x, 0, get().selfAvatar.z));
   const keys = useRef<Record<string, boolean>>({});
   const driving = useRef<{ id: string; version: number; state: VehicleState; sent: number } | null>(null);
-  const look = useRef({ yaw: get().selfAvatar.ry, pitch: -0.05 });
+  const look = useRef({ yaw: get().selfAvatar.ry, pitch: get().selfAvatar.pitch ?? -0.05 });
   // NaN だと比較が常に false になり一度も送られないので Infinity
   const sent = useRef({ t: 0, x: Infinity, z: Infinity, ry: Infinity, pitch: Infinity, lean: 0, jump: 0, y: 0, walking: false });
   const walking = useRef(false);
@@ -121,11 +122,24 @@ export function Player({ rig }: { rig: PlayerCamera }) {
   }>({ padsItems: null, padsCarrying: undefined, pads: [], padSolids: [], sharedSolids: [], solidsBase: null, solidsPads: null, solids: [], cityY: null, citySurfaces: [], goneFlags: new Uint8Array(TILE_COUNT), goneScratch: new Uint8Array(TILE_COUNT), tileSurfaces: null });
 
   useEffect(() => {
+    const capture = async () => {
+      cameraView.thirdPerson = rig.thirdPerson;
+      cameraView.distance = rig.desiredDistance;
+      set({ selfAvatar: { ...get().selfAvatar, x: position.current.x, z: position.current.z,
+        y: body.current.y, ry: look.current.yaw, pitch: look.current.pitch } });
+    };
+    recoveryTasks.add(capture);
+    return () => { recoveryTasks.delete(capture); };
+  }, [rig]);
+
+  useEffect(() => {
     if (survivorActive && document.pointerLockElement === gl.domElement) document.exitPointerLock();
   }, [survivorActive, gl]);
 
   useEffect(() => {
     const a = get().selfAvatar;
+    rig.thirdPerson = cameraView.thirdPerson;
+    rig.desiredDistance = cameraView.distance;
     position.current.set(a.x, eyeHeight.current.current + (a.y ?? 0), a.z);
     camera.rotation.order = 'YXZ';
     world.scene = scene;
@@ -295,6 +309,8 @@ export function Player({ rig }: { rig: PlayerCamera }) {
   });
 
   useFrame((_, dt) => {
+    cameraView.thirdPerson = rig.thirdPerson;
+    cameraView.distance = rig.desiredDistance;
     const immersive = xrState().active;
     if (immersive) { look.current.yaw += xr.turn; xr.turn = 0; }
     const eye = eyeHeight.current;

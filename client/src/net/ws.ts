@@ -52,7 +52,7 @@ export function connectWs() {
   ws.onopen = () => {
     openedAt = performance.now();
     retry = 0;
-    set({ wsConnected: true });
+    set({ wsConnected: true, wsReady: false });
     const s = get();
     send({ t: 'hello', id: s.selfId, name: s.selfName, compat: COMPAT_VERSION });
     if (s.session) {
@@ -67,7 +67,7 @@ export function connectWs() {
     console.warn('[home-ws] closed', { code: event.code, reason: event.reason, wasClean: event.wasClean,
       connectedSeconds: openedAt ? Math.round((performance.now() - openedAt) / 1000) : 0 });
     stopSessionSync(true);
-    set({ wsConnected: false });
+    set({ wsConnected: false, wsReady: false });
     if (get().session) set({ sync: 'unavailable', syncError: uiSource('ui472') });
     // 互換性バージョン違いで断たれた場合はつなぎ直しても結果が同じなので、再接続しない
     if (!get().incompatible) setTimeout(connectWs, Math.min(5000, 500 * 2 ** retry++));
@@ -173,6 +173,7 @@ export function onMessage(msg: ServerMsg) {
     case 'syncError': syncError(msg.requestId, msg.error); return;
     case 'syncReset': resetSessionSync(msg.sid); return;
     case 'snapshot': {
+      set({ wsReady: true });
       const { guild, users, friends, groups, events, sessions, now, version } = msg.s;
       if (version && PAGE_VERSION && version !== PAGE_VERSION) set({ updateVersion: version });
       set((s) => ({ groups, events, serverOffset: now - Date.now(), guild, users, friends, sessionInfo: sessions, worldBy: { ...s.worldBy, ...worldsOf(sessions) } }));

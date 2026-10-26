@@ -1,4 +1,5 @@
 import { sourceText as uiSource } from '../i18n/core.ts';
+import { useUpdateDraft } from '../updateDraft.ts';
 import { SharedAssetsPanel } from '../shared-assets/SharedAssetsPanel.tsx';
 import { t as tr, systemText } from '../i18n/index.ts';
 import { contentAvailable, productFor } from '../../../shared/market.ts';
@@ -78,8 +79,8 @@ function WorldBadge() {
   const antimatterWindowOpen = useStore((s) => s.windows.some((w) => w.key === 'antimatter'));
   const pending = useStore((s) => !!s.worldPending && s.worldPending.sid === s.session);
   const [menu, setMenu] = useState<DOMRect | null>(null);
-  const [profile, setProfile] = useState(false);
-  const [selectWorld, setSelectWorld] = useState(false);
+  const [profile, setProfile] = useUpdateDraft('profile.session', false);
+  const [selectWorld, setSelectWorld] = useUpdateDraft('world.select', false);
   return (
     <div className="worldbadge">
       <img className="wmark" src="/brand/mark.png" alt="" />
