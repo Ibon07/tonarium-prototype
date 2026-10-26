@@ -97,12 +97,14 @@ export function dropHammer() {
   }
 }
 
-export function dropCamera(pitch: number) {
+export function dropCamera(pitch: number, cameraY?: number, groundAt?: (x: number, z: number) => number) {
   const s = get();
   const c = heldCamera(s);
   if (!c) return;
   const a = s.selfAvatar;
-  itemAction(c.id, { a: 'drop', x: clamp(a.x - Math.sin(a.ry) * 0.7), z: clamp(a.z - Math.cos(a.ry) * 0.7), ry: a.ry, pitch });
+  const x = clamp(a.x - Math.sin(a.ry) * 0.7);
+  const z = clamp(a.z - Math.cos(a.ry) * 0.7);
+  itemAction(c.id, { a: 'drop', x, z, ry: a.ry, pitch, cameraY, groundY: groundAt?.(x, z) });
 }
 
 export function toggleLive(id: string) {
