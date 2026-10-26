@@ -61,7 +61,7 @@ test('live shared systems: code-map load, late snapshots, native items, occupied
   assert.equal(catalogResponse.status, 200);
   const catalog = await catalogResponse.json();
   const systemIds = [...new Set(catalog.entries.map((entry: { id: string }) => entry.id))].sort();
-  assert.deepEqual(systemIds, ['button', 'chair', 'timer']);
+  assert.deepEqual(systemIds, ['button', 'camera-trigger', 'chair', 'timer']);
   for (const entry of catalog.entries) {
     const originalResponse = await fetch(`${base}/system-originals/${entry.integrity}`);
     assert.equal(originalResponse.status, 200);

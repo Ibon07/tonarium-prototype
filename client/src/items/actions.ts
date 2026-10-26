@@ -1,5 +1,6 @@
 import { sourceText as uiSource } from '../i18n/core.ts';
 import { applyItemAction, type ItemAction, type ItemKind, type MediaInit } from '../../../shared/items.ts';
+import { isCameraTimerItem } from '../../../shared/camera-timer-demo.ts';
 import { ROOM_HALF, spawnSlot, type AvatarState } from '../../../shared/protocol.ts';
 import { approach } from '../../../shared/places.ts';
 import { get, set, recompute, heldHammer, heldCamera, type ItemUi } from '../store.ts';
@@ -40,7 +41,8 @@ export function postImage(text: string, image: string) {
 }
 
 export function removeItem(id: string) {
-  if (get().items[id]?.mapPlacement?.mode === 'system') return;
+  const item = get().items[id];
+  if (item?.mapPlacement?.mode === 'system' && !isCameraTimerItem(item)) return;
   send({ t: 'itemRemove', id });
 }
 

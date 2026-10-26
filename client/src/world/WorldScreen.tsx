@@ -1,5 +1,6 @@
 import { sourceText as uiSource } from '../i18n/core.ts';
 import { useSpaceToStand } from '../systems/useSpaceToStand.ts';
+import { useCameraTimerDemo } from '../systems/useCameraTimerDemo.ts';
 import { useUpdateDraft } from '../updateDraft.ts';
 import { t as tr, systemText } from '../i18n/index.ts';
 import { contentAvailable, productFor } from '../../../shared/market.ts';
@@ -518,6 +519,7 @@ function PhoneTabs() {
 
 export function WorldScreen() {
   useSpaceToStand();
+  useCameraTimerDemo();
   useEffect(() => {
     window.addEventListener('pointerdown', unlockEmoteAudio);
     window.addEventListener('keydown', unlockEmoteAudio);

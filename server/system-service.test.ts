@@ -26,7 +26,7 @@ test('central service bootstraps packages, serves verified originals, and persis
   const directory = temporary(t);
   const service = new SystemService(directory, root); t.after(() => service.dispose());
   assert.deepEqual(service.startupErrors, []);
-  assert.deepEqual([...new Set(service.catalog.current().entries.map(e => e.id))].sort(), ['button', 'chair', 'timer']);
+  assert.deepEqual([...new Set(service.catalog.current().entries.map(e => e.id))].sort(), ['button', 'camera-trigger', 'chair', 'timer']);
   assert.deepEqual(service.catalog.current().entries, validateSystemSubmission(root).catalog.entries);
   const server = http.createServer((req, res) => {
     if (!service.http(req, res, new URL(req.url ?? '/', 'http://local').pathname)) res.writeHead(404).end();

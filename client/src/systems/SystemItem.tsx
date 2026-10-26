@@ -8,6 +8,9 @@ import { useSystems } from './state.ts';
 import { Label } from '../view3d/Label.tsx';
 import { t, useLanguage } from '../i18n/index.ts';
 import { systemObjectLabel } from './catalog-labels.ts';
+import { cameraTimerLabel } from './camera-countdown.ts';
+import { isCameraTimerItem } from '../../../shared/camera-timer-demo.ts';
+import { removeItem } from '../items/actions.ts';
 
 function useSystemItem(item: Item) {
   const state = useSystems(), session = useStore(store => store.session);
@@ -20,15 +23,16 @@ function useSystemItem(item: Item) {
       try { interactSystemObject(target.id); } catch (error) { useSystems.setState({ error: String(error) }); }
     }
   };
-  return { interactive, use, label: object?.text !== undefined && state.view ? systemObjectLabel(state.view, object) : undefined };
+  const caption = object && cameraTimerLabel(item, state.view);
+  return { interactive, use, label: caption ?? (object?.text !== undefined && state.view ? systemObjectLabel(state.view, object) : undefined) };
 }
 
 export function SystemItemBoundary({ item, children }: { item: Item; children: ReactNode }) {
   useLanguage();
   const action = useSystemItem(item);
-  const data: Interactable = { interactionBoundary: true, hint: t(action.interactive ? 'ssCatalogRunSystem' : 'ssCatalogControlledObject'), ...(action.interactive ? { use: action.use } : {}) };
+  const data: Interactable = { interactionBoundary: true, hint: t(action.interactive ? 'ssCatalogRunSystem' : 'ssCatalogControlledObject'), ...(action.interactive ? { use: action.use } : {}), ...(isCameraTimerItem(item) ? { remove: () => removeItem(item.id) } : {}) };
   // 既存モデルが絶対座標を持つため、この境界では座標を変更しない。
-  return <group userData={data} onClick={event => { if (!document.pointerLockElement) { event.stopPropagation(); if (action.interactive) action.use(); } }}>{children}{item.kind !== 'note' && action.label && <Label text={action.label} position={[item.x, 1.5, item.z]} height={0.17} />}</group>;
+  return <group userData={data} onClick={event => { if (!document.pointerLockElement) { event.stopPropagation(); if (action.interactive) action.use(); } }}>{children}{item.kind !== 'note' && action.label && <Label text={action.label} position={[item.x, item.kind === 'camera' ? 1.95 : 1.5, item.z]} height={0.17} />}</group>;
 }
 
 export function SystemItemPanel({ item }: { item: Item }) {
