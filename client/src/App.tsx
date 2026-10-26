@@ -14,6 +14,7 @@ import { WorldScreen } from './world/WorldScreen.tsx';
 import { PeekMascot, type MascotHandle } from './world/Mascot.tsx';
 import { FEEDBACK_URL } from './feedback.ts';
 import { CompatOverlay, MaintenanceOverlay, UpdateBanner } from './world/ServerNotices.tsx';
+import { XRControls } from './xr/XRControls.tsx';
 
 function loadId() {
   try {
@@ -92,6 +93,7 @@ function JoinScreen() {
           <LanguageSelect />
           <button className="primary" onClick={join}>{tr("ui12")}</button>
           <small>{tr("ui13")}</small>
+          <a className="join-download" href="https://github.com/katteni-kaihatu/tonarium-prototype/releases" target="_blank" rel="noreferrer">{tr('desktopDownload')}</a>
         </div>
       </div>
       <aside className="joinnotice" aria-label={tr("ui14")}>
@@ -127,6 +129,7 @@ export function App() {
       <HammerCursor />
       <UpdateBanner />
       <MaintenanceOverlay />
+      <XRControls />
     </>
   );
 }

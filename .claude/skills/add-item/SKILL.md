@@ -25,7 +25,7 @@ description: Tonarium に新しいアイテム（サイコロ・チェス・付�
 
 ## 決まりごと
 
-- サーバーが正。乱数や勝敗などの結果はサーバーが決めて `broadcast({ t: 'item', ... })` で配る
+- サーバーが正。乱数や勝敗などの結果はサーバーが決めて `sendItem(sid, it)` で配る（内部で `roomSend` を使う。電話は宛先ごとに中身を分ける。ホーム向けの `broadcast` はアイテム配布には使わない）
 - 全員に同じ演出を見せるときは、サーバー時刻（`Date.now()` を状態に入れる）と id から作る乱数（`shared/dice.ts` の `seededRng`）で、各クライアントが同じ動きを計算する。クライアントでは `serverNow()` を使う
 - 秘密の情報（シークレットの結果など）はアイテムの状態に入れない。アイテムは全員に配られるので、本人宛てのチャット（`to: [本人]`）など別の道で渡す
 - 演出の前に結果がチャットに出てしまわないよう、チャットへの記録は演出が終わってから行う
@@ -33,7 +33,7 @@ description: Tonarium に新しいアイテム（サイコロ・チェス・付�
 
 ## 確認
 
-- `shared/changelog.ts` の先頭に今回の変更を追記し、`npm run check:completion`（履歴チェック・型チェック・ビルド）を通す。失敗したら完了にしない
+- `changelog/YYYY-MM-DD-<識別子>.json` を新規追加し（共通履歴 `shared/changelog.ts` への手動追記は不要。形式は `docs/changelog.md` を参照）、`npm run check:completion`（履歴チェック・型チェック・ビルド）を通す。失敗したら完了にしない
 - ブラウザで確かめる場合（効果が高いときだけ）：`npm run dev`（`.claude/launch.json` の `dev`）を起動し、`?as=a` と `?as=b` で別人として入る。参加後は次が使える
   - `window.__t3d`（3D のときだけ、開発時のみ）：`pos(x, z)`・`look(yaw, pitch)`（yaw 0 で -Z 向き、π で +Z 向き）・`use()`（照準の先をクリック）・`key('KeyX')`・`state()`（ストアの中身）
   - `globalThis.__tonariumWs.send(JSON.stringify(msg))` でサーバーへ直接送れる

@@ -1,4 +1,5 @@
 import { t as tr } from '../i18n/index.ts';
+import { SharedAssets3D } from '../shared-assets/SharedAssets3D.tsx';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -24,6 +25,7 @@ import { CameraModel, CameraStreamer, CamMonitor } from './camera3d.tsx';
 import { WORLD_BG, WorldMesh } from './worlds3d.tsx';
 import { useLastSaid } from '../world/common.tsx';
 import { ShareDisplay } from './shareDisplay.tsx';
+import { XRScene } from '../xr/XRScene.tsx';
 
 /** 頭の上のチャットの吹き出し（上部の顔と同じく直近 30 秒） */
 function ChatBubble({ id, y }: { id: string; y: number }) {
@@ -306,6 +308,7 @@ export function View3D() {
       {/* 街は端から端まで 170m ほどあるので遠くまで描く */}
       <EyeHeightContext.Provider value={eyeHeight}>
         <Canvas camera={{ fov: 70, near: 0.05, far: 300, position: [a0.x, eyeHeight.current.current, a0.z] }}>
+          <SharedAssets3D />
           <color attach="background" args={[WORLD_BG[world]]} />
           <WorldMesh kind={world} />
           <ShareDisplay />
@@ -318,6 +321,7 @@ export function View3D() {
             ? <CameraStreamer key={`stream-${it.id}`} item={it} /> : null))}
           {viewLive && <ViewStreamer />}
           <Player rig={rig} />
+          <XRScene rig={rig} />
         </Canvas>
       </EyeHeightContext.Provider>
       <Viewfinder />

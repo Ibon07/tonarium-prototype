@@ -46,7 +46,7 @@ export function ProfileDialog({ name, onClose }: { name: string; onClose: () => 
 
   return (
     <div className="modalbg" onClick={onClose}>
-      <div className="modal profile" onClick={(e) => e.stopPropagation()}>
+      <div className="modal profile" role="dialog" aria-modal="true" aria-label={tr('ui584', n)} onClick={(e) => e.stopPropagation()}>
         <h2>{tr('ui584', n)}</h2>
         <section><LanguageSelect /></section>
         <PopupPauseSettings />

@@ -30,8 +30,29 @@ function TelephoneTurn({ item, interactive }: { item: Extract<Item, { kind: 'tel
   const [color, setColor] = useState('#111111');
   const [size, setSize] = useState(4);
   const pointer = useRef<number | null>(null);
+  // 描画中の未反映の点列 (x, y の平坦配列) と、その反映を予約した rAF (#203)。
+  // pointermove のたびに state を更新せず、フレームごとにまとめて足す。点そのものは落とさない。
+  const pending = useRef<number[]>([]);
+  const raf = useRef<number | null>(null);
   const [now, setNow] = useState(serverNow);
   useEffect(() => { const timer = setInterval(() => setNow(serverNow()), 250); return () => clearInterval(timer); }, []);
+  useEffect(() => () => { if (raf.current !== null) cancelAnimationFrame(raf.current); }, []);
+  const applyPending = () => {
+    if (!pending.current.length) return;
+    const pts = pending.current;
+    pending.current = [];
+    setStrokes(old => {
+      if (!old.length) return old;
+      const room = TELEPHONE_MAX_POINTS - old.reduce((n, s) => n + s.pts.length / 2, 0);
+      if (room <= 0) return old;
+      const add = pts.slice(0, room * 2);
+      return old.map((s, i) => i === old.length - 1 ? { ...s, pts: [...s.pts, ...add] } : s);
+    });
+  };
+  const flushPending = () => {
+    if (raf.current !== null) { cancelAnimationFrame(raf.current); raf.current = null; }
+    applyPending();
+  };
   const locked = !interactive || !!assignment?.own || now >= (g.deadline ?? 0);
   const point = (e: React.PointerEvent<SVGSVGElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -41,7 +62,7 @@ function TelephoneTurn({ item, interactive }: { item: Extract<Item, { kind: 'tel
   const down: React.PointerEventHandler<SVGSVGElement> = e => {
     if (locked || pointer.current !== null || e.button !== 0) return;
     if (strokes.length >= TELEPHONE_MAX_STROKES || strokes.reduce((n, s) => n + s.pts.length / 2, 0) >= TELEPHONE_MAX_POINTS) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* VR の合成入力は端末側で保持する */ }
     pointer.current = e.pointerId;
     const pts = point(e);
     setStrokes(old => old.length >= TELEPHONE_MAX_STROKES || old.reduce((n, s) => n + s.pts.length / 2, 0) >= TELEPHONE_MAX_POINTS
@@ -49,9 +70,15 @@ function TelephoneTurn({ item, interactive }: { item: Extract<Item, { kind: 'tel
   };
   const move: React.PointerEventHandler<SVGSVGElement> = e => {
     if (locked || pointer.current !== e.pointerId) return;
-    const pts = point(e);
-    setStrokes(old => !old.length || old.reduce((n, s) => n + s.pts.length / 2, 0) >= TELEPHONE_MAX_POINTS ? old
-      : old.map((s, i) => i === old.length - 1 ? { ...s, pts: [...s.pts, ...pts] } : s));
+    pending.current.push(...point(e));
+    if (raf.current === null) {
+      raf.current = requestAnimationFrame(() => { raf.current = null; applyPending(); });
+    }
+  };
+  const up: React.PointerEventHandler<SVGSVGElement> = e => {
+    if (pointer.current !== e.pointerId) return;
+    flushPending(); // 末尾の点を落とさないよう、指を離した時点で未反映分を確定させる
+    pointer.current = null;
   };
   return <>
     <p role="timer">工程 {g.step + 1} / {g.participants.length}：{telephoneKind(g.step) === 'text' ? '文章' : '描画'}・残り {Math.max(0, Math.ceil(((g.deadline ?? 0) - now) / 1000))} 秒</p>
@@ -68,7 +95,7 @@ function TelephoneTurn({ item, interactive }: { item: Extract<Item, { kind: 'tel
             </select></label>
             <label>太さ <select value={size} disabled={locked} onChange={e => setSize(Number(e.target.value))}>{[4, 10, 24].map(n => <option key={n}>{n}</option>)}</select></label>
             <button disabled={locked} onClick={() => setStrokes([])}>白紙に戻す</button>
-          </div><Picture strokes={strokes} onDown={down} onMove={move} onUp={e => { if (pointer.current === e.pointerId) pointer.current = null; }} /></>}
+          </div><Picture strokes={strokes} onDown={down} onMove={move} onUp={up} /></>}
         <button disabled={locked} onClick={() => itemAction(item.id, { a: 'telephoneSubmit', round: g.round, step: g.step,
           answer: telephoneKind(g.step) === 'text' ? { kind: 'text', text } : { kind: 'drawing', strokes } })}>提出する</button>
         <small>時間切れの未提出は空回答・白紙になります。{telephoneKind(g.step) === 'drawing' && `絵は${TELEPHONE_MAX_STROKES}本・${TELEPHONE_MAX_POINTS}点まで。`}</small>
