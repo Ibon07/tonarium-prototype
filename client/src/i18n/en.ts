@@ -1,4 +1,5 @@
 export default {
+  sharedSystems: 'Shared systems',
   updateSettings: 'Update settings',
   updateRetry: 'Retry',
   updateAudioNeedsClick: 'Browser autoplay restrictions paused audio. Select Retry to resume playback.',

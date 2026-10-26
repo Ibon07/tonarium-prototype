@@ -1,6 +1,6 @@
 import { sourceText as uiSource } from '../i18n/core.ts';
+import { useSpaceToStand } from '../systems/useSpaceToStand.ts';
 import { useUpdateDraft } from '../updateDraft.ts';
-import { SharedAssetsPanel } from '../shared-assets/SharedAssetsPanel.tsx';
 import { t as tr, systemText } from '../i18n/index.ts';
 import { contentAvailable, productFor } from '../../../shared/market.ts';
 import { MOVEMENT_MODES } from '../view3d/movement.ts';
@@ -517,6 +517,7 @@ function PhoneTabs() {
 }
 
 export function WorldScreen() {
+  useSpaceToStand();
   useEffect(() => {
     window.addEventListener('pointerdown', unlockEmoteAudio);
     window.addEventListener('keydown', unlockEmoteAudio);
@@ -578,7 +579,6 @@ export function WorldScreen() {
       <div className="front">
         {worldKind === 'survivors' && mode === '3d' && <SurvivorPanel overlay />}
         <WorldBadge />
-        <SharedAssetsPanel />
         <NearList />
         <FaceStrip />
         <NoticeLog />

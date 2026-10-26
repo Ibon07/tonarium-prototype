@@ -8,6 +8,7 @@ import { avatarParamsUrl, avatarTextureUrl } from '../avatar.ts';
 import { emotePose, type ActiveEmote } from '../../../shared/emotes.ts';
 import { get } from '../store.ts';
 import { useReducedMotion } from '../emotes.ts';
+import { applySeatedFoot, avatarHipHeight, seatedBodyOffset, stepSeatedWeight } from './seatedPose.ts';
 
 const MODEL = '/oekaki/avatar.glb';
 const X_AXIS = new THREE.Vector3(1, 0, 0);
@@ -48,7 +49,7 @@ function baseAnimation(p: AvatarParams) {
 
 /** モデルは +Z 向きなので、こちらの「前 = -Z」に合わせて回してある */
 /** look は顔の上下の向き（ラジアン、上向きが正）を返す */
-export function OekakiAvatar({ name, version, speaking, look, walking, userId, previewEmote, onEyeHeight }: { name: string; version: string | null; speaking: boolean; look?: () => number; walking?: () => boolean; userId?: string; previewEmote?: ActiveEmote | null; onEyeHeight?: (height: number) => void }) {
+export function OekakiAvatar({ name, version, speaking, look, walking, seated, userId, previewEmote, onEyeHeight, onSeatOffset, textureUrl }: { name: string; version: string | null; speaking: boolean; look?: () => number; walking?: () => boolean; seated?: () => boolean; userId?: string; previewEmote?: ActiveEmote | null; onEyeHeight?: (height: number) => void; onSeatOffset?: (offset: number) => void; textureUrl?: string }) {
   const { scene, animations } = useGLTF(MODEL);
   const clone = useMemo(() => scene.clone(), [scene]);
   const { nodes } = useGraph(clone);
@@ -63,15 +64,20 @@ export function OekakiAvatar({ name, version, speaking, look, walking, userId, p
   const blink = useRef(0);
   const motion = useRef<THREE.Group>(null);
   const reduced = useReducedMotion();
+  const sitWeight = useRef(0);
+  const hipHeight = avatarHipHeight(params);
+  const seatOffset = seatedBodyOffset(hipHeight);
   // Restore the preceding mixer pose before the next tick, including untracked axes.
   const hands = useMemo(() => [nodes.LeftHand, nodes.RightHand].map((o) => o ? { o, q: o.quaternion.clone(), p: o.position.clone() } : null), [nodes]);
+  const feet = useMemo(() => [nodes.LeftFoot, nodes.RightFoot].map(o => o ? { o, q: o.quaternion.clone(), p: o.position.clone() } : null), [nodes]);
+  useEffect(() => { onSeatOffset?.(seatOffset); }, [seatOffset, onSeatOffset]);
 
   useEffect(() => {
     let alive = true;
     setTexture(null);
     setParamsReady(!version);
     onEyeHeight?.(DEFAULT_EYE_HEIGHT);
-    void new THREE.TextureLoader().loadAsync(avatarTextureUrl(name, version)).then((t) => {
+    void new THREE.TextureLoader().loadAsync(textureUrl ?? avatarTextureUrl(name, version)).then((t) => {
       t.flipY = false;
       t.colorSpace = THREE.SRGBColorSpace;
       if (alive) setTexture(t); else t.dispose();
@@ -84,7 +90,7 @@ export function OekakiAvatar({ name, version, speaking, look, walking, userId, p
         .catch(() => { if (alive) setParamsReady(true); });
     }
     return () => { alive = false; };
-  }, [name, version, onEyeHeight]);
+  }, [name, version, onEyeHeight, textureUrl]);
 
   useEffect(() => { notified.current = false; }, [params, texture, paramsReady, onEyeHeight]);
 
@@ -119,7 +125,10 @@ export function OekakiAvatar({ name, version, speaking, look, walking, userId, p
   const faceBase = useMemo(() => [nodes.Head_Front, nodes.Head_Back].filter(Boolean).map((o) => ({ o, q: o.quaternion.clone() })), [nodes]);
   useFrame((_, dt) => {
     for (const h of hands) if (h) { h.o.quaternion.copy(h.q); h.o.position.copy(h.p); }
-    const moving = walking?.() === true;
+    for (const f of feet) if (f) { f.o.quaternion.copy(f.q); f.o.position.copy(f.p); }
+    sitWeight.current = stepSeatedWeight(sitWeight.current, seated?.() === true, dt, reduced);
+    const sitting = sitWeight.current;
+    const moving = walking?.() === true && sitting < 0.01;
     for (const action of walkActions) {
       if (moving && !action.isRunning()) action.reset().play();
       else if (!moving && action.isRunning()) action.stop();
@@ -130,10 +139,14 @@ export function OekakiAvatar({ name, version, speaking, look, walking, userId, p
       onEyeHeight?.(getAvatarEyeHeight(params));
     }
     for (const h of hands) if (h) { h.q.copy(h.o.quaternion); h.p.copy(h.o.position); }
+    for (const f of feet) if (f) {
+      f.q.copy(f.o.quaternion); f.p.copy(f.o.position);
+      applySeatedFoot(f.o, { position: f.p, quaternion: f.q }, sitting);
+    }
     const emote = previewEmote !== undefined ? previewEmote : userId ? get().emotes[userId] : undefined;
     const pose = emotePose(emote?.id ?? 'wave', emote && !reduced ? performance.now() - emote.started : -1);
     if (motion.current) {
-      motion.current.position.y = pose.y;
+      motion.current.position.y = pose.y - seatOffset * sitting;
       motion.current.rotation.set(pose.rx, 0, pose.rz);
       motion.current.scale.set(pose.sx, pose.sy, 1);
     }

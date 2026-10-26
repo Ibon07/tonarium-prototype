@@ -63,10 +63,17 @@ http://localhost:5173 を開く。同じブラウザで別人として入るに�
 
 ## 主な機能
 
+- 코드로 작성하는 맵의 공유 시스템·오브젝트 연결·버전 갱신 → [공통 규칙과 사용법](docs/shared-systems.md) · [새 시스템 작성·PR 등록 가이드](docs/shared-systems-registration.md)
+- 기본 아이템 12종의 ID로 코드 맵에 배치하고 버튼·타이머·의자 대상에 연결 → [아이템 ID와 제어 모드](docs/shared-systems.md#아이템-메뉴의-아이템을-id로-배치)
+- 중앙에 등록된 의자·버튼·타이머와 공개 버전·원본 확인 → 게임의 **공유 시스템**, 로컬 시험 화면의 **등록된 공유 시스템 보기** · `/?systemLibrary=1` · `/api/shared-systems`
+- 공유 시스템 화면에서 **공유 시스템 사용법**·**새 시스템 등록 가이드** 제목을 눌러 사용·등록 절차와 코드 예제를 펼쳐 읽기
+- 공유 시스템의 모델·착석 동작을 로컬에서 시험 → `npm run dev:systems` · [로컬 테스트 안내](docs/shared-systems-playtest.md)
+
 - 共有アセット・非空間システムの提出契約、原本保全、配置編集と実装途中の範囲 → [docs/shared-assets.md](docs/shared-assets.md)・[検証記録](docs/shared-assets-verification.md)
 - 単体ブラウザのWebXR初期実装（VR操作・仮想端末・対応表・検証範囲）→ [docs/webxr.md](docs/webxr.md)。Quest 3／Steam Frame実機は未検証、Electron版はVR非対応
 - 日本語・英語・韓国語の表示切り替え（端末保存・ブラウザ言語判定）→ [docs/languages.md](docs/languages.md)
 - チャットの自動翻訳・小さな原文と発言言語の表示（サーバーのOpenAI連携・ローカルモック）→ [docs/chat-translation.md](docs/chat-translation.md)
+- 아이템·월드·공유 시스템의 등록 시 자동 번역과 수동 교정 → [원문·번역 저장 및 등록 안내](docs/content-translations.md)
 - 変更履歴（主な更新の一覧・検索・未読の赤い点）→ [docs/home.md の変更履歴](docs/home.md#変更履歴)・[開発ガイド](docs/changelog.md)
 - Web 版をそのまま使う Electron クライアント → [docs/electron.md](docs/electron.md)
 - 自動更新の設定、カウントダウン、更新後の状態復元と検証結果 → [docs/updates.md](docs/updates.md)

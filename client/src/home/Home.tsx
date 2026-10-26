@@ -34,6 +34,7 @@ import { CHANGELOG } from '../i18n/static.ts';
 import { useChangelog } from './changelog.ts';
 import { XRLaunch } from '../xr/XRControls.tsx';
 import { TimelinePage, TimelinePhoneSheet, TimelineSide, TimelineTabs } from './Timeline.tsx';
+import { SystemCatalogBrowser } from '../systems/SystemCatalogBrowser.tsx';
 
 const NAV: { page: HomePage; name: string; icon: IconName }[] = localized([
   { page: 'home', name: uiSource('ui152'), icon: 'home' },
@@ -44,6 +45,7 @@ const NAV: { page: HomePage; name: string; icon: IconName }[] = localized([
   { page: 'groups', name: uiSource('ui108'), icon: 'flag' },
   { page: 'worlds', name: uiSource('ui105'), icon: 'globe' },
   { page: 'items', name: uiSource('ui154'), icon: 'box' },
+  { page: 'systems', name: uiSource('sharedSystems'), icon: 'layers' },
   { page: 'market', name: uiSource('ui155'), icon: 'market' },
 ]);
 
@@ -495,10 +497,10 @@ export function Home({ sheet }: { sheet?: boolean }) {
           {page === 'timeline' && <TimelineTabs />}
           {!wsConnected && <span className="reconn">{tr("ui226")}</span>}
           <span className="spacer" />
-          {/* グループの画面は絞り込むものがないので出さない */}
-          {page !== 'group' && <label className="hsearch"><Icon name="search" size={16} /><input value={q} aria-label={page === 'changelog' ? tr("ui227") : page === 'market' ? tr("ui228") : page === 'timeline' ? tr('tlSearch') : tr("ui229")} placeholder={page === 'changelog' ? tr("ui230") : page === 'market' ? tr("ui228") : page === 'timeline' ? tr('tlSearch') : tr("ui231")} onChange={(e) => setQ(e.target.value)} /></label>}
+          {/* グループの画面は絞り込むものがなく、共有システムはライブラリ内の検索を使う */}
+          {page !== 'group' && page !== 'systems' && <label className="hsearch"><Icon name="search" size={16} /><input value={q} aria-label={page === 'changelog' ? tr("ui227") : page === 'market' ? tr("ui228") : page === 'timeline' ? tr('tlSearch') : tr("ui229")} placeholder={page === 'changelog' ? tr("ui230") : page === 'market' ? tr("ui228") : page === 'timeline' ? tr('tlSearch') : tr("ui231")} onChange={(e) => setQ(e.target.value)} /></label>}
           <Bell />
-          {page === 'group' ? <GroupActions /> : <button className="dark hcreate" onClick={() => setCreate(true)}><Icon name="plus" size={16} />{tr("ui101")}</button>}
+          {page === 'group' ? <GroupActions /> : page !== 'systems' && <button className="dark hcreate" onClick={() => setCreate(true)}><Icon name="plus" size={16} />{tr("ui101")}</button>}
         </header>
         <div className="hcontent" key={page} tabIndex={sheet ? 0 : undefined}>
           {page === 'home' && <HomePageView q={q} />}
@@ -510,6 +512,7 @@ export function Home({ sheet }: { sheet?: boolean }) {
           {page === 'group' && <GroupPage />}
           {page === 'worlds' && <WorldsPage q={q} />}
           {page === 'items' && <ItemsPage q={q} />}
+          {page === 'systems' && <section className="hsec" aria-label={tr('sharedSystems')}><SystemCatalogBrowser /></section>}
           {page === 'market' && <MarketPage q={q} />}
           {page === 'changelog' && <ChangelogPage q={q} />}
           {(page === 'sounds' || page === 'emotes') && <ReactionLibrary category={page} q={q} />}

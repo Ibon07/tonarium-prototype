@@ -18,6 +18,7 @@ import {
 import { openWindow, toggleFromList, useIsOpen } from './windows.ts';
 import { PeerVolume } from './VolumeMenus.tsx';
 import { EmoteBadge } from './Emotes.tsx';
+import { SystemItemPanel } from '../systems/SystemItem.tsx';
 
 type Menu = { kind: 'user'; id: string; rect: DOMRect } | { kind: 'item'; id: string; rect: DOMRect };
 
@@ -201,6 +202,7 @@ function ActionMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   const it = s.items[menu.id];
   if (!it) return null;
   const key = windowKeyOf(it, s.camFeeds);
+  if (it.mapPlacement?.mode === 'system') return <Popover anchor={menu.rect} onClose={onClose} className="menu"><span className="menutitle">{itemLabel(it)}</span><MenuItem icon="near" label={tr("ui611")} onClick={run(() => goNear(`item:${it.id}`))} /><MenuItem icon="window" label={tr("ui617")} onClick={run(() => openWindow(`item:${it.id}`))} /><SystemItemPanel item={it} /></Popover>;
   const holder = 'holder' in it ? it.holder : null;
   const iHold = !!heldHammer(s);
   return (
@@ -248,6 +250,7 @@ function ItemPicker({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
       <section className="pickdetail" aria-label={tr("ui622", info.name)}>
         <div className="thumb" style={{ background: info.tint, color: info.ink }}><span>{info.mark}</span></div>
         <h3>{info.name}</h3>
+        <code>itemId: {selected.id}</code>
         <span className="sub">{tr("ui371")}{selected.creator}</span>
         <p>{info.desc}</p>
         <div className="tags">

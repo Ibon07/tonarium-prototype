@@ -1,4 +1,5 @@
 export default {
+  sharedSystems: '共有システム',
   updateSettings: '更新設定',
   updateRetry: '再試行',
   updateAudioNeedsClick: 'ブラウザの自動再生制限により音声が停止しています。「再試行」を押すと再生を再開します。',

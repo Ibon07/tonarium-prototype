@@ -162,9 +162,10 @@ export function dropFollowers() {
 }
 
 export function selectNote(id: string | null) {
+  if (id && get().items[id]?.mapPlacement?.mode === 'system') return;
   const prev = get().selectedNote;
   if (prev === id) return;
-  if (prev) send({ t: 'itemAction', id: prev, action: { a: 'noteLock', lock: false } });
+  if (prev && get().items[prev]?.mapPlacement?.mode !== 'system') send({ t: 'itemAction', id: prev, action: { a: 'noteLock', lock: false } });
   if (id) send({ t: 'itemAction', id, action: { a: 'noteLock', lock: true } });
   set({ selectedNote: id });
 }
