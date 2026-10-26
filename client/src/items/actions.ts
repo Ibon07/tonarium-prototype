@@ -51,16 +51,16 @@ export function itemAction(id: string, action: ItemAction) {
   send({ t: 'itemAction', id, action });
 }
 
-export function moveItem(id: string, x: number, z: number, ry: number) {
+export function moveItem(id: string, x: number, z: number, ry: number, transform: { y?: number; scale?: number } = {}) {
   if (get().items[id]?.mapPlacement?.mode === 'system') return;
   const sid = get().session;
   if (!sid) return;
   set((s) => {
     const it = s.itemsBy[sid]?.[id];
-    return it ? { itemsBy: { ...s.itemsBy, [sid]: { ...s.itemsBy[sid], [id]: { ...it, x, z, ry } } } } : {};
+    return it ? { itemsBy: { ...s.itemsBy, [sid]: { ...s.itemsBy[sid], [id]: { ...it, x, z, ry, ...transform } } } } : {};
   });
   recompute();
-  send({ t: 'itemMove', id, x, z, ry });
+  send({ t: 'itemMove', id, x, z, ry, ...transform });
 }
 
 export function setItemUi(id: string, ui: ItemUi) {

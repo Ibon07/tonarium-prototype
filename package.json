@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:media-placement": "tsx --test shared/media-placement.test.ts client/src/view3d/playerCamera.test.ts",
     "test:volume": "tsx --test client/src/volume.test.ts",
     "test:updates": "tsx --test client/src/updateFlow.test.ts && node --experimental-test-module-mocks --test client/src/updateRecovery.test.mjs client/src/updateRecording.test.mjs",
     "test:share": "tsx --test client/src/shareAnnotations.test.ts",

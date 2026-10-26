@@ -576,6 +576,7 @@ export default {
   "ui523": "▶ Video",
   "ui524": "❚❚ Video (click to play)",
   "ui525": "Right-click: place here",
+  "mediaPlacementControls": "Right / left click: place here · Wheel: distance · Shift + wheel: size",
   "ui526": "Click: hit {0}",
   "ui527": "Right-click: carry",
   "ui528": "X: put away",
