@@ -226,6 +226,8 @@ export function spawnPoint(): AvatarState {
   return { x: SPAWN.x + Math.sin(a) * r, z: SPAWN.z + Math.cos(a) * r, ry: 0 };
 }
 
+const savedAudioVol = load<Partial<State['audioVol']>>('tonarium.audioVol', {});
+
 export const useStore = create<State>((set, get) => ({
   adSpaceTarget: null,
   ...createAdSlice((p) => set(p as Partial<State>), () => get() as unknown as AdSlice),
@@ -295,7 +297,11 @@ export const useStore = create<State>((set, get) => ({
   voiceHeat: load('tonarium.voiceHeat', true),
   walk: null,
   volumes: {},
-  audioVol: load('tonarium.audioVol', { voice: 1, fx: 1, media: 1 }),
+  audioVol: {
+    voice: savedAudioVol.voice ?? 1,
+    fx: savedAudioVol.fx ?? 0.05,
+    media: savedAudioVol.media ?? 0.05,
+  },
   peerVolume: load('tonarium.peerVolume', {}),
   peerMuted: load('tonarium.peerMuted', []),
   hubOpen: false,
