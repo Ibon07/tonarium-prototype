@@ -1,4 +1,11 @@
 export default {
+  sessionLinkCopy: 'Copy session URL',
+  sessionActions: 'Session actions',
+  sessionLinkCopied: 'Session URL copied',
+  sessionLinkFailed: 'Could not copy. Check your browser permissions.',
+  sharedSession: 'Shared session',
+  sessionLinkLoading: 'Checking session…',
+  sessionLinkUnavailable: 'You cannot join this session',
   sharedSystems: 'Shared systems',
   updateSettings: 'Update settings',
   updateRetry: 'Retry',
