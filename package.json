@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:image-list": "tsx --test client/src/world/imageItemCreator.test.ts client/src/world/popoverPosition.test.ts",
     "test:volume": "tsx --test client/src/volume.test.ts",
     "test:updates": "tsx --test client/src/updateFlow.test.ts && node --experimental-test-module-mocks --test client/src/updateRecovery.test.mjs client/src/updateRecording.test.mjs",
     "test:share": "tsx --test client/src/shareAnnotations.test.ts",
@@ -28,8 +29,8 @@
     "check:shared-systems-docs": "tsx scripts/shared-system-docs.ts --check",
     "test:shared-systems-docs": "tsx --test scripts/shared-system-docs.test.ts",
     "test:movement": "tsx --test client/src/movementSettings.test.ts client/src/view3d/movement.test.ts client/src/view3d/movementAbilities.test.ts client/src/view3d/crouch.test.ts client/src/view3d/jumpPad.test.ts shared/walking.test.ts",
-    "test:camera": "tsx --test client/src/view3d/playerCamera.test.ts client/src/view3d/cityPhysics.test.ts",
-    "test:xr": "tsx --test client/src/xr/input.test.ts",
+    "test:camera": "tsx --test client/src/view3d/playerCamera.test.ts client/src/view3d/cityPhysics.test.ts client/src/view3d/cameraPlacement.test.ts",
+    "test:xr": "tsx --test client/src/xr/input.test.ts client/src/xr/pose.test.ts",
     "test:mirror": "tsx --test client/src/view3d/mirrorReflection.test.ts",
     "test:gif": "tsx --test client/src/view3d/gifPlayback.test.ts client/src/view3d/imageTexture.test.ts",
     "check:changelog": "node scripts/check-changelog.mjs",

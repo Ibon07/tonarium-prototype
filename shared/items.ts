@@ -58,8 +58,8 @@ export type Item =
   | (ItemBase & { kind: 'g2048'; grid: number[]; score: number; over: boolean })
   | (ItemBase & { kind: 'canvas'; strokes: Stroke[] })
   /** live 中は operator のブラウザがカメラ視点を描いて配信する */
-  | (ItemBase & { kind: 'camera'; holder: string | null; pitch: number; live: boolean; operator: string | null })
-  | (ItemBase & { kind: 'image'; url: string; w: number; h: number })
+  | (ItemBase & { kind: 'camera'; holder: string | null; pitch: number; live: boolean; operator: string | null; cameraY?: number; groundY?: number })
+  | (ItemBase & { kind: 'image'; url: string; w: number; h: number; createdByName?: string })
   | (ItemBase & { kind: 'video'; url: string; w: number; h: number; clock: MediaClock })
   | (ItemBase & { kind: 'youtube'; videoId: string; title: string; clock: MediaClock })
   /** 結果をサーバーで検証・確定し、チャットにも残す。roll は最後に振った回 */
@@ -72,6 +72,7 @@ export const isChessItem = (item: Item): item is ChessItem => item.kind === 'che
 
 export const isHandheld = (i: Item) => i.kind === 'hammer' || i.kind === 'camera';
 export const ONLY_3D: Partial<Record<ItemKind, boolean>> = { camera: true, bike: true, mirror: true, jumpPad: true };
+export const DEFAULT_CAMERA_Y = 1.5;
 // 鏡は1枚ごとに全員の3D画面でシーン全体を追加描画するため、同時設置数に上限を設ける（ワールド常設の鏡は数えない）
 export const MIRROR_MAX = 4;
 export const canAddMirror = (items: Iterable<Item>) => [...items].filter((i) => i.kind === 'mirror').length < MIRROR_MAX;
@@ -86,7 +87,7 @@ export type ItemAction =
   | { a: 'noteEdit'; text?: string; color?: string }
   | { a: 'noteLock'; lock: boolean }
   | { a: 'pick' }
-  | { a: 'drop'; x: number; z: number; ry: number; pitch?: number }
+  | { a: 'drop'; x: number; z: number; ry: number; pitch?: number; cameraY?: number; groundY?: number }
   | { a: 'camLive'; on: boolean }
   | { a: 'chessMove'; from: number; to: number; revision: number; promotion?: Promotion }
   | { a: 'chessReset' }
@@ -284,8 +285,12 @@ export function applyItemAction(item: Item, act: ItemAction, userId: string, rng
         break;
       }
       if (act.a === 'drop' && item.holder === userId) {
+        if ((act.cameraY !== undefined && !Number.isFinite(act.cameraY)) ||
+            (act.groundY !== undefined && !Number.isFinite(act.groundY))) return false;
         item.holder = null;
         item.x = act.x; item.z = act.z; item.ry = fin(act.ry); item.pitch = fin(act.pitch ?? 0);
+        item.cameraY = act.cameraY ?? DEFAULT_CAMERA_Y;
+        item.groundY = act.groundY ?? 0;
         break;
       }
       if (act.a === 'camLive') {

@@ -3,13 +3,14 @@ import { CameraStand } from './cameraModel.tsx';
 export { CameraModel } from './cameraModel.tsx';
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Billboard } from '@react-three/drei';
+import { UprightBillboard } from './UprightBillboard.tsx';
 import * as THREE from 'three';
 import type { Item } from '../../../shared/items.ts';
 import { useStore, get, set, nameOf } from '../store.ts';
 import { camVideos, publishCamera } from '../net/livekit.ts';
 import { itemAction, removeItem } from '../items/actions.ts';
-import { CAM_Y, cameraModels, localFeeds, makeRenderer, renderCamera } from './cameraRender.ts';
+import { cameraModels, localFeeds, makeRenderer, renderCamera } from './cameraRender.ts';
+import { DEFAULT_CAMERA_Y } from './cameraPlacement.ts';
 import { carrying, type Interactable } from './interact.ts';
 
 type CameraItem = Item & { kind: 'camera' };
@@ -34,7 +35,7 @@ export function CamMonitor({ item, position }: { item: CameraItem; position: [nu
   useFrame(() => { if (own && tex) tex.needsUpdate = true; });
   if (!item.live) return null;
   return (
-    <Billboard position={position}>
+    <UprightBillboard position={position}>
       <mesh userData={{ noRay: true }}>
         <planeGeometry args={[0.72, 0.42]} />
         <meshBasicMaterial color="#111" />
@@ -47,7 +48,7 @@ export function CamMonitor({ item, position }: { item: CameraItem; position: [nu
         <circleGeometry args={[0.02, 12]} />
         <meshBasicMaterial color="#ef4444" />
       </mesh>
-    </Billboard>
+    </UprightBillboard>
   );
 }
 
@@ -70,6 +71,8 @@ export function Camera3D({ item }: { item: CameraItem }) {
     return () => { cameraModels.delete(item.id); };
   });
   if (item.holder) return null;
+  const groundY = item.groundY ?? 0;
+  const height = (item.cameraY ?? DEFAULT_CAMERA_Y) - groundY;
   const data: Interactable = {
     carry: item.id,
     remove: () => removeItem(item.id),
@@ -77,9 +80,9 @@ export function Camera3D({ item }: { item: CameraItem }) {
     use: () => itemAction(item.id, { a: 'pick' }),
   };
   return (
-    <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry} userData={data}>
-      <CameraStand pitch={item.pitch} live={item.live} modelRef={model} />
-      <CamMonitor item={item} position={[0, CAM_Y + 0.42, 0]} />
+    <group ref={ref} position={[item.x, groundY, item.z]} rotation-y={item.ry} userData={data}>
+      <CameraStand height={height} pitch={item.pitch} live={item.live} modelRef={model} />
+      <CamMonitor item={item} position={[0, height + 0.42, 0]} />
     </group>
   );
 }
