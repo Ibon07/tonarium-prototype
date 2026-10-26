@@ -1,9 +1,9 @@
 name: Shared system submission checks
 
 on:
-  pull_request_target:
+  pull_request:
     branches: [main]
-    paths: ['shared-systems/**']
+    paths: ['shared-systems/**', '.github/workflows/shared-systems.yml']
   push:
     branches: [main]
     paths: ['shared-systems/**']
@@ -48,12 +48,12 @@ jobs:
           BASE_COMMIT: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
         run: node --experimental-transform-types trusted/scripts/check-system-submission.ts submission "$CANDIDATE_COMMIT" baseline "$BASE_COMMIT"
       - name: Prepare exact merged content
-        if: github.event_name != 'pull_request_target'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           RELEASE_COMMIT: ${{ github.sha }}
         run: node --experimental-transform-types trusted/scripts/systems.ts prepare submission system-bundle "$RELEASE_COMMIT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: github.event_name != 'pull_request_target'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: shared-systems-${{ github.sha }}
           path: system-bundle
