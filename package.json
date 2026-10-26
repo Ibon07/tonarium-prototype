@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:session-links": "tsx --test shared/session-links.test.ts server/session-links.integration.test.ts",
     "test:image-list": "tsx --test client/src/world/imageItemCreator.test.ts client/src/world/popoverPosition.test.ts",
     "test:volume": "tsx --test client/src/volume.test.ts",
     "test:updates": "tsx --test client/src/updateFlow.test.ts && node --experimental-test-module-mocks --test client/src/updateRecovery.test.mjs client/src/updateRecording.test.mjs",

@@ -1,4 +1,11 @@
 export default {
+  sessionLinkCopy: '세션 URL 복사',
+  sessionActions: '세션 작업',
+  sessionLinkCopied: '세션 URL을 복사했습니다',
+  sessionLinkFailed: '복사하지 못했습니다. 브라우저 권한을 확인하세요.',
+  sharedSession: '공유된 세션',
+  sessionLinkLoading: '세션 확인 중…',
+  sessionLinkUnavailable: '이 세션에 참가할 수 없습니다',
   imageItemBy: '{0}님의 이미지',
   sharedSystems: '공유 시스템',
   updateSettings: '업데이트 설정',

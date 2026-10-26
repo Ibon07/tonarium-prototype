@@ -1,4 +1,11 @@
 export default {
+  sessionLinkCopy: 'セッションURLをコピー',
+  sessionActions: 'セッションの操作',
+  sessionLinkCopied: 'セッションURLをコピーしました',
+  sessionLinkFailed: 'コピーできませんでした。ブラウザの権限を確認してください',
+  sharedSession: '共有されたセッション',
+  sessionLinkLoading: 'セッションを確認しています…',
+  sessionLinkUnavailable: 'このセッションには参加できません',
   imageItemBy: '{0}の画像',
   sharedSystems: '共有システム',
   updateSettings: '更新設定',
