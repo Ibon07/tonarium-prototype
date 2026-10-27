@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { WebSocket } from 'ws';
 import type { NpcChatRequest } from '../shared/npc.ts';
 import { NPC_PUBLIC } from '../shared/npc.ts';
-import { isRoomClientMsg } from '../shared/protocol.ts';
+import { COMPAT_VERSION, isRoomClientMsg } from '../shared/protocol.ts';
 import { NpcChat, npcAllowedFacts, npcCanonicalReply, npcEndpoint, npcSystemPrompt } from './npc.ts';
 import { NPC_SERVER } from './npc-catalog.ts';
 import { npcDefinitionSpeech, npcPersonalitySpeech } from './npc-info-speech.ts';
@@ -636,7 +636,7 @@ test('home WebSocket NPC works after hello without joining a session and uses it
     const messages: { t: string; requestId?: string; text?: string; error?: string; model?: string; npcId?: string; locale?: string; relationship?: string }[] = [];
     ws.on('message', data => messages.push(JSON.parse(String(data))));
     await new Promise<void>((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
-    ws.send(JSON.stringify({ t: 'hello', id, name: id }));
+    ws.send(JSON.stringify({ t: 'hello', compat: COMPAT_VERSION, id, name: id }));
     await until(() => messages.find(m => m.t === 'snapshot'));
     return { ws, messages };
   };

@@ -1,3 +1,7 @@
+import { t as tr } from '../i18n/index.ts';
+import { openMarketLink } from '../market/navigation.ts';
+import { marketProductFromUrl } from '../../../shared/market-links.ts';
+import { MARKET_PRODUCTS } from '../i18n/static.ts';
 import { useEffect, useState } from 'react';
 import { useStore, set } from '../store.ts';
 
@@ -8,7 +12,7 @@ const ogpCache = new Map<string, Promise<Ogp | null>>();
 
 const askOpen = (url: string) => (e: React.MouseEvent) => {
   e.preventDefault();
-  set({ openUrl: url });
+  if (!openMarketLink(url)) set({ openUrl: url });
 };
 
 export const firstUrl = (text: string) => text.match(URL_RE)?.[0] ?? null;
@@ -29,6 +33,7 @@ export function Linkified({ text }: { text: string }) {
 export function OgpCard({ url }: { url: string }) {
   const [ogp, setOgp] = useState<Ogp | null>(null);
   useEffect(() => {
+    if (marketProductFromUrl(url, location.origin)) return;
     let alive = true;
     let p = ogpCache.get(url);
     if (!p) {
@@ -38,6 +43,8 @@ export function OgpCard({ url }: { url: string }) {
     void p.then((o) => { if (alive) setOgp(o); });
     return () => { alive = false; };
   }, [url]);
+  const product = MARKET_PRODUCTS.find((p) => p.id === marketProductFromUrl(url, location.origin));
+  if (product) return <a className="ogp" href={url} onClick={askOpen(url)}><span className="ogptext"><span className="ogpsite">{tr("ui155")}</span><b>{product.name}</b><span className="ogpdesc">{product.description}</span></span></a>;
   if (!ogp) return null;
   return (
     <a className="ogp" href={url} target="_blank" rel="noopener noreferrer" onClick={askOpen(url)}>
@@ -60,13 +67,13 @@ export function ConfirmOpen() {
   try { host = new URL(url).host; } catch { /* そのまま出す */ }
   return (
     <div className="modalbg light" onClick={cancel}>
-      <div role="alertdialog" aria-modal="true" aria-label="外部サイトを開く確認" className="confirm" onClick={(e) => e.stopPropagation()}>
-        <h2>外部サイトを開きますか？</h2>
-        <span className="sub wrap"><b>{host}</b> を新しいタブで開きます。</span>
+      <div role="alertdialog" aria-modal="true" aria-label={tr("ui595")} className="confirm" onClick={(e) => e.stopPropagation()}>
+        <h2>{tr("ui596")}</h2>
+        <span className="sub wrap"><b>{host}</b> {tr("ui597")}</span>
         <code className="openurl">{url}</code>
         <div className="row end">
-          <button onClick={cancel}>キャンセル</button>
-          <button className="dark" autoFocus onClick={() => { window.open(url, '_blank', 'noopener,noreferrer'); cancel(); }}>開く</button>
+          <button onClick={cancel}>{tr("ui338")}</button>
+          <button className="dark" autoFocus onClick={() => { window.open(url, '_blank', 'noopener,noreferrer'); cancel(); }}>{tr("ui598")}</button>
         </div>
       </div>
     </div>

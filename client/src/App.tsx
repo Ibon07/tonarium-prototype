@@ -1,3 +1,8 @@
+import { t as tr, useLanguage } from './i18n/index.ts';
+import { LanguageSelect } from './i18n/LanguageSelect.tsx';
+import { UpdateRecoveryNotice } from './UpdateRecoveryNotice.tsx';
+import { useUpdateDraft } from './updateDraft.ts';
+import { useMarketNavigation } from './market/navigation.ts';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useStore, set, get } from './store.ts';
 import { connectWs } from './net/ws.ts';
@@ -5,10 +10,12 @@ import { iconUrl } from './icon.ts';
 import { ProfileDialog } from './Profile.tsx';
 import { HammerCursor, Lightbox } from './world/common.tsx';
 import { Home } from './home/Home.tsx';
-import { WorldScreen } from './world/WorldScreen.tsx';
+import { Toast, WorldScreen } from './world/WorldScreen.tsx';
+import { SharedSession } from './home/SharedSession.tsx';
 import { PeekMascot, type MascotHandle } from './world/Mascot.tsx';
 import { FEEDBACK_URL } from './feedback.ts';
-import { MaintenanceOverlay, UpdateBanner } from './world/ServerNotices.tsx';
+import { CompatOverlay, MaintenanceOverlay, UpdateBanner } from './world/ServerNotices.tsx';
+import { XRControls } from './xr/XRControls.tsx';
 
 const NpcPrototype = lazy(() => import('./world/NpcChat.tsx').then((m) => ({ default: m.NpcPrototype })));
 const FantasyPlaytest = lazy(() => import('./world/FantasyPlaytest.tsx').then((m) => ({ default: m.FantasyPlaytest })));
@@ -17,7 +24,9 @@ function startNpcPrototype() {
   if (get().joined) return;
   let name = 'Traveler';
   try { name = localStorage.getItem('tonarium.name')?.trim() || name; } catch {}
-  set({ selfId: loadId(), selfName: name, joined: true });
+  const id = loadId();
+  set({ selfId: id, selfName: name, joined: true });
+  useStore.getState().adBindTonarium(id, name);
   connectWs();
 }
 
@@ -48,7 +57,7 @@ function JoinScreen() {
     }, 250);
     return () => { alive = false; clearTimeout(t); };
   }, [name]);
-  const [profile, setProfile] = useState(false);
+  const [profile, setProfile] = useUpdateDraft('profile.join', false);
   const closeProfile = () => {
     setProfile(false);
     const n = name.trim();
@@ -66,9 +75,12 @@ function JoinScreen() {
     (v.length % 2 ? tona : rimu).current?.hop();
   };
   const join = () => {
-    const n = name.trim() || 'ゲスト';
+    const n = name.trim() || tr("ui6");
     try { localStorage.setItem('tonarium.name', n); } catch { /* ignore */ }
-    set({ selfId: loadId(), selfName: n, joined: true });
+    const id = loadId();
+    set({ selfId: id, selfName: n, joined: true });
+    // AD の進行は Tonarium の ID に紐付けて開始する（認証として信用はしない）
+    useStore.getState().adBindTonarium(id, n);
     connectWs();
   };
   return (
@@ -79,35 +91,37 @@ function JoinScreen() {
         <PeekMascot who="rimu" ref={rimu} />
         <div className="join">
           <h1 className="joinlogo"><img src="/brand/logo.png" alt="Tonarium" /></h1>
-          <p>2D と 3D を行き来できるワールド（プロトタイプ）</p>
+          <p>{tr("ui7")}</p>
           <div className="joinicon">
-            <button className="avbtn" title="アイコン・3D アバターを設定" onClick={() => setProfile(true)} disabled={!name.trim()}>
+            <button className="avbtn" title={tr("ui8")} onClick={() => setProfile(true)} disabled={!name.trim()}>
               {icon ? <img className="av" src={icon} alt="" /> : <div className="av noicon">{name.trim().slice(0, 1) || '?'}</div>}
             </button>
-            <small>{name.trim() ? 'クリックでアイコン・3D アバター・自己紹介を設定' : '名前を入れるとプロフィールを設定できます'}</small>
+            <small>{name.trim() ? tr("ui9") : tr("ui10")}</small>
           </div>
-          <label htmlFor="joinname">表示名</label>
+          <label htmlFor="joinname">{tr("ui11")}</label>
           <input
             id="joinname" autoFocus value={name} maxLength={24}
             onChange={(e) => typed(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && join()}
           />
-          <button className="primary" onClick={join}>はじめる</button>
-          <small>推奨: デスクトップ版 Chrome / Edge</small>
+          <LanguageSelect />
+          <button className="primary" onClick={join}>{tr("ui12")}</button>
+          <small>{tr("ui13")}</small>
+          <a className="join-download" href="https://github.com/katteni-kaihatu/tonarium-prototype/releases" target="_blank" rel="noreferrer">{tr('desktopDownload')}</a>
         </div>
       </div>
-      <aside className="joinnotice" aria-label="このサイトについて">
+      <aside className="joinnotice" aria-label={tr("ui14")}>
         <div className="jnbody">
-          <h2><span className="jnsign" aria-hidden="true">!</span>このサイトについて</h2>
+          <h2><span className="jnsign" aria-hidden="true">!</span>{tr("ui14")}</h2>
           <p className="jnlead">
-            <span>Tonarium は、<b>理想のユーザー体験を試すためのプロトタイプ</b>です。</span>
-            <span>性能や安全性などの現実的な制約は後回しにしているため、<b>実際の完成形は大きく変わります</b>。</span>
-            <span>試験終了後は、<b>ソースコードもデータもすべて破棄</b>し、引き継ぎません。</span>
+            <span>{tr("ui15")}<b>{tr("ui16")}</b>{tr("ui17")}</span>
+            <span>{tr("ui18")}<b>{tr("ui19")}</b>。</span>
+            <span>{tr("ui20")}<b>{tr("ui21")}</b>{tr("ui22")}</span>
           </p>
           <ul>
-            <li>名前・アイコン・チャットなどは誰でも見られます。個人情報や大切な情報は入力しないでください</li>
-            <li>小さな VPS で動いています。たくさんのタブで入る、大きな画像を何度も送るなど、負荷をかけすぎないようにお願いします</li>
-            <li>気づいたことや「こうだったらいいのに」は、<a href={FEEDBACK_URL} target="_blank" rel="noreferrer">フィードバックフォーム</a>から気軽に送ってください</li>
+            <li>{tr("ui23")}</li>
+            <li>{tr("ui24")}</li>
+            <li>{tr("ui25")}<a href={FEEDBACK_URL} target="_blank" rel="noreferrer">{tr("ui26")}</a>{tr("ui27")}</li>
           </ul>
         </div>
       </aside>
@@ -116,18 +130,26 @@ function JoinScreen() {
 }
 
 export function App() {
+  useLanguage();
+  useMarketNavigation();
   const joined = useStore((s) => s.joined);
   const session = useStore((s) => s.session);
-  if (new URLSearchParams(location.search).get('npc') === '1') return <Suspense fallback={null}><NpcPrototype onStart={startNpcPrototype} /></Suspense>;
-  if (!joined) return <JoinScreen />;
-  if (new URLSearchParams(location.search).get('rpg') === '1') return <Suspense fallback={null}><FantasyPlaytest /></Suspense>;
+  const incompatible = useStore((s) => s.incompatible);
+  const params = new URLSearchParams(location.search);
   return (
     <>
-      {session ? <WorldScreen /> : <Home />}
+      <UpdateRecoveryNotice />
+      {params.get('npc') === '1' && !incompatible ? <Suspense fallback={null}><NpcPrototype onStart={startNpcPrototype} /></Suspense>
+        : !joined ? <JoinScreen /> : incompatible ? <CompatOverlay />
+        : params.get('rpg') === '1' ? <Suspense fallback={null}><FantasyPlaytest /></Suspense>
+        : session ? <WorldScreen /> : <Home />}
+      <SharedSession />
+      {!session && <Toast />}
       <Lightbox />
       <HammerCursor />
       <UpdateBanner />
       <MaintenanceOverlay />
+      <XRControls />
     </>
   );
 }

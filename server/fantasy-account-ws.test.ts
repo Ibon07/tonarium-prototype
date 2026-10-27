@@ -6,6 +6,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { WebSocket } from 'ws';
+import { COMPAT_VERSION } from '../shared/protocol.ts';
 import { applyFantasyAction, newFantasyProfile } from '../shared/fantasy-engine.ts';
 import type { FantasyProfile } from '../shared/fantasy.ts';
 import type { FantasyAccountResponse } from '../shared/fantasy-account.ts';
@@ -58,7 +59,7 @@ async function isolated(t:TestContext,options:{friends?:[string,string][]}={}){
       const marker=Buffer.from(crypto.randomUUID()),timer=setTimeout(()=>{socket.off('pong',done);reject(Error('WebSocket barrier timed out'));},5000);
       const done=(data:Buffer)=>{if(data.equals(marker)){clearTimeout(timer);socket.off('pong',done);resolve();}};socket.on('pong',done);socket.ping(marker);
     });
-    if(options.hello!==false){send({t:'hello',id,name:options.name??`Guest ${id}`});await wait(message=>message.t==='snapshot');}
+    if(options.hello!==false){send({t:'hello',compat: COMPAT_VERSION,id,name:options.name??`Guest ${id}`});await wait(message=>message.t==='snapshot');}
     return{socket,messages,send,wait,barrier,id};
   }
   const profile=(id:string)=>readFantasySavedProfiles(file)[id];
@@ -70,7 +71,7 @@ test('world accounts deny anonymous legacy IDs, forged reserved identities, wron
   anonymous.send({t:'join',sid:'account-world'});anonymous.send({t:'fantasyAction',revision:fixture.legacy.revision,action:{type:'sync'}});anonymous.send({t:'fantasyRealmRequest',domain:'economy',command:{type:'sync'}});anonymous.send({t:'fantasyContracts'});await anonymous.barrier();
   assert.deepEqual(anonymous.messages.filter(message=>privateTypes.has(message.t)),[]);assert.ok(!JSON.stringify(anonymous.messages).includes('PRIVATE_LEGACY_HERO'));
   const registered=await fixture.http('register',{username:'world_owner',password});assert.equal(registered.status,200);assert.ok(registered.body.account);
-  const forged=await fixture.peer(registered.body.account.principal,{hello:false});forged.send({t:'hello',id:registered.body.account.principal,name:'Forged owner'});forged.send({t:'join',sid:'account-world'});forged.send({t:'fantasyAction',revision:0,action:{type:'sync'}});await forged.barrier();assert.deepEqual(forged.messages.filter(message=>privateTypes.has(message.t)),[]);
+  const forged=await fixture.peer(registered.body.account.principal,{hello:false});forged.send({t:'hello',compat: COMPAT_VERSION,id:registered.body.account.principal,name:'Forged owner'});forged.send({t:'join',sid:'account-world'});forged.send({t:'fantasyAction',revision:0,action:{type:'sync'}});await forged.barrier();assert.deepEqual(forged.messages.filter(message=>privateTypes.has(message.t)),[]);
   const cross=await fixture.peer('other-browser',{cookie:registered.cookie,origin:'https://other-origin.invalid'});cross.send({t:'join',sid:'account-world'});await cross.barrier();
   assert.ok(cross.messages.some(message=>message.t==='fantasyAccountState'&&message.account===null));assert.deepEqual(cross.messages.filter(message=>privateTypes.has(message.t)),[]);
   const start=cross.messages.length;cross.send({t:'fantasyAccountBind',ticket:'x'.repeat(43)});await cross.barrier();assert.ok(cross.messages.slice(start).some(message=>message.t==='fantasyAccountState'&&message.error==='unauthenticated'));assert.deepEqual(cross.messages.filter(message=>privateTypes.has(message.t)),[]);
@@ -94,11 +95,18 @@ test('world accounts preserve separate Tonarium friends, DMs, groups, profiles a
   second.send({t:'groupCreate',name:'Bob own group',color:'#abcdef'});
   await observer.wait(message=>message.t==='groups'&&Array.isArray(message.list)&&(message.list as {name:string;owner:string}[]).some(group=>group.name==='Bob own group'&&group.owner===bob),groupAt);
   const newcomer=await fixture.peer('common-new-friend',{name:newFriend});const friendAt=newcomer.messages.length;
-  first.send({t:'friendRequest',to:'common-new-friend'});
-  const invitation=await newcomer.wait(message=>message.t==='friendRequest',friendAt);assert.equal(invitation.from,'home-alice');assert.equal(invitation.fromName,alice);
-  const aliceFriendsAt=first.messages.length,bobPrivateAt=second.messages.length;newcomer.send({t:'friendAccept',to:'home-alice'});
-  await first.wait(message=>message.t==='friends'&&Array.isArray(message.names)&&message.names.includes(newFriend),aliceFriendsAt);await second.barrier();
+  first.send({t:'followUser',name:newFriend,on:true});
+  const invitation=await newcomer.wait(message=>message.t==='followed',friendAt);assert.equal(invitation.from,'home-alice');assert.equal(invitation.fromName,alice);
+  const aliceFriendsAt=first.messages.length,bobPrivateAt=second.messages.length;newcomer.send({t:'followUser',name:alice,on:true});
+  const followed=await first.wait(message=>message.t==='followed'&&message.from==='common-new-friend',aliceFriendsAt);assert.equal(followed.fromName,newFriend);
+  await first.wait(message=>message.t==='friends'&&Array.isArray(message.names)&&message.names.includes(newFriend),aliceFriendsAt);
+  await first.wait(message=>message.t==='follows'&&Array.isArray(message.following)&&message.following.includes(newFriend)&&Array.isArray(message.followers)&&message.followers.includes(newFriend),aliceFriendsAt);await second.barrier();
   assert.ok(!second.messages.slice(bobPrivateAt).some(message=>message.t==='friends'&&Array.isArray(message.names)&&message.names.includes(newFriend)));
+  assert.ok(!second.messages.slice(bobPrivateAt).some(message=>message.t==='followed'&&message.from==='common-new-friend'));
+  for(const message of second.messages.slice(bobPrivateAt).filter(message=>message.t==='follows')) {
+    assert.ok(Array.isArray(message.following)&&!message.following.includes(newFriend));
+    assert.ok(Array.isArray(message.followers)&&!message.followers.includes(newFriend));
+  }
   const conv=`dm:${[alice,newFriend].sort().join('\u0000')}`,incoming='ALICE_ONLY_PRIVATE_MESSAGE',outgoing='ALICE_ONLY_PRIVATE_REPLY';
   const aliceDmAt=first.messages.length,newcomerDmAt=newcomer.messages.length;newcomer.send({t:'msg',conv,text:incoming});
   await first.wait(message=>message.t==='msg'&&(message.m as {text?:string})?.text===incoming,aliceDmAt);first.send({t:'msg',conv,text:outgoing});

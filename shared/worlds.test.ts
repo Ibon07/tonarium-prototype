@@ -106,3 +106,10 @@ test('positions throughout the existing spawn disk remain unchanged', () => {
     }
   }
 });
+
+test('isWorldKind rejects inherited property names', () => {
+  assert.equal(isWorldKind('room'), true);
+  assert.equal(isWorldKind('__proto__'), false);
+  assert.equal(isWorldKind('constructor'), false);
+  assert.equal(isWorldKind('toString'), false);
+});

@@ -1,39 +1,94 @@
+import { arrivalPatch, initialArrivalState } from './newArrival.ts';
+import { sourceText as uiSource } from './i18n/core.ts';
+import { msg } from './i18n/core.ts';
 import type { ChatMedia, ChatScope, ClientMsg, Mode, Rsvp, StatusKind, Visibility } from '../../shared/protocol.ts';
 import type { WorldKind } from '../../shared/worlds.ts';
 import { approach } from '../../shared/places.ts';
 import { clampRoomPos } from './items/actions.ts';
 import { get, set, recompute, spawnPoint, save, nameOf, showToast, dropSession, type Notice } from './store.ts';
-import { send } from './net/ws.ts';
+import { requestSession, send } from './net/ws.ts';
 import { connectVoice, leaveVoice } from './net/livekit.ts';
 import { startSessionSync, stopSessionSync } from './net/session.ts';
 import { placesOf, resumeAudio } from './spatial.ts';
 import { touchOnly } from './phone.ts';
 import { stopWalk } from './walk.ts';
 
-export function joinSession(sid: string) {
+let sessionOperation = false;
+
+async function enterSession(sid: string, requireVoice = false) {
   if (get().session === sid) { set({ hubOpen: false }); return; }
+  await exitSession();
+  try {
+    await requestSession({ t: 'join', sid });
+  } catch (error) {
+    // 応答だけが届かなかった場合も、サーバー側の参加を残さない。
+    await requestSession({ t: 'leave' }).catch(() => {});
+    throw error;
+  }
   selectNote(null);
-  resumeAudio();
   dropSession(get().session);
-  // フレンド申請と招待はセッションをまたいで残す
-  set((s) => ({ session: sid, mode: '2d', hubOpen: false, selfAvatar: spawnPoint(), windows: [], maxWin: null, notices: s.notices.filter((n) => n.kind === 'friend' || n.kind === 'invite' || n.kind === 'online') }));
+  // フォローの通知と招待はセッションをまたいで残す
+  set((s) => ({ ...initialArrivalState(), session: sid, mode: '2d', hubOpen: false, selfAvatar: spawnPoint(), windows: [], maxWin: null, notices: s.notices.filter((n) => n.kind === 'follow' || n.kind === 'invite' || n.kind === 'online') }));
   recompute();
-  send({ t: 'join', sid });
   startSessionSync();
-  void connectVoice(sid);
+  await connectVoice(sid);
+  if (requireVoice && get().voice !== 'connected') throw new Error(uiSource('ui0'));
   // 外で 3D を選んでいたら、入った後に 3D へ
-  if (get().joinMode === '3d' && !touchOnly) setTimeout(() => switchMode('3d'), 400);
+  if (get().joinMode === '3d' && !touchOnly) setTimeout(() => { if (get().session === sid) switchMode('3d'); }, 400);
 }
 
-export function leaveSession() {
+async function exitSession() {
   if (!get().session) return;
   selectNote(null);
   dropSession(get().session);
-  set({ session: null, mode: '2d', hubOpen: false, windows: [], maxWin: null });
+  set({ ...initialArrivalState(), session: null, mode: '2d', hubOpen: false, windows: [], maxWin: null });
   recompute();
-  send({ t: 'leave' });
   stopSessionSync();
-  void leaveVoice();
+  // 通話の切断も終えてから次の部屋につなぐ。
+  const results = await Promise.allSettled([requestSession({ t: 'leave' }), leaveVoice()]);
+  for (const result of results) if (result.status === 'rejected') throw result.reason;
+}
+
+async function withSessionOperation(action: () => Promise<void>) {
+  if (sessionOperation) return;
+  sessionOperation = true;
+  const before = get();
+  try {
+    await action();
+  } catch (error) {
+    let message = error instanceof Error ? error.message : uiSource('ui1');
+    try {
+      if (get().session !== before.session) {
+        await exitSession();
+        if (before.session) await enterSession(before.session);
+      }
+    } catch {
+      message += uiSource('ui2');
+    }
+    if (get().session === before.session) {
+      set({ mode: before.mode, hubOpen: before.hubOpen, homePage: before.homePage, selfAvatar: before.selfAvatar,
+        windows: before.windows, maxWin: before.maxWin, notices: before.notices });
+      if (before.session) { send({ t: 'mode', mode: before.mode }); send({ t: 'avatar', s: before.selfAvatar }); }
+    }
+    showToast(message);
+  } finally {
+    sessionOperation = false;
+  }
+}
+
+export function joinSession(sid: string) {
+  resumeAudio();
+  return withSessionOperation(() => enterSession(sid));
+}
+
+export async function reconnectForUpdate(sid: string) {
+  if (sessionOperation) throw new Error('セッションの接続操作が進行中です。');
+  sessionOperation = true;
+  try { await enterSession(sid); } finally { sessionOperation = false; }
+}
+
+export function leaveSession() {
+  return withSessionOperation(exitSession);
 }
 
 export function setMode(mode: Mode) {
@@ -54,6 +109,8 @@ export function setMode(mode: Mode) {
 export function switchMode(mode: Mode) {
   const s = get();
   if (s.switching || s.mode === mode || !s.session || (mode === '3d' && touchOnly)) return;
+  // 疑似ローディングの間に 3D のチャンクを先読みしておく（WorldScreen の lazy と同じモジュール）
+  if (mode === '3d') void import('./view3d/View3D.tsx');
   const dur = (1000 + Math.random() * 1000) * s.loadScale;
   if (dur < 50) { setMode(mode); return; }
   set({ switching: { to: mode, dur } });
@@ -66,6 +123,11 @@ export function switchMode(mode: Mode) {
 export function setMapMode(mapMode: 'none' | '2d' | '3d') {
   set({ mapMode });
   save('tonarium.mapMode', mapMode);
+}
+
+export function setVoiceHeat(voiceHeat: boolean) {
+  set({ voiceHeat });
+  save('tonarium.voiceHeat', voiceHeat);
 }
 
 export function setLightweight(lightweight: boolean) {
@@ -100,9 +162,10 @@ export function dropFollowers() {
 }
 
 export function selectNote(id: string | null) {
+  if (id && get().items[id]?.mapPlacement?.mode === 'system') return;
   const prev = get().selectedNote;
   if (prev === id) return;
-  if (prev) send({ t: 'itemAction', id: prev, action: { a: 'noteLock', lock: false } });
+  if (prev && get().items[prev]?.mapPlacement?.mode !== 'system') send({ t: 'itemAction', id: prev, action: { a: 'noteLock', lock: false } });
   if (id) send({ t: 'itemAction', id, action: { a: 'noteLock', lock: true } });
   set({ selectedNote: id });
 }
@@ -127,19 +190,25 @@ export function goNear(target: string) {
 }
 
 export const poke = (to: string) => send({ t: 'poke', to });
-export const friendRequest = (to: string) => send({ t: 'friendRequest', to });
-
-export function friendAccept(to: string, noticeId: number) {
-  send({ t: 'friendAccept', to });
-  set((s) => ({ notices: s.notices.filter((n) => n.id !== noticeId) }));
+/** フォローはすぐ手元にも反映する（届いた follows で上書きされる） */
+export function followUser(name: string, on: boolean) {
+  send({ t: 'followUser', name, on });
+  set((s) => ({ following: on ? [...new Set([...s.following, name])] : s.following.filter((n) => n !== name) }));
 }
 
 export const removeNotice = (noticeId: number) => set((s) => ({ notices: s.notices.filter((n) => n.id !== noticeId) }));
 
-export const createSession = (name: string, topic: string, world: WorldKind, visibility: Visibility, group?: string) =>
-  send({ t: 'sessionCreate', name, topic, world, visibility, group });
+export function createSession(name: string, topic: string, world: WorldKind, visibility: Visibility, group?: string) {
+  resumeAudio();
+  return withSessionOperation(async () => {
+    const reply = await requestSession({ t: 'sessionCreate', name, topic, world, visibility, group });
+    if (reply.t !== 'sessionCreated') throw new Error(uiSource('ui3'));
+    await enterSession(reply.sid, true);
+  });
+}
 export const deleteSession = (id: string) => send({ t: 'sessionDelete', id });
 export const createGroup = (name: string, color: string) => send({ t: 'groupCreate', name, color });
+export const updateGroup = (groupId: string, changes: { name?: string; editors?: string[] }) => send({ t: 'groupUpdate', groupId, ...changes });
 export const joinGroup = (id: string) => send({ t: 'groupJoin', id });
 export const leaveGroup = (id: string) => send({ t: 'groupLeave', id });
 export const deleteGroup = (id: string) => send({ t: 'groupDelete', id });
@@ -151,7 +220,7 @@ export const setStatus = (status: StatusKind, text: string) => send({ t: 'setSta
 export const watchFriend = (name: string, on: boolean) => send({ t: 'watch', name, on });
 export function askJoin(to: string) {
   send({ t: 'askJoin', to });
-  showToast(`${nameOf(to)} に「行ってもいい？」と聞きました`);
+  showToast(msg("ui4", nameOf(to)));
 }
 export const answerPlan = (conv: string, id: string, answer: Rsvp | null) => send({ t: 'rsvp', conv, id, answer });
 
@@ -178,7 +247,7 @@ export function openGroup(id: string, channel?: string) {
 export const deleteEvent = (id: string) => send({ t: 'eventDelete', id });
 export function invite(kind: 'session' | 'group', id: string, to: string) {
   send({ t: 'invite', kind, id, to });
-  showToast(`${nameOf(to)} を誘いました`);
+  showToast(msg("ui5", nameOf(to)));
 }
 
 export function toggleBlock(name: string) {
@@ -206,5 +275,5 @@ export function markNoticesRead() {
 let noticeSeq = 0;
 export function pushNotice(kind: Notice['kind'], from: string, fromName = nameOf(from), key?: string) {
   if (get().blocked.includes(fromName)) return;
-  set((s) => ({ notices: [{ id: ++noticeSeq, kind, from, fromName, key, at: Date.now(), unread: true }, ...s.notices].slice(0, 30) }));
+  set((s) => ({ ...arrivalPatch('notice', s), notices: [{ id: ++noticeSeq, kind, from, fromName, key, at: Date.now(), unread: true }, ...s.notices].slice(0, 30) }));
 }

@@ -1,3 +1,4 @@
+import { t as tr, getLanguage } from '../i18n/index.ts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -19,13 +20,21 @@ const WALL_H = 4;
 const LAYER_COLORS = ['#ff7a8a', '#ffb347', '#ffe066', '#7ee08a', '#6ec6ff'];
 const STEPPED = new THREE.Color('#ff3b30');
 
+const joinerTickListeners = new Set<() => void>();
+let joinerTimer: ReturnType<typeof setInterval> | undefined;
+function subscribeJoinerTick(listener: () => void) {
+  joinerTickListeners.add(listener);
+  joinerTimer ??= setInterval(() => joinerTickListeners.forEach((l) => l()), 500);
+  return () => {
+    joinerTickListeners.delete(listener);
+    if (joinerTickListeners.size === 0 && joinerTimer) { clearInterval(joinerTimer); joinerTimer = undefined; }
+  };
+}
+
 /** 参加エリアにいる 3D の人（自分を含む） */
 function useJoiners() {
   const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((n) => n + 1), 500);
-    return () => clearInterval(t);
-  }, []);
+  useEffect(() => subscribeJoinerTick(() => tick((n) => n + 1)), [getLanguage()]);
   const s = get();
   return s.participants.filter((u) => {
     if (u.mode !== '3d') return false;
@@ -38,32 +47,66 @@ function useJoiners() {
 function Tiles() {
   const ref = useRef<THREE.InstancedMesh>(null);
   const base = useMemo(() => Array.from({ length: TILE_COUNT }, (_, i) => new THREE.Color(LAYER_COLORS[tileCenter(i).layer])), []);
+  const centers = useMemo(() => Array.from({ length: TILE_COUNT }, (_, i) => tileCenter(i)), []);
   const m = useMemo(() => new THREE.Matrix4(), []);
   const c = useMemo(() => new THREE.Color(), []);
   const pos = useMemo(() => new THREE.Vector3(), []);
   const scl = useMemo(() => new THREE.Vector3(), []);
   const q = useMemo(() => new THREE.Quaternion(), []);
+  // 各タイルの書き込み済み状態。undefined=未書き込み、null=静止（未踏）を書き込み済み、数値=その消滅時刻を処理中
+  const written = useRef<(number | null | undefined)[]>(Array(TILE_COUNT).fill(undefined));
+  // 消滅時刻を過ぎて縮小済みのタイルは、行列が縮小したまま変わらない（中心位置は見た目に影響しない）
+  const goneWritten = useRef<boolean[]>(Array(TILE_COUNT).fill(false));
   useFrame(() => {
     const mesh = ref.current;
     if (!mesh) return;
     const g = gameOfSession();
     const now = serverNow();
+    let matrixDirty = false;
+    let colorDirty = false;
     for (let i = 0; i < TILE_COUNT; i++) {
-      const t = tileCenter(i);
       const at = g.tiles[i];
-      const left = at === undefined ? Infinity : at - now;
-      scl.setScalar(left <= 0 ? 0 : 1);
-      // 消える直前ほど大きく震える
+      if (at === undefined) {
+        // 未踏のタイルは静止画そのもの。初回と、踏まれた後に盤面が戻ったときだけ書く
+        if (written.current[i] === null) continue;
+        const t = centers[i];
+        pos.set(t.x, t.y - TILE_THICK / 2, t.z);
+        scl.setScalar(1);
+        m.compose(pos, q, scl);
+        mesh.setMatrixAt(i, m);
+        mesh.setColorAt(i, base[i]);
+        written.current[i] = null;
+        goneWritten.current[i] = false;
+        matrixDirty = colorDirty = true;
+        continue;
+      }
+      if (written.current[i] !== at) { written.current[i] = at; goneWritten.current[i] = false; }
+      if (goneWritten.current[i]) continue;
+      const left = at - now;
+      const t = centers[i];
+      if (left <= 0) {
+        pos.set(t.x, t.y - TILE_THICK / 2, t.z);
+        scl.setScalar(0);
+        m.compose(pos, q, scl);
+        mesh.setMatrixAt(i, m);
+        mesh.setColorAt(i, STEPPED);
+        goneWritten.current[i] = true;
+        matrixDirty = colorDirty = true;
+        continue;
+      }
+      // 消える直前ほど大きく震える。踏まれて消えるまでの間だけ毎フレーム書く
       const shake = left < TILE_BREAK_MS ? (1 - left / TILE_BREAK_MS) * 0.06 : 0;
       pos.set(t.x + (shake ? Math.sin(now / 17 + i) * shake : 0), t.y - TILE_THICK / 2, t.z + (shake ? Math.cos(now / 23 + i) * shake : 0));
+      scl.setScalar(1);
       m.compose(pos, q, scl);
       mesh.setMatrixAt(i, m);
       c.copy(base[i]);
-      if (left < Infinity) c.lerp(STEPPED, Math.min(1, 0.4 + (1 - left / TILE_BREAK_MS) * 0.6));
+      c.lerp(STEPPED, Math.min(1, 0.4 + (1 - left / TILE_BREAK_MS) * 0.6));
       mesh.setColorAt(i, c);
+      matrixDirty = colorDirty = true;
     }
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (matrixDirty) mesh.instanceMatrix.needsUpdate = true;
+    if (colorDirty && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   });
   return (
     // 境界球は最初に一度だけ（全部の板が原点にある時点で）計算されるので、そのままだと塔を見ても画面外と判定されて消える
@@ -83,7 +126,7 @@ function Tower() {
         <Box key={`${sx}${sz}`} p={[ARENA.x + sx * (ARENA.half + 0.3), (top + FALL_Y) / 2, ARENA.z + sz * (ARENA.half + 0.3)]} s={[0.4, top - FALL_Y, 0.4]} color="#d9dcff" />
       )))}
       {LAYER_Y.map((y, i) => (
-        <Label key={y} text={`${i + 1} 階`} position={[ARENA.x - ARENA.half - 0.3, y + 1.2, ARENA.z + ARENA.half + 0.3]} height={0.5} bg="rgba(40,44,90,.85)" />
+        <Label key={y} text={tr("ui488", i + 1)} position={[ARENA.x - ARENA.half - 0.3, y + 1.2, ARENA.z + ARENA.half + 0.3]} height={0.5} bg="rgba(40,44,90,.85)" />
       ))}
       {/* 奈落の底 */}
       <mesh rotation-x={-Math.PI / 2} position={[ARENA.x, FALL_Y, ARENA.z + 2]}>
@@ -108,10 +151,10 @@ function drawMonitor(canvas: HTMLCanvasElement, g: GameState, joiners: string[])
   ctx.font = font(800, 54);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText('板わたりサバイバル', 40, 50);
+  ctx.fillText(tr("ui489"), 40, 50);
   ctx.textAlign = 'right';
   ctx.font = font(700, 34);
-  const phase = g.phase === 'running' ? `プレイ中 · 残り ${g.players.filter((p) => p.out === null).length} 人` : g.phase === 'ended' ? '決着！' : '参加者募集中';
+  const phase = g.phase === 'running' ? tr("ui490", g.players.filter((p) => p.out === null).length) : g.phase === 'ended' ? tr("ui491") : tr("ui492");
   ctx.fillText(phase, W - 40, 50);
   ctx.textAlign = 'left';
   let y = 150;
@@ -120,28 +163,28 @@ function drawMonitor(canvas: HTMLCanvasElement, g: GameState, joiners: string[])
     ctx.fillStyle = '#ffd34d';
     ctx.font = font(900, 84);
     ctx.textAlign = 'center';
-    ctx.fillText(`🏆 ${w?.name ?? ''} の優勝！`, W / 2, y + 30);
+    ctx.fillText(tr("ui493", w?.name ?? ''), W / 2, y + 30);
     ctx.textAlign = 'left';
     y += 120;
   }
   if (g.phase === 'idle') {
     ctx.fillStyle = '#cfd3ff';
     ctx.font = font(700, 36);
-    ctx.fillText(`参加エリアに入って、横のボタンでスタート（${MIN_PLAYERS} 人から）`, 40, y);
+    ctx.fillText(tr("ui494", MIN_PLAYERS), 40, y);
     y += 60;
     ctx.fillStyle = '#fff';
-    ctx.fillText(`参加エリア：${joiners.length ? joiners.join('、') : 'まだ誰もいません'}`, 40, y);
+    ctx.fillText(tr("ui495", joiners.length ? joiners.join('、') : tr("ui496")), 40, y);
     y += 70;
     if (!g.winner) return;
     ctx.fillStyle = '#ffd34d';
-    ctx.fillText(`前回の優勝：${g.players.find((p) => p.id === g.winner)?.name ?? ''}`, 40, y);
+    ctx.fillText(tr("ui497", g.players.find((p) => p.id === g.winner)?.name ?? ''), 40, y);
     y += 56;
   }
   const list = g.phase === 'running' ? g.players : ranking(g);
   ctx.font = font(700, 34);
   list.forEach((p, i) => {
     if (y > canvas.height - 30) return;
-    const place = g.phase === 'running' ? (p.out === null ? '生存中' : '脱落') : `${i + 1} 位`;
+    const place = g.phase === 'running' ? (p.out === null ? tr("ui498") : tr("ui499")) : tr("ui500", i + 1);
     ctx.fillStyle = p.id === g.winner ? '#ffd34d' : p.out === null ? '#8ef0a8' : '#9aa0c8';
     ctx.fillText(`${place}`, 60, y);
     ctx.fillStyle = '#fff';
@@ -159,7 +202,7 @@ function MainMonitor() {
   useEffect(() => {
     drawMonitor(canvas, game, joiners);
     tex.needsUpdate = true;
-  }, [key]);
+  }, [key, getLanguage()]);
   return (
     <group position={[-H + 0.15, 2.4, -3]} rotation-y={Math.PI / 2} userData={{ noRay: true }}>
       <mesh position-z={-0.03}>
@@ -186,7 +229,7 @@ function JoinArea() {
         <ringGeometry args={[JOIN_AREA.r - 0.08, JOIN_AREA.r, 64]} />
         <meshBasicMaterial color="#ffd34d" />
       </mesh>
-      <Label text={`参加エリア（${n} 人）`} position={[0, 2.3, 0]} height={0.24} bg="rgba(120,90,0,.9)" />
+      <Label text={tr("ui501", n)} position={[0, 2.3, 0]} height={0.24} bg="rgba(120,90,0,.9)" />
     </group>
   );
 }
@@ -197,7 +240,7 @@ function StartButton() {
   const ready = game.phase === 'idle' && n >= MIN_PLAYERS;
   const data: Interactable = {
     use: () => send({ t: 'gameStart' }),
-    hint: game.phase !== 'idle' ? 'ゲーム中です' : ready ? 'クリック: ゲーム開始' : `参加エリアに ${MIN_PLAYERS} 人以上で開始できます`,
+    hint: game.phase !== 'idle' ? tr("ui502") : ready ? tr("ui503") : tr("ui504", MIN_PLAYERS),
   };
   return (
     <group position={[START_BUTTON.x, 0, START_BUTTON.z]} userData={data}>
@@ -206,7 +249,7 @@ function StartButton() {
         <cylinderGeometry args={[0.24, 0.26, 0.12, 24]} />
         <meshStandardMaterial color={ready ? '#ff3b5c' : '#7a7d99'} emissive={ready ? '#ff3b5c' : '#000'} emissiveIntensity={0.5} />
       </mesh>
-      <Label text={ready ? 'ゲーム開始' : game.phase === 'idle' ? `あと ${MIN_PLAYERS - n} 人` : 'ゲーム中'} position={[0, 1.55, 0]} height={0.2} bg={ready ? 'rgba(220,40,70,.95)' : 'rgba(40,44,90,.85)'} />
+      <Label text={ready ? tr("ui505") : game.phase === 'idle' ? tr("ui506", MIN_PLAYERS - n) : tr("ui507")} position={[0, 1.55, 0]} height={0.2} bg={ready ? 'rgba(220,40,70,.95)' : 'rgba(40,44,90,.85)'} />
     </group>
   );
 }

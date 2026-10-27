@@ -27,8 +27,12 @@ function ordered(moves: Move[]) {
   return moves.sort((a, b) => priority(b) - priority(a));
 }
 
-/** Iterative-deepening negamax. A short deadline bounds work per shared board. */
-export function chooseChessAiMove(state: ChessState, budgetMs = 60): Move | null {
+const SLICE_MS = 4;
+
+/** Iterative-deepening negamax. A short deadline bounds work per shared board.
+ * 探索を丸ごと同期で回すと最大で予算分だけイベントループを止めるため、
+ * ノードごとに時刻を見て、連続計算が数msを超えたら setImmediate へ譲る（盤面はこの呼び出し専用の Chess で共有されない）。 */
+export async function chooseChessAiMove(state: ChessState, budgetMs = 60): Promise<Move | null> {
   const view = chessView(state);
   if (view.over || view.turn !== 'b') return null;
   const game = new Chess(state.fen);
@@ -36,15 +40,25 @@ export function chooseChessAiMove(state: ChessState, budgetMs = 60): Move | null
   let best = candidates[0] ?? null;
   const deadline = performance.now() + budgetMs;
   let timedOut = false;
-  const search = (depth: number, alpha: number, beta: number, ply: number): number => {
-    if (performance.now() >= deadline) { timedOut = true; return 0; }
+  let sliceStart = performance.now();
+  const checkpoint = async (): Promise<boolean> => {
+    const now = performance.now();
+    if (now >= deadline) { timedOut = true; return true; }
+    if (now - sliceStart < SLICE_MS) return timedOut;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    sliceStart = performance.now();
+    if (sliceStart >= deadline) timedOut = true;
+    return timedOut;
+  };
+  const search = async (depth: number, alpha: number, beta: number, ply: number): Promise<number> => {
+    if (await checkpoint()) return 0;
     if (game.isCheckmate()) return -MATE + ply;
     if (game.isDraw()) return 0;
     if (depth === 0) return evaluate(game);
     let score = -Infinity;
     for (const move of ordered(game.moves({ verbose: true }))) {
       game.move(move);
-      const value = -search(depth - 1, -beta, -alpha, ply + 1);
+      const value = -await search(depth - 1, -beta, -alpha, ply + 1);
       game.undo();
       if (timedOut) return 0;
       score = Math.max(score, value);
@@ -58,7 +72,7 @@ export function chooseChessAiMove(state: ChessState, budgetMs = 60): Move | null
     let alpha = -Infinity;
     for (const move of candidates) {
       game.move(move);
-      const score = -search(depth - 1, -Infinity, -alpha, 1);
+      const score = -await search(depth - 1, -Infinity, -alpha, 1);
       game.undo();
       if (timedOut) break;
       if (score > alpha) { alpha = score; iterationBest = move; }
@@ -86,7 +100,9 @@ export function scheduleChessAiReply(item: ChessItem, current: () => Item | unde
   const expected = item.chess;
   return setTimeout(() => {
     if (current() !== item || item.chess !== expected) return;
-    const move = chooseChessAiMove(expected);
-    if (move && applyChessAiReply(item, expected, move)) publish();
+    // 探索は非同期に譲りながら進む。適用直前に applyChessAiReply が局面の世代を再検証する
+    void chooseChessAiMove(expected).then((move) => {
+      if (move && applyChessAiReply(item, expected, move)) publish();
+    }, (e: unknown) => console.error('chess ai failed', e));
   }, delayMs);
 }

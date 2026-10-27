@@ -7,6 +7,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { WebSocket } from 'ws';
+import { COMPAT_VERSION } from '../shared/protocol.ts';
 import { applyFantasyAction, newFantasyProfile } from '../shared/fantasy-engine.ts';
 import type { FantasyProfile } from '../shared/fantasy.ts';
 import type { FantasyGmReply } from '../shared/fantasy-gm.ts';
@@ -64,7 +65,7 @@ async function isolated(t: TestContext, location = 'hearth') {
   const messages: Message[] = []; socket.on('message', raw => messages.push(JSON.parse(String(raw)) as Message));
   await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
   const send = (message: unknown) => socket.send(JSON.stringify(message));
-  send({ t: 'hello', id: 'alice', name: 'Conversation Test' });
+  send({ t: 'hello', compat: COMPAT_VERSION, id: 'alice', name: 'Conversation Test' });
   await until(() => messages.find(message => message.t === 'fantasyProfile'));
   send({ t: 'join', sid: 'test-world' });
   send({ t: 'fantasyAction', revision: profile.revision, action: { type: 'sync' } });

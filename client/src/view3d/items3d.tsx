@@ -1,16 +1,20 @@
-import { chessView, chessLegalMoves, squareIndex } from '../../../shared/chess.ts';
+import { t as tr, systemText, getLanguage } from '../i18n/index.ts';
+import { HammerModel, ChessModel, NoteModel, PanelModel } from './itemModels.tsx';
+export { HammerModel } from './itemModels.tsx';
+import { chessView } from '../../../shared/chess.ts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Html } from '@react-three/drei';
-import { useFrame, type ThreeElements } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { ITEM_INFO, clockTime, type Item } from '../../../shared/items.ts';
+import { ITEM_INFO } from '../i18n/static.ts';
+import { clockTime, type Item } from '../../../shared/items.ts';
 import { useStore, get, nameOf, serverNow } from '../store.ts';
 import { videoEls, mediaVolume } from '../mediaSync.tsx';
 import { YouTubePlayer, youTubeDuration } from '../youtube.tsx';
 import { youTubeThumb } from '../media.ts';
 import { selectNote } from '../actions.ts';
 import { itemAction, removeItem } from '../items/actions.ts';
-import { COMPAT_ONLY, PANELS, chessSelect, chessPromote, chessReset, PROMOTIONS } from '../items/panels.ts';
+import { PANELS, chessSelect, chessPromote, chessReset, PROMOTIONS } from '../items/panels.ts';
 import { drawPanel } from '../items/PanelCanvas.tsx';
 import { carrying, type Interactable } from './interact.ts';
 import { drawText, makeCanvasTexture } from './textTexture.ts';
@@ -18,8 +22,57 @@ import { Camera3D } from './camera3d.tsx';
 import { Label } from './Label.tsx';
 import { removable, useFollow } from './itemHelpers.ts';
 import { Dice3D } from './dice3d.tsx';
+import { AntimatterItem3D } from './antimatterItem3d.tsx';
+import { bikeDisplay, requestBikeMount } from './bikeControl.ts';
+import { angleDelta } from '../../../shared/vehicle.ts';
+import { createBikeAudio } from './bikeAudio.ts';
+import { BikeModel } from './BikeModel.tsx';
+import { Telephone3D } from './telephone3d.tsx';
+import { Mirror3D } from './mirror3d.tsx';
+import { JumpPad3D } from './jumpPad3d.tsx';
+import { createImageTexture } from './imageTexture.ts';
+import { boardSize, mediaTransform } from '../../../shared/media-placement.ts';
+import { SystemItemBoundary } from '../systems/SystemItem.tsx';
 
-const NOTE_Y = 1.5;
+const TABLE_Y = 0.78;
+
+function Bike3D({ item }: { item: Extract<Item, { kind: 'bike' }> }) {
+  const sound = useRef<ReturnType<typeof createBikeAudio> | null>(null);
+  useEffect(() => {
+    sound.current = createBikeAudio();
+    return () => { sound.current?.dispose(); sound.current = null; };
+  }, []);
+  const ref = useRef<THREE.Group>(null);
+  const lean = useRef<THREE.Group>(null);
+  const front = useRef<THREE.Group>(null);
+  const wheels = useRef<(THREE.Group | null)[]>([]);
+  const initial = useRef({ position: [item.x, 0, item.z] as [number, number, number], ry: item.ry });
+  const rotation = useRef(item.wheel);
+  useFrame(({ camera }, dt) => {
+    const g = ref.current;
+    if (!g) return;
+    const local = bikeDisplay.get(item.id);
+    const state = local ?? item;
+    const distance = Math.hypot(camera.position.x - state.x, camera.position.z - state.z);
+    sound.current?.update(item.rider, state.speed, state.slipping, Math.max(0, 1 - distance / 18));
+    const c = !item.rider && carrying.current?.id === item.id ? carrying.current : null;
+    const k = local || c ? 1 : 1 - Math.exp(-12 * dt);
+    g.position.x += ((c?.x ?? state.x) - g.position.x) * k;
+    g.position.z += ((c?.z ?? state.z) - g.position.z) * k;
+    g.rotation.y += angleDelta(c?.ry ?? state.ry, g.rotation.y) * k;
+    if (lean.current) lean.current.rotation.z += (state.roll - lean.current.rotation.z) * k;
+    if (front.current) front.current.rotation.y = -state.steer;
+    rotation.current += (state.wheel - rotation.current) * k;
+    wheels.current.forEach(w => { if (w) w.rotation.x = -rotation.current; });
+  });
+  const data: Interactable = item.rider ? { hint: `${nameOf(item.rider)} が運転中` } : {
+    ...removable(item), bike: item.id, hint: 'E / クリック: 乗車（3m以内） ・ W/↑: アクセル ・ S/↓: ブレーキ ・ A/D: ハンドル',
+    use: () => requestBikeMount(item.id),
+  };
+  return <group ref={ref} position={initial.current.position} rotation-y={initial.current.ry} userData={data}>
+    <BikeModel lean={lean} front={front} wheelRef={(index, g) => { wheels.current[index] = g; }} />
+  </group>;
+}
 
 function Note3D({ item }: { item: Item & { kind: 'note' } }) {
   const selfId = useStore((s) => s.selfId);
@@ -29,71 +82,22 @@ function Note3D({ item }: { item: Item & { kind: 'note' } }) {
   useEffect(() => {
     const other = item.editingBy && item.editingBy !== selfId;
     drawText(canvas, [
-      { text: item.text || '（空の付箋）', color: item.text ? '#1c1917' : '#78716c', size: 64 },
-      ...(other ? [{ text: `✏ ${nameOf(item.editingBy)} が編集中`, size: 36, color: '#b91c1c' }] : []),
+      { text: item.text || tr("ui445"), color: item.text ? '#1c1917' : '#78716c', size: 64 },
+      ...(other ? [{ text: tr("ui512", nameOf(item.editingBy)), size: 36, color: '#b91c1c' }] : []),
     ], { bg: item.color });
     tex.needsUpdate = true;
-  }, [item.text, item.color, item.editingBy, participants, selfId, canvas, tex]);
+  }, [item.text, item.color, item.editingBy, participants, selfId, canvas, tex, getLanguage()]);
   const ref = useRef<THREE.Group>(null);
   useFollow(ref, item.id, item.x, item.z, item.ry);
   const data: Interactable = {
     ...removable(item),
-    hint: 'クリック: 編集',
+    hint: tr("ui513"),
     // 文字を打てるようにマウスのロックを外す
     use: () => { selectNote(item.id); document.exitPointerLock(); },
   };
   return (
     <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry} userData={data}>
-      <mesh position-y={(NOTE_Y - 0.6) / 2}>
-        <cylinderGeometry args={[0.03, 0.03, NOTE_Y - 0.6]} />
-        <meshStandardMaterial color="#78716c" />
-      </mesh>
-      <group position-y={NOTE_Y}>
-        <mesh>
-          <boxGeometry args={[1.6, 1.2, 0.04]} />
-          <meshStandardMaterial color={item.color} />
-        </mesh>
-        <mesh position-z={0.021}>
-          <planeGeometry args={[1.6, 1.2]} />
-          <meshBasicMaterial map={tex} toneMapped={false} />
-        </mesh>
-        <mesh position-z={-0.021} rotation-y={Math.PI}>
-          <planeGeometry args={[1.6, 1.2]} />
-          <meshBasicMaterial map={tex} toneMapped={false} />
-        </mesh>
-        {selected && (
-          <mesh>
-            <boxGeometry args={[1.72, 1.32, 0.06]} />
-            <meshBasicMaterial color="#f43f5e" wireframe />
-          </mesh>
-        )}
-      </group>
-    </group>
-  );
-}
-
-/** 柄が +Y、頭が Z 方向 */
-export function HammerModel(props: ThreeElements['group']) {
-  return (
-    <group {...props}>
-      <mesh position-y={0.28}>
-        <cylinderGeometry args={[0.025, 0.03, 0.56, 10]} />
-        <meshStandardMaterial color="#facc15" />
-      </mesh>
-      <group position-y={0.6} rotation-x={Math.PI / 2}>
-        <mesh>
-          <cylinderGeometry args={[0.1, 0.1, 0.22, 18]} />
-          <meshStandardMaterial color="#ef4444" />
-        </mesh>
-        <mesh position-y={0.13}>
-          <cylinderGeometry args={[0.11, 0.11, 0.05, 18]} />
-          <meshStandardMaterial color="#fde047" />
-        </mesh>
-        <mesh position-y={-0.13}>
-          <cylinderGeometry args={[0.11, 0.11, 0.05, 18]} />
-          <meshStandardMaterial color="#fde047" />
-        </mesh>
-      </group>
+      <NoteModel color={item.color} texture={tex} selected={selected} />
     </group>
   );
 }
@@ -104,7 +108,7 @@ function Hammer3D({ item }: { item: Item & { kind: 'hammer' } }) {
   if (item.holder) return null;
   const data: Interactable = {
     ...removable(item),
-    hint: 'クリック: ハンマーを拾う',
+    hint: tr("ui514"),
     use: () => itemAction(item.id, { a: 'pick' }),
   };
   return (
@@ -119,43 +123,12 @@ function Hammer3D({ item }: { item: Item & { kind: 'hammer' } }) {
   );
 }
 
-const SQ = 0.2;
-const TABLE_Y = 0.78;
-const PIECE_H: Record<string, number> = { P: 0.13, R: 0.16, N: 0.18, B: 0.2, Q: 0.23, K: 0.26 };
-
-function ChessPiece({ code }: { code: string }) {
-  const color = code[0] === 'w' ? '#f5f5f4' : '#27272a';
-  const t = code[1];
-  const h = PIECE_H[t];
-  const mat = <meshStandardMaterial color={color} roughness={0.4} />;
-  return (
-    <group>
-      <mesh position-y={0.02}><cylinderGeometry args={[0.07, 0.075, 0.04, 16]} />{mat}</mesh>
-      <mesh position-y={0.04 + (h - 0.06) / 2}><cylinderGeometry args={[0.035, 0.055, h - 0.06, 12]} />{mat}</mesh>
-      {t === 'P' && <mesh position-y={h}><sphereGeometry args={[0.045, 12, 10]} />{mat}</mesh>}
-      {t === 'R' && <mesh position-y={h}><cylinderGeometry args={[0.06, 0.055, 0.06, 8]} />{mat}</mesh>}
-      {t === 'N' && <mesh position={[0, h, 0.02]} rotation-x={-0.5}><boxGeometry args={[0.05, 0.1, 0.09]} />{mat}</mesh>}
-      {t === 'B' && <mesh position-y={h}><coneGeometry args={[0.045, 0.1, 12]} />{mat}</mesh>}
-      {t === 'Q' && <mesh position-y={h}><sphereGeometry args={[0.06, 14, 10]} />{mat}</mesh>}
-      {t === 'K' && (
-        <group position-y={h}>
-          <mesh><boxGeometry args={[0.025, 0.1, 0.025]} />{mat}</mesh>
-          <mesh position-y={0.015}><boxGeometry args={[0.07, 0.025, 0.025]} />{mat}</mesh>
-        </group>
-      )}
-    </group>
-  );
-}
-
 function Chess3D({ item }: { item: Item & { kind: 'chess' | 'chessAi' } }) {
   const ref = useRef<THREE.Group>(null);
   useFollow(ref, item.id, item.x, item.z, item.ry);
   const ui = useStore((s) => s.itemUi[item.id]);
   const active = ui?.chessRevision === item.chess.revision;
-  const sel = active ? ui?.sel : undefined;
   const view = chessView(item.chess);
-  const status = item.kind === 'chessAi' && view.turn === 'b' && !view.over ? 'AIが考えています…' : view.status;
-  const legal = sel === undefined ? [] : chessLegalMoves(item.chess, sel);
   const promoting = active && ui?.promotionTo !== undefined;
   const reset = () => {
     const it = get().items[item.id];
@@ -165,56 +138,23 @@ function Chess3D({ item }: { item: Item & { kind: 'chess' | 'chessAi' } }) {
     const it = get().items[item.id];
     if (it) chessSelect(it, get().itemUi[item.id] ?? {}, i);
   };
-  const sqData = (i: number): Interactable => ({ use: pick(i), hint: view.over ? view.status : `${view.status} · クリック: 駒を選ぶ / 動かす` });
-  return (
-    <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry}>
-      <Label text={status} position={[0, 1.5, 0]} height={0.17} />
-      <Label text={promoting ? '昇格する駒を選択 ↓' : active && ui?.chessMessage ? ui.chessMessage : item.kind === 'chessAi' ? '白：みんな / 黒：AI' : '手番の駒は誰でも操作できます'} position={[0, 1.28, 0]} height={0.09} />
+  const sqData = (i: number): Interactable => ({ use: pick(i), hint: view.over ? systemText(view.status) : tr("ui515", systemText(view.status)) });
+  return <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry}>
+    <ChessModel item={item} ui={ui} tableData={{ ...removable(item), hint: ITEM_INFO[item.kind].name }} sqData={sqData} actions={<>
       {promoting ? PROMOTIONS.map(([promotion, label], index) => (
         <group key={promotion} position={[(index - 1.5) * 0.46, TABLE_Y, 1.12]}
           userData={{ use: () => {
             const it = get().items[item.id];
             if (it) chessPromote(it, get().itemUi[item.id] ?? {}, promotion);
-          }, hint: `${label}に昇格` } satisfies Interactable}>
+          }, hint: tr("ui516", label) } satisfies Interactable}>
           <mesh><boxGeometry args={[0.43, 0.08, 0.25]} /><meshStandardMaterial color="#476b8c" /></mesh>
           <Label text={label} position={[0, 0.14, 0]} height={0.07} />
         </group>
-      )) : <group position={[0, TABLE_Y, 1.12]} userData={{ use: reset, hint: ui?.resetConfirm ? 'もう一度クリックして初期化' : '新しい対局を始める' } satisfies Interactable}>
+      )) : <group position={[0, TABLE_Y, 1.12]} userData={{ use: reset, hint: ui?.resetConfirm ? tr("ui517") : tr("ui518") } satisfies Interactable}>
         <mesh><boxGeometry args={[0.8, 0.08, 0.25]} /><meshStandardMaterial color="#476b8c" /></mesh>
-        <Label text={ui?.resetConfirm ? '初期化する？ クリックで確定' : '新しい対局'} position={[0, 0.14, 0]} height={0.08} />
-      </group>}
-      {/* 持ち運び・片付けは机に照準を合わせる */}
-      <group userData={{ ...removable(item), hint: ITEM_INFO[item.kind].name } satisfies Interactable}>
-        <mesh position-y={TABLE_Y - 0.03}>
-          <boxGeometry args={[1.9, 0.06, 1.9]} />
-          <meshStandardMaterial color="#5b3a1e" />
-        </mesh>
-        {[[-0.85, -0.85], [0.85, -0.85], [-0.85, 0.85], [0.85, 0.85]].map(([lx, lz]) => (
-          <mesh key={`${lx},${lz}`} position={[lx, (TABLE_Y - 0.06) / 2, lz]}>
-            <boxGeometry args={[0.08, TABLE_Y - 0.06, 0.08]} />
-            <meshStandardMaterial color="#4a2f18" />
-          </mesh>
-        ))}
-      </group>
-      {item.board.map((code, i) => {
-        const r = Math.floor(i / 8);
-        const c = i % 8;
-        const lx = (c - 3.5) * SQ;
-        const lz = (r - 3.5) * SQ;
-        const isLast = item.last && (item.last[0] === i || item.last[1] === i);
-        const color = view.check && code === `${view.turn}K` ? '#d96a59' : sel === i ? '#608bb0' : legal.some(m => squareIndex(m.to) === i) ? '#6d9e90' : isLast ? ((r + c) % 2 ? '#aaa23a' : '#cdd26a') : (r + c) % 2 ? '#b58863' : '#f0d9b5';
-        return (
-          <group key={i} position={[lx, TABLE_Y, lz]} userData={sqData(i)}>
-            <mesh position-y={0.01}>
-              <boxGeometry args={[SQ, 0.02, SQ]} />
-              <meshStandardMaterial color={color} />
-            </mesh>
-            {code && <group position-y={0.02}><ChessPiece code={code} /></group>}
-          </group>
-        );
-      })}
-    </group>
-  );
+        <Label text={ui?.resetConfirm ? tr("ui519") : tr("ui353")} position={[0, 0.14, 0]} height={0.08} />
+      </group>}</>} />
+  </group>;
 }
 
 const PANEL_H = 1.8;
@@ -234,7 +174,7 @@ function CompatPanel3D({ item }: { item: Item }) {
   useEffect(() => {
     drawPanel(canvas, item, ui ?? {});
     tex.needsUpdate = true;
-  }, [item, ui, canvas, tex]);
+  }, [item, ui, canvas, tex, getLanguage()]);
   const w = (PANEL_H * panel.w) / panel.h;
   const at = (hit: THREE.Intersection) => [hit.uv!.x * panel.w, (1 - hit.uv!.y) * panel.h] as const;
   const latest = () => [get().items[item.id] ?? item, get().itemUi[item.id] ?? {}] as const;
@@ -242,54 +182,30 @@ function CompatPanel3D({ item }: { item: Item }) {
     ...removable(item),
     ...(panel.drag
       ? {
-        hint: 'クリックしたまま照準を動かす: 描く',
+        hint: tr("ui520"),
         drag: (phase, hit) => {
           if (hit?.uv) panel.drag!(phase, ...at(hit), ...latest());
           else if (phase === 'end') panel.drag!('end', 0, 0, ...latest());
         },
       } satisfies Interactable
       : {
-        hint: 'クリック: 照準の位置を押す',
+        hint: tr("ui521"),
         use: (hit) => { if (hit.uv) panel.click(...at(hit), ...latest()); },
       } satisfies Interactable),
   };
   return (
     <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry}>
-      <mesh position-y={(1.6 - PANEL_H / 2) / 2}>
-        <cylinderGeometry args={[0.04, 0.04, 1.6 - PANEL_H / 2]} />
-        <meshStandardMaterial color="#4e5058" />
-      </mesh>
-      <mesh position={[0, 1.6, -0.03]}>
-        <boxGeometry args={[w + 0.08, PANEL_H + 0.08, 0.04]} />
-        <meshStandardMaterial color="#1e1f22" />
-      </mesh>
-      <mesh position-y={1.6} userData={data}>
-        <planeGeometry args={[w, PANEL_H]} />
-        <meshBasicMaterial map={tex} toneMapped={false} />
-      </mesh>
-      <Label
-        position={[0, 1.6 + PANEL_H / 2 + 0.18, 0]} height={0.16}
-        text={`${ITEM_INFO[item.kind].name}${COMPAT_ONLY[item.kind] ? ' ・ 互換モード' : ''}`}
-        bg={COMPAT_ONLY[item.kind] ? 'rgba(88,101,242,0.95)' : 'rgba(0,0,0,0.75)'}
-      />
+      <PanelModel item={item} width={w} texture={tex} data={data} />
     </group>
   );
 }
 
 const BOARD_Y = 1.6;
-/** 板の大きさ（m）。縦長も横長も収まるように */
-function boardSize(w: number, h: number): [number, number] {
-  const a = w / h;
-  let bw = 1.8;
-  let bh = bw / a;
-  if (bh > 1.3) { bh = 1.3; bw = bh * a; }
-  return [bw, bh];
-}
 
 type ClockItem = Item & { kind: 'video' | 'youtube' };
 const playToggle = (item: ClockItem): Interactable => ({
   ...removable(item),
-  hint: 'クリック: 再生／一時停止（みんな）',
+  hint: tr("ui522"),
   use: () => {
     const it = get().items[item.id];
     if (it?.kind !== 'video' && it?.kind !== 'youtube') return;
@@ -304,36 +220,39 @@ function Board({ item, w, h, data, children, label }: {
   item: Item; w: number; h: number; data: Interactable; children: React.ReactNode; label?: string;
 }) {
   const ref = useRef<THREE.Group>(null);
-  useFollow(ref, item.id, item.x, item.z, item.ry);
+  const floating = item.kind === 'image' || item.kind === 'video';
+  const { y, scale } = floating ? mediaTransform(item) : { y: 0, scale: 1 };
+  const center = floating ? 0 : BOARD_Y;
+  useFollow(ref, item.id, item.x, item.z, item.ry, y, scale);
   return (
-    <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry}>
-      <mesh position-y={(BOARD_Y - h / 2) / 2}>
+    <group ref={ref} position={[item.x, y, item.z]} rotation-y={item.ry} scale={scale} userData={floating ? { mediaItemId: item.id } : {}}>
+      {!floating && <mesh position-y={(BOARD_Y - h / 2) / 2}>
         <cylinderGeometry args={[0.04, 0.04, BOARD_Y - h / 2]} />
         <meshStandardMaterial color="#4e5058" />
-      </mesh>
-      <mesh position={[0, BOARD_Y, -0.03]}>
+      </mesh>}
+      <mesh position={[0, center, -0.03]}>
         <boxGeometry args={[w + 0.08, h + 0.08, 0.04]} />
         <meshStandardMaterial color="#1e1f22" />
       </mesh>
-      <mesh position-y={BOARD_Y} userData={data}>
+      <mesh position-y={center} userData={data}>
         <planeGeometry args={[w, h]} />
         {children}
       </mesh>
-      {label && <Label position={[0, BOARD_Y + h / 2 + 0.18, 0]} height={0.16} text={label} />}
+      {label && <Label position={[0, center + h / 2 + 0.18, 0]} height={0.16} text={label} />}
     </group>
   );
 }
 
 function Image3D({ item }: { item: Item & { kind: 'image' } }) {
-  const tex = useMemo(() => {
-    const t = new THREE.TextureLoader().load(item.url);
-    t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = 4;
-    return t;
+  const [media, setMedia] = useState<ReturnType<typeof createImageTexture> | null>(null);
+  useEffect(() => {
+    const loaded = createImageTexture(item.url);
+    setMedia(loaded);
+    return () => loaded.dispose();
   }, [item.url]);
-  useEffect(() => () => tex.dispose(), [tex]);
+  useFrame((_, dt) => media?.update(dt));
   const [w, h] = boardSize(item.w, item.h);
-  return <Board item={item} w={w} h={h} data={removable(item)}><meshBasicMaterial map={tex} toneMapped={false} /></Board>;
+  return <Board item={item} w={w} h={h} data={removable(item)}><meshBasicMaterial map={media?.texture ?? null} toneMapped={false} /></Board>;
 }
 
 function Video3D({ item }: { item: Item & { kind: 'video' } }) {
@@ -358,7 +277,7 @@ function Video3D({ item }: { item: Item & { kind: 'video' } }) {
   useEffect(() => () => tex?.dispose(), [tex]);
   const [w, h] = boardSize(item.w, item.h);
   return (
-    <Board item={item} w={w} h={h} data={playToggle(item)} label={item.clock.playing ? '▶ 動画' : '❚❚ 動画（クリックで再生）'}>
+    <Board item={item} w={w} h={h} data={playToggle(item)} label={item.clock.playing ? tr("ui523") : tr("ui524")}>
       {/* 同じ種類の要素だと R3F はマテリアルを使い回し、仮の暗い color が残って映像が真っ黒になるので key で作り直す */}
       {tex ? <meshBasicMaterial key="video" map={tex} toneMapped={false} /> : <meshBasicMaterial key="empty" color="#111" />}
     </Board>
@@ -433,7 +352,16 @@ export function AttentionGlow({ item }: { item: Item }) {
 }
 
 export function Item3D({ item }: { item: Item }) {
+  const content = <NativeItem3D item={item} />;
+  return item.mapPlacement?.mode === 'system' ? <SystemItemBoundary item={item}>{content}</SystemItemBoundary> : content;
+}
+
+function NativeItem3D({ item }: { item: Item }) {
   switch (item.kind) {
+    case 'telephone': return <Telephone3D item={item} />;
+    case 'jumpPad': return <JumpPad3D item={item} />;
+    case 'mirror': return <Mirror3D item={item} />;
+    case 'bike': return <Bike3D item={item} />;
     case 'image': return <Image3D item={item} />;
     case 'video': return <Video3D item={item} />;
     case 'youtube': return <YouTube3D item={item} />;
@@ -443,6 +371,7 @@ export function Item3D({ item }: { item: Item }) {
     case 'chessAi':
     case 'chess': return <Chess3D item={item} />;
     case 'dice': return <Dice3D item={item} />;
+    case 'antimatter': return <AntimatterItem3D item={item} />;
     default: return PANELS[item.kind] ? <CompatPanel3D item={item} /> : null;
   }
 }

@@ -8,6 +8,7 @@ import http from 'node:http';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { WebSocket } from 'ws';
+import { COMPAT_VERSION } from '../shared/protocol.ts';
 import { BROWSER_AI_MODEL, type BrowserAiCooperation, type BrowserAiJob } from '../shared/ai-support.ts';
 import { applyFantasyAction, newFantasyProfile } from '../shared/fantasy-engine.ts';
 import type { FantasyProfile } from '../shared/fantasy.ts';
@@ -86,7 +87,7 @@ async function fixture(t: TestContext) {
       const timer = setTimeout(() => { socket.off('pong', pong); reject(new Error('Sharing transport barrier timed out')); }, 2000);
       socket.on('pong', pong); socket.ping(nonce);
     });
-    send({ t: 'hello', id, name: profiles[id].character!.name }); send({ t: 'join', sid: session });
+    send({ t: 'hello', compat: COMPAT_VERSION, id, name: profiles[id].character!.name }); send({ t: 'join', sid: session });
     await until(() => messages.find(message => message.t === 'fantasyProfile')); await barrier();
     const status = async (ready: boolean, cooperation: BrowserAiCooperation | null = choices()) => {
       send({ t: 'aiSupport', ready, epoch: `sharing-${id}`, model: BROWSER_AI_MODEL, ...(cooperation ? { cooperation } : {}) }); await barrier();

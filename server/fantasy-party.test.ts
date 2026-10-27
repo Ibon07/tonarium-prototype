@@ -6,6 +6,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { WebSocket } from 'ws';
+import { COMPAT_VERSION } from '../shared/protocol.ts';
 import { FantasyParty, type FantasyPartyActor } from './fantasy-party.ts';
 import { FantasyStore, type FantasyGroupInvestigationPlan } from './fantasy-store.ts';
 import { applyFantasyAction, fantasyStats, newFantasyProfile } from '../shared/fantasy-engine.ts';
@@ -152,7 +153,7 @@ test('real WebSocket party requests enforce session boundaries, individual conse
     while(!ws&&Date.now()<deadline){const attempt=new WebSocket(`ws://127.0.0.1:${port}/ws`);const opened=await new Promise<boolean>(resolve=>{attempt.once('open',()=>resolve(true));attempt.once('error',()=>resolve(false));});if(opened)ws=attempt;else{attempt.terminate();await new Promise(resolve=>setTimeout(resolve,25));}}
     assert.ok(ws,output);sockets.push(ws);ws.on('error',()=>{});
     const messages:({t:string;state?:FantasyPartyState;profile?:FantasyProfile;error?:string})[]=[];ws.on('message',raw=>{messages.push(JSON.parse(String(raw)));});
-    const send=(message:unknown)=>ws!.send(JSON.stringify(message));send({t:'hello',id,name:`Public-${id}`});await until(()=>messages.find(message=>message.t==='fantasyPartyState'));const joinedAt=messages.length;send({t:'join',sid:session});send({t:'fantasyPartyRequest',command:{type:'sync'}});await until(()=>messages.slice(joinedAt).find(message=>message.t==='fantasyPartyState'&&!message.error));
+    const send=(message:unknown)=>ws!.send(JSON.stringify(message));send({t:'hello',compat: COMPAT_VERSION,id,name:`Public-${id}`});await until(()=>messages.find(message=>message.t==='fantasyPartyState'));const joinedAt=messages.length;send({t:'join',sid:session});send({t:'fantasyPartyRequest',command:{type:'sync'}});await until(()=>messages.slice(joinedAt).find(message=>message.t==='fantasyPartyState'&&!message.error));
     return{messages,send,state:(predicate:(state:FantasyPartyState)=>boolean)=>until(()=>[...messages].reverse().find(message=>message.t==='fantasyPartyState'&&message.state&&predicate(message.state))?.state),error:(error:string,start=0)=>until(()=>messages.slice(start).find(message=>message.t==='fantasyPartyState'&&message.error===error))};
   }
   const a=await client('alice','one'),b=await client('bob','one'),c=await client('carol','two');

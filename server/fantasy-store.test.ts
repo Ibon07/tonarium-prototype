@@ -8,7 +8,7 @@ import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { WebSocket } from 'ws';
 import { FantasyStore, handleFantasyAction, isFantasyAction } from './fantasy-store.ts';
-import { isRoomClientMsg } from '../shared/protocol.ts';
+import { COMPAT_VERSION, isRoomClientMsg } from '../shared/protocol.ts';
 import { FANTASY_EVENTS, FANTASY_ITEMS, FANTASY_JOBS, FANTASY_QUESTS, FANTASY_RACES } from '../shared/fantasy-data.ts';
 import { applyFantasyAction, fantasyStats, newFantasyProfile } from '../shared/fantasy-engine.ts';
 import type { FantasyProfile, FantasyWorldClock } from '../shared/fantasy.ts';
@@ -768,7 +768,7 @@ test('home WebSocket authenticates session context and shares committed progress
     socket.on('message', (raw) => received.push(JSON.parse(String(raw))));
     await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
     const send = (message: unknown) => socket.send(JSON.stringify(message));
-    send({ t: 'hello', id, name: id });
+    send({ t: 'hello', compat: COMPAT_VERSION, id, name: id });
     await until(() => received.find((message) => message.t === 'fantasyProfile'));
     const takeProfile = async (from: number) => until(() => received.slice(from).find((message) => message.t === 'fantasyProfile'));
     return { socket, received, send, takeProfile };

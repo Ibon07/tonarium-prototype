@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'">
+<title>Tonarium Electron — 更新</title><link rel="stylesheet" href="local.css"><link rel="stylesheet" href="updates.css"></head>
+<body><main><h1>アプリの更新</h1>
+<p>GitHub Releases の最新の Electron nightly を確認します。リリースページから、その更新のコミットに対応した配布物を確認できます。Web画面はサーバー側の更新が反映されます。</p>
+<p id="first" hidden>起動時の更新確認を有効にしますか？ 設定はこの画面でいつでも変更できます。</p>
+<form id="updates">
+<label class="toggle"><input id="check-on-startup" type="checkbox">起動時に更新を確認する</label>
+<label class="toggle nested"><input id="auto-install" type="checkbox">更新を自動でダウンロードし、アプリ終了時に適用する</label>
+<label class="toggle"><input id="auto-restart" type="checkbox">取得後に自動で再起動して更新する</label>
+<label>自動更新までの秒数（1～300秒）<input id="restart-seconds" type="number" min="1" max="300" step="1" value="5" required></label>
+<p class="hint">更新前の状態を保存して再接続します。画面共有は終了します。進行中のカウントダウンは設定変更では変わりません。</p>
+<div class="actions"><button id="save" type="submit">設定を保存</button><button id="check" type="button">今すぐ確認</button></div>
+</form>
+<p id="version" class="hint"></p><p id="status" role="status" aria-live="polite"></p><p id="error" role="alert"></p>
+<p id="countdown" role="status"></p>
+<div class="actions"><button id="install" type="button" hidden>今すぐ更新</button><button id="cancel" type="button" hidden>自動更新をキャンセル</button><button id="release" type="button">Releasesを開く</button></div>
+</main><script src="updates.js"></script></body></html>

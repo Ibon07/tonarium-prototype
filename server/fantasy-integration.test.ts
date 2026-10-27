@@ -7,6 +7,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { WebSocket } from 'ws';
+import { COMPAT_VERSION } from '../shared/protocol.ts';
 import { FantasyStore, handleFantasyAction, isFantasyAction } from './fantasy-store.ts';
 import { FantasyContracts, type FantasyContractActor } from './fantasy-contracts.ts';
 import type { FantasyAction, FantasyProfile } from '../shared/fantasy.ts';
@@ -223,7 +224,7 @@ test('new Home WebSocket contract routing enforces membership, exclusivity and s
     const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`); sockets.push(socket);
     const messages: Message[] = []; socket.on('message', raw => messages.push(JSON.parse(String(raw)) as Message));
     await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
-    const send = (msg: unknown) => socket.send(JSON.stringify(msg)); send({ t: 'hello', id, name: id });
+    const send = (msg: unknown) => socket.send(JSON.stringify(msg)); send({ t: 'hello', compat: COMPAT_VERSION, id, name: id });
     await until(() => messages.find(msg => msg.t === 'fantasyProfile')); return { send, messages };
   };
   const alice = await peer('alice'), bob = await peer('bob'), same = await peer('alice');

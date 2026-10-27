@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { t as tr } from '../i18n/index.ts';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useStore, get, nameOf } from '../store.ts';
-import { shareVideoEl } from '../net/livekit.ts';
+import { shareAnnotations, shareVideoEl } from '../net/livekit.ts';
+import { annotationColor, paintAnnotations, type Point } from '../shareAnnotations.ts';
 import { placesOf } from '../spatial.ts';
 import { Label } from './Label.tsx';
 import { carrying, type Interactable } from './interact.ts';
@@ -22,8 +24,40 @@ function useShareAspect() {
   return aspect;
 }
 
+/** カーソルは線のテクスチャに焼かず印だけを重ねる。動いてもテクスチャの再転送が起きないようにするため */
+function CursorMarks({ w, h, cursors }: { w: number; h: number; cursors: Map<string, Point> }) {
+  return (
+    <>
+      {[...cursors].map(([id, point]) => (
+        <group key={id} position={[(point.x - 0.5) * w, (0.5 - point.y) * h, 0]}>
+          <mesh renderOrder={9}>
+            <circleGeometry args={[w * 0.006, 20]} />
+            <meshBasicMaterial color={annotationColor(id)} transparent depthWrite={false} toneMapped={false} />
+          </mesh>
+          <Label position={[w * 0.035, -h * 0.028, 0]} height={h * 0.045} text={nameOf(id)} bg="rgba(21,24,32,0.9)" fg={annotationColor(id)} />
+        </group>
+      ))}
+    </>
+  );
+}
+
 /** 裏から見ても左右が反転しないよう、表と裏に 1 枚ずつ貼る */
 function VideoPanel({ w, h, tex }: { w: number; h: number; tex: THREE.Texture }) {
+  const annotations = useSyncExternalStore(shareAnnotations.subscribe, shareAnnotations.snapshot);
+  useStore((s) => s.participants);
+  const overlay = useMemo(() => {
+    const texture = new THREE.CanvasTexture(document.createElement('canvas'));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }, []);
+  useEffect(() => () => overlay.dispose(), [overlay]);
+  useEffect(() => {
+    const canvas = overlay.image as HTMLCanvasElement;
+    canvas.width = 1024;
+    canvas.height = Math.max(1, Math.round(1024 * h / w));
+    paintAnnotations(canvas.getContext('2d')!, annotations.segments);
+    overlay.needsUpdate = true;
+  }, [annotations.segments, overlay, w, h]);
   return (
     <>
       <mesh position-z={0.026}>
@@ -34,6 +68,20 @@ function VideoPanel({ w, h, tex }: { w: number; h: number; tex: THREE.Texture })
         <planeGeometry args={[w, h]} />
         <meshBasicMaterial map={tex} toneMapped={false} />
       </mesh>
+      <mesh position-z={0.027}>
+        <planeGeometry args={[w, h]} />
+        <meshBasicMaterial map={overlay} transparent depthWrite={false} toneMapped={false} />
+      </mesh>
+      <mesh position-z={-0.027} rotation-y={Math.PI}>
+        <planeGeometry args={[w, h]} />
+        <meshBasicMaterial map={overlay} transparent depthWrite={false} toneMapped={false} />
+      </mesh>
+      <group position-z={0.028}>
+        <CursorMarks w={w} h={h} cursors={annotations.cursors} />
+      </group>
+      <group position-z={-0.028} rotation-y={Math.PI}>
+        <CursorMarks w={w} h={h} cursors={annotations.cursors} />
+      </group>
       <mesh>
         <boxGeometry args={[w + 0.06, h + 0.06, 0.05]} />
         <meshStandardMaterial color="#1e1f24" roughness={0.6} />
@@ -87,7 +135,7 @@ export function ShareDisplay() {
   if (grounded) {
     const w = 1.6;
     const h = w / aspect;
-    const data: Interactable = { carry: `display:${user.id}`, hint: `${nameOf(user.id)} の配信ディスプレイ` };
+    const data: Interactable = { carry: `display:${user.id}`, hint: tr("ui530", nameOf(user.id)) };
     return (
       <group ref={ref} position={[grounded.x, 0, grounded.z]} rotation-y={grounded.ry} userData={data}>
         <mesh position-y={STAND_H / 2 - 0.2}>
@@ -100,7 +148,7 @@ export function ShareDisplay() {
         </mesh>
         <group position-y={STAND_H - 0.2 + h / 2 - 0.4}>
           <VideoPanel w={w} h={h} tex={tex} />
-          <Label position={[0, h / 2 + 0.16, 0]} height={0.16} text={`● ${nameOf(user.id)} の配信`} bg="rgba(217,72,59,0.95)" />
+          <Label position={[0, h / 2 + 0.16, 0]} height={0.16} text={tr("ui531", nameOf(user.id))} bg="rgba(217,72,59,0.95)" />
         </group>
       </group>
     );
@@ -111,7 +159,7 @@ export function ShareDisplay() {
     <group ref={ref} userData={{ noRay: true }}>
       <group position-y={0.15 + h / 2}>
         <VideoPanel w={w} h={h} tex={tex} />
-        <Label position={[0, h / 2 + 0.11, 0]} height={0.11} text={`● ${nameOf(user.id)} の配信`} bg="rgba(217,72,59,0.95)" />
+        <Label position={[0, h / 2 + 0.11, 0]} height={0.11} text={tr("ui531", nameOf(user.id))} bg="rgba(217,72,59,0.95)" />
       </group>
     </group>
   );

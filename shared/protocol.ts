@@ -2,6 +2,7 @@ import type { FantasyRealmCommand, FantasyRealmState } from './fantasy-realm.ts'
 import type { BrowserAiClientMsg, BrowserAiServerMsg } from './ai-support.ts';
 import type { FantasyPartyCommand, FantasyPartyError, FantasyPartyState } from './fantasy-party.ts';
 import type { Item, ItemAction, ItemKind, MediaInit } from './items.ts';
+import type { ItemVariant } from './item-variants.ts';
 import type { WorldKind } from './worlds.ts';
 import type { DiceRoll } from './dice.ts';
 import type { GameState } from './game.ts';
@@ -22,8 +23,19 @@ export type { FantasyCombatStartKind } from './fantasy-combat-challenges.ts';
 export type FantasyCombatCommand = { type: 'sync' } | { type: 'inspect'; target: string }
   | { type: 'start'; source: FantasyCombatStartKind; target: string; confirm?: boolean }
   | { type: 'order'; combatId: string; revision: number; order: FantasyCombatOrder };
+import type { AssetCommand, AssetView } from './shared-assets.ts';
+import type { AssetDelta } from './shared-sync.ts';
+import type { Post, PostAttach } from './timeline.ts';
+import type { SystemCommand, SystemCommandResult, SystemView } from './system-types.ts';
 
 export type Mode = '2d' | '3d';
+
+/**
+ * 互換性バージョン。画面の版（CLIENT_VERSION）とは別に、通信の約束事だけを見る。
+ * 約束事を壊す変更（メッセージの追加・意味の変更など）を入れたら +1 する。
+ * hello で申告が無い・一致しないクライアントはサーバーが接続を断ち、画面は全面で更新を促す（docs/sync.md）
+ */
+export const COMPAT_VERSION = 6;
 
 /** セッションを見られる人。省略時は public */
 export type Visibility = 'public' | 'friends' | 'groupPlus' | 'group' | 'invite';
@@ -131,6 +143,8 @@ export interface Group {
   name: string;
   color: string;
   owner: string;
+  imageVersion?: number;
+  editors?: string[];
   /** メンバーの名前 */
   members: string[];
   /** 先頭が既定のチャンネル（セッションのまとめもここに残る） */
@@ -188,6 +202,7 @@ export type Participant = User & Presence;
 /** ホーム画面が使う、セッションごとの軽い情報（中の状態そのものは部屋にいる人にしか届かない） */
 export interface SessionInfo {
   world: WorldKind;
+  thumbnail?: string;
   /** 置いてあるアイテムの要約（セッションカードと、メッセージに添えたアイテムの表示用） */
   items: { id: string; kind: ItemKind; summary: string }[];
 }
@@ -196,6 +211,7 @@ export interface SessionInfo {
 export type ChatScope = 'near' | 'all' | 'announce';
 
 export interface ChatMessage {
+  clientRequestId?: string;
   id: string;
   /** null はシステムメッセージ（ログのイベント） */
   from: string | null;
@@ -213,21 +229,29 @@ export interface ChatMessage {
   about?: string;
   /** サイコロの結果。シークレットのとき本人以外には results が null */
   dice?: DiceRoll;
+  hammer?: { from: string; to: string; count: number; lastHitAt: number };
 }
 
 export interface ChatMedia { kind: 'image' | 'video'; url: string; w: number; h: number }
 
+export const LEAN_ANGLE = Math.PI / 18;
+
 export interface AvatarState {
+  xr?: import('./xr-pose.ts').AvatarXR;
   x: number;
   z: number;
   ry: number;
   /** 3D の人の顔の上下の向き（上向きが正） */
   pitch?: number;
+  lean?: number;
+  crouching?: boolean;
   /**
    * 跳んだ回数。高さは送らず、増えたのを見た側が受け取った瞬間から jumpHeight で放物線を描く
    * （途中の高さを送ると、届く間隔のむらでカクつく）
    */
   jump?: number;
+  /** 衝突補正後の実移動から判定した、接地・非乗車での歩行状態。 */
+  walking?: boolean;
   /** 床（高さ 0）以外にいるときの足元の高さ。ゲームの塔の上など。あればジャンプの放物線より優先する */
   y?: number;
   /**
@@ -264,6 +288,8 @@ export interface Snapshot {
 /** セッションの LiveKit の部屋に入ったとき、サーバーからその人だけに届く中の状態 */
 export interface SessionSnapshot {
   sid: string;
+  sharedAssets?: AssetView;
+  systems?: SystemView;
   chats: ChatMessage[];
   avatars: Record<string, AvatarState>;
   items: Item[];
@@ -280,7 +306,6 @@ export interface SessionSnapshot {
 /** WebSocket でサーバーへ送るもの（セッションの外でも使う） */
 export type HomeClientMsg =
   | BrowserAiClientMsg
-  | { t: 'hello'; id: string; name: string }
   | { t: 'fantasyAccountBind'; ticket: string }
   | { t: 'fantasyAccountUnbind' }
   | { t: 'fantasyAction'; revision: number; action: FantasyAction }
@@ -293,16 +318,25 @@ export type HomeClientMsg =
   | ({ t: 'npcChat' } & NpcChatRequest)
   | ({ t: 'fantasyGmChat' } & FantasyGmChatRequest)
   | ({ t: 'communityContribute' } & FantasyCommunityRequest)
-  | { t: 'join'; sid: string }
-  | { t: 'leave' }
+  | { t: 'thumbnailUpload'; sid: string; thumbnail: string }
+  | { t: 'marketLike'; product: string }
+  | { t: 'hello'; id: string; name: string; compat?: number }
+  | { t: 'join'; sid: string; requestId?: string }
+  | { t: 'leave'; requestId?: string }
   | { t: 'prepareSync'; requestId: string; peerPositions?: boolean; peerDelivery?: boolean }
   /** /icon・/avatar・/profile へ保存した後に、同じ名前のオンラインの人へ反映させる */
   | { t: 'profileUpdated' }
-  | { t: 'friendRequest'; to: string }
-  | { t: 'friendAccept'; to: string }
-  | { t: 'sessionCreate'; name: string; topic: string; world: WorldKind; visibility: Visibility; group?: string }
+  /** name をフォローする（on: false で外す）。お互いにフォローするとフレンド */
+  | { t: 'followUser'; name: string; on: boolean }
+  /** withPlace ならサーバーがいまのセッションと 2D/3D を場所として付ける */
+  | { t: 'postCreate'; text: string; withPlace: boolean; image?: string; attach?: PostAttach; quote?: string; replyTo?: string }
+  | { t: 'postDelete'; id: string }
+  | { t: 'postReact'; id: string; emoji: string; on: boolean }
+  | { t: 'postRepost'; id: string; on: boolean }
+  | { t: 'sessionCreate'; name: string; topic: string; world: WorldKind; visibility: Visibility; group?: string; requestId?: string }
   | { t: 'sessionDelete'; id: string }
   | { t: 'groupCreate'; name: string; color: string }
+  | { t: 'groupUpdate'; groupId: string; name?: string; editors?: string[] }
   | { t: 'groupJoin'; id: string }
   | { t: 'groupLeave'; id: string }
   | { t: 'groupDelete'; id: string }
@@ -324,6 +358,11 @@ export type HomeClientMsg =
 
 /** kokosync でサーバーへ送るもの（セッションの中だけ）。 */
 export type RoomClientMsg =
+  | { t: 'systemLoad'; mapId: string }
+  | { t: 'systemCommand'; command: Exclude<SystemCommand, { kind: 'map' }> }
+  | { t: 'systemResync' }
+  | { t: 'sharedCommand'; command: AssetCommand }
+  | { t: 'sharedResync' }
   | { t: 'peerOperation'; event: PeerOperation }
   /** 部屋につないだ・つなぎ直した後に、中の状態を送ってもらう */
   | { t: 'sync' }
@@ -335,7 +374,7 @@ export type RoomClientMsg =
   | { t: 'place2d'; target: string; pos: AvatarState | null }
   /** 3D で配信ディスプレイを持ち運ぶ */
   | { t: 'displayMove'; target: string; x: number; z: number; ry: number }
-  | { t: 'chat'; text: string; image?: string; media?: ChatMedia; scope: ChatScope }
+  | { t: 'chat'; text: string; image?: string; media?: ChatMedia; scope: ChatScope; clientRequestId?: string }
   | { t: 'avatar'; s: AvatarState }
   | { t: 'viewing'; keys: string[] }
   | { t: 'poke'; to: string }
@@ -344,7 +383,7 @@ export type RoomClientMsg =
   /** ついていっている相手に視点のライブを頼む */
   | { t: 'liveRequest'; to: string }
   | { t: 'viewLive'; on: boolean }
-  | { t: 'itemCreate'; kind: ItemKind; x: number; z: number; ry: number; text?: string; media?: MediaInit }
+  | { t: 'itemCreate'; kind: ItemKind; x: number; z: number; ry: number; text?: string; media?: MediaInit; variant?: ItemVariant }
   /** key はウィンドウのキー（item:<id> / cam:<id>） */
   | { t: 'attention'; key: string }
   | { t: 'broadcast'; on: boolean }
@@ -360,12 +399,13 @@ export type RoomClientMsg =
   | { t: 'survivorStart' }
   | { t: 'survivorMove'; x: number; z: number }
   | { t: 'survivorChoose'; gear: string }
+  | { t: 'survivorReroll' }
   | { t: 'survivorUpgrade'; upgrade: SurvivorMetaUpgrade }
   | { t: 'survivorReset' }
   /** 街のマンションのエレベーターを呼ぶ・行き先を押す（floor は 0 = 1 階 … 10 = 屋上） */
   | { t: 'elevatorCall'; floor: number }
   | { t: 'itemRemove'; id: string }
-  | { t: 'itemMove'; id: string; x: number; z: number; ry: number }
+  | { t: 'itemMove'; id: string; x: number; z: number; ry: number; y?: number; scale?: number }
   | { t: 'itemAction'; id: string; action: ItemAction }
   | { t: 'hit'; to: string };
 
@@ -373,26 +413,40 @@ export type ClientMsg = HomeClientMsg | RoomClientMsg;
 
 /** 部屋へ送る種類の一覧（送り先の振り分けに使う。型と同じ並び） */
 const ROOM_CLIENT_TYPES: Record<RoomClientMsg['t'], true> = {
+  systemLoad: true, systemCommand: true, systemResync: true,
+  sharedCommand: true, sharedResync: true,
   peerOperation: true,
   sync: true, mode: true, status: true, follow: true, dropFollowers: true, place2d: true, displayMove: true, chat: true, avatar: true,
   viewing: true, poke: true, sound: true, emote: true, liveRequest: true, viewLive: true, itemCreate: true, attention: true, broadcast: true, world: true, sessionRename: true,
-  gameStart: true, gameStep: true, gameFell: true, survivorStyle: true, survivorStart: true, survivorMove: true, survivorChoose: true, survivorUpgrade: true, survivorReset: true,
+  gameStart: true, gameStep: true, gameFell: true, survivorStyle: true, survivorStart: true, survivorMove: true, survivorChoose: true, survivorReroll: true, survivorUpgrade: true, survivorReset: true,
   elevatorCall: true, itemRemove: true, itemMove: true, itemAction: true, hit: true,
 };
-export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => m.t in ROOM_CLIENT_TYPES;
+export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => Object.hasOwn(ROOM_CLIENT_TYPES, m.t);
 
 /** WebSocket でサーバーから届くもの */
 export type HomeServerMsg =
   | BrowserAiServerMsg
   | { t: 'fantasyAccountState'; account: FantasyAccountPublic | null; homeId: string; activeId: string; user?: User; error?: string }
+  | { t: 'sessionCreated'; sid: string; requestId?: string }
+  | { t: 'sessionResult'; requestId: string; error?: string }
+  | { t: 'thumbnailRequest'; sid: string }
+  | { t: 'marketLikes'; counts: Record<string, number>; liked: string[] }
+  /** 互換性バージョンが合わず接続を断るときに、切断の直前に送る */
+  | { t: 'incompatible'; compat: number }
   | { t: 'syncConfig'; requestId: string; config: SyncConfig }
   | { t: 'syncError'; requestId: string; error: string }
   | { t: 'syncReset'; sid: string }
   | { t: 'snapshot'; s: Snapshot }
   | { t: 'users'; list: User[] }
   | { t: 'sessionInfo'; sessions: Record<string, SessionInfo> }
-  | { t: 'friendRequest'; from: string; fromName: string }
+  | { t: 'followed'; from: string; fromName: string }
   | { t: 'friends'; names: string[] }
+  /** fof はフレンドのフレンド（自分とフレンドは除く） */
+  | { t: 'follows'; following: string[]; followers: string[]; fof: string[] }
+  | { t: 'posts'; list: Post[] }
+  /** 新しいポストか、同じ ID のものの更新（リアクション・リポスト） */
+  | { t: 'post'; p: Post }
+  | { t: 'postsRemoved'; ids: string[] }
   | { t: 'sessions'; list: SessionDef[] }
   | { t: 'groups'; list: Group[] }
   | { t: 'events'; list: EventDef[] }
@@ -423,11 +477,16 @@ export type HomeServerMsg =
 
 /** kokosync でサーバーから届くもの。 */
 export type RoomServerMsg =
+  | { t: 'systemState'; sid: string; view: SystemView; error?: string; commandResult?: SystemCommandResult }
+  | { t: 'sharedDelta'; sid: string; delta: AssetDelta; commandId?: string }
+  | { t: 'sharedState'; sid: string; view: AssetView; commandId?: string; error?: string }
   | { t: 'presence'; sid: string; all: Record<string, Presence> }
   | { t: 'chat'; sid: string; m: ChatMessage }
   | { t: 'avatar'; sid: string; id: string; s: AvatarState }
   | { t: 'avatarRemove'; sid: string; id: string }
   | { t: 'item'; sid: string; item: Item }
+  /** 移動は中身を送らず位置だけ。受けた側は保持済みのアイテムへ適用する */
+  | { t: 'itemMove'; sid: string; id: string; x: number; z: number; ry: number; y?: number; scale?: number }
   | { t: 'itemRemove'; sid: string; id: string }
   | { t: 'itemAction'; sid: string; id: string; action: ItemAction; by: string }
   | { t: 'hit'; sid: string; from: string; to: string }

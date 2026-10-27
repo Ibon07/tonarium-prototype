@@ -1,9 +1,10 @@
 import { ARENA, START_BUTTON } from './game.ts';
 import { CITY_HALF, CITY_SOLIDS } from './city.ts';
 import { SURVIVOR_TITLE } from './survivor.ts';
+import { ANTIMATTER_SOLIDS } from './antimatterLayout.ts';
 
 /** ワールド＝ 3D 空間の種類。セッションはどれか 1 つを読み込み、途中で切り替えられる */
-export type WorldKind = 'room' | 'cafe' | 'game' | 'survivors' | 'city' | 'garden' | 'fantasy';
+export type WorldKind = 'room' | 'cafe' | 'game' | 'survivors' | 'city' | 'garden' | 'starlounge' | 'antimatter' | 'fantasy';
 
 /** 床の上の通り抜けられない物。r があれば円、なければ w×d の箱（x, z が中心）。
  * y0〜y1 があればその高さの間だけ効く（マンションの階ごとの壁など）。無ければどの高さでも効く */
@@ -25,6 +26,7 @@ const chairsAround = (x: number, z: number, n: number, dist: number, start = 0):
 
 /** カフェの家具の配置。見た目（View3D）と当たり判定で共用する */
 export const CAFE = {
+  mirror: { x: 0, y: 1.8, z: -9.78, w: 7, h: 2.6 },
   counter: { x: -8.3, z: -1, w: 1.1, d: 8 },
   shelf: { x: -9.6, z: -1, w: 0.5, d: 8 },
   stools: [-4.2, -2.6, -1, 0.6, 2.2].map((z) => ({ x: -7.25, z, r: 0.22 })),
@@ -79,6 +81,7 @@ export const GARDEN = {
 
 export const WORLDS: Record<WorldKind, WorldInfo> = {
   fantasy: { name: '悠久の旅路', desc: '平面の世界地図で目的地と移動手段を選び、冒険と暮らしを紡ぐファンタジーRPG', solids: [] },
+  starlounge: { name: '星あかりのラウンジ', desc: '星の灯りに包まれる青いラウンジ', solids: [] },
   room: { name: 'ホール', desc: '何も置いていない広い部屋', solids: [] },
   cafe: {
     name: 'カフェ',
@@ -117,13 +120,18 @@ export const WORLDS: Record<WorldKind, WorldInfo> = {
     solids: CITY_SOLIDS,
     extent: { minX: -CITY_HALF, maxX: CITY_HALF, minZ: -CITY_HALF, maxZ: CITY_HALF },
   },
+  antimatter: {
+    name: 'AD 研究所',
+    desc: '反物質次元の研究所。塔・コア・展示ウィングがある。進行はプレイヤーごとで、ワールド切替でも消えない',
+    solids: ANTIMATTER_SOLIDS,
+  },
 };
 
 /** 切り替えを決めてから実際に切り替わるまで（全員に予告を出す） */
 export const WORLD_COUNTDOWN_MS = 3000;
 
 export const WORLD_KINDS = Object.keys(WORLDS) as WorldKind[];
-export const isWorldKind = (v: unknown): v is WorldKind => typeof v === 'string' && v in WORLDS;
+export const isWorldKind = (v: unknown): v is WorldKind => typeof v === 'string' && Object.hasOwn(WORLDS, v);
 
 /** 背の高さ。高さのある当たり判定は、足元 y からこの高さまでと重なるときだけ効く */
 const BODY_H = 1.7;

@@ -6,6 +6,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { WebSocket } from 'ws';
+import { COMPAT_VERSION } from '../shared/protocol.ts';
 import { applyFantasyAction, newFantasyProfile } from '../shared/fantasy-engine.ts';
 import type { FantasyProfile } from '../shared/fantasy.ts';
 import type { FantasyRealmState } from '../shared/fantasy-realm.ts';
@@ -58,7 +59,7 @@ async function isolated(t: TestContext) {
     const messages: Message[] = []; socket.on('message', raw => messages.push(JSON.parse(String(raw)) as Message));
     await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
     const send = (message: unknown) => socket.send(JSON.stringify(message));
-    send({ t: 'hello', id, name: id === 'outsider' ? 'Outsider' : id === 'alice' ? 'Alice' : 'Bob' });
+    send({ t: 'hello', compat: COMPAT_VERSION, id, name: id === 'outsider' ? 'Outsider' : id === 'alice' ? 'Alice' : 'Bob' });
     await until(() => messages.find(message => message.t === 'fantasyProfile'));
     if (session) { const start = messages.length; send({ t: 'join', sid: session }); await until(() => messages.slice(start).find(message => message.t === 'users' && message.list?.some(user => user.id === id && user.session === session))); }
     const state = () => (messages.filter(message => message.t === 'fantasyRealmState' && message.state).at(-1)?.state as FantasyRealmState | undefined);

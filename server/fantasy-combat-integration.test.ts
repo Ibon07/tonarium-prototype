@@ -6,6 +6,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { WebSocket } from 'ws';
+import { COMPAT_VERSION } from '../shared/protocol.ts';
 import { FantasyStore, type FantasyCombatPlan } from './fantasy-store.ts';
 import { FantasyParty, type FantasyPartyActor } from './fantasy-party.ts';
 import { applyFantasyAction, fantasyStats, newFantasyProfile } from '../shared/fantasy-engine.ts';
@@ -370,7 +371,7 @@ test('real combat WebSockets enforce party consent, session ownership, turn slot
     let ws: WebSocket | undefined; const deadline = Date.now() + 30000;
     while (!ws && Date.now() < deadline) { const attempt = new WebSocket(`ws://127.0.0.1:${port}/ws`); const opened = await new Promise<boolean>(resolve => { attempt.once('open', () => resolve(true)); attempt.once('error', () => resolve(false)); }); if (opened) ws = attempt; else { attempt.terminate(); if (child.exitCode !== null) throw new Error(output); await new Promise(resolve => setTimeout(resolve, 30)); } }
     if (!ws) throw new Error(output); sockets.push(ws); const messages: Record<string, any>[] = []; ws.on('message', data => messages.push(JSON.parse(String(data)))); const send = (message: object) => ws!.send(JSON.stringify(message));
-    send({ t: 'hello', id, name: id }); await until(() => messages.find(message => message.t === 'fantasyPartyState')); const joinedAt = messages.length;
+    send({ t: 'hello', compat: COMPAT_VERSION, id, name: id }); await until(() => messages.find(message => message.t === 'fantasyPartyState')); const joinedAt = messages.length;
     send({ t: 'join', sid: session }); send({ t: 'fantasyPartyRequest', command: { type: 'sync' } }); await until(() => messages.slice(joinedAt).find(message => message.t === 'fantasyPartyState' && !message.error));
     return { ws, messages, send };
   }

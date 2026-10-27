@@ -1,9 +1,14 @@
+import { initialArrivalState, type Arrival, type ArrivalKind } from './newArrival.ts';
+import { t } from './i18n/core.ts';
 import { create } from 'zustand';
 import type { FantasyRealmState } from '../../shared/fantasy-realm.ts';
+import type { UiMessage } from './i18n/index.ts';
+import type { MovementMode } from './view3d/movement.ts';
 import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, SessionInfo, User } from '../../shared/protocol.ts';
 import { SPAWN } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
-import { WORLDS, type WorldKind } from '../../shared/worlds.ts';
+import { WORLDS } from './i18n/static.ts';
+import { type WorldKind } from '../../shared/worlds.ts';
 import type { DieSides } from '../../shared/dice.ts';
 import { newGame, type GameState } from '../../shared/game.ts';
 import { NEW_ELEVATOR, type ElevatorState } from '../../shared/city.ts';
@@ -18,7 +23,12 @@ import type { FantasyPartyState, FantasyPartyError } from '../../shared/fantasy-
 import type { FantasyCombatState } from '../../shared/fantasy-combat.ts';
 import type { FantasyPropertyState } from '../../shared/fantasy-property.ts';
 import type { FantasyAccountPublic } from '../../shared/fantasy-account.ts';
+import { createAdSlice, type AdSlice } from './ad/slice.ts';
+import type { AdPanelTarget } from '../../shared/antimatterLayout.ts';
 import { deriveSession } from './sessionView.ts';
+import { storedHomePageOf, type HomePage } from './homePage.ts';
+export type { HomePage } from './homePage.ts';
+import type { Post, TimelineTab } from '../../shared/timeline.ts';
 import type { Walk } from './walk.ts';
 
 export type VoiceStatus = 'off' | 'connecting' | 'connected' | 'unavailable';
@@ -26,18 +36,22 @@ export type WinMode = 'simple' | 'free';
 /** ウィンドウのキー: share（画面共有）/ cam:<アイテムID> / view:<ユーザーID> / item:<アイテムID> */
 export interface Win { key: string; x: number; y: number }
 /** key は attention ならウィンドウのキー、invite なら session:<id> / group:<id>、askJoin なら session:<id> */
-export interface Notice { id: number; kind: 'poke' | 'hit' | 'friend' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean }
-export type HomePage = 'home' | 'friends' | 'sessions' | 'events' | 'groups' | 'group' | 'worlds' | 'items';
+export interface Notice { id: number; kind: 'poke' | 'hit' | 'follow' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean }
 /** ホームの右の欄に出すもの */
 export type SideWidget = 'now' | 'events' | 'sessions' | 'worlds' | 'items';
 
-interface State {
+interface State extends AdSlice {
+  /** 3D の照準クリックで開いた AD 前面パネルの宛先（antimatter-space ウィンドウ用） */
+  adSpaceTarget: AdPanelTarget | null;
   selfId: string;
   selfName: string;
   joined: boolean;
   wsConnected: boolean;
+  wsReady: boolean;
   /** つなぎ直した先のサーバーが、このページと違う版の画面を出している */
   updateVersion: string | null;
+  /** 互換性バージョンがサーバーと合わず、接続を断たれた。更新するまで全面表示で止める */
+  incompatible: boolean;
 
   guild: GuildConfig;
   groups: Group[];
@@ -56,6 +70,8 @@ interface State {
   mode: Mode;
   /** 開いているホームのページ（最後に開いたページを覚えておき、セッション中のメニューはそこを開く） */
   homePage: HomePage;
+  marketProductId: string | null;
+  marketLikes: { counts: Record<string, number>; liked: string[] } | null;
   /** group ページで開いているグループと、グループごとに開いているチャンネル */
   homeGroup: string | null;
   homeChannel: Record<string, string>;
@@ -104,6 +120,8 @@ interface State {
   lightweight: boolean;
   /** 2D の背景に出すマップ（手元に保存）。マップを入れるべきか試すための設定 */
   mapMode: 'none' | '2d' | '3d';
+  /** 声の湯気：会話のあった場所の熱をマップに残す（手元に保存） */
+  voiceHeat: boolean;
   /** マップで選んだ目的地へ 2D の自分が歩いている途中 */
   walk: Walk | null;
   /** 動画・YouTube ごとの自分だけの音量（0〜1）。無ければ既定の半分 */
@@ -117,7 +135,15 @@ interface State {
   /** セッション中にホームを重ねて開いている */
   hubOpen: boolean;
   /** フレンドのページで開いているタブ（ホームの「もっと見る」から選んで開く） */
-  friendsTab: 'all' | 'now' | 'req' | 'block';
+  friendsTab: 'all' | 'now' | 'followers' | 'following' | 'block';
+  timelineTab: TimelineTab;
+  /** タイムラインの右の欄を上書きしているもの。compose か post:<ID>。null なら通常の右の欄 */
+  timelineSide: string | null;
+  /** 引用して書くポスト */
+  composeQuote: string | null;
+  /** タイムラインのページに貼った・落とした写真。書く欄が受け取って上げる。'unsupported' は写真以外だったとき */
+  composeImage: File | 'unsupported' | null;
+  posts: Post[];
   /** スマホ幅のセッション画面で、下のタブで選んでいるもの */
   phoneTab: 'screen' | 'list' | 'log';
   sideWidget: SideWidget;
@@ -181,13 +207,22 @@ interface State {
   elevators: Record<string, ElevatorState>;
   /** 注目を集めているアイテム ID → 光らせる期限（performance.now） */
   attention: Record<string, number>;
-  toast: { text: string; at: number } | null;
+  popupPausedUntil: number;
+  arrivals: Partial<Record<ArrivalKind, Arrival>>;
+  phoneLayout: boolean;
+  rightView: 'log' | 'msg';
+  rightConversation: string | null;
+  toast: { text: string | UiMessage; at: number } | null;
   /** 開く前に確認している外部 URL */
   openUrl: string | null;
   /** プロフィールを開いている相手 */
   profileOf: string | null;
   notices: Notice[];
   friends: string[];
+  following: string[];
+  followers: string[];
+  /** フレンドのフレンド（自分とフレンドは除く） */
+  fof: string[];
   /** 名前単位。手元だけに保存する */
   blocked: string[];
   /** 3D で「そばにいく」したとき Player が拾う */
@@ -198,6 +233,9 @@ interface State {
   emotes: Record<string, import('../../shared/emotes.ts').ActiveEmote>;
   swings: Record<string, number>;
   hitFx: { key: number; from: string; to: string }[];
+  movementMode: MovementMode;
+  doubleJump: boolean;
+  lean: boolean;
   locked: boolean;
   aimHint: string | null;
 
@@ -211,7 +249,7 @@ interface State {
   syncStats: Record<string, unknown> | null;
   syncRoutes: PositionRoute[];
   syncPeerDelivery: boolean;
-  voiceError: string | null;
+  voiceError: string | UiMessage | null;
   /** 希望設定。未接続中も切り替えられ、参加時に適用する */
   micEnabled: boolean;
   speaking: Record<string, boolean>;
@@ -240,12 +278,18 @@ export function spawnPoint(): AvatarState {
   return { x: SPAWN.x + Math.sin(a) * r, z: SPAWN.z + Math.cos(a) * r, ry: 0 };
 }
 
-export const useStore = create<State>(() => ({
+const savedAudioVol = load<Partial<State['audioVol']>>('tonarium.audioVol', {});
+
+export const useStore = create<State>((set, get) => ({
+  adSpaceTarget: null,
+  ...createAdSlice((p) => set(p as Partial<State>), () => get() as unknown as AdSlice),
   selfId: '',
   selfName: '',
   joined: false,
   wsConnected: false,
+  wsReady: false,
   updateVersion: null,
+  incompatible: false,
   guild: { name: 'Tonarium', sessions: [] },
   groups: [],
   events: [],
@@ -257,8 +301,9 @@ export const useStore = create<State>(() => ({
   presence: {},
   session: null,
   mode: '2d',
-  // 個別のグループは開き直せないので一覧に戻す
-  homePage: ((p: HomePage) => (p === 'group' ? 'groups' : p))(load<HomePage>('tonarium.homePage', 'home')),
+  homePage: storedHomePageOf(load<unknown>('tonarium.homePage', 'home')),
+  marketProductId: null,
+  marketLikes: null,
   homeGroup: null,
   homeChannel: {},
   dmWith: null,
@@ -329,25 +374,43 @@ export const useStore = create<State>(() => ({
   npcRelationships: {},
   elevators: {},
   attention: {},
+  ...initialArrivalState(),
+  phoneLayout: false,
+  rightView: 'log',
+  rightConversation: null,
   toast: null,
   liveRequested: null,
   switching: null,
   loadScale: load('tonarium.loadScale', 1),
   lightweight: load('tonarium.lightweight', false),
   mapMode: load('tonarium.mapMode', 'none'),
+  voiceHeat: load('tonarium.voiceHeat', true),
   walk: null,
   volumes: {},
-  audioVol: load('tonarium.audioVol', { voice: 1, fx: 1, media: 1 }),
+  audioVol: {
+    voice: savedAudioVol.voice ?? 1,
+    fx: savedAudioVol.fx ?? 0.05,
+    media: savedAudioVol.media ?? 0.05,
+  },
   peerVolume: load('tonarium.peerVolume', {}),
   peerMuted: load('tonarium.peerMuted', []),
   hubOpen: false,
   phoneTab: 'screen',
   friendsTab: 'all',
+  timelineTab: load('tonarium.timelineTab', 'home'),
+  // スマホでは右の欄が下からのシートになるので、開いた途端に覆わないよう閉じておく
+  timelineSide: typeof matchMedia === 'function' && matchMedia('(max-width: 720px)').matches ? null : 'compose',
+  composeQuote: null,
+  composeImage: null,
+  posts: [],
   sideWidget: load('tonarium.sideWidget', 'events'),
   joinMode: load('tonarium.joinMode', '2d'),
   dice: load('tonarium.dice', { sides: 6 as DieSides, count: 2, secret: false }),
   notices: [],
   friends: [],
+  following: [],
+  followers: [],
+  fof: [],
   blocked: load('tonarium.blocked', []),
   teleport: null,
   hits: {},
@@ -355,6 +418,9 @@ export const useStore = create<State>(() => ({
   emotes: {},
   swings: {},
   hitFx: [],
+  movementMode: 'walk',
+  doubleJump: load('tonarium.doubleJump', false),
+  lean: load('tonarium.lean', true),
   locked: false,
   aimHint: null,
   selfAvatar: spawnPoint(),
@@ -378,7 +444,7 @@ export const useStore = create<State>(() => ({
   flashAt: 0,
 }));
 
-export interface ItemUi { sel?: number; chessRevision?: number; promotionTo?: number; chessMessage?: string; resetConfirm?: boolean; color?: string; size?: number; erase?: boolean }
+export interface ItemUi { sel?: number; chessRevision?: number; promotionTo?: number; chessMessage?: string | UiMessage; resetConfirm?: boolean; color?: string; size?: number; erase?: boolean }
 
 export const set = useStore.setState;
 export const get = useStore.getState;
@@ -402,7 +468,7 @@ export function dropSession(sid: string | null) {
 
 export function nameOf(id: string | null) {
   if (!id) return '';
-  return get().users.find((p) => p.id === id)?.name ?? '（退出済み）';
+  return get().users.find((p) => p.id === id)?.name ?? t('ui74');
 }
 
 export function sessionOf(id: string | null) {
@@ -431,7 +497,7 @@ const NO_GAME = newGame();
 export const gameOfSession = (s = get()) => (s.session && s.games[s.session]) || NO_GAME;
 export const elevatorOfSession = (s = get()) => (s.session && s.elevators[s.session]) || NEW_ELEVATOR;
 
-export function showToast(text: string) {
+export function showToast(text: string | UiMessage) {
   set({ toast: { text, at: Date.now() } });
 }
 

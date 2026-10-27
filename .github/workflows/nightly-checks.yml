@@ -1,0 +1,33 @@
+name: Nightly configuration checks
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - '.github/workflows/electron-nightly.yml'
+      - '.github/workflows/nightly-checks.yml'
+      - '.github/scripts/**'
+  pull_request:
+    paths:
+      - '.github/workflows/electron-nightly.yml'
+      - '.github/workflows/nightly-checks.yml'
+      - '.github/scripts/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nightly-config:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install workflow validation dependency
+        run: python3 -m pip install PyYAML==6.0.3
+      - name: Test independent nightly publishing
+        run: python3 .github/scripts/test_publish_nightly.py

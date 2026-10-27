@@ -1,35 +1,21 @@
+import { t as tr, msg } from '../i18n/index.ts';
+import { CameraStand } from './cameraModel.tsx';
+export { CameraModel } from './cameraModel.tsx';
 import { useEffect, useMemo, useRef } from 'react';
-import { useFrame, type ThreeElements } from '@react-three/fiber';
-import { Billboard } from '@react-three/drei';
+import { useFrame } from '@react-three/fiber';
+import { UprightBillboard } from './UprightBillboard.tsx';
 import * as THREE from 'three';
 import type { Item } from '../../../shared/items.ts';
 import { useStore, get, set, nameOf } from '../store.ts';
 import { camVideos, publishCamera } from '../net/livekit.ts';
 import { itemAction, removeItem } from '../items/actions.ts';
-import { CAM_Y, cameraModels, localFeeds, makeRenderer, renderCamera } from './cameraRender.ts';
+import { cameraModels, localFeeds, makeRenderer, renderCamera } from './cameraRender.ts';
+import { DEFAULT_CAMERA_Y } from './cameraPlacement.ts';
 import { carrying, type Interactable } from './interact.ts';
+import { useTimedCamera } from '../items/useTimedCamera.ts';
+import { Label } from './Label.tsx';
 
 type CameraItem = Item & { kind: 'camera' };
-
-/** レンズは -Z 向き */
-export function CameraModel({ live, ...props }: ThreeElements['group'] & { live: boolean }) {
-  return (
-    <group {...props}>
-      <mesh>
-        <boxGeometry args={[0.24, 0.15, 0.12]} />
-        <meshStandardMaterial color="#27272a" />
-      </mesh>
-      <mesh position={[0, 0, -0.09]} rotation-x={Math.PI / 2}>
-        <cylinderGeometry args={[0.045, 0.05, 0.07, 16]} />
-        <meshStandardMaterial color="#52525b" />
-      </mesh>
-      <mesh position={[0.08, 0.05, -0.061]}>
-        <sphereGeometry args={[0.012, 8, 8]} />
-        <meshBasicMaterial color={live ? '#ef4444' : '#3f3f46'} />
-      </mesh>
-    </group>
-  );
-}
 
 export function CamMonitor({ item, position }: { item: CameraItem; position: [number, number, number] }) {
   const selfId = useStore((s) => s.selfId);
@@ -51,7 +37,7 @@ export function CamMonitor({ item, position }: { item: CameraItem; position: [nu
   useFrame(() => { if (own && tex) tex.needsUpdate = true; });
   if (!item.live) return null;
   return (
-    <Billboard position={position}>
+    <UprightBillboard position={position}>
       <mesh userData={{ noRay: true }}>
         <planeGeometry args={[0.72, 0.42]} />
         <meshBasicMaterial color="#111" />
@@ -64,11 +50,12 @@ export function CamMonitor({ item, position }: { item: CameraItem; position: [nu
         <circleGeometry args={[0.02, 12]} />
         <meshBasicMaterial color="#ef4444" />
       </mesh>
-    </Billboard>
+    </UprightBillboard>
   );
 }
 
 export function Camera3D({ item }: { item: CameraItem }) {
+  const timed = useTimedCamera(item), isTimed = item.variant === 'camera-timer';
   const ref = useRef<THREE.Group>(null);
   const model = useRef<THREE.Group>(null);
   useFrame((_, dt) => {
@@ -87,27 +74,19 @@ export function Camera3D({ item }: { item: CameraItem }) {
     return () => { cameraModels.delete(item.id); };
   });
   if (item.holder) return null;
+  const groundY = item.groundY ?? 0;
+  const height = (item.cameraY ?? DEFAULT_CAMERA_Y) - groundY;
   const data: Interactable = {
     carry: item.id,
     remove: () => removeItem(item.id),
-    hint: `クリック: 拾う ・ C: 撮影 ・ L: 配信${item.live ? 'を止める' : ''}`,
-    use: () => itemAction(item.id, { a: 'pick' }),
+    hint: isTimed ? tr('cameraTimerStart') : tr("ui473", item.live ? tr("ui474") : ''),
+    use: () => { if (isTimed) timed.start(); else itemAction(item.id, { a: 'pick' }); },
   };
   return (
-    <group ref={ref} position={[item.x, 0, item.z]} rotation-y={item.ry} userData={data}>
-      {[0, 1, 2].map((i) => {
-        const a = (i / 3) * Math.PI * 2;
-        return (
-          <mesh key={i} position={[Math.sin(a) * 0.18, CAM_Y / 2 - 0.05, Math.cos(a) * 0.18]} rotation={[Math.cos(a) * 0.15, 0, -Math.sin(a) * 0.15]}>
-            <cylinderGeometry args={[0.015, 0.015, CAM_Y - 0.1]} />
-            <meshStandardMaterial color="#3f3f46" />
-          </mesh>
-        );
-      })}
-      <group ref={model} position-y={CAM_Y} rotation-x={item.pitch}>
-        <CameraModel live={item.live} />
-      </group>
-      <CamMonitor item={item} position={[0, CAM_Y + 0.42, 0]} />
+    <group ref={ref} position={[item.x, groundY, item.z]} rotation-y={item.ry} userData={data}>
+      <CameraStand height={height} pitch={item.pitch} live={!isTimed && item.live} modelRef={model} />
+      {!isTimed && <CamMonitor item={item} position={[0, height + 0.42, 0]} />}
+      {timed.seconds && <Label text={timed.seconds} position={[0, height + 0.42, 0]} height={0.22} />}
     </group>
   );
 }
@@ -127,7 +106,7 @@ export function CameraStreamer({ item }: { item: CameraItem }) {
     publishCamera(item.id, stream.getVideoTracks()[0])
       .then((s) => { if (cancelled) void s(); else stop = s; })
       .catch((e) => {
-        set({ voiceError: `カメラ配信: ${(e as Error).message}` });
+        set({ voiceError: msg("ui475", (e as Error).message) });
         itemAction(item.id, { a: 'camLive', on: false });
       });
     set((s) => ({ camFeeds: { ...s.camFeeds, [item.id]: performance.now() } }));
@@ -154,7 +133,8 @@ export function CameraStreamer({ item }: { item: CameraItem }) {
 }
 
 export function cameraHelp(item: CameraItem) {
-  return `📷 クリック: 撮影 ・ L: 配信${item.live ? 'を止める' : 'を始める'} ・ Q: 三脚に置く`;
+  if (item.variant === 'camera-timer') return tr('cameraTimerStart');
+  return tr("ui476", item.live ? tr("ui474") : tr("ui477"));
 }
 
 export const operatorName = (item: CameraItem) => nameOf(item.operator);

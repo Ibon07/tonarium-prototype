@@ -8,6 +8,7 @@ import http from 'node:http';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { WebSocket } from 'ws';
+import { COMPAT_VERSION } from '../shared/protocol.ts';
 import { BROWSER_AI_MODEL, type BrowserAiJob } from '../shared/ai-support.ts';
 import { applyFantasyAction, newFantasyProfile } from '../shared/fantasy-engine.ts';
 import { NPC_SERVER } from './npc-catalog.ts';
@@ -47,7 +48,7 @@ test('real sockets keep browser inference private, commit once, fall back after 
     const socket=new WebSocket(`ws://127.0.0.1:${port}/ws`);sockets.push(socket);
     const messages:Message[]=[];socket.on('message',raw=>messages.push(JSON.parse(String(raw))));
     await new Promise<void>((resolve,reject)=>{socket.once('open',resolve);socket.once('error',reject);});
-    const send=(message:unknown)=>socket.send(JSON.stringify(message));send({t:'hello',id,name:id});send({t:'join',sid:'world'});
+    const send=(message:unknown)=>socket.send(JSON.stringify(message));send({t:'hello',compat: COMPAT_VERSION,id,name:id});send({t:'join',sid:'world'});
     await until(()=>messages.find(message=>message.t==='fantasyProfile'));
     return{socket,messages,send};
   };

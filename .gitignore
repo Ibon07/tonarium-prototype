@@ -2,21 +2,19 @@ node_modules
 .cache/
 work/
 client/dist
+system-bundle/
+.local/
+.xr-tools/
 data
 .env
-native/**/bin/
-native/**/obj/
-native/**/Library/
-native/**/Temp/
-native/**/Logs/
-native/**/UserSettings/
-native/**/Build/
-native/**/Builds/
-native/artifacts/
-native/build/
-native/**/*.log
+electron/build/
+electron/artifacts/
+electron/app/update-build.json
 
 # PNPM
 pnpm-lock.yaml
 pnpm-workspace.yaml
+
+**/__pycache__/
+
 data-isolated

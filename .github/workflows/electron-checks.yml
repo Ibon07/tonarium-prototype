@@ -1,0 +1,37 @@
+name: Electron checks
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'electron/**'
+      - '.github/workflows/electron-checks.yml'
+  pull_request:
+    paths:
+      - 'electron/**'
+      - '.github/workflows/electron-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: electron-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  electron:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+      # Unit tests need Node only; validate the lock without downloading Electron binaries.
+      - name: Verify clean dependency installation
+        run: npm ci --prefix electron --ignore-scripts
+      - name: Test Electron application logic
+        run: npm --prefix electron test

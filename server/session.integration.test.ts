@@ -12,7 +12,7 @@ import { importKey, open, PACKET_TOPIC, receiveBlob, seal, sendPacket, unpack, t
 import { POSITION_TOPIC, SessionPositions } from '../shared/session-position.ts';
 import { SessionEvents, EVENT_TOPIC, EVENT_BULK_TOPIC, RECOVERY_TOPIC } from '../shared/session-events.ts';
 import { applyItemAction, isDeltaAction, type Item } from '../shared/items.ts';
-import type { RoomClientMsg } from '../shared/protocol.ts';
+import { COMPAT_VERSION, type RoomClientMsg } from '../shared/protocol.ts';
 import { EMOTES } from '../shared/emotes.ts';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,7 +51,7 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
     if (!previous) await new Promise<void>((resolve, reject) => { home.once('open', resolve); home.once('error', reject); });
     const id = previous?.id ?? crypto.randomUUID();
     if (!previous) {
-      home.send(JSON.stringify({ t: 'hello', id, name }));
+      home.send(JSON.stringify({ t: 'hello', id, name, compat: COMPAT_VERSION }));
       home.send(JSON.stringify({ t: 'join', sid }));
     }
     const requestId = crypto.randomUUID();
@@ -127,19 +127,32 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   assert.ok(JSON.stringify(a.snapshot).length > 100_000);
   const b = await peer('sync-b');
   assert.deepEqual(b.snapshot.items[0], canvas);
-  a.home.send(JSON.stringify({ t: 'friendRequest', to: b.id }));
-  await until(() => b.homeMessages.find((m) => m.t === 'friendRequest' && m.from === a.id));
-  b.home.send(JSON.stringify({ t: 'friendAccept', to: a.id }));
+  a.home.send(JSON.stringify({ t: 'followUser', name: 'sync-b', on: true }));
+  await until(() => b.homeMessages.find((m) => m.t === 'followed' && m.from === a.id));
+  b.home.send(JSON.stringify({ t: 'followUser', name: 'sync-a', on: true }));
   await until(() => a.homeMessages.find((m) => m.t === 'friends' && m.names.includes('sync-b')));
+  a.home.send(JSON.stringify({ t: 'postCreate', text: 'timeline hello', withPlace: true }));
+  const posted = await until(() => b.homeMessages.find((m) => m.t === 'post' && m.p.text === 'timeline hello'));
+  assert.equal(posted.p.author, 'sync-a');
   a.home.send(JSON.stringify({ t: 'msg', conv: 'dm:sync-a\u0000sync-b', text: 'home websocket DM' }));
   await until(() => b.homeMessages.find((m) => m.t === 'msg' && m.m.text === 'home websocket DM'));
   await a.send({ t: 'chat', text: 'room hello', scope: 'all' });
   await until(() => b.received.find((v) => v.message?.m?.text === 'room hello'));
+  const gif = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAAKAAAAIf8LTkVUU0NBUEUyLjADAQAAACwAAAAAAQABAAACAkQBADs=';
+  const clientRequestId = crypto.randomUUID();
+  await a.send({ t: 'chat', text: 'recorded GIF', scope: 'all', image: gif, clientRequestId });
+  await until(() => b.received.find(v => v.message?.m?.clientRequestId === clientRequestId));
+  await a.send({ t: 'chat', text: 'recorded GIF', scope: 'all', image: gif, clientRequestId });
+  await a.send({ t: 'sync' });
+  const gifSnapshot = await until(() => a.received.find(v => v.kind === 'snapshot' && v.snapshot.chats.some((m: any) => m.clientRequestId === clientRequestId)));
+  const gifMessages = gifSnapshot.snapshot.chats.filter((m: any) => m.clientRequestId === clientRequestId);
+  assert.equal(gifMessages.length, 1);
+  assert.equal(gifMessages[0].image, gif);
   await a.send({ t: 'itemAction', id: 'large-canvas', action: { a: 'strokeStart', id: 'new-line', color: '#ffffff', size: 2, x: 1, y: 2 } });
   await until(() => b.received.find((v) => v.message?.action?.id === 'new-line'));
   await a.send({ t: 'mode', mode: '3d' });
-  a.client.latest(PACKET_TOPIC, await seal(a.key, a.cfg.token, 'client-position', 1, { t: 'avatar', s: { x: 2, z: 3, ry: 0 } }) as any, 1n);
-  await until(() => b.received.find((v) => v.t === 'avatar' && v.id === a.id && v.s.x === 2));
+  a.client.latest(PACKET_TOPIC, await seal(a.key, a.cfg.token, 'client-position', 1, { t: 'avatar', s: { x: 2, z: 3, ry: 0, walking: true } }) as any, 1n);
+  await until(() => b.received.find((v) => v.t === 'avatar' && v.id === a.id && v.s.x === 2 && v.s.walking === true));
   await a.send({ t: 'poke', to: b.id });
   const poke = await until(() => b.received.find((v) => v.message?.t === 'poke'));
   assert.equal(poke.message.from, a.id);
@@ -149,8 +162,8 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   const hold = b.pauseNextBlob();
   await a.send({ t: 'chat', text: 'large attachment', image, scope: 'all' });
   await hold.beginning;
-  a.client.latest(PACKET_TOPIC, await seal(a.key, a.cfg.token, 'client-position', 2, { t: 'avatar', s: { x: 4, z: 3, ry: 0 } }) as any, 2n);
-  await until(() => b.received.find((v) => v.t === 'avatar' && v.id === a.id && v.s.x === 4));
+  a.client.latest(PACKET_TOPIC, await seal(a.key, a.cfg.token, 'client-position', 2, { t: 'avatar', s: { x: 2, z: 3, ry: 0, walking: false } }) as any, 2n);
+  await until(() => b.received.find((v) => v.t === 'avatar' && v.id === a.id && v.s.x === 2 && v.s.walking === false));
   assert.equal(b.received.some((v) => v.message?.m?.image === image), false, 'position arrives while the blob receiver is paused');
   hold.release();
   await until(() => b.received.find((v) => v.message?.m?.image === image));
@@ -160,9 +173,14 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   assert.match(media.error, /LiveKit/);
   await b.send({ t: 'chat', text: 'without media', scope: 'all' });
   await until(() => a.received.find((v) => v.message?.m?.text === 'without media'));
+  await a.send({ t: 'avatar', s: { x: 2, z: 3, ry: 0, crouching: true } });
+  await until(() => b.received.find((v) => v.t === 'avatar' && v.id === a.id && v.s.crouching === true));
   b.client.close();
   const b2 = await peer('sync-b', 'sync-test', b);
   assert.equal(b2.id, b.id);
+  assert.equal(b2.snapshot.avatars[a.id].crouching, true);
+  await a.send({ t: 'avatar', s: { x: 2, z: 3, ry: 0, crouching: false } });
+  await until(() => b2.received.find((v) => v.t === 'avatar' && v.id === a.id && v.s.crouching === false));
   assert.ok(b2.snapshot.chats.some((c: any) => c.text === 'without media'));
   assert.ok(b2.snapshot.items[0].strokes.some((s: any) => s.id === 'new-line'));
   const other = await peer('other', 'other-test');
@@ -191,7 +209,13 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   await until(() => a.received.find((v) => v.message?.m?.text === 'once only'));
   await delay(100);
   assert.equal(a.received.filter((v) => v.message?.m?.text === 'once only').length, 1);
+  const beforeCrouch = b2.received.length;
+  await a.send({ t: 'avatar', s: { x: 2, z: 3, ry: 0, crouching: true } });
+  await until(() => b2.received.slice(beforeCrouch).find((v) => v.t === 'avatar' && v.id === a.id && v.s.crouching === true));
   const c = await peer('modern-a', 'sync-test', undefined, true);
+  assert.equal(c.snapshot.avatars[a.id].crouching, true);
+  await a.send({ t: 'avatar', s: { x: 2, z: 3, ry: 0, crouching: false } });
+  await until(() => c.received.find((v) => v.t === 'avatar' && v.id === a.id && v.s.crouching === false));
   const d = await peer('modern-b', 'sync-test', undefined, true);
   await until(() => c.positions!.routes().some((r) => r.peer === d.cfg.peer) ? true : undefined);
   assert.equal(c.positions!.routes().find((r) => r.peer === d.cfg.peer)?.route, 'relay', 'Node without WebRTC uses relay');
@@ -203,6 +227,14 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   await c.send({ t: 'chat', text: 'modern chat remains ordered', scope: 'all' });
   await until(() => d.received.find((v) => v.message?.m?.text === 'modern chat remains ordered'));
   assert.ok(d.raw.some((f) => f.type === 'peer_message' && f.topic === EVENT_TOPIC), 'modern chat body arrives from its peer');
+  const peerGifRequest = crypto.randomUUID();
+  await c.send({ t: 'chat', scope: 'all', text: 'peer GIF', image: gif, clientRequestId: peerGifRequest });
+  const peerGif = await until(() => d.received.find(v => v.message?.m?.clientRequestId === peerGifRequest));
+  assert.equal(peerGif.message.m.image, gif);
+  await c.send({ t: 'chat', scope: 'all', text: 'peer GIF', image: gif, clientRequestId: peerGifRequest });
+  await c.send({ t: 'sync' });
+  const peerGifSnapshot = await until(() => c.received.find(v => v.kind === 'snapshot' && v.snapshot.chats.some((m: any) => m.clientRequestId === peerGifRequest)));
+  assert.equal(peerGifSnapshot.snapshot.chats.filter((m: any) => m.clientRequestId === peerGifRequest).length, 1);
   const five: Awaited<ReturnType<typeof peer>>[] = [];
   for (let i = 0; i < 5; i++) five.push(await peer(`peer-${i}`, 'peer-five', undefined, true));
   await until(() => five.every((p) => p.positions!.routes().length === 4) ? true : undefined);
@@ -245,6 +277,37 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   const newcomer = await peer('newcomer', 'peer-five', undefined, true);
   assert.ok(newcomer.snapshot.chats.some((m: any) => m.id === publicEvent!.id));
   assert.deepEqual(newcomer.snapshot.items.find((i: any) => i.id === newCanvas.id).strokes, (publisher.localItems.get(newCanvas.id) as any).strokes);
+  const bikeA = await peer('bike-a', 'peer-five');
+  const bikeB = await peer('bike-b', 'peer-five');
+  for (const p of [bikeA, bikeB]) {
+    await p.send({ t: 'mode', mode: '3d' });
+    await p.send({ t: 'avatar', s: { x: 0, z: 0, ry: 0 } });
+  }
+  await bikeA.send({ t: 'itemCreate', kind: 'bike', x: 0, z: -2, ry: 0 });
+  const bike = await until(() => [...bikeA.localItems.values()].find(i => i.kind === 'bike'));
+  assert.ok(bike.kind === 'bike');
+  await Promise.all([bikeA, bikeB].map(p => p.send({ t: 'itemAction', id: bike.id, action: { a: 'bikeMount' } })));
+  const occupied = await until(() => {
+    const it = bikeA.localItems.get(bike.id);
+    return it?.kind === 'bike' && it.rider ? it : undefined;
+  });
+  const driver = occupied.rider === bikeA.id ? bikeA : bikeB;
+  const passenger = driver === bikeA ? bikeB : bikeA;
+  const state = { ...occupied, x: 0.5, speed: 2, roll: -0.1 };
+  await passenger.send({ t: 'itemAction', id: bike.id, action: { a: 'bikeDrive', state, rideVersion: occupied.rideVersion } });
+  await passenger.send({ t: 'itemAction', id: bike.id, action: { a: 'bikeDismount' } });
+  await passenger.send({ t: 'chat', text: 'bike ownership barrier', scope: 'all' });
+  await until(() => driver.received.find(v => v.message?.m?.text === 'bike ownership barrier'));
+  assert.equal((driver.localItems.get(bike.id) as typeof occupied).rider, driver.id);
+  assert.equal((driver.localItems.get(bike.id) as typeof occupied).speed, 0);
+  await driver.send({ t: 'itemAction', id: bike.id, action: { a: 'bikeDrive', state, rideVersion: occupied.rideVersion } });
+  await until(() => { const it = passenger.localItems.get(bike.id); return it?.kind === 'bike' && it.speed === 2 && it.roll === -0.1 ? it : undefined; });
+  await driver.send({ t: 'itemAction', id: bike.id, action: { a: 'bikeDismount' } });
+  await until(() => { const it = passenger.localItems.get(bike.id); return it?.kind === 'bike' && it.rider === null && it.speed === 0 ? it : undefined; });
+  await passenger.send({ t: 'itemAction', id: bike.id, action: { a: 'bikeMount' } });
+  await until(() => { const it = driver.localItems.get(bike.id); return it?.kind === 'bike' && it.rider === passenger.id ? it : undefined; });
+  passenger.home.close();
+  await until(() => { const it = driver.localItems.get(bike.id); return it?.kind === 'bike' && it.rider === null && it.speed === 0 ? it : undefined; });
   d.home.send(JSON.stringify({ t: 'leave' }));
   await until(() => !c.positions!.routes().some((r) => r.peer === d.cfg.peer) ? true : undefined);
   a.home.send(JSON.stringify({ t: 'leave' }));

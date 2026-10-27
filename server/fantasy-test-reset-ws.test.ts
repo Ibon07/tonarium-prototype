@@ -7,6 +7,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { WebSocket } from 'ws';
+import { COMPAT_VERSION } from '../shared/protocol.ts';
 import { applyFantasyAction, newFantasyProfile } from '../shared/fantasy-engine.ts';
 import type { FantasyProfile } from '../shared/fantasy.ts';
 import type { FantasyContractBoard } from '../shared/fantasy-contracts.ts';
@@ -55,7 +56,7 @@ async function isolated(t: TestContext, flag: string) {
     const messages: Message[] = []; socket.on('message', raw => messages.push(JSON.parse(String(raw)) as Message));
     await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
     const send = (message: unknown) => socket.send(JSON.stringify(message));
-    send({ t: 'hello', id, name: id });
+    send({ t: 'hello', compat: COMPAT_VERSION, id, name: id });
     await until(() => messages.find(message => message.t === 'fantasyProfile'));
     const request = async (message: unknown) => {
       const start = messages.length; send(message);
@@ -82,7 +83,7 @@ test('life reset requires entry and confirmation, rejects stale or replayed requ
   const initial = read();
   assert.ok((await alice.request({ t: 'fantasyTestReset', revision: initial.alice.revision, confirm: 'RESET_LIFE' })).error);
   assert.deepEqual(read(), initial);
-  alice.send({ t: 'hello', id: 'alice', name: 'alice' });
+  alice.send({ t: 'hello', compat: COMPAT_VERSION, id: 'alice', name: 'alice' });
   await until(() => alice.messages.filter(message => message.t === 'fantasyProfile').length >= 3 ? true : undefined);
   assert.equal(alice.messages.filter(message => message.t === 'fantasyTestMode').length, 1);
   alice.send({ t: 'join', sid: 'test-world' });

@@ -1,0 +1,33 @@
+const path=require('node:path');
+const fs=require('node:fs/promises');
+const { _electron }=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const root=path.resolve(__dirname,'../..');
+const output=path.resolve(process.argv[2] || path.join(root,'electron/build/verification/web'));
+const html=path.join(root,'client/.electron-web-check.html'),jsx=path.join(root,'client/.electron-web-check.jsx');
+let application,server;
+(async()=>{
+ await fs.mkdir(output,{recursive:true});
+ await fs.writeFile(html,'<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div><script type="module" src="/.electron-web-check.jsx"></script></body></html>');
+ await fs.writeFile(jsx,`import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {Canvas} from '@react-three/fiber';
+import {WorldMesh} from './src/view3d/worlds3d.tsx';
+import {SurvivorPanel} from './src/world/SurvivorPanel.tsx';
+import {useStore} from './src/store.ts';
+import './src/style.css';
+const now=Date.now();
+const person=(id,x,z)=>({id,name:id,style:'bloodrose',x,z,hp:120,maxHp:120,level:2,xp:0,nextXp:16,alive:true,kills:6,gear:{moonblade:1},choiceQueue:[],hitAt:0,attackAt:{},moveAt:now});
+const run={run:1,phase:'running',startedAt:now,endedAt:null,pausedAt:null,players:{self:person('self',0,.55),ally:person('ally',1,-1)},enemies:[{id:'ghoul',kind:'ghoul',x:2,z:1,radius:.3,hp:20,maxHp:20,hitAt:0},{id:'boss',kind:'boss',x:-2,z:-1,radius:.8,hp:1000,maxHp:1000,hitAt:0}],effects:[],stylePicks:{},kills:6,spawnIndex:0,nextSpawnAt:0,randomSeed:1,bossDefeated:false};
+const root=createRoot(document.getElementById('root'));
+window.fixture=mode=>{useStore.setState({selfId:'self',selfName:'self',selfAvatar:{x:0,z:.55,ry:0},session:'electron-local',mode,worldBy:{'electron-local':'survivors'},survivors:{'electron-local':run},survivorProfile:{points:6,upgrades:{might:0,vitality:0,haste:0},runs:0,bestLevel:0,bestKills:0,achievements:[],discovered:['moonblade']},participants:[{id:'self',name:'self',mode,pos:{x:0,z:6.5}}],avatars:{self:{x:0,z:.55,ry:0}},serverOffset:0});root.render(mode==='3d'?<><div style={{position:'fixed',inset:0}}><Canvas camera={{fov:70,near:.05,far:300,position:[0,16,.55],rotation:[-Math.PI/2,0,0]}}><color attach="background" args={['#2b2d31']}/><WorldMesh kind="survivors"/></Canvas></div><SurvivorPanel overlay/></>:<div style={{width:520,height:740,margin:'30px auto'}}><SurvivorPanel/></div>);};window.fixture('2d');`);
+ const {createServer}=await import(path.join(root,'node_modules/vite/dist/node/index.js'));
+ server=await createServer({server:{host:'127.0.0.1',port:5188,strictPort:true}});await server.listen();
+ const binary=process.env.ELECTRON_BINARY || path.join(root,'electron/node_modules/electron/dist/electron');
+ application=await _electron.launch({executablePath:binary,args:[...(process.env.ELECTRON_BINARY?[]:[path.join(root,'electron')]),'--server','http://127.0.0.1:5188/.electron-web-check.html','--data-dir',path.join(output,'profile'),'--ozone-platform=x11','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'],env:{...process.env,ELECTRON_RUN_AS_NODE:'',WAYLAND_DISPLAY:'',XDG_SESSION_TYPE:'x11'}});
+ const page=await application.firstWindow();const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.waitForFunction(()=>typeof window.fixture==='function');
+ for(const mode of ['2d','3d']){await page.evaluate(mode=>window.fixture(mode),mode);await page.locator('.survivor-panel').waitFor();await page.waitForTimeout(1200);await page.screenshot({path:path.join(output,mode+'.png')});if(mode==='3d'){if(await page.locator('canvas').count()<2)throw Error('Three.js canvas missing');}}
+ const media=await page.evaluate(()=>({webm:MediaRecorder.isTypeSupported('audio/webm'),screen:typeof navigator.mediaDevices.getDisplayMedia==='function'}));
+ if(!media.webm||!media.screen||errors.length)throw Error(JSON.stringify({media,errors}));
+ await fs.writeFile(path.join(output,'result.json'),JSON.stringify({passed:true,checks:['Unmodified Web SurvivorPanel renders in Electron 2D','Unmodified Web Three.js WorldMesh and overlay render in Electron 3D','WebM recording codec and screen-sharing API are available'],errors,liveServerUsed:false},null,2));
+ console.log('PASS actual Web components render in Electron 2D/3D; media APIs available');
+})().catch(e=>{console.error(e);process.exitCode=1}).finally(async()=>{await application?.close();await server?.close();await fs.unlink(html).catch(()=>{});await fs.unlink(jsx).catch(()=>{})});
