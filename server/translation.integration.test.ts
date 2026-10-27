@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import { testServerEnv } from './test-db.ts';
+import { devLogin } from './test-auth.ts';
 import { WebSocket } from 'ws';
 import { COMPAT_VERSION, dmKey } from '../shared/protocol.ts';
 import { createTranslationClient } from '../client/src/translation.ts';
@@ -45,12 +46,13 @@ for (const mode of ['mock', 'missing', 'failed'] as const) {
     });
     await until(() => ready);
     async function peer(name: string) {
-      const ws = new WebSocket(base.replace('http', 'ws') + '/ws');
+      const login = await devLogin(base, name);
+      const ws = new WebSocket(base.replace('http', 'ws') + '/ws', { headers: login.headers });
       sockets.push(ws);
       const messages: any[] = [];
       ws.on('message', (raw) => messages.push(JSON.parse(raw.toString())));
       await new Promise<void>((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
-      ws.send(JSON.stringify({ t: 'hello', id: name, name, compat: COMPAT_VERSION }));
+      ws.send(JSON.stringify({ t: 'hello', compat: COMPAT_VERSION }));
       await until(() => messages.some((m) => m.t === 'snapshot'));
       return { ws, messages };
     }
@@ -58,7 +60,9 @@ for (const mode of ['mock', 'missing', 'failed'] as const) {
     const conv = dmKey('Alice', 'Bob');
     alice.ws.send(JSON.stringify({ t: 'msg', conv, text: 'Hello' }));
     await until(() => bob.messages.some((m) => m.t === 'msg' && m.m.text === 'Hello'));
-    const client = createTranslationClient((_, init) => fetch(`${base}/api/translate`, init));
+    // 翻訳はつないでいる人だけが使える
+    const reader = await devLogin(base, 'Reader');
+    const client = createTranslationClient((_, init) => fetch(`${base}/api/translate`, { ...init, headers: { ...init?.headers as Record<string, string>, ...reader.headers } }));
     await client.load('Hello', 'ja');
     assert.deepEqual(client.get('Hello', 'ja'), mode === 'mock'
       ? { text: 'こんにちは', sourceLanguage: 'en', status: 'translated' }

@@ -192,6 +192,8 @@ export function goNear(target: string) {
 export const poke = (to: string) => send({ t: 'poke', to });
 /** フォローはすぐ手元にも反映する（届いた follows で上書きされる） */
 export function followUser(name: string, on: boolean) {
+  // 先に画面だけフォロー中にするので、断られると分かっているゲストは送らない
+  if (get().selfGuest) { showToast(msg('authLoginRequired')); return; }
   send({ t: 'followUser', name, on });
   set((s) => ({ following: on ? [...new Set([...s.following, name])] : s.following.filter((n) => n !== name) }));
 }

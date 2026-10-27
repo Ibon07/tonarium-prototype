@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import { testServerEnv } from './test-db.ts';
+import { devLogin } from './test-auth.ts';
 import { pathToFileURL } from 'node:url';
 import { WebSocket } from 'ws';
 import { COMPAT_VERSION, type ClientMsg, type ServerMsg, type SessionDef, type EventDef } from '../shared/protocol.ts';
@@ -56,7 +57,8 @@ test('empty user sessions expire; joins, fixed sessions and manual deletion keep
   });
   await until(() => ready);
   async function peer(id: string) {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const login = await devLogin(`http://127.0.0.1:${port}`, id);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: login.headers });
     t.after(() => ws.terminate());
     let sessions: SessionDef[] = [], events: EventDef[] = [], info: Record<string, unknown> = {};
     let snapshot = false;
@@ -67,11 +69,12 @@ test('empty user sessions expire; joins, fixed sessions and manual deletion keep
       if (msg.t === 'sessions') sessions = msg.list;
       if (msg.t === 'events') events = msg.list;
       if (msg.t === 'sessionInfo') info = msg.sessions;
-      if (msg.t === 'users') for (const u of msg.list) users.set(u.id, u.session);
+      // ID はアカウントの UUID なので、テストの中で重ならない名前で引く
+      if (msg.t === 'users') for (const u of msg.list) users.set(u.name, u.session);
     });
     await new Promise<void>((resolve) => ws.once('open', resolve));
     const send = (msg: ClientMsg) => ws.send(JSON.stringify(msg));
-    send({ t: 'hello', id, name: id, compat: COMPAT_VERSION });
+    send({ t: 'hello', compat: COMPAT_VERSION });
     await until(() => snapshot);
     return { ws, send, users, sessions: () => sessions, events: () => events, info: () => info };
   }

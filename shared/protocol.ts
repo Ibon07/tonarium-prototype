@@ -19,7 +19,7 @@ export type Mode = '2d' | '3d';
  * 約束事を壊す変更（メッセージの追加・意味の変更など）を入れたら +1 する。
  * hello で申告が無い・一致しないクライアントはサーバーが接続を断ち、画面は全面で更新を促す（docs/sync.md）
  */
-export const COMPAT_VERSION = 6;
+export const COMPAT_VERSION = 7;
 
 /** セッションを見られる人。省略時は public */
 export type Visibility = 'public' | 'friends' | 'groupPlus' | 'group' | 'invite';
@@ -164,6 +164,10 @@ export interface User {
   bio: string;
   status: StatusKind;
   statusText: string;
+  /** ログインしていない人（端末ごとのゲスト） */
+  guest: boolean;
+  /** Misskey のユーザー名（@ の後ろ）。ゲストと開発用は null */
+  username: string | null;
 }
 
 /** セッションの中だけで使う、その人の状態。LiveKit の部屋でそのセッションの人にだけ配る */
@@ -291,7 +295,8 @@ export interface SessionSnapshot {
 export type HomeClientMsg =
   | { t: 'thumbnailUpload'; sid: string; thumbnail: string }
   | { t: 'marketLike'; product: string }
-  | { t: 'hello'; id: string; name: string; compat?: number }
+  /** 本人はサーバーが Cookie のセッションで決める */
+  | { t: 'hello'; compat?: number }
   | { t: 'join'; sid: string; requestId?: string }
   | { t: 'leave'; requestId?: string }
   | { t: 'prepareSync'; requestId: string; peerPositions?: boolean; peerDelivery?: boolean }
@@ -402,6 +407,8 @@ export type HomeServerMsg =
   | { t: 'marketLikes'; counts: Record<string, number>; liked: string[] }
   /** 互換性バージョンが合わず接続を断るときに、切断の直前に送る */
   | { t: 'incompatible'; compat: number }
+  /** ゲストが、ログインした人だけの操作をしようとした */
+  | { t: 'loginRequired' }
   | { t: 'syncConfig'; requestId: string; config: SyncConfig }
   | { t: 'syncError'; requestId: string; error: string }
   | { t: 'syncReset'; sid: string }

@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import { testServerEnv } from './test-db.ts';
+import { devLogin } from './test-auth.ts';
 import { fileURLToPath } from 'node:url';
 import { ITEM_INFO } from '../shared/items.ts';
 import { ITEM_USAGE } from '../shared/item-usage.ts';
@@ -138,8 +139,10 @@ test('deployed content translation HTTP registers once, persists results and lea
   assert.equal(post.headers.get('allow'), 'GET, HEAD');
 
   const chatText = 'Hello from an isolated HTTP test.';
+  assert.equal((await fetch(`${first.base}/api/translate`, { method: 'POST', body: '{}' })).status, 401, 'chat translation needs a login');
+  const reader = await devLogin(first.base, 'Reader');
   const chat = await fetch(`${first.base}/api/translate`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: chatText, targetLanguage: 'ko' }),
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...reader.headers }, body: JSON.stringify({ text: chatText, targetLanguage: 'ko' }),
   });
   assert.equal(chat.status, 200);
   assert.deepEqual(await chat.json(), { text: chatText, sourceLanguage: null, status: 'unavailable' });

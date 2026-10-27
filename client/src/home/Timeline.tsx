@@ -455,7 +455,14 @@ function PostDetail({ id }: { id: string }) {
 
 type Picker = 'session' | 'world' | 'item' | 'emoji' | null;
 
+/** ゲストは見るだけ。書く欄の代わりにログインを案内する */
 function Composer() {
+  const guest = useStore((s) => s.selfGuest);
+  if (guest) return <div className="tlside"><div className="tlsidehead"><span>{tr('tlWrite')}</span><button className="ib tlclose" aria-label={tr('tlCloseDetail')} onClick={closeTimelineSide}><Icon name="close" size={16} /></button></div><Empty>{tr('authLoginRequired')}</Empty></div>;
+  return <ComposerForm />;
+}
+
+function ComposerForm() {
   const self = useStore((s) => s.selfName);
   const quote = useStore((s) => s.composeQuote);
   const session = useStore((s) => s.guild.sessions.find((d) => d.id === s.session));

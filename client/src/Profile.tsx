@@ -9,6 +9,42 @@ import { avatarTextureUrl, uploadAvatarImage, uploadAvatarManifest } from './ava
 import { send } from './net/ws.ts';
 import { useStore } from './store.ts';
 import { setLightweight, setLoadScale, setMapMode, setVoiceHeat } from './actions.ts';
+import { logout, renameSelf, startMisskeyLogin } from './auth.ts';
+
+/** 表示名の変更とログアウト。ゲストには Misskey でのログインを勧める */
+function AccountSection() {
+  const selfName = useStore((s) => s.selfName);
+  const guest = useStore((s) => s.selfGuest);
+  const username = useStore((s) => s.selfUsername);
+  const [name, setName] = useState(selfName);
+  const [message, setMessage] = useState('');
+  const [waiting, setWaiting] = useState<string | null>(null);
+  const rename = async () => {
+    try { await renameSelf(name); setMessage(tr('authNameSaved')); } catch { setMessage(tr('authNameFailed')); }
+  };
+  const login = async () => {
+    try {
+      // ゲストのまま入っている画面からは、ログインできたら入り直す（本人が変わるため）
+      if (await startMisskeyLogin(setWaiting)) location.reload();
+    } catch { setWaiting(null); setMessage(tr('authFailed')); }
+  };
+  return (
+    <section>
+      <h3>{tr('authAccount')}</h3>
+      <div className="sub">{guest ? tr('authGuestNow') : username ? tr('authSignedInAs', username) : ''}</div>
+      <div className="row">
+        <input aria-label={tr('authName')} value={name} maxLength={24} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void rename()} />
+        <button disabled={!name.trim() || name.trim() === selfName} onClick={() => void rename()}>{tr('authNameSave')}</button>
+      </div>
+      <div className="row end">
+        {guest && <button className="primary" onClick={() => void login()}>{tr('authMisskey')}</button>}
+        <button onClick={() => void logout()}>{tr('authLogout')}</button>
+      </div>
+      {waiting && <div className="sub">{tr('authWaiting')} <b className="logincode">{waiting}</b></div>}
+      {!waiting && message && <div className="sub">{message}</div>}
+    </section>
+  );
+}
 
 const LOAD_SCALES = [0, 0.5, 1, 2, 3];
 
@@ -25,6 +61,7 @@ export function ProfileDialog({ name, onClose }: { name: string; onClose: () => 
   const lightweight = useStore((s) => s.lightweight);
   const mapMode = useStore((s) => s.mapMode);
   const voiceHeat = useStore((s) => s.voiceHeat);
+  const guest = useStore((s) => s.selfGuest);
   useEffect(() => {
     let alive = true;
     void fetch(`/profile?name=${encodeURIComponent(n)}`).then((r) => r.json()).then((p: { bio: string }) => { if (alive) setBio(current => current ?? p.bio); });
@@ -48,15 +85,16 @@ export function ProfileDialog({ name, onClose }: { name: string; onClose: () => 
     <div className="modalbg" onClick={onClose}>
       <div className="modal profile" role="dialog" aria-modal="true" aria-label={tr('ui584', n)} onClick={(e) => e.stopPropagation()}>
         <h2>{tr('ui584', n)}</h2>
+        <AccountSection />
         <section><LanguageSelect /></section>
         <PopupPauseSettings />
         <UpdateSettings />
         <div className="sub">{tr("ui47")}</div>
-        <section>
+        {!guest && <section>
           <h3>{tr("ui48")}</h3>
           <textarea className="biofield" value={bio ?? ''} maxLength={300} onChange={(e) => setBio(e.target.value)} placeholder={tr("ui49")} aria-label={tr("ui48")} />
           <div className="row end"><button onClick={() => void saveBio()}>{tr("ui50")}</button></div>
-        </section>
+        </section>}
         <section>
           <h3>{tr("ui51")}</h3>
           <div className="row">

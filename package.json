@@ -69,7 +69,7 @@
     "test:survivor": "tsx --test shared/survivor.test.ts server/survivors.test.ts",
     "test:timeline": "tsx --test shared/timeline.test.ts server/follows.test.ts server/timeline.test.ts",
     "test:storage": "tsx --test server/storage.test.ts",
-    "test:integration": "tsx --test server/empty-session.integration.test.ts server/group.integration.test.ts server/session-links.integration.test.ts server/translation.integration.test.ts"
+    "test:integration": "tsx --test server/auth.integration.test.ts server/empty-session.integration.test.ts server/group.integration.test.ts server/session-links.integration.test.ts server/translation.integration.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1157.0",

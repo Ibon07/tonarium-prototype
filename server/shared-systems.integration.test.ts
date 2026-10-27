@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import { testServerEnv } from './test-db.ts';
+import { devLogin } from './test-auth.ts';
 import { WebSocket } from 'ws';
 import { KokosyncClient } from '../vendor/kokosync/index.js';
 import { importKey, open, PACKET_TOPIC, receiveBlob, seal, sendPacket, type Envelope, type SyncConfig } from '../shared/session-wire.ts';
@@ -74,14 +75,15 @@ test('live shared systems: code-map load, late snapshots, native items, occupied
     assert.equal(entry.manifest.id, entry.id); assert.equal(entry.manifest.version, entry.version);
   }
 
-  async function peer(name: string, room = sid, previous?: { home: WebSocket; id: string }) {
-    const home = previous?.home ?? new WebSocket(base.replace('http', 'ws') + '/ws'); homes.add(home);
+  async function peer(name: string, room = sid, previous?: { home: WebSocket; id: string; login: Awaited<ReturnType<typeof devLogin>> }) {
+    const login = previous?.login ?? await devLogin(base, name);
+    const home = previous?.home ?? new WebSocket(base.replace('http', 'ws') + '/ws', { headers: login.headers }); homes.add(home);
     const homeMessages: any[] = [];
     home.on('message', bytes => { homeMessages.push(JSON.parse(bytes.toString())); if (homeMessages.length > 200) homeMessages.shift(); });
     if (!previous) await new Promise<void>((resolve, reject) => { home.once('open', resolve); home.once('error', reject); });
-    const id = previous?.id ?? crypto.randomUUID();
+    const id = login.id;
     if (!previous) {
-      home.send(JSON.stringify({ t: 'hello', id, name, compat: COMPAT_VERSION }));
+      home.send(JSON.stringify({ t: 'hello', compat: COMPAT_VERSION }));
       home.send(JSON.stringify({ t: 'join', sid: room }));
     }
     const requestId = crypto.randomUUID();
@@ -133,7 +135,7 @@ test('live shared systems: code-map load, late snapshots, native items, occupied
       error(message) { failures.push(message); },
     });
     queues.add(queue);
-    return { id, home, homeMessages, client, config, frames, failures, items, send, queue, sentCommands, forceNextTickConflict() { holdNextCommand = true; }, get view() { return view!; }, get snapshot() { return snapshot!; }, get ordinal() { return ordinal; } };
+    return { id, login, home, homeMessages, client, config, frames, failures, items, send, queue, sentCommands, forceNextTickConflict() { holdNextCommand = true; }, get view() { return view!; }, get snapshot() { return snapshot!; }, get ordinal() { return ordinal; } };
   }
   type Peer = Awaited<ReturnType<typeof peer>>;
   const timer = (p: Peer) => p.view.systems.find(system => system.instanceId === 'countdown')!;

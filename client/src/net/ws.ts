@@ -8,7 +8,9 @@ import { receiveSystemCommandResult, resetSystemCommands } from '../systems/api.
 import { COMPAT_VERSION, isRoomClientMsg, type ClientMsg, type ServerMsg, type SessionInfo, type SessionSnapshot } from '../../../shared/protocol.ts';
 import type { SurvivorState } from '../../../shared/survivor.ts';
 import { applyAvatars } from '../sessionView.ts';
-import { get, recompute, set, spawnPoint } from '../store.ts';
+import { get, recompute, set, showToast, spawnPoint } from '../store.ts';
+import { wsSessionQuery } from '../auth.ts';
+import { msg as uiMsg } from '../i18n/index.ts';
 
 const selfBusy = () => get().users.find((u) => u.id === get().selfId)?.status === 'busy';
 import { applyDelta } from '../items/actions.ts';
@@ -47,7 +49,7 @@ export function requestSession(msg: Extract<ClientMsg, { t: 'sessionCreate' | 'j
 }
 
 export function connectWs() {
-  const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+  const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws${wsSessionQuery()}`;
   const ws = new WebSocket(url);
   let openedAt = 0;
   g.__tonariumWs = ws;
@@ -56,7 +58,7 @@ export function connectWs() {
     retry = 0;
     set({ wsConnected: true, wsReady: false });
     const s = get();
-    send({ t: 'hello', id: s.selfId, name: s.selfName, compat: COMPAT_VERSION });
+    send({ t: 'hello', compat: COMPAT_VERSION });
     if (s.session) {
       send({ t: 'join', sid: s.session });
       // ホームの再接続後は、参加資格と部屋の状態も取り直す。
@@ -71,6 +73,8 @@ export function connectWs() {
     stopSessionSync(true);
     set({ wsConnected: false, wsReady: false });
     if (get().session) set({ sync: 'unavailable', syncError: uiSource('ui472') });
+    // ログインが切れた（ほかのタブでログアウトした・期限切れ）ときは、つなぎ直しても断られるので入口からやり直す
+    if (event.code === 4401) { location.reload(); return; }
     // 互換性バージョン違いで断たれた場合はつなぎ直しても結果が同じなので、再接続しない
     if (!get().incompatible) setTimeout(connectWs, Math.min(5000, 500 * 2 ** retry++));
   };
@@ -178,6 +182,9 @@ export function onMessage(msg: ServerMsg) {
     case 'marketLikes': set({ marketLikes: { counts: msg.counts, liked: msg.liked } }); return;
     case 'incompatible':
       set({ incompatible: true });
+      return;
+    case 'loginRequired':
+      showToast(uiMsg('authLoginRequired'));
       return;
     case 'syncConfig': void configureSessionSync(msg.requestId, msg.config); return;
     case 'syncError': syncError(msg.requestId, msg.error); return;
