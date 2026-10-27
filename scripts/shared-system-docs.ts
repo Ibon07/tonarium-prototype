@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { systemItemDefinitions, type SystemItemDefinition } from '../shared/system-items.ts';
 import { ITEM_USAGE } from '../shared/item-usage.ts';
+import { itemVariantDefinition } from '../shared/item-variants.ts';
 import type { SystemEntry, SystemManifest, SystemPort, ValueSchema } from '../shared/system-types.ts';
 import { compareVersions } from '../shared/systems.ts';
 import { validateSystemSubmission } from '../server/system-catalog.ts';
@@ -61,7 +62,7 @@ export function systemPlacementExample(manifest: SystemManifest): string {
 function itemPage(item: SystemItemDefinition, metadata: ContentMetadata) {
   check(/^[A-Za-z][A-Za-z0-9-]{0,63}$/.test(item.id), 'Unsupported item documentation ID');
   const { info } = item;
-  const usage = ITEM_USAGE[item.kind];
+  const usage = itemVariantDefinition(item.variant)?.usage ?? ITEM_USAGE[item.kind];
   const local = (field: string, source: string) => documentedContentText(metadata, `item/${item.id}`, field, source);
   return page(`아이템: ${prose(local('name', info.name))} (${code(item.id)})`, [
     footer,
@@ -105,7 +106,7 @@ function itemPage(item: SystemItemDefinition, metadata: ContentMetadata) {
     '## 기존 사용법과 출처',
     ...(usage && local('usage', usage) !== usage ? [`**native 모드의 사용법:** ${prose(local('usage', usage))}`] : []),
     usage ? `**native 모드의 원본 사용법:** ${prose(usage)}` : '별도로 등록된 사용법 문구는 없습니다. 원본 설명과 기존 아이템 안내를 참고합니다.',
-    '[아이템 등록 원문](../../../shared/items.ts) · [사용법 원문](../../../shared/item-usage.ts) · [기존 아이템 안내](../../items.md) · [모델 연결 구현](../../../client/src/view3d/items3d.tsx)',
+    `[아이템 등록 원문](../../../shared/${item.variant ? 'item-variants' : 'items'}.ts) · [사용법 원문](../../../shared/${item.variant ? 'item-variants' : 'item-usage'}.ts) · [기존 아이템 안내](../../items.md) · [모델 연결 구현](../../../client/src/view3d/items3d.tsx)`,
     '아이템 등록 정보에는 개별 라이선스, 고정 물리 크기, 독립 배포 파일의 크기·무결성 값이 없습니다. 임의의 수치를 적용하지 말고 [소재 출처](../../assets.md)와 모델 구현을 확인합니다. 중앙 시스템의 원본 JSON 크기·무결성 정보는 해당 시스템 문서에 별도로 표시합니다.',
     footer,
   ]);

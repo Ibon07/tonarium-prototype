@@ -37,6 +37,7 @@ import { canLean, leanAngle, pressJump } from './movementAbilities.ts';
 import { xr, xrState } from '../xr/runtime.ts';
 import { carryPosition } from '../xr/pose.ts';
 import { CrouchInput, CROUCH_WEIGHT } from './crouch.ts';
+import { requestTimedCamera } from '../items/useTimedCamera.ts';
 import { MEDIA_PLACEMENT, adjustMediaPlacement, mediaPosition, mediaTransform } from '../../../shared/media-placement.ts';
 
 const SPEED = 4;
@@ -211,7 +212,10 @@ export function Player({ rig }: { rig: PlayerCamera }) {
         const photo = crouch.current!.down({ typing: isTyping(e.target) || isTyping(document.activeElement),
           operating: (get().locked || xrState().active) && !riddenBike() && !seat,
           camera: camera?.kind === 'camera' && !riddenBike(), repeat: e.repeat });
-        if (photo === 'photo' && camera?.kind === 'camera') takePhoto(camera);
+        if (photo === 'photo' && camera?.kind === 'camera') {
+          if (camera.variant === 'camera-timer') requestTimedCamera(camera.id);
+          else takePhoto(camera);
+        }
         return;
       }
       if (isTyping(e.target)) return;
@@ -257,7 +261,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
         const it = id ? get().items[id] : undefined;
         return it?.kind === 'camera' ? it : undefined;
       };
-      if (e.code === 'KeyL') { const c = heldCamera(get()) ?? aimedCam(); if (c) toggleLive(c.id); }
+      if (e.code === 'KeyL') { const c = heldCamera(get()) ?? aimedCam(); if (c && c.variant !== 'camera-timer') toggleLive(c.id); }
       if (e.code === 'KeyX' && !carrying.current) aim.current?.data.remove?.();
     };
     const onWheel = (e: WheelEvent) => {
@@ -339,7 +343,7 @@ export function Player({ rig }: { rig: PlayerCamera }) {
     if (target?.data.bike && systems.sid === s.session && systemSeat(systems.view, s.selfId)) return;
     if (target?.data.bike && (!body.current.grounded || body.current.car !== null || Math.abs(body.current.y) > 0.3)) return;
     const cam = heldCamera(s);
-    if (cam) { takePhoto(cam); return; }
+    if (cam) { if (cam.variant === 'camera-timer') requestTimedCamera(cam.id); else takePhoto(cam); return; }
     if (heldHammer(s)) {
       set((st) => ({ swings: { ...st.swings, [s.selfId]: performance.now() } }));
       const ht = target?.data.hitTarget;

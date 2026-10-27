@@ -10,6 +10,7 @@ import { isCameraTimerItem } from '../../../shared/camera-timer-demo.ts';
 import { useStore, get, set, save, nameOf, heldHammer } from '../store.ts';
 import { follow, goNear, poke } from '../actions.ts';
 import { dropHammer, hitAndMove, itemAction, removeItem, spawnItem } from '../items/actions.ts';
+import { requestTimedCamera } from '../items/useTimedCamera.ts';
 import { formatDistance, useTrend } from '../spatial.ts';
 import { Icon } from './Icon.tsx';
 import { ImageItemMark } from './ImageItemMark.tsx';
@@ -188,7 +189,7 @@ function MenuItem({ icon, label, onClick, disabled }: { icon: Parameters<typeof 
 
 function ActionMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   const s = useStore(useShallow((st) => ({
-    participants: st.participants, selfId: st.selfId, items: st.items, camFeeds: st.camFeeds,
+    participants: st.participants, selfId: st.selfId, items: st.items, camFeeds: st.camFeeds, mode: st.mode,
   })));
   const me = s.participants.find((p) => p.id === s.selfId);
   const run = (f: () => void) => () => { f(); onClose(); };
@@ -223,6 +224,9 @@ function ActionMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
     <Popover anchor={menu.rect} onClose={onClose} className="menu">
       <span className="menutitle">{itemLabel(it)}</span>
       <MenuItem icon="near" label={tr("ui611")} onClick={run(() => goNear(`item:${it.id}`))} />
+      {it.kind === 'camera' && it.variant === 'camera-timer' && s.mode === '3d' && <MenuItem icon="camera"
+        label={tr('cameraTimerShoot')} disabled={!!it.timerState?.systems.find(system => system.instanceId === 'camera-shot')?.state.busy}
+        onClick={run(() => requestTimedCamera(it.id))} />}
       {it.kind === 'hammer' && !holder && <MenuItem icon="hand" label={tr("ui614")} disabled={iHold} onClick={run(() => itemAction(it.id, { a: 'pick' }))} />}
       {it.kind === 'hammer' && holder === s.selfId && <MenuItem icon="hand" label={tr("ui615")} onClick={run(dropHammer)} />}
       {key && <MenuItem icon="window" label={it.kind === 'camera' ? tr("ui616") : tr("ui617")} onClick={run(() => openWindow(key))} />}
@@ -275,7 +279,7 @@ function ItemPicker({ anchor, onClose }: { anchor: DOMRect; onClose: () => void 
         <span className="spacer" />
         <button
           className="primary big" disabled={disabledOf(selected.kind)}
-          onClick={() => { spawnItem(selected.kind, selected.text); onClose(); }}
+          onClick={() => { spawnItem(selected.kind, selected.text, undefined, selected.variant); onClose(); }}
         ><Icon name="plus" size={14} stroke={2.4} />{disabledOf(selected.kind) ? tr("ui623") : tr("ui197")}</button>
       </section>
     </Popover>

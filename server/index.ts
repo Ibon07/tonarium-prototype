@@ -41,6 +41,7 @@ import { MEDIA_DIR, mediaExists, pipeFile, saveMedia, serveMedia } from './media
 import { SharedService } from './shared-service.ts';
 import { sharedSolids } from '../shared/shared-presentation.ts';
 import { SystemService } from './system-service.ts';
+import { TimedCameraItems } from './timed-camera-items.ts';
 import { systemMaps } from './system-maps.ts';
 import { isSystemControlledItem, reconcileSystemItems } from './system-items.ts';
 import { cameraTimerRemoval } from '../shared/camera-timer-demo.ts';
@@ -67,6 +68,7 @@ const CLIENT_VERSION = (() => {
 const DATA_DIR = process.env.DATA_DIR ?? path.join(ROOT, 'data');
 const sharedAssets = new SharedService(DATA_DIR);
 const systems = new SystemService(DATA_DIR, ROOT);
+const timedCameras = new TimedCameraItems(systems);
 for (const error of systems.startupErrors) console.error(error);
 const contentConfig = contentTranslationConfig(process.env, DEV);
 const contentMetadata = (() => {
@@ -689,8 +691,17 @@ function syncSystemItems(sid: string, createMissingNative = !systemItemRooms.has
   const current = items.get(sid);
   if (!current) return;
   const changes = reconcileSystemItems(current, systems.view(sid), { createMissingNative });
-  for (const id of changes.removed) current.delete(id);
-  for (const item of changes.changed) current.set(item.id, item);
+  for (const id of changes.removed) {
+    const item = current.get(id);
+    if (item) timedCameras.remove(sid, item);
+    current.delete(id);
+  }
+  for (const item of changes.changed) {
+    const previous = current.get(item.id);
+    if (previous?.kind === 'camera' && previous.variant === 'camera-timer'
+      && (item.kind !== 'camera' || item.variant !== 'camera-timer')) timedCameras.remove(sid, previous);
+    current.set(item.id, item);
+  }
   systemItemRooms.add(sid);
   if (!changes.changed.length && !changes.removed.length) return;
   markItemsDirty(sid);
@@ -737,6 +748,7 @@ setInterval(() => { for (const sid of items.keys()) refreshTelephones(sid); }, 2
 
 function sendSessionSnapshot(sid: string, id: string) {
   syncSystemItems(sid);
+  for (const item of timedCameras.tick(sid, items.get(sid)?.values() ?? [], inSession(sid).map(user => user.id))) sendItem(sid, item);
   refreshTelephones(sid);
   roomSendSnapshot(sid, id, {
     sid,
@@ -795,7 +807,10 @@ function switchWorld(sid: string, world: WorldKind, clear: boolean, byName: stri
   const sessItems = items.get(sid)!;
   for (const u of inSession(sid)) releaseBikes(sid, u.id);
   if (clear) {
-    for (const [id, item] of [...sessItems]) if (!isSystemControlledItem(item)) { sessItems.delete(id); sendItemRemove(sid, id); }
+    for (const [id, item] of [...sessItems]) if (!isSystemControlledItem(item)) {
+      timedCameras.remove(sid, item);
+      sessItems.delete(id); sendItemRemove(sid, id);
+    }
   } else {
     for (const it of sessItems.values()) {
       if (isSystemControlledItem(it)) continue;
@@ -859,6 +874,7 @@ function leaveSession(u: Participant) {
   u.pos = null;
   u.session = null;
   try {
+    for (const item of timedCameras.leave(sid, u.id, items.get(sid)!.values())) sendItem(sid, item);
     const changed = systems.leave(sid, u.id);
     syncSystemItems(sid, false);
     if (changed) roomSend(sid, { t: 'systemState', sid, view: systems.view(sid) });
@@ -874,7 +890,11 @@ function leaveSession(u: Participant) {
   u.display = null;
   event(sid, `${u.name} が退出しました`);
   if (inSession(sid).length) sendPresence(sid);
-  else { finishVisit(sid); sharedAssets.release(sid); systems.release(sid); void leaveRoom(sid); scheduleEmptyCheck(sid); }
+  else {
+    finishVisit(sid); sharedAssets.release(sid); systems.release(sid);
+    timedCameras.release(sid, items.get(sid)!.values());
+    void leaveRoom(sid); scheduleEmptyCheck(sid);
+  }
 }
 
 function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string }, msg: ClientMsg) {
@@ -1233,11 +1253,12 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
         }
       }
       const it = createItem(msg.kind, {
-        id: randomUUID(), x: at.x, z: at.z, ry: finNum(msg.ry), createdBy: me.id,
+        id: randomUUID(), x: at.x, z: at.z, ry: finNum(msg.ry), createdBy: me.id, variant: msg.variant,
       }, Math.random, msg.media);
       if (!it) return;
       if (it.kind === 'image') it.createdByName = me.name;
       if (it.kind === 'note' && msg.text) it.text = msg.text.slice(0, 300);
+      timedCameras.tick(sid, [it], inSession(sid).map(user => user.id));
       sessItems.set(it.id, it);
       sendItem(sid, it);
       event(sid, `${me.name} が ${ITEM_INFO[msg.kind].name} を出しました`);
@@ -1258,7 +1279,9 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
         }
         return;
       }
-      if (!it || isSystemControlledItem(it) || (it.kind === 'bike' && it.rider) || !sessItems.delete(msg.id)) return;
+      if (!it || isSystemControlledItem(it) || (it.kind === 'bike' && it.rider)) return;
+      timedCameras.remove(sid, it);
+      if (!sessItems.delete(msg.id)) return;
       sendItemRemove(sid, msg.id);
       event(sid, `${me.name} が ${ITEM_INFO[it.kind].name} をしまいました`);
       return;
@@ -1282,6 +1305,14 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     case 'itemAction': {
       const it = sessItems.get(msg.id);
       if (!it || isSystemControlledItem(it)) return;
+      if (msg.action?.a === 'timedCameraRequest') {
+        if (me.mode === '3d' && timedCameras.request(sid, me.id, it, msg.action.token, inSession(sid).map(user => user.id))) {
+          it.updatedBy = me.id;
+          sendItem(sid, it);
+        }
+        return;
+      }
+      if (it.kind === 'camera' && it.variant === 'camera-timer') return;
       if (it.kind === 'telephone') {
         if (!msg.action || typeof msg.action.a !== 'string' || !msg.action.a.startsWith('telephone')) return;
         const present = new Set(inSession(sid).map(u => u.id));
@@ -1451,6 +1482,7 @@ function destroyUserSession(sessionId: string) {
   worldOf.delete(def.id);
   chats.delete(def.id);
   avatars.delete(def.id);
+  for (const item of items.get(def.id)?.values() ?? []) timedCameras.remove(def.id, item);
   items.delete(def.id);
   systemItemRooms.delete(def.id);
   markItemsDirty(def.id);
@@ -2059,6 +2091,7 @@ const systemTick = setInterval(() => {
     try {
       const changed = systems.tick(sid, participants);
       syncSystemItems(sid, false);
+      for (const item of timedCameras.tick(sid, items.get(sid)?.values() ?? [], participants)) sendItem(sid, item);
       if (changed) roomSend(sid, { t: 'systemState', sid, view: systems.view(sid) });
     }
     catch (error) { console.error('system tick', sid, error); }

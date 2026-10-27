@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ITEM_INFO } from '../shared/items.ts';
+import { ITEM_VARIANTS } from '../shared/item-variants.ts';
 import { ITEM_USAGE } from '../shared/item-usage.ts';
 import { WORLDS } from '../shared/worlds.ts';
 import { MARKET_PRODUCTS } from '../shared/market.ts';
@@ -60,8 +61,9 @@ export function collectContentDocuments(catalog: SystemCatalog, metadata: Conten
     fields: Object.fromEntries(Object.entries(values).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && !!entry[1].trim()).map(([field, source]) => [field, { source }])),
   });
   for (const [id, info] of Object.entries(ITEM_INFO)) documents.push(native(`item/${id}`, 'item', { name: info.name, desc: info.desc, genre: info.genre, usage: ITEM_USAGE[id as keyof typeof ITEM_USAGE] }));
+  for (const { id, info, usage } of Object.values(ITEM_VARIANTS)) documents.push(native(`item/${id}`, 'item', { name: info.name, desc: info.desc, genre: info.genre, usage }));
   for (const [id, info] of Object.entries(WORLDS)) documents.push(native(`world/${id}`, 'world', { name: info.name, desc: info.desc }));
-  for (const product of MARKET_PRODUCTS) if (product.category === 'items' || product.category === 'worlds') {
+  for (const product of MARKET_PRODUCTS) {
     documents.push(native(`product/${product.id}`, product.category === 'worlds' ? 'world' : 'item', { name: product.name, description: product.description, ...('text' in product ? { text: product.text } : {}) }));
   }
   for (const { manifest } of catalog.entries) {
