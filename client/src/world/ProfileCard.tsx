@@ -1,4 +1,5 @@
 import { t as tr, msg, systemText, type UiMessage } from '../i18n/index.ts';
+import { GuestMark } from './GuestMark.tsx';
 import { useState } from 'react';
 import { FollowButton } from '../home/common.tsx';
 import { useStore, set, colorOf } from '../store.ts';
@@ -44,7 +45,8 @@ export function ProfileCard() {
         <div className="pcbody">
           <Face id={u.id} name={u.name} size={80} ring="0 0 0 4px #FFFDF9" />
           <div className="pcname">
-            <h2>{u.name}</h2>
+            <h2>{u.name}<GuestMark guest={u.guest} /></h2>
+            {u.username && <span className="sub">@{u.username}</span>}
             <span className="sub">{status} · <ProfileDistance id={u.id} /></span>
           </div>
           <p className="bio">{u.bio || tr("ui671")}</p>

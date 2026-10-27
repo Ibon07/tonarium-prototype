@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import { testServerEnv } from './test-db.ts';
+import { devLogin } from './test-auth.ts';
 import { WebSocket } from 'ws';
 import { COMPAT_VERSION, type ServerMsg, type SessionDef } from '../shared/protocol.ts';
 
@@ -48,12 +49,13 @@ test('shared targets use filtered lists and server join authorization', { timeou
   });
   await until(() => ready ? true : undefined);
   for (const name of ['stranger', 'owner', 'invited', 'member']) {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const login = await devLogin(`http://127.0.0.1:${port}`, name);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: login.headers });
     t.after(() => ws.terminate());
     const messages: ServerMsg[] = [];
     ws.on('message', (raw) => messages.push(JSON.parse(raw.toString())));
     await new Promise<void>((resolve) => ws.once('open', resolve));
-    ws.send(JSON.stringify({ t: 'hello', id: name, name, compat: COMPAT_VERSION }));
+    ws.send(JSON.stringify({ t: 'hello', compat: COMPAT_VERSION }));
     const snapshot = await until(() => messages.find((m) => m.t === 'snapshot'));
     assert.equal(snapshot.t, 'snapshot');
     if (snapshot.t !== 'snapshot') throw new Error('Expected snapshot');

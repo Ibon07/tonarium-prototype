@@ -55,6 +55,7 @@ import { Follows } from './follows.ts';
 import { POST_RATE, Timeline, UPLOAD_RATE } from './timeline.ts';
 import { POST_IMAGE_MAX_BYTES, isImageId, type Post } from '../shared/timeline.ts';
 import { closeDb, openDb } from './db/index.ts';
+import { Auth, normalizeName, requestOrigin, type Account } from './auth.ts';
 import { createSyncGrant, handleSyncOffer, upgradeSync, revokeSync, revokeUserSync, leaveRoom, livekitRoom, roomSend, roomSendSnapshot, shutdownRooms, type RoomHandlers } from './rooms.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
@@ -67,6 +68,18 @@ const CLIENT_VERSION = (() => {
   try { return createHash('sha1').update(fs.readFileSync(path.join(DIST, 'index.html'))).digest('hex').slice(0, 12); } catch { return null; }
 })();
 const DATA_DIR = process.env.DATA_DIR ?? path.join(ROOT, 'data');
+const auth = new Auth({
+  misskeyOrigin: (process.env.MISSKEY_URL || 'https://misskey.resonite.love').replace(/\/$/, ''),
+  // 名前だけでログイン扱いになる入口。npm run dev と、サーバーを立てるテストだけで開く
+  devLogin: DEV || process.env.AUTH_DEV_LOGIN === '1',
+  onRenamed: (account) => {
+    const u = users.get(account.id);
+    if (!u) return;
+    u.name = account.name;
+    broadcastUsers();
+  },
+});
+setInterval(() => { void auth.sweep().catch((e) => console.error('auth sweep', e)); }, 3_600_000).unref();
 const sharedAssets = new SharedService(DATA_DIR);
 const systems = new SystemService(DATA_DIR, ROOT);
 const timedCameras = new TimedCameraItems(systems);
@@ -122,7 +135,9 @@ const MARKET_LIKES_FILE = path.join(DATA_DIR, 'market-likes.json');
 const marketLikes = new MarketLikes(readJson<unknown>(MARKET_LIKES_FILE, {}));
 const saveMarketLikes = later(() => fs.writeFileSync(MARKET_LIKES_FILE, JSON.stringify(marketLikes.serialize())));
 const survivorProfiles = nullRecord(readJson<Record<string, SurvivorProfile>>(SURVIVORS_FILE, {}));
-const saveSurvivorProfiles = later(() => fs.writeFileSync(SURVIVORS_FILE, JSON.stringify(survivorProfiles)));
+/** ゲストの進み具合は保存しない（端末を変えると別人になるため、ログインした人だけ残す） */
+const guestIds = new Set<string>();
+const saveSurvivorProfiles = later(() => fs.writeFileSync(SURVIVORS_FILE, JSON.stringify(Object.fromEntries(Object.entries(survivorProfiles).filter(([id]) => !guestIds.has(id))))));
 /** AD のセーブとランキングは Tonarium サーバー内で完結する（Workers は使わない） */
 interface AdLeaderboardEntry { playerId: string; name: string; antimatterLog10: number; infinities: number; playTimeSec: number }
 const adSaves = nullRecord(readJson<Record<string, { save: unknown; updatedAt: string }>>(AD_SAVES_FILE, {}));
@@ -201,7 +216,6 @@ function survivorProfile(id: string): SurvivorProfile {
   return p;
 }
 
-const normalizeName = (name: string) => name.trim().slice(0, 24) || 'ゲスト';
 const nameHash = (name: string) => createHash('sha1').update(normalizeName(name)).digest('hex');
 const iconFile = (name: string) => path.join(ICON_DIR, `${nameHash(name)}.jpg`);
 const avatarImageFile = (name: string) => path.join(AVATAR_DIR, `${nameHash(name)}.img`);
@@ -898,7 +912,14 @@ function leaveSession(u: Participant) {
   }
 }
 
-function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string }, msg: ClientMsg) {
+/** ゲストはセッションで遊ぶことまで。人やアカウントに残るもの（投稿・フォロー・DM・作成・参加表明・いいね・ステータス）はログインが要る */
+const LOGIN_ONLY = new Set<ClientMsg['t']>([
+  'marketLike', 'followUser', 'postCreate', 'postDelete', 'postReact', 'postRepost',
+  'sessionCreate', 'sessionDelete', 'groupCreate', 'groupUpdate', 'groupJoin', 'groupLeave', 'channelCreate', 'groupDelete',
+  'msg', 'rsvp', 'setStatus', 'watch', 'askJoin', 'eventCreate', 'eventAttend', 'eventDelete', 'invite',
+]);
+
+function handle(ws: WebSocket, state: { id: string | null; account: Account | null; syncRequest?: string }, msg: ClientMsg) {
   if (msg.t === 'hello') {
     // 互換性バージョンが違う（申告が無い旧クライアントを含む）と通信の約束事が食い違うので、状態を渡さず接続を断つ
     if (msg.compat !== COMPAT_VERSION) {
@@ -906,28 +927,30 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
       ws.close();
       return;
     }
-    // __proto__ は ID として受け付けない。レコードのキーや msgpack のマップキーに流れると壊れるため（正規クライアントの ID は UUID で、該当しない）
-    if (msg.id === '__proto__') return;
-    state.id = msg.id;
-    const name = normalizeName(msg.name);
+    const account = state.account;
+    if (!account) { ws.close(4401, 'login required'); return; }
+    state.id = account.id;
+    const name = account.name;
+    if (account.kind === 'guest') guestIds.add(account.id);
+    void auth.touch(account.id).catch(() => {});
     const rec = personRec(name);
     const cameOnline = !isOnline(name);
     const lastSeen = rec.lastSeen;
-    if (!users.has(msg.id))
-      users.set(msg.id, {
-        id: msg.id, name, session: null, mode: '2d',
+    if (!users.has(account.id))
+      users.set(account.id, {
+        id: account.id, name, session: null, mode: '2d',
         micOn: false, sharing: false, follow: null, pos: null,
-        icon: iconVersion(msg.name), avatar: avatarVersion(msg.name), bio: bioOf(msg.name), status: rec.status, statusText: rec.statusText,
+        icon: iconVersion(name), avatar: avatarVersion(name), bio: bioOf(name), status: rec.status, statusText: rec.statusText, guest: account.kind === 'guest', username: account.kind === 'misskey' ? account.username : null,
         viewing: [], viewLive: false, display: null,
       });
-    if (!sockets.has(msg.id)) sockets.set(msg.id, new Set());
-    sockets.get(msg.id)!.add(ws);
+    if (!sockets.has(account.id)) sockets.set(account.id, new Set());
+    sockets.get(account.id)!.add(ws);
     send(ws, {
       t: 'snapshot',
       s: {
-        guild: { ...guild, sessions: sessionsVisibleTo(normalizeName(msg.name)) },
+        guild: { ...guild, sessions: sessionsVisibleTo(name) },
         users: [...users.values()].map(publicUser),
-        friends: friendsOf(normalizeName(msg.name)),
+        friends: friendsOf(name),
         groups: home.groups,
         events: home.events,
         sessions: allSessionInfo(),
@@ -939,8 +962,8 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
       t: 'inbox', convs: convsOf(name), reads: inbox.reads[name] ?? {}, people: knownPeopleOf(name).map((n) => personOf(n)),
       watching: watchingOf(name), lastSeen, recentStatus: rec.recent,
     });
-    send(ws, { t: 'survivorProfile', profile: survivorProfile(msg.id) });
-    send(ws, { t: 'marketLikes', ...marketLikes.snapshot(msg.id) });
+    send(ws, { t: 'survivorProfile', profile: survivorProfile(account.id) });
+    send(ws, { t: 'marketLikes', ...marketLikes.snapshot(account.id) });
     send(ws, followsMsg(name));
     send(ws, { t: 'posts', list: timeline.posts });
     broadcastUsers();
@@ -949,13 +972,14 @@ function handle(ws: WebSocket, state: { id: string | null; syncRequest?: string 
       const watchers = rec.watchers;
       rec.watchers = [];
       if (watchers.length) savePeople();
-      for (const w of watchers) { sendToNames([w], { t: 'online', from: msg.id, fromName: name }); sendWatching(w); }
+      for (const w of watchers) { sendToNames([w], { t: 'online', from: account.id, fromName: name }); sendWatching(w); }
       broadcastPeople();
     }
     return;
   }
   const me = state.id ? users.get(state.id) : undefined;
   if (!me) return;
+  if (me.guest && LOGIN_ONLY.has(msg.t)) { send(ws, { t: 'loginRequired' }); return; }
   if (msg.t === 'marketLike') {
     if (marketLikes.like(msg.product, me.id)) {
       saveMarketLikes();
@@ -1760,6 +1784,10 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   // 絶対形式の壊れたリクエストターゲット（例: http://[::1）でも new URL が例外になるため、ここで 400 にする
   let url: URL;
   try { url = new URL(req.url ?? '/', 'http://x'); } catch { res.statusCode = 400; res.end('bad path'); return; }
+  if (await auth.handle(req, res, url)) return;
+  // 本人はログインのセッションで決める（URL や本文の名前は信じない）。必要な所でだけ DB を引く
+  const who = () => auth.accountOf(req, url.searchParams);
+  const deny = (status: number) => { res.statusCode = status; res.end(); };
   if (url.pathname === '/api/content-translations') {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -1769,13 +1797,18 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
   if (sharedAssets.http(req, res, url.pathname)) return;
   if (systems.http(req, res, url.pathname)) return;
-  if (url.pathname === '/api/translate') { await handleTranslation(req, res); return; }
+  if (url.pathname === '/api/translate') {
+    // 翻訳は外部の API に費用がかかるので、つないでいる人だけ
+    if (!await who()) { deny(401); return; }
+    await handleTranslation(req, res);
+    return;
+  }
   if (url.pathname === '/sync/offer') { await handleSyncOffer(req, res); return; }
   if (url.pathname === '/timeline-image') {
     if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
-    // 名前だけの本人確認は /icon と同じ。少なくともいまつないでいる人からしか受けない
-    const uploader = normalizeName(url.searchParams.get('name') ?? '');
-    if (!isOnline(uploader)) { res.statusCode = 403; res.end(); return; }
+    const account = await who();
+    if (!account || account.kind === 'guest') { deny(403); return; }
+    const uploader = account.name;
     if (!timeline.allow(`upload:${uploader}`, UPLOAD_RATE)) { res.statusCode = 429; res.end(); return; }
     const body = await readBody(req, POST_IMAGE_MAX_BYTES);
     if (!body) { res.statusCode = 413; res.end(); return; }
@@ -1799,7 +1832,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   if (url.pathname.startsWith('/group-image/')) {
     const g = home.groups.find((x) => x.id === url.pathname.slice('/group-image/'.length));
     if (req.method === 'POST') {
-      const name = url.searchParams.get('name') ?? '';
+      const account = await who();
+      const name = account && account.kind !== 'guest' ? account.name : '';
       if (!g || !canEditGroup(g, name)) { res.statusCode = 204; res.end(); return; }
       const body = await readBody(req, ICON_MAX_BYTES);
       if (!body || !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
@@ -1822,15 +1856,18 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
   if (url.pathname === '/icon') {
-    const name = url.searchParams.get('name') ?? '';
     if (req.method === 'POST') {
+      // 自分のアイコンだけ書き換えられる。ゲストも残せる
+      const account = await who();
+      if (!account) { deny(401); return; }
+      const name = account.name;
       const body = await readBody(req, ICON_MAX_BYTES);
       if (!body || !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
       fs.writeFileSync(iconFile(name), body);
       res.end(JSON.stringify({ icon: iconVersion(name) }));
       return;
     }
-    const file = iconFile(name);
+    const file = iconFile(url.searchParams.get('name') ?? '');
     if (!fs.existsSync(file)) { res.statusCode = 404; res.end(); return; }
     res.setHeader('Content-Type', 'image/jpeg');
     // URL に版を付けて取得するので長期キャッシュしてよい
@@ -1839,7 +1876,10 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
   if (url.pathname === '/avatar' || url.pathname === '/avatar/params') {
-    const name = url.searchParams.get('name') ?? '';
+    // 書くのは自分のアバターだけ（ゲストも残せる）。読むのはだれのものでも
+    const account = req.method === 'POST' ? await who() : null;
+    if (req.method === 'POST' && !account) { deny(401); return; }
+    const name = account?.name ?? url.searchParams.get('name') ?? '';
     const isParams = url.pathname === '/avatar/params';
     const file = isParams ? avatarParamsFile(name) : avatarImageFile(name);
     if (req.method === 'POST') {
@@ -1864,9 +1904,12 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
   if (url.pathname === '/profile') {
-    const name = url.searchParams.get('name') ?? '';
     res.setHeader('Content-Type', 'application/json');
     if (req.method === 'POST') {
+      // 自己紹介はログインした人だけ（ゲストが残せるのはアイコンとアバター）
+      const account = await who();
+      if (!account || account.kind === 'guest') { deny(403); return; }
+      const name = account.name;
       const body = await readBody(req, 10_000);
       let bio = '';
       try { bio = String((JSON.parse(body?.toString('utf-8') ?? '') as { bio?: unknown }).bio ?? '').slice(0, 300); } catch { res.statusCode = 400; res.end(); return; }
@@ -1874,10 +1917,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       res.end(JSON.stringify({ bio }));
       return;
     }
-    res.end(JSON.stringify({ bio: bioOf(name) }));
+    res.end(JSON.stringify({ bio: bioOf(url.searchParams.get('name') ?? '') }));
     return;
   }
   if (url.pathname === '/media' && req.method === 'POST') {
+    if (!await who()) { deny(401); return; }
     res.setHeader('Content-Type', 'application/json');
     const r = await saveMedia(req);
     if ('error' in r) res.statusCode = r.status;
@@ -1889,17 +1933,21 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
   if (url.pathname === '/ogp') {
+    // サーバーから外のページを取りに行くので、つないでいる人だけ
+    if (!await who()) { deny(401); return; }
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'public, max-age=3600');
     res.end(JSON.stringify(await getOgp((url.searchParams.get('url') ?? '').slice(0, 2000))));
     return;
   }
   if (url.pathname === '/report' && req.method === 'POST') {
+    const account = await who();
+    if (!account) { deny(401); return; }
     const body = await readBody(req, 10_000);
     try {
-      const r = JSON.parse(body?.toString('utf-8') ?? '') as { from?: unknown; target?: unknown; reason?: unknown };
-      fs.appendFileSync(REPORTS_FILE, `${JSON.stringify({ at: new Date().toISOString(), from: String(r.from).slice(0, 24), target: String(r.target).slice(0, 24), reason: String(r.reason ?? '').slice(0, 500) })}\n`);
-      console.log(`report: ${String(r.from)} -> ${String(r.target)}`);
+      const r = JSON.parse(body?.toString('utf-8') ?? '') as { target?: unknown; reason?: unknown };
+      fs.appendFileSync(REPORTS_FILE, `${JSON.stringify({ at: new Date().toISOString(), from: account.name, account: account.id, target: String(r.target).slice(0, 24), reason: String(r.reason ?? '').slice(0, 500) })}\n`);
+      console.log(`report: ${account.name} -> ${String(r.target)}`);
     } catch { res.statusCode = 400; }
     res.end();
     return;
@@ -1970,15 +2018,14 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
   if (url.pathname === '/token') {
     const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = process.env;
-    const id = url.searchParams.get('id');
+    const id = (await who())?.id;
     const sid = url.searchParams.get('session') ?? '';
     res.setHeader('Content-Type', 'application/json');
     if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
       res.end(JSON.stringify({ error: 'LiveKit が未設定です (.env)' }));
       return;
     }
-    // 申告された id/name をそのまま信じると、接続していない第三者が招待制セッションの発行権限まで取れてしまう。
-    // WS 接続中で、そのセッションへの join（canSeeSession 通過済み）を終えた参加者にだけ、
+    // ログインのセッションの本人で、WS 接続中で、そのセッションへの join（canSeeSession 通過済み）を終えた参加者にだけ、
     // サーバー側レコードの identity/name で発行する。拒否理由は区別せず同じ文言で返す
     const me = id ? users.get(id) : undefined;
     if (!me || !sessionIds.has(sid) || me.session !== sid) {
@@ -2017,10 +2064,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
   if (file.endsWith('index.html')) {
-    // OGP 用に、アクセスされたドメインの絶対 URL を埋める（Coolify の前段が付ける X-Forwarded-* を優先）
-    const proto = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim();
-    const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost').split(',')[0].trim();
-    const origin = /^[\w.:[\]-]+$/.test(host) ? `${proto === 'https' ? 'https' : 'http'}://${host}` : '';
+    // OGP 用に、アクセスされたドメインの絶対 URL を埋める
+    const origin = requestOrigin(req);
     res.setHeader('Content-Type', MIME['.html']);
     res.setHeader('Cache-Control', 'no-cache');
     res.end(fs.readFileSync(file, 'utf-8').replaceAll('__ORIGIN__', origin).replaceAll('__VERSION__', CLIENT_VERSION ?? ''));
@@ -2055,11 +2100,17 @@ server.on('upgrade', (req, socket, head) => {
   let pathname: string;
   try { pathname = new URL(req.url ?? '/', 'http://local').pathname; } catch { socket.destroy(); return; }
   if (pathname === '/sync/ws') upgradeSync(req, socket, head);
-  else if (pathname === '/ws') wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  else if (pathname === '/ws') {
+    // 本人はここで Cookie から決まり、hello では名乗らせない。セッションが無くてもつなぐのは、ログイン導入前の古い画面に
+    // incompatible を返して再読み込みを促すため（今の画面はログインしてからつなぐ。セッションが無ければ hello で断る）
+    void auth.accountOf(req, new URL(req.url ?? '/', 'http://local').searchParams).then((account) => {
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req, account));
+    }, (e) => { console.error('ws auth', e); socket.destroy(); });
+  }
   else socket.destroy();
 });
-wss.on('connection', (ws) => {
-  const state = { id: null as string | null };
+wss.on('connection', (ws: WebSocket, _req: http.IncomingMessage, account: Account | null) => {
+  const state = { id: null as string | null, account };
   // maxPayload 超過などで ws が 'error' を出す。接続を閉じるのは ws 側が行う (超過時は 1009) が、
   // リスナーが無いと例外として投げられプロセスごと落ちるため、受けるだけのハンドラを置く
   ws.on('error', () => {});

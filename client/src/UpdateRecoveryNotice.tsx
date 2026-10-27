@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { get, set, useStore } from './store.ts';
-import { connectWs } from './net/ws.ts';
+import { get, set } from './store.ts';
+import { enter, fetchAuth } from './auth.ts';
 import { abandonPreparedUpdate, prepareUpdate, readRecovery, restoreUpdate, waitFor } from './updateRecovery.ts';
 import { t } from './i18n/index.ts';
 import { hydrateUpdateDrafts } from './updateDraft.ts';
@@ -21,9 +21,11 @@ export function UpdateRecoveryNotice() {
         if (!snapshot) return;
         hydrateUpdateDrafts(snapshot.drafts);
         if (!snapshot.joined) { set(snapshot.ui); return; }
-        set({ selfId: snapshot.id, selfName: snapshot.name, joined: true, micEnabled: snapshot.ui.micEnabled });
-        useStore.getState().adBindTonarium(snapshot.id, snapshot.name);
-        connectWs();
+        // 本人は Cookie のセッションで決まる。ログインが切れていたら入口からやり直す
+        const { account } = await fetchAuth();
+        if (!account) return;
+        set({ micEnabled: snapshot.ui.micEnabled });
+        enter(account);
         await waitFor(() => get().wsReady, () => t('updateConnectionFailed'));
         const issues = await restoreUpdate(snapshot);
         if (issues.length) setMessages(issues);

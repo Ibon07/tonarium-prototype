@@ -3,7 +3,8 @@ import { beforeEach, mock, test } from 'node:test';
 
 let state, systemReplies = [], systemResets = 0;
 const stub = (path, namedExports) => mock.module(new URL(path, import.meta.url).href, { namedExports });
-stub('../store.ts', { get: () => state, set: (patch) => { state = { ...state, ...(typeof patch === 'function' ? patch(state) : patch) }; }, recompute() {}, spawnPoint() {} });
+stub('../store.ts', { get: () => state, set: (patch) => { state = { ...state, ...(typeof patch === 'function' ? patch(state) : patch) }; }, recompute() {}, spawnPoint() {}, showToast() {} });
+stub('../auth.ts', { wsSessionQuery: () => '' });
 stub('../sessionView.ts', { applyAvatars() {} });
 stub('../systems/api.ts', {
   receiveSystemCommandResult(...args) { systemReplies.push(args); },

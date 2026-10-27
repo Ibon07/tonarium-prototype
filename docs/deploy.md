@@ -36,6 +36,7 @@ cloudflared 以外（ngrok など）を使う場合は、`.env` の `ALLOWED_HOS
    - `POSTGRES_PASSWORD`: DB のパスワード。`DATABASE_URL` にそのまま入るので記号を含まないもの（例: `openssl rand -hex 24` の結果）
    - `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_PUBLIC_URL`: 画像・動画の置き場（Cloudflare R2）。下の「R2 の準備」を参照。`S3_REGION` は既定の `auto` のまま
    - `BACKUP_S3_BUCKET`: DB のバックアップを送るバケット（公開しない）。空ならバックアップは止まったままになる
+   - `MISSKEY_URL`: 任意。ログインに使う Misskey（既定は `https://misskey.resonite.love`）。MiAuth の戻り先はアプリのドメインの `/auth/miauth/callback` になる（[login.md](login.md)）
 5. ドメインを設定する
    - `tonarium` サービス: アプリのドメイン（`SERVICE_FQDN_TONARIUM_3001` によりポート 3001 に転送。自動で付かなければ `https://<ドメイン>:3001` の形で指定）
    - `livekit` サービス: `https://<LIVEKIT_DOMAIN>:7880`（シグナリングの wss がここを通る）

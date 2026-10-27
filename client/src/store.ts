@@ -35,6 +35,10 @@ interface State extends AdSlice {
   adSpaceTarget: AdPanelTarget | null;
   selfId: string;
   selfName: string;
+  /** ログインしていない（端末ごとのゲスト） */
+  selfGuest: boolean;
+  /** Misskey のユーザー名。ゲストと開発用は null */
+  selfUsername: string | null;
   joined: boolean;
   wsConnected: boolean;
   wsReady: boolean;
@@ -235,6 +239,8 @@ export const useStore = create<State>((set, get) => ({
   ...createAdSlice((p) => set(p as Partial<State>), () => get() as unknown as AdSlice),
   selfId: '',
   selfName: '',
+  selfGuest: false,
+  selfUsername: null,
   joined: false,
   wsConnected: false,
   wsReady: false,

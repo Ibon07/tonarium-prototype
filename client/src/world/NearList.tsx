@@ -13,6 +13,7 @@ import { dropHammer, hitAndMove, itemAction, removeItem, spawnItem } from '../it
 import { requestTimedCamera } from '../items/useTimedCamera.ts';
 import { formatDistance, useTrend } from '../spatial.ts';
 import { Icon } from './Icon.tsx';
+import { GuestMark } from './GuestMark.tsx';
 import { ImageItemMark } from './ImageItemMark.tsx';
 import { imageItemCreator } from './imageItemCreator.ts';
 import {
@@ -88,7 +89,7 @@ function PlayerRow({ e, onMenu, menuOpen, onVolume }: { e: PlayerEntry; onMenu: 
   if (e.band === 'far') {
     return (
       <button className="farchip ib" data-uid={u.id} title={formatDistance(e.d)} onClick={() => pickUser(u.id)} onContextMenu={context} style={glowStyle(trend)}>
-        <Face id={u.id} name={u.name} size={20} />{u.name}{u.mode === '3d' && <Badge3D />}
+        <Face id={u.id} name={u.name} size={20} />{u.name}<GuestMark guest={u.guest} />{u.mode === '3d' && <Badge3D />}
         <EmoteBadge id={u.id} />
       </button>
     );
@@ -100,7 +101,7 @@ function PlayerRow({ e, onMenu, menuOpen, onVolume }: { e: PlayerEntry; onMenu: 
       <button className="pmain" onClick={() => pickUser(u.id)} aria-label={hammer ? tr("ui582", u.name) : tr("ui584", u.name)}>
         <Face id={u.id} name={u.name} size={big ? 32 : 22} ring={ring} />
         <span className="ptext">
-          <span className="pname">{u.name}{u.mode === '3d' && <Badge3D />}{!big && status && <span className="pstat">{status}</span>}</span>
+          <span className="pname">{u.name}<GuestMark guest={u.guest} />{u.mode === '3d' && <Badge3D />}{!big && status && <span className="pstat">{status}</span>}</span>
           {big && status && <span className="pstat">{status}</span>}
         </span>
         <Equip id={u.id} />
@@ -340,7 +341,7 @@ export function NearList() {
       <div className="pscroll">
         <div className="selfrow" data-uid={selfId}>
           <Face id={selfId} name={selfName} size={32} ring={selfSpeaking ? SPEAK_RING : undefined} />
-          <span className="pname">{selfName}</span>
+          <span className="pname">{selfName}<GuestMark guest={!!me?.guest} /></span>
           <EmoteBadge id={selfId} />
           {me && <LiveButton u={me} />}
           <span className="pill dark">{tr("ui84")}</span>

@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import { testServerEnv } from './test-db.ts';
+import { devLogin } from './test-auth.ts';
 import { WebSocket } from 'ws';
 import { COMPAT_VERSION, type Group } from '../shared/protocol.ts';
 
@@ -54,7 +55,8 @@ test('group permissions, uploads, legacy data, broadcasts and persistence', { ti
     throw new Error('Test server did not start');
   }
   async function peer(name: string) {
-    const ws = new WebSocket(base.replace('http', 'ws') + '/ws');
+    const login = await devLogin(base, name);
+    const ws = new WebSocket(base.replace('http', 'ws') + '/ws', { headers: login.headers });
     sockets.push(ws);
     let groups: Group[] | undefined;
     ws.on('message', (raw) => {
@@ -63,12 +65,12 @@ test('group permissions, uploads, legacy data, broadcasts and persistence', { ti
       if (m.t === 'groups') groups = m.list;
     });
     await new Promise<void>((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
-    ws.send(JSON.stringify({ t: 'hello', id: crypto.randomUUID(), name, compat: COMPAT_VERSION }));
+    ws.send(JSON.stringify({ t: 'hello', compat: COMPAT_VERSION }));
     await until(() => groups);
     return { groups: () => groups!, send: (m: object) => ws.send(JSON.stringify(m)) };
   }
   const image = Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]);
-  const upload = (name: string, body: Uint8Array = image) => fetch(`${base}/group-image/legacy?name=${name}`, { method: 'POST', body: new Uint8Array(body), headers: { 'Content-Type': 'image/jpeg' } });
+  const upload = async (name: string, body: Uint8Array = image) => fetch(`${base}/group-image/legacy`, { method: 'POST', body: new Uint8Array(body), headers: { 'Content-Type': 'image/jpeg', ...(await devLogin(base, name)).headers } });
   await start();
   const owner = await peer('Owner'), editor = await peer('Editor'), member = await peer('Member'), outsider = await peer('Outsider');
   assert.deepEqual(owner.groups()[0].editors, []);

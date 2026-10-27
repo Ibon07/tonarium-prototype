@@ -40,6 +40,8 @@ export default defineConfig(({ mode }) => {
         '/avatar': `http://${api}`,
         '/profile': `http://${api}`,
         '/report': `http://${api}`,
+        // 文字列の書き方だと Host がサーバー側に書き換わる。ログインは Origin と Host を突き合わせ、Misskey の戻り先もこの Host で作るので残す
+        '/auth': { target: `http://${api}` },
         '/ogp': `http://${api}`,
         '/api': `http://${api}`,
         '/system-originals': `http://${api}`,

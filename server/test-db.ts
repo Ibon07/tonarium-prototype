@@ -23,5 +23,6 @@ export async function testServerEnv(t: TestContext): Promise<Record<string, stri
   });
   const url = new URL(ADMIN_URL);
   url.pathname = `/${name}`;
-  return { DATABASE_URL: url.toString(), S3_ENDPOINT: '' };
+  // 開発用ログイン（名前だけで入れる）を開けて、テストから本人を作れるようにする
+  return { DATABASE_URL: url.toString(), S3_ENDPOINT: '', AUTH_DEV_LOGIN: '1' };
 }

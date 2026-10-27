@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import { testServerEnv } from './test-db.ts';
+import { devLogin } from './test-auth.ts';
 import { WebSocket } from 'ws';
 import { KokosyncClient } from '../vendor/kokosync/index.js';
 import { importKey, open, PACKET_TOPIC, receiveBlob, seal, sendPacket, unpack, type Envelope, type SyncConfig } from '../shared/session-wire.ts';
@@ -45,15 +46,16 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   t.after(async () => { child.kill(); await until(() => child.exitCode !== null || child.signalCode ? true : undefined, 10_000).catch(() => child.kill('SIGKILL')); await rm(data, { recursive: true, force: true }); });
   await until(() => logs.includes('server on') ? true : undefined);
 
-  async function peer(name: string, sid = 'sync-test', previous?: { home: WebSocket; id: string }, modern = false) {
-    const home = previous?.home ?? new WebSocket(base.replace('http', 'ws') + '/ws');
+  async function peer(name: string, sid = 'sync-test', previous?: { home: WebSocket; id: string; login: Awaited<ReturnType<typeof devLogin>> }, modern = false) {
+    const login = previous?.login ?? await devLogin(base, name);
+    const home = previous?.home ?? new WebSocket(base.replace('http', 'ws') + '/ws', { headers: login.headers });
     t.after(() => home.close());
     const messages: any[] = [], raw: any[] = [];
     home.on('message', (bytes) => messages.push(JSON.parse(bytes.toString())));
     if (!previous) await new Promise<void>((resolve, reject) => { home.once('open', resolve); home.once('error', reject); });
-    const id = previous?.id ?? crypto.randomUUID();
+    const id = login.id;
     if (!previous) {
-      home.send(JSON.stringify({ t: 'hello', id, name, compat: COMPAT_VERSION }));
+      home.send(JSON.stringify({ t: 'hello', compat: COMPAT_VERSION }));
       home.send(JSON.stringify({ t: 'join', sid }));
     }
     const requestId = crypto.randomUUID();
@@ -122,7 +124,7 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
     };
     await send({ t: 'sync' });
     const snapshot = await until(() => received.find((v) => v.kind === 'snapshot'));
-    return { id, home, homeMessages: messages, client, cfg, key, received, raw, send, positions, events, localItems, pauseNextBlob, snapshot: snapshot.snapshot };
+    return { id, login, home, homeMessages: messages, client, cfg, key, received, raw, send, positions, events, localItems, pauseNextBlob, snapshot: snapshot.snapshot };
   }
   const a = await peer('sync-a');
   assert.equal(a.snapshot.items[0].strokes.length, 600);
@@ -171,7 +173,7 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   await until(() => b.received.find((v) => v.message?.m?.image === image));
   await a.send({ t: 'sync' });
   await until(() => a.received.find((v) => v.kind === 'snapshot' && v.snapshot.chats.some((c: any) => c.text === 'large attachment')));
-  const media = await (await fetch(`${base}/token?id=${a.id}&session=sync-test`)).json() as any;
+  const media = await (await fetch(`${base}/token?session=sync-test`, { headers: a.login.headers })).json() as any;
   assert.match(media.error, /LiveKit/);
   await b.send({ t: 'chat', text: 'without media', scope: 'all' });
   await until(() => a.received.find((v) => v.message?.m?.text === 'without media'));

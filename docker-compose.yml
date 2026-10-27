@@ -24,6 +24,8 @@ services:
       - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
       - S3_PUBLIC_URL=${S3_PUBLIC_URL}
       - S3_PREFIX=${S3_PREFIX}
+      # ログインに使う Misskey。空なら https://misskey.resonite.love
+      - MISSKEY_URL=${MISSKEY_URL}
       # - SESSIONS_FILE=/config/sessions.json
     depends_on:
       postgres:
