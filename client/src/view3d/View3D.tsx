@@ -23,6 +23,7 @@ import { Label } from './Label.tsx';
 import { OekakiAvatar } from './OekakiAvatar.tsx';
 import { Emote3D } from './Emote3D.tsx';
 import { CameraModel, CameraStreamer, CamMonitor } from './camera3d.tsx';
+import { CameraRecorder } from './CameraRecorder.tsx';
 import { WORLD_BG, WorldMesh } from './worlds3d.tsx';
 import { useLastSaid } from '../world/common.tsx';
 import { ShareDisplay } from './shareDisplay.tsx';
@@ -357,6 +358,7 @@ export function View3D() {
         </Canvas>
       </EyeHeightContext.Provider>
       <Viewfinder />
+      <CameraRecorder />
       <Crosshair />
       <NoteEditor />
     </div>
