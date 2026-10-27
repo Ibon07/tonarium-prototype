@@ -36,7 +36,7 @@ export class Timeline {
 
   newImageId() { return randomUUID(); }
 
-  registerUpload(id: string, name: string) { this.uploads.set(id, name); }
+  registerUpload(id: string, uploader: string) { this.uploads.set(id, uploader); }
 
   /** key ごとに直近 ms の回数を数え、limit 未満なら数えて true */
   allow(key: string, rate: { limit: number; ms: number }, now = Date.now()) {
@@ -78,24 +78,24 @@ export class Timeline {
     return this.replace(withoutOrphans(this.posts.filter((x) => x !== p)));
   }
 
-  react(id: unknown, name: string, emoji: unknown, on: boolean): Post | null {
+  react(id: unknown, who: string, emoji: unknown, on: boolean): Post | null {
     const p = this.find(id);
     if (!p || !isReaction(emoji)) return null;
     const list = p.reactions[emoji] ?? [];
-    const has = list.includes(name);
+    const has = list.includes(who);
     if (has === on) return null;
-    const next = on ? [...list, name] : list.filter((n) => n !== name);
+    const next = on ? [...list, who] : list.filter((n) => n !== who);
     if (next.length) p.reactions[emoji] = next; else delete p.reactions[emoji];
     this.changed();
     return p;
   }
 
-  repost(id: unknown, name: string, on: boolean, now = Date.now()): Post | null {
+  repost(id: unknown, who: string, on: boolean, now = Date.now()): Post | null {
     const p = this.find(id);
     if (!p || p.replyTo) return null;
-    const has = p.reposts.some((r) => r.name === name);
+    const has = p.reposts.some((r) => r.id === who);
     if (has === on) return null;
-    p.reposts = on ? [...p.reposts, { name, at: now }] : p.reposts.filter((r) => r.name !== name);
+    p.reposts = on ? [...p.reposts, { id: who, at: now }] : p.reposts.filter((r) => r.id !== who);
     this.changed();
     return p;
   }

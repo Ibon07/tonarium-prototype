@@ -62,7 +62,7 @@ function Equip({ id }: { id: string }) {
 
 function statusOf(u: Participant, friends: string[]) {
   const parts: string[] = [];
-  if (friends.includes(u.name)) parts.push(tr("ui153"));
+  if (friends.includes(u.id)) parts.push(tr("ui153"));
   if (!u.micOn) parts.push(tr("ui601"));
   if (u.follow) parts.push(tr("ui602", nameOf(u.follow)));
   return parts.join(' · ');
@@ -77,7 +77,7 @@ function PlayerRow({ e, onMenu, menuOpen, onVolume }: { e: PlayerEntry; onMenu: 
   const trend = useTrend(e.user.id);
   const u = e.user;
   const status = statusOf(u, friends);
-  const muted = useStore((s) => s.peerMuted.includes(u.name));
+  const muted = useStore((s) => s.peerMuted.includes(u.id));
   const context = (ev: React.MouseEvent) => { ev.preventDefault(); onVolume(new DOMRect(ev.clientX, ev.clientY, 0, 0)); };
   const ring = speaking ? SPEAK_RING : undefined;
   const menuBtn = (
@@ -309,12 +309,12 @@ export function NearList() {
   const items = useItemsNear();
   const [menu, setMenu] = useState<Menu | null>(null);
   const [picker, setPicker] = useState<DOMRect | null>(null);
-  const [vol, setVol] = useState<{ name: string; rect: DOMRect } | null>(null);
+  const [vol, setVol] = useState<{ id: string; name: string; rect: DOMRect } | null>(null);
   const playerRow = (e: PlayerEntry) => (
     <PlayerRow
       key={e.user.id} e={e} menuOpen={menu?.kind === 'user' && menu.id === e.user.id}
       onMenu={(rect) => setMenu(menu?.id === e.user.id ? null : { kind: 'user', id: e.user.id, rect })}
-      onVolume={(rect) => { setMenu(null); setVol({ name: e.user.name, rect }); }}
+      onVolume={(rect) => { setMenu(null); setVol({ id: e.user.id, name: e.user.name, rect }); }}
     />
   );
   const fold = (left: boolean) => set((s) => { const f = { ...s.folded, left }; save('tonarium.folded', f); return { folded: f }; });
@@ -373,7 +373,7 @@ export function NearList() {
       <div className="session-copy-row"><SessionCopyButton /></div>
       {menu && <ActionMenu menu={menu} onClose={() => setMenu(null)} />}
       {picker && <ItemPicker anchor={picker} onClose={() => setPicker(null)} />}
-      {vol && <PeerVolume key={vol.name} name={vol.name} anchor={vol.rect} onClose={() => setVol(null)} />}
+      {vol && <PeerVolume key={vol.id} id={vol.id} name={vol.name} anchor={vol.rect} onClose={() => setVol(null)} />}
     </aside>
   );
 }

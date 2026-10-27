@@ -208,7 +208,7 @@ export function onMessage(msg: ServerMsg) {
       break;
     case 'chat':
       set((s) => ({
-        ...(msg.sid === s.session && msg.m.from && msg.m.from !== s.selfId && !s.blocked.includes(msg.m.fromName)
+        ...(msg.sid === s.session && msg.m.from && msg.m.from !== s.selfId && !s.blocked.includes(msg.m.from)
           && !(s.chats[msg.sid] ?? []).some((m) => m.id === msg.m.id) ? arrivalPatch('chat', s) : {}),
         chats: { ...s.chats, [msg.sid]: (s.chats[msg.sid] ?? []).some((m) => m.id === msg.m.id)
           ? s.chats[msg.sid].map((m) => m.id === msg.m.id ? msg.m : m)
@@ -258,8 +258,7 @@ export function onMessage(msg: ServerMsg) {
       return;
     case 'poke': {
       if (msg.sid !== get().session) return;
-      const from = get().users.find((u) => u.id === msg.from);
-      if (from && get().blocked.includes(from.name)) return;
+      if (get().blocked.includes(msg.from)) return;
       set((s) => ({ pokes: { ...s.pokes, [msg.to]: performance.now() } }));
       // 取り込み中は音を鳴らさない
       if (msg.to === get().selfId) { pushNotice('poke', msg.from); if (!selfBusy()) playPoke(); }
@@ -270,7 +269,7 @@ export function onMessage(msg: ServerMsg) {
       return;
     case 'sound':
       if (msg.sid !== get().session) return;
-      if (!get().blocked.includes(get().users.find((u) => u.id === msg.from)?.name ?? '')) playSynth(msg.id, volumeFrom(msg.from));
+      if (!get().blocked.includes(msg.from)) playSynth(msg.id, volumeFrom(msg.from));
       return;
     case 'attention': {
       if (msg.sid !== get().session) return;
@@ -342,7 +341,7 @@ export function onMessage(msg: ServerMsg) {
       return;
     }
     case 'friends':
-      set({ friends: msg.names });
+      set({ friends: msg.ids });
       return;
     case 'sessions':
       set((s) => ({ guild: { ...s.guild, sessions: msg.list } }));
@@ -358,7 +357,7 @@ export function onMessage(msg: ServerMsg) {
       return;
     case 'inbox':
       set((s) => ({
-        inbox: msg.convs, reads: msg.reads, people: Object.fromEntries(msg.people.map((p) => [p.name, p])),
+        inbox: msg.convs, reads: msg.reads, people: Object.fromEntries(msg.people.map((p) => [p.id, p])),
         watching: msg.watching, recentStatus: msg.recentStatus,
         // 再接続やグループの出入りで届き直したときは、最初の「前回」を保つ
         lastSeen: s.lastSeen === undefined ? msg.lastSeen : s.lastSeen,
@@ -370,7 +369,7 @@ export function onMessage(msg: ServerMsg) {
         const i = list.findIndex((m) => m.id === msg.m.id);
         const next = i >= 0 ? list.map((m, j) => (j === i ? msg.m : m)) : [...list, msg.m].slice(-300);
         return {
-          ...(i < 0 && msg.m.from && msg.m.from !== s.selfName && !s.blocked.includes(msg.m.from) ? arrivalPatch('chat', s, Date.now(), msg.conv) : {}),
+          ...(i < 0 && msg.m.from && msg.m.from !== s.selfId && !s.blocked.includes(msg.m.from) ? arrivalPatch('chat', s, Date.now(), msg.conv) : {}),
           inbox: { ...s.inbox, [msg.conv]: next },
         };
       });
@@ -379,10 +378,13 @@ export function onMessage(msg: ServerMsg) {
       set((s) => ({ reads: { ...s.reads, [msg.conv]: Math.max(s.reads[msg.conv] ?? 0, msg.at) } }));
       return;
     case 'people':
-      set({ people: Object.fromEntries(msg.list.map((p) => [p.name, p])) });
+      set({ people: Object.fromEntries(msg.list.map((p) => [p.id, p])) });
       return;
     case 'watching':
-      set({ watching: msg.names, recentStatus: msg.recentStatus });
+      set({ watching: msg.ids, recentStatus: msg.recentStatus });
+      return;
+    case 'directory':
+      set((s) => ({ directory: msg.full ? Object.fromEntries(msg.list.map((e) => [e.id, e])) : { ...s.directory, ...Object.fromEntries(msg.list.map((e) => [e.id, e])) } }));
       return;
     case 'askJoin':
       pushNotice('askJoin', msg.from, msg.fromName, `session:${msg.session}`);

@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { testServerEnv } from './test-db.ts';
+import { markIdData, seedDevAccounts, testServerEnv } from './test-db.ts';
 import { devLogin } from './test-auth.ts';
 import { WebSocket } from 'ws';
 import { COMPAT_VERSION, type ServerMsg, type SessionDef } from '../shared/protocol.ts';
@@ -25,12 +25,14 @@ test('shared targets use filtered lists and server join authorization', { timeou
   const dbEnv = await testServerEnv(t);
   const data = await mkdtemp(path.join(os.tmpdir(), 'tonarium-links-'));
   t.after(() => rm(data, { recursive: true, force: true }));
+  const ids = await seedDevAccounts(dbEnv, ['stranger', 'owner', 'invited', 'member']);
+  await markIdData(data);
   const sessions: SessionDef[] = ['public', 'friends', 'group', 'groupPlus', 'invite'].map((visibility) => ({
-    id: visibility, name: visibility, visibility: visibility as SessionDef['visibility'], owner: 'owner', group: 'team', invited: ['invited'],
+    id: visibility, name: visibility, visibility: visibility as SessionDef['visibility'], owner: ids.owner, group: 'team', invited: [ids.invited],
   }));
   await writeFile(path.join(data, 'sessions.json'), JSON.stringify({ name: 'Test', sessions }));
   await writeFile(path.join(data, 'home.json'), JSON.stringify({ sessions: [], events: [], renamed: {}, groups: [
-    { id: 'team', name: 'Team', color: '#000', owner: 'member', members: ['member'], channels: [] },
+    { id: 'team', name: 'Team', color: '#000', owner: ids.member, members: [ids.member], channels: [] },
   ] }));
   const listener = net.createServer();
   await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', resolve));

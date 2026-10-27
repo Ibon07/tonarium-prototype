@@ -26,3 +26,27 @@ export async function testServerEnv(t: TestContext): Promise<Record<string, stri
   // 開発用ログイン（名前だけで入れる）を開けて、テストから本人を作れるようにする
   return { DATABASE_URL: url.toString(), S3_ENDPOINT: '', AUTH_DEV_LOGIN: '1' };
 }
+
+/**
+ * サーバーを立てる前に、開発用アカウント（名前だけで入るもの）を作って ID を返す。
+ * home.json などを人の ID 入りで用意してから起動するテスト用。devLogin(base, 名前) は同じアカウントに入る
+ */
+export async function seedDevAccounts(env: Record<string, string>, names: string[]): Promise<Record<string, string>> {
+  const { drizzle } = await import('drizzle-orm/postgres-js');
+  const { migrate } = await import('drizzle-orm/postgres-js/migrator');
+  const { MIGRATIONS_DIR } = await import('./db/index.ts');
+  const { accounts } = await import('./db/schema.ts');
+  const sql = postgres(env.DATABASE_URL, { max: 1, onnotice: () => {} });
+  try {
+    const db = drizzle(sql);
+    await migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+    const rows = await db.insert(accounts).values(names.map((n) => ({ kind: 'dev' as const, username: n, displayName: n }))).returning();
+    return Object.fromEntries(rows.map((r) => [r.username!, r.id]));
+  } finally { await sql.end(); }
+}
+
+/** 先に置いたデータを「名前で持っていた頃の古いデータ」として退避させないための印（server/index.ts の archiveNameKeyedData） */
+export async function markIdData(dir: string) {
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(`${dir}/.ids-v1`, '');
+}

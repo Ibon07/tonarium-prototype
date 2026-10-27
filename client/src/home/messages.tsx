@@ -3,7 +3,7 @@ import { useVoiceRecorder } from '../updateRecording.ts';
 import { t as tr, systemText } from '../i18n/index.ts';
 import { TranslatedText } from '../TranslatedText.tsx';
 import { useEffect, useRef, useState } from 'react';
-import { useStore } from '../store.ts';
+import { nameOf, useStore } from '../store.ts';
 import { RSVP_LABEL } from '../i18n/static.ts';
 import { PLAN_QUORUM, type Message, type Recap, type Rsvp } from '../../../shared/protocol.ts';
 import { ITEM_INFO } from '../i18n/static.ts';
@@ -14,7 +14,7 @@ import { uploadMedia } from '../media.ts';
 import { ChatImage } from '../world/common.tsx';
 import { Icon } from '../world/Icon.tsx';
 import { openWindow } from '../world/windows.ts';
-import { NameFace, timeLabel } from './common.tsx';
+import { PersonFace, PersonName, timeLabel } from './common.tsx';
 
 const NONE: Message[] = [];
 const RSVPS = Object.keys(RSVP_LABEL) as Rsvp[];
@@ -56,8 +56,8 @@ function RecapCard({ r }: { r: Recap }) {
       </div>
       <div className="rbody">
         <div className="row">
-          <span className="stack">{r.people.slice(0, 6).map((n) => <NameFace key={n} name={n} size={22} />)}</span>
-          <span className="sub">{r.people.join(tr("ui236"))} · {span}</span>
+          <span className="stack">{r.people.slice(0, 6).map((n) => <PersonFace key={n} id={n} size={22} />)}</span>
+          <span className="sub">{r.people.map((n) => nameOf(n)).join(tr("ui236"))} · {span}</span>
         </div>
         {r.items.length > 0 && <div className="rtiles">{r.items.map((it) => <ItemTile key={it.id} kind={it.kind} summary={it.summary} image={it.image} />)}</div>}
         <div className="row wrap">
@@ -82,9 +82,9 @@ const WORLD_TINT: Record<string, string> = { room: '#DCE6F3', cafe: '#F3E6C6', g
 
 function PlanCard({ conv, m }: { conv: string; m: Message }) {
   const plan = m.plan!;
-  const selfName = useStore((s) => s.selfName);
+  const selfId = useStore((s) => s.selfId);
   const session = useStore((s) => s.guild.sessions.find((d) => d.id === plan.session));
-  const mine = plan.answers[selfName];
+  const mine = plan.answers[selfId];
   const count = (a: Rsvp) => Object.values(plan.answers).filter((x) => x === a).length;
   const yes = count('yes');
   return (
@@ -138,9 +138,9 @@ export function MessageView({ conv, m }: { conv: string; m: Message }) {
   if (m.recap) return <div className="msg sys"><RecapCard r={m.recap} /></div>;
   return (
     <div className="msg">
-      <NameFace name={m.from} size={32} />
+      <PersonFace id={m.from} size={32} />
       <div className="msgbody">
-        <span className="mhead"><b>{m.from}</b><span className="sub">{timeLabel(m.at)}</span></span>
+        <span className="mhead"><b><PersonName id={m.from} /></b><span className="sub">{timeLabel(m.at)}</span></span>
         {m.text && <p className="mtext"><TranslatedText text={m.text} /></p>}
         {m.voice && <audio className="mvoice" src={m.voice.url} controls preload="metadata" aria-label={tr("ui247", m.voice.sec)} />}
         {m.media?.kind === 'image' && <ChatImage src={m.media.url} />}
@@ -156,7 +156,7 @@ export function MessageView({ conv, m }: { conv: string; m: Message }) {
 /** 会話。開いている間は読んだことにし、開いた時点の未読の頭に線を引く */
 export function Thread({ conv, empty }: { conv: string; empty: string }) {
   const list = useStore((s) => s.inbox[conv]) ?? NONE;
-  const selfName = useStore((s) => s.selfName);
+  const selfId = useStore((s) => s.selfId);
   const [since] = useState(() => useStore.getState().reads[conv] ?? 0);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -164,7 +164,7 @@ export function Thread({ conv, empty }: { conv: string; empty: string }) {
     if (el) el.scrollTop = el.scrollHeight;
     markRead(conv);
   }, [conv, list.length]);
-  const firstUnread = list.find((m) => m.at > since && m.from !== selfName)?.id;
+  const firstUnread = list.find((m) => m.at > since && m.from !== selfId)?.id;
   return (
     <div className="thread" ref={ref}>
       {list.length === 0 && <p className="hempty">{empty}</p>}

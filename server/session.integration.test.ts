@@ -131,10 +131,10 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   assert.ok(JSON.stringify(a.snapshot).length > 100_000);
   const b = await peer('sync-b');
   assert.deepEqual(b.snapshot.items[0], canvas);
-  a.home.send(JSON.stringify({ t: 'followUser', name: 'sync-b', on: true }));
+  a.home.send(JSON.stringify({ t: 'followUser', to: b.id, on: true }));
   await until(() => b.homeMessages.find((m) => m.t === 'followed' && m.from === a.id));
-  b.home.send(JSON.stringify({ t: 'followUser', name: 'sync-a', on: true }));
-  await until(() => a.homeMessages.find((m) => m.t === 'friends' && m.names.includes('sync-b')));
+  b.home.send(JSON.stringify({ t: 'followUser', to: a.id, on: true }));
+  await until(() => a.homeMessages.find((m) => m.t === 'friends' && m.ids.includes(b.id)));
   a.home.send(JSON.stringify({ t: 'postCreate', text: 'timeline hello', withPlace: true }));
   const posted = await until(() => b.homeMessages.find((m) => m.t === 'post' && m.p.text === 'timeline hello'));
   assert.equal(posted.p.author, 'sync-a');

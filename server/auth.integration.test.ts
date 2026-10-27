@@ -122,9 +122,9 @@ test('guests, dev and Misskey logins decide who you are and what you may do', { 
   assert.equal((await fetch(`${base}/profile`, { method: 'POST', body: JSON.stringify({ bio: 'x' }), headers: { Cookie: guestCookie } })).status, 403);
   // アイコンは残せる（自分の分だけ。URL の名前は使わない）
   const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
-  assert.equal((await fetch(`${base}/icon?name=Someone`, { method: 'POST', body: jpeg, headers: { Cookie: guestCookie } })).status, 200);
-  assert.equal((await fetch(`${base}/icon?name=Sammy`)).status, 200);
-  assert.equal((await fetch(`${base}/icon?name=Someone`)).status, 404);
+  assert.equal((await fetch(`${base}/icon?id=${devAccount.id}`, { method: 'POST', body: jpeg, headers: { Cookie: guestCookie } })).status, 200);
+  assert.equal((await fetch(`${base}/icon?id=${guestAccount.id}`)).status, 200);
+  assert.equal((await fetch(`${base}/icon?id=${devAccount.id}`)).status, 404);
   assert.equal((await fetch(`${base}/icon`, { method: 'POST', body: jpeg })).status, 401);
 
   // 表示名を変えると、つないでいる全員に新しい名前が届く
