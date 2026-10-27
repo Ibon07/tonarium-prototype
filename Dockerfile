@@ -14,6 +14,7 @@ COPY package.json tsconfig.json sessions.json ./
 COPY shared ./shared
 COPY vendor ./vendor
 COPY server ./server
+COPY scripts/fantasy-backup.ts scripts/fantasy-account-admin.ts scripts/fantasy-diagnostics.ts ./scripts/
 COPY --from=build /app/client/dist ./client/dist
 RUN mkdir -p /app/data && chown node:node /app/data
 VOLUME /app/data

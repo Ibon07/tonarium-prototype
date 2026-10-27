@@ -3,7 +3,7 @@ import { CITY_HALF, CITY_SOLIDS } from './city.ts';
 import { SURVIVOR_TITLE } from './survivor.ts';
 
 /** ワールド＝ 3D 空間の種類。セッションはどれか 1 つを読み込み、途中で切り替えられる */
-export type WorldKind = 'room' | 'cafe' | 'game' | 'survivors' | 'city' | 'garden';
+export type WorldKind = 'room' | 'cafe' | 'game' | 'survivors' | 'city' | 'garden' | 'fantasy';
 
 /** 床の上の通り抜けられない物。r があれば円、なければ w×d の箱（x, z が中心）。
  * y0〜y1 があればその高さの間だけ効く（マンションの階ごとの壁など）。無ければどの高さでも効く */
@@ -78,6 +78,7 @@ export const GARDEN = {
 };
 
 export const WORLDS: Record<WorldKind, WorldInfo> = {
+  fantasy: { name: '悠久の旅路', desc: '平面の世界地図で目的地と移動手段を選び、冒険と暮らしを紡ぐファンタジーRPG', solids: [] },
   room: { name: 'ホール', desc: '何も置いていない広い部屋', solids: [] },
   cafe: {
     name: 'カフェ',

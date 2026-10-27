@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { useStore, set } from './store.ts';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { useStore, set, get } from './store.ts';
 import { connectWs } from './net/ws.ts';
 import { iconUrl } from './icon.ts';
 import { ProfileDialog } from './Profile.tsx';
@@ -9,6 +9,17 @@ import { WorldScreen } from './world/WorldScreen.tsx';
 import { PeekMascot, type MascotHandle } from './world/Mascot.tsx';
 import { FEEDBACK_URL } from './feedback.ts';
 import { MaintenanceOverlay, UpdateBanner } from './world/ServerNotices.tsx';
+
+const NpcPrototype = lazy(() => import('./world/NpcChat.tsx').then((m) => ({ default: m.NpcPrototype })));
+const FantasyPlaytest = lazy(() => import('./world/FantasyPlaytest.tsx').then((m) => ({ default: m.FantasyPlaytest })));
+
+function startNpcPrototype() {
+  if (get().joined) return;
+  let name = 'Traveler';
+  try { name = localStorage.getItem('tonarium.name')?.trim() || name; } catch {}
+  set({ selfId: loadId(), selfName: name, joined: true });
+  connectWs();
+}
 
 function loadId() {
   try {
@@ -107,7 +118,9 @@ function JoinScreen() {
 export function App() {
   const joined = useStore((s) => s.joined);
   const session = useStore((s) => s.session);
+  if (new URLSearchParams(location.search).get('npc') === '1') return <Suspense fallback={null}><NpcPrototype onStart={startNpcPrototype} /></Suspense>;
   if (!joined) return <JoinScreen />;
+  if (new URLSearchParams(location.search).get('rpg') === '1') return <Suspense fallback={null}><FantasyPlaytest /></Suspense>;
   return (
     <>
       {session ? <WorldScreen /> : <Home />}

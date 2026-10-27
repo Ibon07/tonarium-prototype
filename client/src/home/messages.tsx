@@ -73,7 +73,7 @@ function RecapCard({ r }: { r: Recap }) {
   );
 }
 
-const WORLD_TINT: Record<string, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', garden: '#DDEBCF' };
+const WORLD_TINT: Record<string, string> = { room: '#DCE6F3', cafe: '#F3E6C6', game: '#E7DDF2', garden: '#DDEBCF', fantasy: '#DFD0A8' };
 
 function PlanCard({ conv, m }: { conv: string; m: Message }) {
   const plan = m.plan!;

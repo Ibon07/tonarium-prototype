@@ -15,6 +15,7 @@ const WALL_H = 4;
 
 export interface Palette { floor: string; wall: string; spawn: string }
 const PALETTES: Record<WorldKind, Palette> = {
+  fantasy: { floor: '#c7b78a', wall: '#e6dcc3', spawn: '#d0ac61' },
   room: { floor: '#565961', wall: '#80848e', spawn: '#7fb3ff' },
   cafe: { floor: '#8a5a3b', wall: '#eadcc4', spawn: '#ffd28a' },
   garden: { floor: '#91ad70', wall: '#d6dbc5', spawn: '#f5db91' },
@@ -256,6 +257,7 @@ function Cafe() {
 }
 
 export function WorldMesh({ kind, map = false }: { kind: WorldKind; map?: boolean }) {
+  if (kind === 'fantasy') return null;
   if (kind === 'game') return <GameWorld pal={PALETTES.game} />;
   if (kind === 'survivors') return <><Hall /><SurvivorObjects /></>;
   if (kind === 'city') return <CityWorld map={map} />;
@@ -263,4 +265,4 @@ export function WorldMesh({ kind, map = false }: { kind: WorldKind; map?: boolea
   return kind === 'cafe' ? <Cafe /> : <Hall />;
 }
 
-export const WORLD_BG: Record<WorldKind, string> = { room: '#2b2d31', cafe: '#1f1a17', game: '#7fb6e6', survivors: '#2b2d31', city: '#bcd6ec', garden: '#c8e3ed' };
+export const WORLD_BG: Record<WorldKind, string> = { room: '#2b2d31', cafe: '#1f1a17', game: '#7fb6e6', survivors: '#2b2d31', city: '#bcd6ec', garden: '#c8e3ed', fantasy: '#d9cfb5' };

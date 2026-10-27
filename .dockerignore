@@ -3,5 +3,7 @@ client/dist
 data
 .env
 .git
+work
+.cache
 .claude
 *.log

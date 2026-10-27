@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { SOUNDS } from '../../../shared/sounds.ts';
@@ -31,6 +31,8 @@ import { MasterVolume } from './VolumeMenus.tsx';
 import { SurvivorPanel } from './SurvivorPanel.tsx';
 import { EmoteDockButton } from './Emotes.tsx';
 import { unlockEmoteAudio } from './sounds.ts';
+
+const FantasyPanel = lazy(() => import('./FantasyPanel.tsx').then((m) => ({ default: m.FantasyPanel })));
 
 /** 名前はだれでも変えられ、全員に反映されてログに出る */
 function SessionRename({ current, onDone }: { current: string; onDone: () => void }) {
@@ -487,6 +489,7 @@ export function WorldScreen() {
   const dragging = useMediaInput();
   const mode = useStore((s) => s.mode);
   const worldKind = useStore((s) => worldKindOf(s));
+  const [fantasySocial, setFantasySocial] = useState(false);
   const locked = useStore((s) => s.locked);
   const folded = useStore((s) => s.folded);
   const root = useRef<HTMLDivElement>(null);
@@ -514,17 +517,16 @@ export function WorldScreen() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [mode]);
   return (
-    <div ref={root} className={`world ${mode} ${locked ? 'locked' : ''} ${folded.left ? 'fl' : ''} ${folded.right ? 'fr' : ''} ${phone ? `phone pt-${phoneTab}` : ''}`}>
-      {mode === '3d' && <View3D />}
-      {mode === '2d' && <MapLayer />}
+    <div ref={root} className={`world ${mode} ${worldKind === 'fantasy' ? 'fantasy-world' : ''} ${locked ? 'locked' : ''} ${folded.left ? 'fl' : ''} ${folded.right ? 'fr' : ''} ${phone ? `phone pt-${phoneTab}` : ''}`}>
+      {worldKind === 'fantasy' ? <Suspense fallback={null}><FantasyPanel socialOpen={fantasySocial} onSocialToggle={() => setFantasySocial((v) => !v)} /></Suspense> : mode === '3d' ? <View3D /> : <MapLayer />}
       <WindowLayer />
       <PortraitCanvas />
       <div className="front">
         {worldKind === 'survivors' && mode === '3d' && <SurvivorPanel overlay />}
         <WorldBadge />
-        <NearList />
-        <FaceStrip />
-        <NoticeLog />
+        {(worldKind !== 'fantasy' || fantasySocial || phone) && <NearList />}
+        {worldKind !== 'fantasy' && <FaceStrip />}
+        {(worldKind !== 'fantasy' || fantasySocial || phone) && <NoticeLog />}
         <StatusChips />
         <Dock />
         {phone && <PhoneTabs />}
