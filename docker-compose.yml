@@ -15,14 +15,15 @@ services:
       - SERVER_PORT=3001
       # パスワードは URL にそのまま入れるので、記号を含まないもの（例: openssl rand -hex 24）にする
       - DATABASE_URL=postgres://tonarium:${POSTGRES_PASSWORD}@postgres:5432/tonarium
-      # 画像・動画の置き場（Cloudflare R2）。docs/deploy.md を参照
+      # 画像・動画の置き場（Cloudflare R2）。docs/deploy.md を参照。
+      # 既定値は compose の ${:-} ではなくアプリ側で決める（Coolify では既定値付きの変数が空のまま渡ることがあったため）
       - S3_ENDPOINT=${S3_ENDPOINT}
-      - S3_REGION=${S3_REGION:-auto}
+      - S3_REGION=${S3_REGION}
       - S3_BUCKET=${S3_BUCKET}
       - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID}
       - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
       - S3_PUBLIC_URL=${S3_PUBLIC_URL}
-      - S3_PREFIX=${S3_PREFIX:-}
+      - S3_PREFIX=${S3_PREFIX}
       # - SESSIONS_FILE=/config/sessions.json
     depends_on:
       postgres:
@@ -72,16 +73,17 @@ services:
       - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
       - AWS_DEFAULT_REGION=auto
-      - BACKUP_INTERVAL_SECONDS=${BACKUP_INTERVAL_SECONDS:-86400}
+      - BACKUP_INTERVAL_SECONDS=${BACKUP_INTERVAL_SECONDS}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        apk add --no-cache aws-cli > /dev/null
+        # 入れられなければ終わり、restart で入れ直す（入らないまま失敗を繰り返さない）
+        apk add --no-cache aws-cli > /dev/null || exit 1
         if [ -z "$$BACKUP_S3_BUCKET" ]; then echo "BACKUP_S3_BUCKET が未設定のため DB のバックアップは止めています"; exec sleep infinity; fi
         while true; do
           f="db/tonarium-$$(date -u +%Y%m%dT%H%M%SZ).dump"
           if pg_dump -Fc | aws s3 cp - "s3://$$BACKUP_S3_BUCKET/$$f" --endpoint-url "$$BACKUP_S3_ENDPOINT"; then echo "backup: $$f"; else echo "backup failed: $$f"; fi
-          sleep "$$BACKUP_INTERVAL_SECONDS"
+          sleep "$${BACKUP_INTERVAL_SECONDS:-86400}"
         done
 
   # 自前の LiveKit（通話・画面共有・ライブ）。シグナリング（wss）は Coolify のドメイン経由で 7880 番へ、

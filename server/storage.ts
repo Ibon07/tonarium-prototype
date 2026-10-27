@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { CreateBucketCommand, DeleteObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
@@ -22,7 +23,7 @@ export class FileStorage implements ObjectStorage {
     checkKey(key);
     const file = path.join(this.dir, key);
     await fs.promises.mkdir(path.dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
+    const tmp = `${file}.${randomUUID()}.tmp`;
     await fs.promises.writeFile(tmp, body);
     await fs.promises.rename(tmp, file);
   }

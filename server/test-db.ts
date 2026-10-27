@@ -13,6 +13,7 @@ export async function testServerEnv(t: TestContext): Promise<Record<string, stri
   const name = `tonarium_test_${randomBytes(6).toString('hex')}`;
   const admin = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
   try { await admin.unsafe(`CREATE DATABASE ${name}`); }
+  catch (e) { throw new Error(`テスト用の DB を作れませんでした（${ADMIN_URL.replace(/:[^:@/]*@/, ':***@')}）。npm run services で PostgreSQL を起動してください: ${(e as NodeJS.ErrnoException).code ?? (e as Error).message}`); }
   finally { await admin.end(); }
   t.after(async () => {
     const sql = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
