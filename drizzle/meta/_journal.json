@@ -15,6 +15,13 @@
       "when": 1793120412526,
       "tag": "0001_miauth_confirm_code",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793124723317,
+      "tag": "0002_people_and_home",
+      "breakpoints": true
     }
   ]
 }

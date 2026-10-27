@@ -50,3 +50,25 @@ export async function markIdData(dir: string) {
   const { writeFile } = await import('node:fs/promises');
   await writeFile(`${dir}/.ids-v1`, '');
 }
+
+/** サーバーを立てる前に、作ったセッション・グループ・イベントやフォローを DB に置く */
+export async function seedHomeData(env: Record<string, string>, data: { home?: Partial<import('./db/home-store.ts').HomeData>; follows?: [string, string][] }) {
+  const { openDb, closeDb } = await import('./db/index.ts');
+  const store = await import('./db/home-store.ts');
+  await openDb(env.DATABASE_URL);
+  try {
+    if (data.home) await store.saveHome({ sessions: [], groups: [], events: [], renamed: {}, ...data.home });
+    if (data.follows) await store.saveFollows(data.follows);
+  } finally { await closeDb(); }
+}
+
+/** サーバーが DB に書いたホームのデータを読む（保存されたかの確かめ用） */
+export async function readHomeData(env: Record<string, string>) {
+  const { drizzle } = await import('drizzle-orm/postgres-js');
+  const schema = await import('./db/schema.ts');
+  const sql = postgres(env.DATABASE_URL, { max: 1, onnotice: () => {} });
+  try {
+    const d = drizzle(sql);
+    return { sessions: await d.select().from(schema.userSessions), groups: await d.select().from(schema.groups), events: await d.select().from(schema.events) };
+  } finally { await sql.end(); }
+}

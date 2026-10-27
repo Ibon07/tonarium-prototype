@@ -5,14 +5,14 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { markIdData, seedDevAccounts, testServerEnv } from './test-db.ts';
+import { markIdData, seedDevAccounts, seedHomeData, testServerEnv } from './test-db.ts';
 import { devLogin } from './test-auth.ts';
 import { WebSocket } from 'ws';
 import { COMPAT_VERSION, dmKey } from '../shared/protocol.ts';
 import { createTranslationClient } from '../client/src/translation.ts';
 
-async function until(check: () => boolean) {
-  const end = Date.now() + 15000;
+async function until(check: () => boolean, timeout = 15000) {
+  const end = Date.now() + timeout;
   while (Date.now() < end) {
     if (check()) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -21,14 +21,14 @@ async function until(check: () => boolean) {
 }
 
 for (const mode of ['mock', 'missing', 'failed'] as const) {
-  test(`chat send/receive continues with ${mode} translation`, { timeout: 30000 }, async (t) => {
+  test(`chat send/receive continues with ${mode} translation`, { timeout: 60000 }, async (t) => {
     const dbEnv = await testServerEnv(t);
     const data = await mkdtemp(path.join(os.tmpdir(), 'tonarium-translation-'));
     await writeFile(path.join(data, 'sessions.json'), JSON.stringify({ name: 'Test', sessions: [] }));
     // DM はフレンド（お互いにフォロー）同士だけ。フォローはアカウント ID の組
     const ids = await seedDevAccounts(dbEnv, ['Alice', 'Bob']);
     await markIdData(data);
-    await writeFile(path.join(data, 'follows.json'), JSON.stringify([[ids.Alice, ids.Bob], [ids.Bob, ids.Alice]]));
+    await seedHomeData(dbEnv, { follows: [[ids.Alice, ids.Bob], [ids.Bob, ids.Alice]] });
     const listener = net.createServer();
     await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', resolve));
     const port = (listener.address() as net.AddressInfo).port;
@@ -47,7 +47,8 @@ for (const mode of ['mock', 'missing', 'failed'] as const) {
       if (child.exitCode === null && child.signalCode === null) await new Promise<void>((resolve) => { child.once('exit', () => resolve()); child.kill(); });
       await rm(data, { recursive: true, force: true });
     });
-    await until(() => ready);
+    // ほかのテストのサーバーと同時に立ち上がると遅くなるので、起動だけは長めに待つ
+    await until(() => ready, 45000);
     async function peer(name: string) {
       const login = await devLogin(base, name);
       const ws = new WebSocket(base.replace('http', 'ws') + '/ws', { headers: login.headers });
