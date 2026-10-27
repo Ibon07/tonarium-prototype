@@ -14,6 +14,10 @@ const SESSION_TTL: Record<AccountKind, number> = { misskey: 90 * DAY, dev: 90 * 
 const PENDING_TTL = 10 * 60_000;
 /** 期限の延長で毎回 DB に書かないよう、残りがこれを切ったときだけ延ばす */
 const EXTEND_BELOW = 30 * DAY;
+/** Cookie 自体はブラウザの上限（400 日）まで持たせ、期限は DB の側で決める。使うたびに延ばす期限を Cookie にも合わせ直さずに済む */
+const COOKIE_MAX_AGE = 400 * DAY;
+/** ゲストを作れるのは 1 つの接続元から 10 分に 20 人まで（DB を際限なく増やさせない） */
+const GUEST_RATE = { max: 20, windowMs: 10 * 60_000 };
 
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const newToken = () => randomBytes(32).toString('base64url');
@@ -99,6 +103,7 @@ const toAccount = (r: typeof accounts.$inferSelect): Account => ({ id: r.id, kin
  */
 export class Auth {
   readonly misskeyHost: string;
+  private readonly guestsBy = new Map<string, number[]>();
   constructor(private readonly o: AuthOptions) {
     this.misskeyHost = new URL(o.misskeyOrigin).host;
   }
@@ -138,6 +143,7 @@ export class Auth {
   /** 期限切れのセッションとログイン途中を消す */
   async sweep() {
     const now = new Date();
+    for (const [ip, times] of this.guestsBy) if (times.every((t) => now.getTime() - t >= GUEST_RATE.windowMs)) this.guestsBy.delete(ip);
     await db().delete(authSessions).where(lt(authSessions.expiresAt, now));
     await db().delete(loginPending).where(lt(loginPending.expiresAt, now));
   }
@@ -146,7 +152,7 @@ export class Auth {
     const token = newToken();
     const ttl = SESSION_TTL[account.kind];
     await db().insert(authSessions).values({ tokenHash: hash(token), accountId: account.id, expiresAt: new Date(Date.now() + ttl) });
-    return { token, cookie: cookie(req, SESSION_COOKIE, token, ttl) };
+    return { token, cookie: cookie(req, SESSION_COOKIE, token, COOKIE_MAX_AGE) };
   }
 
   /** MiAuth の結果をアカウントに結び付ける。表示名は初回だけ Misskey の名前にし、その後は Tonarium で変えたものを残す */
@@ -184,6 +190,7 @@ export class Auth {
             json(res, 200, { account: current.name === name ? current : await this.rename(current, name) });
             return true;
           }
+          if (!this.allowGuest(req)) { json(res, 429, {}); return true; }
           const [row] = await db().insert(accounts).values({ kind: 'guest', displayName: name }).returning();
           const account = toAccount(row);
           const s = await this.startSession(req, account);
@@ -265,6 +272,17 @@ export class Auth {
       json(res, 500, {});
       return true;
     }
+  }
+
+  private allowGuest(req: http.IncomingMessage) {
+    // 前段（Coolify）を通ると接続元は前段になるので、付けてくれる X-Forwarded-For の先頭を使う
+    const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+    const now = Date.now();
+    const recent = (this.guestsBy.get(ip) ?? []).filter((t) => now - t < GUEST_RATE.windowMs);
+    if (recent.length >= GUEST_RATE.max) return false;
+    recent.push(now);
+    this.guestsBy.set(ip, recent);
+    return true;
   }
 
   private async pendingBySession(session: string) {

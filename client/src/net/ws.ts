@@ -73,6 +73,8 @@ export function connectWs() {
     stopSessionSync(true);
     set({ wsConnected: false, wsReady: false });
     if (get().session) set({ sync: 'unavailable', syncError: uiSource('ui472') });
+    // ログインが切れた（ほかのタブでログアウトした・期限切れ）ときは、つなぎ直しても断られるので入口からやり直す
+    if (event.code === 4401) { location.reload(); return; }
     // 互換性バージョン違いで断たれた場合はつなぎ直しても結果が同じなので、再接続しない
     if (!get().incompatible) setTimeout(connectWs, Math.min(5000, 500 * 2 ** retry++));
   };

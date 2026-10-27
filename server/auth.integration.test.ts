@@ -163,6 +163,13 @@ test('guests, dev and Misskey logins decide who you are and what you may do', { 
   const me2 = await (await fetch(`${base}/auth/me`, { headers: { Cookie: cookieOf(done, 'tonarium_session')! } })).json() as { account: { username: string } };
   assert.equal(me2.account.username, 'alice');
 
+  // Cookie はブラウザの上限まで持たせ、期限は DB で決める（使うたびに延びる期限に Cookie を合わせ直さないため）
+  assert.match(back.headers.getSetCookie().find((c) => c.startsWith('tonarium_session='))!, /Max-Age=34560000; .*HttpOnly|HttpOnly; .*Max-Age=34560000/);
+  // 1 つの接続元から作れるゲストには上限がある（ここまでに 1 人作っている）
+  const statuses: number[] = [];
+  for (let i = 0; i < 20; i++) statuses.push((await post('/auth/guest', { name: `g${i}` })).status);
+  assert.deepEqual([statuses.slice(0, 19).every((x) => x === 200), statuses[19]], [true, 429]);
+
   // ログアウトすると、そのセッションではもう入れない
   await post('/auth/logout', {}, mkCookie);
   assert.equal((await (await fetch(`${base}/auth/me`, { headers: { Cookie: mkCookie } })).json() as { account: unknown }).account, null);
