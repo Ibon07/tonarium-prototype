@@ -120,10 +120,14 @@ test('empty user sessions expire; joins, fixed sessions and manual deletion keep
   owner.ws.close();
   await until(() => !has(observer, disconnected));
   assert.ok(has(observer, 'fixed'), 'sessions.json sessions never expire');
+  // サーバーは JSON をその場で上書きするので、書いている途中に読むと空や途切れた中身になる。そのときは読み直す
+  const readSaved = async (file: string) => {
+    try { return JSON.parse(await readFile(path.join(data, file), 'utf8')); } catch { return null; }
+  };
   await until(async () => {
-    const saved = JSON.parse(await readFile(path.join(data, 'home.json'), 'utf8'));
-    const items = JSON.parse(await readFile(path.join(data, 'items.json'), 'utf8'));
-    return saved.sessions.length === 0 && saved.events.every((e: EventDef) => e.session === null) && !items.restored && !items.manual;
+    const saved = await readSaved('home.json');
+    const items = await readSaved('items.json');
+    return !!saved && !!items && saved.sessions.length === 0 && saved.events.every((e: EventDef) => e.session === null) && !items.restored && !items.manual;
   });
   assert.equal(deletions.length, 4);
   assert.ok(deletions.every((line) => line.includes('empty for 5min')));
