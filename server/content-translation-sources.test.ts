@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ITEM_INFO } from '../shared/items.ts';
+import { ITEM_VARIANTS } from '../shared/item-variants.ts';
 import { ITEM_USAGE } from '../shared/item-usage.ts';
 import { MARKET_PRODUCTS } from '../shared/market.ts';
 import { WORLDS } from '../shared/worlds.ts';
@@ -12,6 +13,8 @@ import { validateSystemManifest } from '../shared/systems.ts';
 import type { SystemCatalog, SystemManifest } from '../shared/system-types.ts';
 import { collectContentDocuments, readContentMetadata, validateContentMetadata, type ContentMetadata } from './content-translation-sources.ts';
 import { validateSystemSubmission } from './system-catalog.ts';
+import { ContentTranslationStore } from './content-translations.ts';
+import { createTranslator } from './translation.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const emptyMetadata = (): ContentMetadata => ({ schema: 1, glossary: {}, entries: {} });
@@ -57,10 +60,10 @@ test('tracked registration metadata validates and its system annotations match p
   assert.equal(JSON.stringify(catalog), before);
 });
 
-test('all registered items, worlds and item/world products are discovered without runtime or purchase data', () => {
+test('all registered items, worlds and marketplace categories are discovered without runtime or purchase data', () => {
   const documents = collectContentDocuments(emptyCatalog(), emptyMetadata());
   assert.equal(new Set(documents.map(document => document.key)).size, documents.length);
-  assert.deepEqual(documents.filter(document => document.key.startsWith('item/')).map(document => document.key).sort(), Object.keys(ITEM_INFO).map(id => `item/${id}`).sort());
+  assert.deepEqual(documents.filter(document => document.key.startsWith('item/')).map(document => document.key).sort(), [...Object.keys(ITEM_INFO), ...Object.keys(ITEM_VARIANTS)].map(id => `item/${id}`).sort());
   assert.deepEqual(documents.filter(document => document.key.startsWith('world/')).map(document => document.key).sort(), Object.keys(WORLDS).map(id => `world/${id}`).sort());
   assert.equal(Object.keys(ITEM_USAGE).length, 8);
   for (const [id, info] of Object.entries(ITEM_INFO)) {
@@ -75,7 +78,12 @@ test('all registered items, worlds and item/world products are discovered withou
   for (const [id, info] of Object.entries(WORLDS)) {
     assert.deepEqual(documentAt(documents, `world/${id}`).fields, { name: { source: info.name }, desc: { source: info.desc } });
   }
-  const products = MARKET_PRODUCTS.filter(product => product.category === 'items' || product.category === 'worlds');
+  for (const { id, info, usage } of Object.values(ITEM_VARIANTS)) {
+    assert.deepEqual(documentAt(documents, `item/${id}`).fields, {
+      name: { source: info.name }, desc: { source: info.desc }, genre: { source: info.genre }, usage: { source: usage },
+    });
+  }
+  const products = MARKET_PRODUCTS;
   assert.deepEqual(documents.filter(document => document.key.startsWith('product/')).map(document => document.key).sort(), products.map(product => `product/${product.id}`).sort());
   for (const product of products) {
     const document = documentAt(documents, `product/${product.id}`);
@@ -86,6 +94,65 @@ test('all registered items, worlds and item/world products are discovered withou
     assert.equal(document.kind, product.category === 'worlds' ? 'world' : 'item');
     for (const runtimeField of ['price', 'creator', 'color', 'ink', 'content', 'solids', 'extent', 'game', 'state']) assert.ok(!(runtimeField in document.fields));
   }
+});
+
+test('sound and emote metadata accepts manual corrections without changing product identity or behavior', () => {
+  const metadata = emptyMetadata(), original = structuredClone(MARKET_PRODUCTS);
+  const products = MARKET_PRODUCTS.filter(product => product.category === 'sounds' || product.category === 'emotes');
+  assert.ok(products.length > 0);
+  for (const product of products) metadata.entries[`product/${product.id}`] = {
+    sourceLanguage: 'ja', fields: { name: { source: product.name, translations: { ko: `수정한 ${product.id}` } } },
+  };
+  const documents = collectContentDocuments(emptyCatalog(), metadata);
+  for (const product of products) {
+    const document = documentAt(documents, `product/${product.id}`);
+    assert.deepEqual(document.fields.name, metadata.entries[document.key].fields.name);
+    assert.equal(document.fields.description.source, product.description);
+    assert.equal(document.sourceLanguage, 'ja');
+  }
+  assert.deepEqual(MARKET_PRODUCTS, original);
+});
+
+test('new sound and emote registrations generate, persist and update translations without handwritten entries', async t => {
+  const sound = MARKET_PRODUCTS.find(product => product.category === 'sounds'), emote = MARKET_PRODUCTS.find(product => product.category === 'emotes');
+  assert.ok(sound && emote);
+  const added = [
+    { ...sound, id: 'uploaded-chime', name: '追加のチャイム', description: '登録すると近くの人に聞こえるチャイムです。' },
+    { ...emote, id: 'uploaded-greeting', name: '追加のあいさつ', description: '登録すると使えるあいさつの動きです。' },
+  ];
+  const length = MARKET_PRODUCTS.length, keys = new Set(added.map(product => `product/${product.id}`)), directory = temporary(t);
+  MARKET_PRODUCTS.push(...added);
+  t.after(() => { MARKET_PRODUCTS.splice(length); });
+  const collect = () => collectContentDocuments(emptyCatalog(), emptyMetadata()).filter(document => keys.has(document.key));
+  let calls = 0;
+  const translate = createTranslator(async ({ text, targetLanguage }) => {
+    calls++; return { text: targetLanguage === 'ja' ? text : `${targetLanguage}: ${text}`, sourceLanguage: 'ja' };
+  });
+  const store = new ContentTranslationStore(directory, translate), documents = collect();
+  assert.equal(documents.length, 2);
+  const pending = store.register(documents);
+  assert.equal(store.catalog().pending, true);
+  await pending;
+  assert.equal(calls, 12);
+  for (const product of added) {
+    const fields = store.catalog().entries[`product/${product.id}`].fields;
+    for (const field of ['name', 'description'] as const) {
+      assert.equal(fields[field].source, product[field]);
+      assert.deepEqual(fields[field].translations, { ja: product[field], en: `en: ${product[field]}`, ko: `ko: ${product[field]}` });
+    }
+  }
+  const before = structuredClone(added);
+  assert.deepEqual(MARKET_PRODUCTS.slice(length), before);
+  added[0].description = '新しく更新したチャイムの説明です。';
+  const changed = store.register(collect());
+  assert.equal(store.catalog().entries['product/uploaded-chime'].fields.description.translations.ko, undefined);
+  await changed;
+  assert.equal(calls, 15, 'only the changed source field is translated again');
+  const restarted = new ContentTranslationStore(directory, translate);
+  await restarted.register(collect());
+  assert.equal(calls, 15, 'saved translations are reused after restarting');
+  assert.deepEqual(restarted.catalog(), store.catalog());
+  for (const [index, product] of added.entries()) for (const field of ['id', 'category', 'content', 'creator', 'price', 'mark', 'color', 'ink'] as const) assert.equal(product[field], before[index][field]);
 });
 
 test('manual overrides require the exact current source and do not rewrite a changed original', () => {

@@ -26,10 +26,11 @@ export function reconcileSystemItems(current: ReadonlyMap<string, Item>, view: S
   for (const [id, item] of current) if (item.mapPlacement && !wanted.has(id)) { items.delete(id); removed.push(id); }
   for (const { id, object, definition, existing, placement } of planned) {
     if (!existing && placement.mode === 'native' && options.createMissingNative === false) continue;
-    const sameAsset = existing?.kind === definition.kind && existing.mapPlacement?.itemId === definition.id && existing.mapPlacement.mode === placement.mode;
+    const sameAsset = existing?.kind === definition.kind && existing.mapPlacement?.itemId === definition.id && existing.mapPlacement.mode === placement.mode
+      && (existing.kind === 'camera' ? existing.variant : undefined) === definition.variant;
     const sourceChanged = !existing?.mapPlacement || JSON.stringify(existing.mapPlacement.position) !== JSON.stringify(placement.position) || existing.mapPlacement.rotation !== placement.rotation;
     if (sameAsset && placement.mode === 'native' && !sourceChanged) continue;
-    const next = sameAsset ? structuredClone(existing) : createItem(definition.kind, { id, x: object.position[0], z: object.position[2], ry: placement.rotation, createdBy: 'system-map' }, rng);
+    const next = sameAsset ? structuredClone(existing) : createItem(definition.kind, { id, x: object.position[0], z: object.position[2], ry: placement.rotation, createdBy: 'system-map', ...(definition.variant ? { variant: definition.variant } : {}) }, rng);
     if (!next) throw new Error(`Map item could not be created: ${definition.id}`);
     if (!sameAsset && next.kind === 'note') next.text = object.text ?? next.text;
     if (placement.mode === 'system') {
