@@ -134,7 +134,11 @@ function DmPane({ u }: { u: FriendLike }) {
 }
 
 function FollowList({ kind, q }: { kind: 'followers' | 'following'; q: string }) {
-  const ids = useStore((s) => s[kind].filter((id) => match(q, nameOf(id, s))));
+  // 選び出しの中で配列を作り直すと、毎回違う値になって描き直しが止まらない。元の配列だけを選び、絞り込みは外でする
+  const all = useStore((s) => s[kind]);
+  const users = useStore((s) => s.users);
+  const directory = useStore((s) => s.directory);
+  const ids = all.filter((id) => match(q, nameOf(id, { users, directory })));
   const friends = useStore((s) => s.friends);
   return (
     <section className="hsec">

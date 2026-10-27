@@ -408,7 +408,7 @@ function inboxJson() {
 const saveInbox = later(() => fs.writeFileSync(MESSAGES_FILE, inboxJson()));
 
 /** セッションにだれかが入ってから全員が出るまで。終わったらまとめにする */
-const visits = new Map<string, { from: number; people: Set<string>; log: Recap['log'] }>();
+const visits = new Map<string, { from: number; people: Map<string, string>; log: Recap['log'] }>();
 for (const w of guild.sessions) {
   registerSession(w);
   scheduleEmptyCheck(w.id);
@@ -579,7 +579,7 @@ function finishVisit(sid: string) {
     const summary = itemSummary(it);
     return summary ? [{ id: it.id, kind: it.kind, summary, ...(it.kind === 'image' ? { image: it.url } : {}) }] : [];
   });
-  const recap: Recap = { session: sid, sessionName: def.name, from: v.from, to: Date.now(), people: [...v.people], items: left.slice(0, 6), log: v.log };
+  const recap: Recap = { session: sid, sessionName: def.name, from: v.from, to: Date.now(), people: [...v.people].map(([id, name]) => ({ id, name })), items: left.slice(0, 6), log: v.log };
   pushMessage(channelKey(g.id, g.channels[0].id), { id: randomUUID(), from: '', at: Date.now(), text: '', recap });
 }
 /** 途中参加のスナップショットが重くならないよう、古い画像は捨てる */
@@ -1082,8 +1082,8 @@ function handle(ws: WebSocket, state: { id: string | null; account: Account | nu
       cancelEmptyCheck(msg.sid);
       me.mode = '2d';
       thumbnails.update(msg.sid, inSession(msg.sid));
-      const visit = visits.get(msg.sid) ?? { from: Date.now(), people: new Set<string>(), log: [] };
-      visit.people.add(me.id);
+      const visit = visits.get(msg.sid) ?? { from: Date.now(), people: new Map<string, string>(), log: [] };
+      visit.people.set(me.id, me.name);
       visits.set(msg.sid, visit);
       broadcastUsers(); sendPresence(msg.sid);
       event(msg.sid, `${me.name} が入室しました`);

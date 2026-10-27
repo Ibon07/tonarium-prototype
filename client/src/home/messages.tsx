@@ -3,7 +3,7 @@ import { useVoiceRecorder } from '../updateRecording.ts';
 import { t as tr, systemText } from '../i18n/index.ts';
 import { TranslatedText } from '../TranslatedText.tsx';
 import { useEffect, useRef, useState } from 'react';
-import { nameOf, useStore } from '../store.ts';
+import { useStore } from '../store.ts';
 import { RSVP_LABEL } from '../i18n/static.ts';
 import { PLAN_QUORUM, type Message, type Recap, type Rsvp } from '../../../shared/protocol.ts';
 import { ITEM_INFO } from '../i18n/static.ts';
@@ -42,6 +42,7 @@ const CONTINUE_ORDER: ItemKind[] = ['chess', 'chessAi', 'g2048', 'canvas', 'note
 function RecapCard({ r }: { r: Recap }) {
   const visible = useStore((s) => s.guild.sessions.some((d) => d.id === r.session));
   const world = useStore((s) => s.worldBy[r.session] ?? 'room');
+  const directory = useStore((s) => s.directory);
   const [log, setLog] = useState(false);
   const target = CONTINUE_ORDER.map((k) => r.items.find((it) => it.kind === k)).find(Boolean);
   const min = Math.max(1, Math.round((r.to - r.from) / 60_000));
@@ -56,8 +57,8 @@ function RecapCard({ r }: { r: Recap }) {
       </div>
       <div className="rbody">
         <div className="row">
-          <span className="stack">{r.people.slice(0, 6).map((n) => <PersonFace key={n} id={n} size={22} />)}</span>
-          <span className="sub">{r.people.map((n) => nameOf(n)).join(tr("ui236"))} · {span}</span>
+          <span className="stack">{r.people.slice(0, 6).map((p) => <PersonFace key={p.id} id={p.id} size={22} />)}</span>
+          <span className="sub">{r.people.map((p) => (directory[p.id]?.name ?? p.name)).join(tr("ui236"))} · {span}</span>
         </div>
         {r.items.length > 0 && <div className="rtiles">{r.items.map((it) => <ItemTile key={it.id} kind={it.kind} summary={it.summary} image={it.image} />)}</div>}
         <div className="row wrap">

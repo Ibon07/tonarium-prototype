@@ -87,8 +87,8 @@ export interface Recap {
   sessionName: string;
   from: number;
   to: number;
-  /** いた人のアカウント ID */
-  people: string[];
+  /** いた人。ゲストは名簿に無いので、そのときの名前も残す */
+  people: { id: string; name: string }[];
   items: RecapItem[];
   /** 話した人はアカウント ID（ゲストは名簿に無いので、そのときの名前も残す） */
   log: { id: string; name: string; text: string; at: number }[];
