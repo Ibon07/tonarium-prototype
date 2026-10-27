@@ -8,6 +8,13 @@
       "when": 1793100965314,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793120412526,
+      "tag": "0001_miauth_confirm_code",
+      "breakpoints": true
     }
   ]
 }

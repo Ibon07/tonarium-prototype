@@ -1405,7 +1405,7 @@ export default {
   "authOr": "or",
   "authGuest": "Join as a guest",
   "authGuestHint": "Guests can join sessions and save an icon and avatar only.",
-  "authWaiting": "Continue signing in to Misskey in your browser. You will join automatically when it is done.",
+  "authWaiting": "Continue signing in to Misskey in your browser, then enter this code on the page it shows. You will join automatically when it is done.",
   "authFailed": "Could not sign in. Please try again.",
   "authLoginRequired": "Not available to guests. Sign in with Misskey to use this.",
   "authGuestMark": "Guest",

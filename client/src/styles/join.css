@@ -82,4 +82,5 @@ img.av { object-fit: cover; display: block; }
 
 .stack { display: flex; }
 .stack .face + .face { margin-left: -6px; }
-
+/* Electron で別のブラウザにログインを任せている間に出す確認コード */
+.logincode { display: block; text-align: center; font-size: 22px; letter-spacing: 4px; font-family: ui-monospace, monospace; }

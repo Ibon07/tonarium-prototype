@@ -76,11 +76,12 @@ export async function loginGuest(name: string) {
  * Electron はほかのサイトへ移らず外のブラウザで開くので、終わるまでこちらから問い合わせる。
  * ブラウザでは移るだけなので null を返す
  */
-export async function startMisskeyLogin(onWaiting: () => void): Promise<Account | null> {
-  const { url } = await post<{ url: string }>('/auth/miauth/start');
+export async function startMisskeyLogin(onWaiting: (code: string) => void): Promise<Account | null> {
+  const { url, code } = await post<{ url: string; code: string }>('/auth/miauth/start');
   if (!isElectron()) { location.assign(url); return null; }
   window.open(url);
-  onWaiting();
+  // 許可したブラウザでこのコードを入れてもらい、始めた本人だと確かめる（他人の許可で入れないように）
+  onWaiting(code);
   for (;;) {
     await new Promise((r) => setTimeout(r, 2000));
     const r = await post<{ status: 'pending' | 'done' | 'expired'; account?: Account }>('/auth/miauth/poll');

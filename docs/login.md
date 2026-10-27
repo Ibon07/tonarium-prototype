@@ -22,10 +22,11 @@
 
 ログインできる Misskey は 1 つだけ（既定は misskey.resonite.love、`MISSKEY_URL` で変更）。権限は何も求めず、本人確認だけに使う。Misskey のトークンは確認のあとすぐ捨て、Misskey の API は呼ばない。
 
-1. 画面が `POST /auth/miauth/start` を呼ぶ。サーバーは MiAuth のセッション ID を作って `login_pending` に残し、その端末にだけ「待ち合わせ用の秘密」を Cookie（`tonarium_login`、10 分）で渡し、Misskey の許可画面の URL を返す
-2. ブラウザはそのまま Misskey へ移る。許可すると Misskey が `/auth/miauth/callback?session=...` へ戻し、サーバーが Misskey の `POST /api/miauth/<セッション>/check` で本人（Misskey のユーザー ID・ユーザー名・名前）を確かめる。待ち合わせの Cookie を持つブラウザなら、ログインの Cookie を付けて `/` へ戻す
-3. Electron 版は別のサイトへ移らず、許可画面を外のブラウザで開く（`window.open` → 外部ブラウザ）。アプリ側は「ブラウザで Misskey のログインを続けてください」と出して `POST /auth/miauth/poll` を 2 秒ごとに呼び、終わったらその場でログインの Cookie を受け取る。外のブラウザのほうは「アプリに戻ってください」の案内だけで、ログインはしない
-4. 同じ Misskey の人は何度ログインしても同じアカウント（Misskey のユーザー ID で引く）。Misskey 側でユーザー名を変えていれば更新する
+1. 画面が `POST /auth/miauth/start` を呼ぶ。サーバーは MiAuth のセッション ID を作って `login_pending` に残す。始めた端末にだけ、「待ち合わせ用の秘密」を Cookie（`tonarium_login`、10 分）で、8 文字の「確認コード」（例: `K7QF-2MXP`）を応答で渡し、Misskey の許可画面の URL を返す
+2. ブラウザはそのまま Misskey へ移る。許可すると Misskey が `/auth/miauth/callback?session=...` へ戻し、サーバーが Misskey の `POST /api/miauth/<セッション>/check` で、許可した人（Misskey のユーザー ID・ユーザー名・名前）を確かめて覚えておく。待ち合わせの Cookie を持つブラウザ（＝ログインを始めたブラウザ）なら、そのアカウントに結び付け、ログインの Cookie を付けて `/` へ戻す
+3. 待ち合わせの Cookie が無いブラウザ（Electron から始めた、または他人から送られた URL を開いた）には、「〇〇 @ユーザー名 として Tonarium にログインします」と確認コードの入力欄、「自分で始めたときに表示されたコード以外は入れない」という注意を出す。コードが合ったときだけアカウントに結び付け（`POST /auth/miauth/confirm`。同じオリジンのフォームだけ受ける）、「アプリに戻ってください」と出す。5 回間違えるとそのログインは取り消す。他人が始めたログインの許可 URL を開かされても、許可しただけでは他人がそのアカウントで入れない（ログイン CSRF の対策）
+4. Electron 版は別のサイトへ移らず、許可画面を外のブラウザで開く（`window.open` → 外部ブラウザ）。アプリ側は確認コードを大きく出し、`POST /auth/miauth/poll` を 2 秒ごとに呼ぶ。手順 3 でコードが入って結び付いたら、その場でログインの Cookie を受け取る。poll から Misskey に問い合わせて結び付けることはしない
+5. 同じ Misskey の人は何度ログインしても同じアカウント（Misskey のユーザー ID で引く）。Misskey 側でユーザー名を変えていれば更新する
 
 ## セッション
 

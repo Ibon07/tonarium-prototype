@@ -18,15 +18,15 @@ function AccountSection() {
   const username = useStore((s) => s.selfUsername);
   const [name, setName] = useState(selfName);
   const [message, setMessage] = useState('');
-  const [waiting, setWaiting] = useState(false);
+  const [waiting, setWaiting] = useState<string | null>(null);
   const rename = async () => {
     try { await renameSelf(name); setMessage(tr('authNameSaved')); } catch { setMessage(tr('authNameFailed')); }
   };
   const login = async () => {
     try {
       // ゲストのまま入っている画面からは、ログインできたら入り直す（本人が変わるため）
-      if (await startMisskeyLogin(() => setWaiting(true))) location.reload();
-    } catch { setWaiting(false); setMessage(tr('authFailed')); }
+      if (await startMisskeyLogin(setWaiting)) location.reload();
+    } catch { setWaiting(null); setMessage(tr('authFailed')); }
   };
   return (
     <section>
@@ -40,7 +40,8 @@ function AccountSection() {
         {guest && <button className="primary" onClick={() => void login()}>{tr('authMisskey')}</button>}
         <button onClick={() => void logout()}>{tr('authLogout')}</button>
       </div>
-      {(waiting || message) && <div className="sub">{waiting ? tr('authWaiting') : message}</div>}
+      {waiting && <div className="sub">{tr('authWaiting')} <b className="logincode">{waiting}</b></div>}
+      {!waiting && message && <div className="sub">{message}</div>}
     </section>
   );
 }

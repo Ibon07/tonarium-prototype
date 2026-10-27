@@ -1405,7 +1405,7 @@ export default {
   "authOr": "または",
   "authGuest": "ゲストで入る",
   "authGuestHint": "ゲストはセッションで遊ぶことと、アイコン・アバターの保存だけできます",
-  "authWaiting": "ブラウザで Misskey のログインを続けてください。終わると自動で入ります",
+  "authWaiting": "ブラウザで Misskey のログインを続け、最後に表示されるページで次のコードを入力してください。終わると自動で入ります",
   "authFailed": "ログインできませんでした。もう一度お試しください",
   "authLoginRequired": "ゲストは使えません。Misskey でログインすると使えます",
   "authGuestMark": "ゲスト",

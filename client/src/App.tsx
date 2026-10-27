@@ -18,7 +18,7 @@ function JoinScreen({ misskeyHost }: { misskeyHost: string }) {
   const [name, setName] = useState(() => {
     try { return localStorage.getItem('tonarium.name') ?? ''; } catch { return ''; }
   });
-  const [waiting, setWaiting] = useState(false);
+  const [waiting, setWaiting] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
   const tona = useRef<MascotHandle>(null);
@@ -36,7 +36,7 @@ function JoinScreen({ misskeyHost }: { misskeyHost: string }) {
     if (busy) return;
     setBusy(true);
     setError(false);
-    try { await f(); } catch { setError(true); setWaiting(false); }
+    try { await f(); } catch { setError(true); setWaiting(null); }
     setBusy(false);
   };
   const guest = () => run(async () => {
@@ -45,7 +45,7 @@ function JoinScreen({ misskeyHost }: { misskeyHost: string }) {
     await loginGuest(n);
   });
   const misskey = () => run(async () => {
-    const account = await startMisskeyLogin(() => setWaiting(true));
+    const account = await startMisskeyLogin(setWaiting);
     if (account) enter(account);
   });
   return (
@@ -57,7 +57,7 @@ function JoinScreen({ misskeyHost }: { misskeyHost: string }) {
           <h1 className="joinlogo"><img src="/brand/logo.png" alt="Tonarium" /></h1>
           <p>{tr("ui7")}</p>
           <button className="primary" onClick={() => void misskey()} disabled={busy}>{tr('authMisskey')}</button>
-          <small>{waiting ? tr('authWaiting') : tr('authMisskeyHint', misskeyHost)}</small>
+          {waiting ? <><small>{tr('authWaiting')}</small><b className="logincode">{waiting}</b></> : <small>{tr('authMisskeyHint', misskeyHost)}</small>}
           {error && <small className="err">{tr('authFailed')}</small>}
           <div className="joinor"><span>{tr('authOr')}</span></div>
           <label htmlFor="joinname">{tr("ui11")}</label>

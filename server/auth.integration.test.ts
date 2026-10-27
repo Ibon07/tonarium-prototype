@@ -142,7 +142,8 @@ test('guests, dev and Misskey logins decide who you are and what you may do', { 
   assert.equal(denied.status, 400);
   granted.add(session);
   const other = await fetch(`${base}/auth/miauth/callback?session=${session}`, { redirect: 'manual' });
-  assert.equal(other.status, 200, 'another browser only gets a "return to the app" page');
+  assert.equal(other.status, 200, 'another browser only gets the code confirmation page');
+  assert.match(await other.text(), /@alice/);
   assert.equal(cookieOf(other, 'tonarium_session'), undefined);
   const back = await fetch(`${base}/auth/miauth/callback?session=${session}`, { headers: { Cookie: pending }, redirect: 'manual' });
   assert.equal(back.status, 302);
@@ -150,12 +151,37 @@ test('guests, dev and Misskey logins decide who you are and what you may do', { 
   const me = await (await fetch(`${base}/auth/me`, { headers: { Cookie: mkCookie } })).json() as { account: { kind: string; username: string; name: string } };
   assert.deepEqual([me.account.kind, me.account.username, me.account.name], ['misskey', 'alice', 'Alice M']);
 
-  // Misskey（Electron）: 待っている端末は poll で受け取る。同じ Misskey の人は同じアカウント
+  const confirm = (session: string, code: string) => fetch(`${base}/auth/miauth/confirm`, {
+    method: 'POST', redirect: 'manual', body: new URLSearchParams({ session, code }).toString(),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: base },
+  });
+  const pollStatus = async (cookie: string) => (await (await post('/auth/miauth/poll', {}, cookie)).json() as { status: string }).status;
+
+  // 他人が始めたログインの許可 URL を開かされても、始めた画面のコードを知らなければ他人に結び付かない（ログイン CSRF）
+  const attacker = await post('/auth/miauth/start', {});
+  const attackerPending = cookieOf(attacker, 'tonarium_login')!;
+  const attackSession = new URL((await attacker.json() as { url: string }).url).pathname.split('/').pop()!;
+  granted.add(attackSession);
+  assert.equal((await fetch(`${base}/auth/miauth/callback?session=${attackSession}`, { redirect: 'manual' })).status, 200);
+  assert.equal(await pollStatus(attackerPending), 'pending', 'approval alone never logs the starter in');
+  for (let i = 0; i < 4; i++) assert.equal((await confirm(attackSession, 'AAAA-AAAA')).status, 400);
+  assert.equal(await pollStatus(attackerPending), 'pending');
+  assert.equal((await confirm(attackSession, 'AAAA-AAAA')).status, 400);
+  assert.equal(await pollStatus(attackerPending), 'expired', 'too many wrong codes cancel the sign-in');
+  // 確認はほかのサイトからは送れない
+  assert.equal((await fetch(`${base}/auth/miauth/confirm`, { method: 'POST', body: 'session=x&code=y', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: 'https://evil.example' } })).status, 403);
+
+  // Misskey（Electron）: 許可したブラウザで始めた画面のコードを入れると、待っている端末が poll で受け取る。同じ Misskey の人は同じアカウント
   const start2 = await post('/auth/miauth/start', {});
   const pending2 = cookieOf(start2, 'tonarium_login')!;
-  const session2 = new URL((await start2.json() as { url: string }).url).pathname.split('/').pop()!;
-  assert.equal((await (await post('/auth/miauth/poll', {}, pending2)).json() as { status: string }).status, 'pending');
+  const started2 = await start2.json() as { url: string; code: string };
+  const session2 = new URL(started2.url).pathname.split('/').pop()!;
+  assert.match(started2.code, /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+  assert.equal(await pollStatus(pending2), 'pending');
   granted.add(session2);
+  assert.equal((await fetch(`${base}/auth/miauth/callback?session=${session2}`, { redirect: 'manual' })).status, 200);
+  assert.equal(await pollStatus(pending2), 'pending');
+  assert.equal((await confirm(session2, started2.code.toLowerCase().replace('-', ' '))).status, 200, 'case and separators do not matter');
   const done = await post('/auth/miauth/poll', {}, pending2);
   const polled = await done.json() as { status: string; account: { username: string } };
   assert.equal(polled.status, 'done');

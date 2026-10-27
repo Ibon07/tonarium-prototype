@@ -1405,7 +1405,7 @@ export default {
   "authOr": "또는",
   "authGuest": "게스트로 입장",
   "authGuestHint": "게스트는 세션 참여와 아이콘·아바타 저장만 할 수 있습니다",
-  "authWaiting": "브라우저에서 Misskey 로그인을 계속해 주세요. 끝나면 자동으로 입장합니다",
+  "authWaiting": "브라우저에서 Misskey 로그인을 계속하고, 마지막에 표시되는 페이지에 다음 코드를 입력하세요. 끝나면 자동으로 입장합니다",
   "authFailed": "로그인하지 못했습니다. 다시 시도해 주세요",
   "authLoginRequired": "게스트는 사용할 수 없습니다. Misskey로 로그인하면 사용할 수 있습니다",
   "authGuestMark": "게스트",
