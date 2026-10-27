@@ -129,25 +129,46 @@ try {
     const second = scene.children.find(o => o !== hit.panel.group && o.children.some(child => child.isMesh));
     const secondPosition = second.position.clone(), firstPosition = hit.panel.group.position.clone();
     check(panels.grab(controller, ray), 'grip acquires the selected panel');
-    controller.position.x = .4; controller.rotation.y = .2; controller.updateMatrixWorld(true); panels.update();
+    const grabOffset = controller.matrixWorld.clone().invert().multiply(hit.panel.group.matrixWorld);
+    controller.position.x = .4; controller.rotation.y = .2; controller.updateMatrixWorld(true);
+    const expectedGrab = controller.matrixWorld.clone().multiply(grabOffset);
+    const grabCenter = new THREE.Vector3().setFromMatrixPosition(expectedGrab);
+    const grabNormal = new THREE.Vector3(0, 0, 1).transformDirection(expectedGrab);
+    const grabHit = panels.hit(new THREE.Raycaster(grabCenter.clone().addScaledVector(grabNormal, .1), grabNormal.clone().negate()));
+    check(grabHit?.panel.id === 'test-a' && grabHit.hit.uv.distanceTo(new THREE.Vector2(.5, .5)) < .001, 'grabbed panel hit follows current controller before the frame update');
     check(hit.panel.group.position.distanceTo(firstPosition) > .1 && second.position.equals(secondPosition), 'grabbing moves and rotates only the selected panel');
-    panels.release(controller); const placed = hit.panel.group.position.clone();
+    controller.position.x += .3; controller.rotation.y -= .1; controller.updateMatrixWorld(true);
+    const releaseMatrix = controller.matrixWorld.clone().multiply(grabOffset);
+    panels.release(controller); hit.panel.group.updateWorldMatrix(true, false);
+    check(hit.panel.group.matrixWorld.elements.every((v, i) => Math.abs(v - releaseMatrix.elements[i]) < 1e-8), 'release freezes the event pose even before the frame update');
+    const placed = hit.panel.group.position.clone(), placedQ = hit.panel.group.quaternion.clone();
     controller.position.x = 2; head.rotation.z = .7; controller.updateMatrixWorld(true); panels.update();
-    check(hit.panel.group.position.equals(placed), 'placed panel stays fixed after release and head motion');
+    check(hit.panel.group.position.equals(placed) && hit.panel.group.quaternion.equals(placedQ), 'placed panel stays fixed after release and head motion');
+    const left = new THREE.Group(); trackingRig.add(left); left.position.set(-.3, 1.2, -.5);
+    panels.update(left);
     const wristRoot = document.createElement('section'); wristRoot.dataset.xrSurface = 'wrist'; wristRoot.dataset.xrUtility = 'true';
     wristRoot.innerHTML = '<button>wrist</button>'; document.body.appendChild(wristRoot); panels.refresh();
-    const left = new THREE.Group(); trackingRig.add(left);
-    for (const yaw of [.8, -1.1, Math.PI]) {
-      trackingRig.position.add(new THREE.Vector3(.4, .1, -.3)); trackingRig.rotation.y = yaw;
-      left.position.set(-.3, 1.2, -.5); left.rotation.set(.2, -.3, .1); left.updateWorldMatrix(true, false);
+    const wrist = scene.children.find(o => o.children.some(child => child.isMesh) && o !== hit.panel.group && o !== second);
+    const initialWrist = left.localToWorld(new THREE.Vector3(.02, .12, -.05));
+    check(wrist.position.distanceTo(initialWrist) < 1e-8, 'new wrist surface is attached immediately on refresh');
+    for (const condition of ['stationary', 'hands', 'physical', 'locomotion', 'turn']) {
+      if (condition === 'hands') { left.position.x -= .4; left.rotation.set(.2, -.3, .1); }
+      if (condition === 'physical') left.position.add(new THREE.Vector3(.4, .1, -.3));
+      if (condition === 'locomotion') trackingRig.position.add(new THREE.Vector3(3, .1, -2));
+      if (condition === 'turn') trackingRig.rotation.y = -1.1;
+      left.updateWorldMatrix(true, false);
       const q = left.getWorldQuaternion(new THREE.Quaternion());
       const center = left.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(.02, .12, -.05).applyQuaternion(q));
       q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2));
       const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
-      panels.update(left);
       const wristHit = panels.hit(new THREE.Raycaster(center.clone().addScaledVector(normal, .1), normal.clone().negate()));
-      check(wristHit?.panel.id === 'wrist' && wristHit.hit.uv.distanceTo(new THREE.Vector2(.5, .5)) < .001, 'wrist hit uses the current grip matrix before rendering after locomotion');
+      check(wristHit?.panel.id === 'wrist' && wristHit.hit.uv.distanceTo(new THREE.Vector2(.5, .5)) < .001, `wrist event hit uses current grip before frame update: ${condition}`);
+      check(wrist.position.distanceTo(center) < 1e-8 && 1 - Math.abs(wrist.quaternion.dot(q)) < 1e-8, `wrist offset and rotation: ${condition}`);
+      check(hit.panel.group.position.equals(placed) && hit.panel.group.quaternion.equals(placedQ), `released panel stays world fixed: ${condition}`);
     }
+    panels.update(undefined); const disconnectedWrist = wrist.position.clone();
+    left.position.x += 2; panels.hit(ray);
+    check(wrist.position.equals(disconnectedWrist), 'missing left grip retains its last wrist placement');
     runtime.xr.togglePanel('test-a'); panels.refresh();
     check(!runtime.xrState().panels.find(p => p.id === 'test-a').open && runtime.xrState().panels.find(p => p.id === 'test-b').open, 'closing one panel preserves the other');
     panels.dispose(); a.remove(); b.remove(); wristRoot.remove(); document.body.classList.remove('xr-active'); runtime.xr.renderer = null;

@@ -18,6 +18,7 @@ export class PanelSurfaces {
   private grabs = new Map<THREE.Group, { panel: Panel; offset: THREE.Matrix4 }>();
   private serial = 0;
   private signature = '';
+  private left: THREE.Group | undefined;
   constructor(private scene: THREE.Scene) {
     xr.togglePanel = id => {
       const panel = [...this.panels.values()].find(p => p.id === id);
@@ -71,6 +72,7 @@ export class PanelSurfaces {
       panel.surface.refresh();
       if (panel.surface.mesh && !panel.surface.mesh.parent) panel.group.add(panel.surface.mesh);
     }
+    this.update(this.left);
     this.publish();
   }
   private publish() {
@@ -79,6 +81,8 @@ export class PanelSurfaces {
     if (this.signature !== signature) { this.signature = signature; xrPatch({ panels }); }
   }
   hit(ray: THREE.Raycaster) {
+    // selectイベントや入力判定は、描画フレームの追従更新より先にも届く。
+    this.update(this.left);
     const candidates = [...this.panels.values()].filter(p => p.group.visible && p.surface.mesh);
     for (const panel of candidates) panel.group.updateWorldMatrix(true, true);
     const hit = ray.intersectObjects(candidates.map(p => p.surface.mesh!), false)[0];
@@ -92,8 +96,12 @@ export class PanelSurfaces {
     this.grabs.set(controller, { panel: hit.panel, offset: controller.matrixWorld.clone().invert().multiply(hit.panel.group.matrixWorld) });
     return true;
   }
-  release(controller?: THREE.Group) { if (controller) this.grabs.delete(controller); else this.grabs.clear(); }
+  release(controller?: THREE.Group) {
+    this.update(this.left);
+    if (controller) this.grabs.delete(controller); else this.grabs.clear();
+  }
   update(left: THREE.Group | undefined) {
+    this.left = left;
     for (const [controller, grab] of this.grabs) {
       controller.updateWorldMatrix(true, false);
       new THREE.Matrix4().multiplyMatrices(controller.matrixWorld, grab.offset).decompose(grab.panel.group.position, grab.panel.group.quaternion, grab.panel.group.scale);
@@ -112,6 +120,6 @@ export class PanelSurfaces {
   }
   dispose() {
     for (const panel of this.panels.values()) this.remove(panel);
-    this.panels.clear(); this.grabs.clear(); xr.togglePanel = null; xrPatch({ panels: [] });
+    this.panels.clear(); this.grabs.clear(); this.left = undefined; xr.togglePanel = null; xrPatch({ panels: [] });
   }
 }
