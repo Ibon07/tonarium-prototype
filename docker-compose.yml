@@ -82,7 +82,9 @@ services:
         if [ -z "$$BACKUP_S3_BUCKET" ]; then echo "BACKUP_S3_BUCKET が未設定のため DB のバックアップは止めています"; exec sleep infinity; fi
         while true; do
           f="db/tonarium-$$(date -u +%Y%m%dT%H%M%SZ).dump"
-          if pg_dump -Fc | aws s3 cp - "s3://$$BACKUP_S3_BUCKET/$$f" --endpoint-url "$$BACKUP_S3_ENDPOINT"; then echo "backup: $$f"; else echo "backup failed: $$f"; fi
+          # パイプでつなぐと pg_dump が途中で失敗しても成功扱いになるので、一度ファイルに書き切ってから送る
+          if pg_dump -Fc -f /tmp/backup.dump && aws s3 cp /tmp/backup.dump "s3://$$BACKUP_S3_BUCKET/$$f" --endpoint-url "$$BACKUP_S3_ENDPOINT"; then echo "backup: $$f"; else echo "backup failed: $$f"; fi
+          rm -f /tmp/backup.dump
           sleep "$${BACKUP_INTERVAL_SECONDS:-86400}"
         done
 
