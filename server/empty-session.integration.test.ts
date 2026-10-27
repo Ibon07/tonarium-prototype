@@ -5,6 +5,7 @@ import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import { testServerEnv } from './test-db.ts';
 import { pathToFileURL } from 'node:url';
 import { WebSocket } from 'ws';
 import { COMPAT_VERSION, type ClientMsg, type ServerMsg, type SessionDef, type EventDef } from '../shared/protocol.ts';
@@ -20,6 +21,7 @@ async function until(check: () => boolean | Promise<boolean>) {
 }
 
 test('empty user sessions expire; joins, fixed sessions and manual deletion keep their behavior', { timeout: 35_000 }, async (t) => {
+  const dbEnv = await testServerEnv(t);
   const data = await mkdtemp(path.join(os.tmpdir(), 'tonarium-empty-'));
   t.after(() => rm(data, { recursive: true, force: true }));
   const fixed = { id: 'fixed', name: 'Fixed' };
@@ -37,7 +39,7 @@ test('empty user sessions expire; joins, fixed sessions and manual deletion keep
   const port = (listener.address() as net.AddressInfo).port;
   await new Promise<void>((resolve) => listener.close(() => resolve()));
   const child = spawn(process.execPath, ['--import', pathToFileURL(preload).href, '--import', 'tsx', 'server/index.ts'], {
-    env: { ...process.env, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' },
+    env: { ...process.env, ...dbEnv, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let ready = false;

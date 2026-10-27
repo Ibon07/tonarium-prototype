@@ -7,6 +7,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import { testServerEnv } from './test-db.ts';
 import { WebSocket } from 'ws';
 import { KokosyncClient } from '../vendor/kokosync/index.js';
 import { importKey, open, PACKET_TOPIC, receiveBlob, seal, sendPacket, type Envelope, type SyncConfig } from '../shared/session-wire.ts';
@@ -28,6 +29,7 @@ type InputCommand = Exclude<SystemCommand, { kind: 'map' }>;
 type InputOperation = { kind: 'interact'; objectId: string } | { kind: 'input'; instanceId: string; input: string; payload: Record<string, SystemValue> };
 
 test('live shared systems: code-map load, late snapshots, native items, occupied seats and reconnect converge', { skip: process.env.KOKOSYNC_INTEGRATION !== '1', timeout: 150_000 }, async t => {
+  const dbEnv = await testServerEnv(t);
   const began = Date.now(), listener = net.createServer();
   await new Promise<void>(resolve => listener.listen(0, '127.0.0.1', resolve));
   const port = (listener.address() as net.AddressInfo).port;
@@ -36,7 +38,7 @@ test('live shared systems: code-map load, late snapshots, native items, occupied
   const data = await mkdtemp(path.join(os.tmpdir(), 'tonarium-live-systems-'));
   await writeFile(path.join(data, 'sessions.json'), JSON.stringify({ name: 'System integration', sessions: [{ id: sid, name: 'System integration' }, { id: otherSid, name: 'Independent integration' }] }));
   const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
-    env: { ...process.env, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '', LIVEKIT_ROOM_PREFIX: `systems-integration-${crypto.randomUUID()}`, CHAT_TRANSLATION_PROVIDER: 'mock' },
+    env: { ...process.env, ...dbEnv, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '', LIVEKIT_ROOM_PREFIX: `systems-integration-${crypto.randomUUID()}`, CHAT_TRANSLATION_PROVIDER: 'mock' },
     windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let logs = '';

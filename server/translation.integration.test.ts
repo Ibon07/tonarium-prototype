@@ -5,6 +5,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import { testServerEnv } from './test-db.ts';
 import { WebSocket } from 'ws';
 import { COMPAT_VERSION, dmKey } from '../shared/protocol.ts';
 import { createTranslationClient } from '../client/src/translation.ts';
@@ -20,6 +21,7 @@ async function until(check: () => boolean) {
 
 for (const mode of ['mock', 'missing', 'failed'] as const) {
   test(`chat send/receive continues with ${mode} translation`, { timeout: 30000 }, async (t) => {
+    const dbEnv = await testServerEnv(t);
     const data = await mkdtemp(path.join(os.tmpdir(), 'tonarium-translation-'));
     await writeFile(path.join(data, 'sessions.json'), JSON.stringify({ name: 'Test', sessions: [] }));
     await writeFile(path.join(data, 'friends.json'), JSON.stringify([['Alice', 'Bob']]));
@@ -29,7 +31,7 @@ for (const mode of ['mock', 'missing', 'failed'] as const) {
     await new Promise<void>((resolve) => listener.close(() => resolve()));
     const base = `http://127.0.0.1:${port}`;
     const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
-      env: { ...process.env, OPENAPI_KEY: '', CHAT_TRANSLATION_PROVIDER: mode === 'missing' ? 'openai' : 'mock', CHAT_TRANSLATION_MOCK_FAILURE: mode === 'failed' ? '1' : '0', SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' },
+      env: { ...process.env, ...dbEnv, OPENAPI_KEY: '', CHAT_TRANSLATION_PROVIDER: mode === 'missing' ? 'openai' : 'mock', CHAT_TRANSLATION_MOCK_FAILURE: mode === 'failed' ? '1' : '0', SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let ready = false;

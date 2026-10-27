@@ -6,6 +6,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import { testServerEnv } from './test-db.ts';
 import { WebSocket } from 'ws';
 import { KokosyncClient } from '../vendor/kokosync/index.js';
 import { importKey, open, PACKET_TOPIC, receiveBlob, seal, sendPacket, unpack, type Envelope, type SyncConfig } from '../shared/session-wire.ts';
@@ -23,6 +24,7 @@ async function until<T>(read: () => T | undefined, timeout = 45_000): Promise<T>
 }
 
 test('live kokosync: initial canvas, deltas, private delivery, independent media and reconnect', { skip: process.env.KOKOSYNC_INTEGRATION !== '1', timeout: 180_000 }, async (t) => {
+  const dbEnv = await testServerEnv(t);
   const listener = net.createServer();
   await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', resolve));
   const port = (listener.address() as net.AddressInfo).port;
@@ -35,7 +37,7 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
   await writeFile(path.join(data, 'sessions.json'), JSON.stringify({ name: 'test', sessions }));
   await writeFile(path.join(data, 'items.json'), JSON.stringify({ 'sync-test': [canvas] }));
   const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
-    env: { ...process.env, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' }, stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, ...dbEnv, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let logs = '';
   child.stdout.on('data', (chunk) => { logs += chunk; });
