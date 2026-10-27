@@ -5,6 +5,7 @@ import { mkdtemp, writeFile, readFile, readdir, stat, rm } from 'node:fs/promise
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import { testServerEnv } from './test-db.ts';
 import { fileURLToPath } from 'node:url';
 import { ITEM_INFO } from '../shared/items.ts';
 import { ITEM_USAGE } from '../shared/item-usage.ts';
@@ -55,6 +56,7 @@ async function cacheSnapshot(directory: string) {
 }
 
 test('deployed content translation HTTP registers once, persists results and leaves chat and system originals independent', { timeout: 60000 }, async t => {
+  const dbEnv = await testServerEnv(t);
   const directory = await mkdtemp(path.join(os.tmpdir(), 'tonarium-content-http-'));
   const sessions = path.join(directory, 'sessions.json'), environment = path.join(directory, 'test.env');
   await writeFile(sessions, JSON.stringify({ name: 'Content translation test', sessions: [] }));
@@ -70,7 +72,7 @@ test('deployed content translation HTTP registers once, persists results and lea
     const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
       cwd: root,
       env: {
-        ...process.env, DOTENV_CONFIG_PATH: environment, DOTENV_CONFIG_OVERRIDE: 'false', DOTENV_CONFIG_QUIET: 'true',
+        ...process.env, ...dbEnv, DOTENV_CONFIG_PATH: environment, DOTENV_CONFIG_OVERRIDE: 'false', DOTENV_CONFIG_QUIET: 'true',
         OPENAPI_KEY: '', CHAT_TRANSLATION_PROVIDER: 'openai', CHAT_TRANSLATION_MOCK_FAILURE: '0',
         CONTENT_TRANSLATION_PROVIDER: 'mock', CONTENT_TRANSLATION_MODEL: 'gpt-4o-mini',
         SERVER_PORT: String(port), DATA_DIR: directory, SESSIONS_FILE: sessions,

@@ -5,6 +5,7 @@ import { mkdtemp, readFile, writeFile, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import { testServerEnv } from './test-db.ts';
 import { WebSocket } from 'ws';
 import { COMPAT_VERSION, type Group } from '../shared/protocol.ts';
 
@@ -20,6 +21,7 @@ async function until<T>(read: () => T | undefined): Promise<T> {
 }
 
 test('group permissions, uploads, legacy data, broadcasts and persistence', { timeout: 60_000 }, async (t) => {
+  const dbEnv = await testServerEnv(t);
   const listener = net.createServer();
   await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', resolve));
   const port = (listener.address() as net.AddressInfo).port;
@@ -41,7 +43,7 @@ test('group permissions, uploads, legacy data, broadcasts and persistence', { ti
   t.after(async () => { await stop(); await rm(data, { recursive: true, force: true }); });
   async function start() {
     child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
-      env: { ...process.env, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json') },
+      env: { ...process.env, ...dbEnv, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json') },
       stdio: 'ignore',
     });
     const end = Date.now() + 15_000;

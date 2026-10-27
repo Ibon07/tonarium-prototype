@@ -5,6 +5,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import { testServerEnv } from './test-db.ts';
 import { WebSocket } from 'ws';
 import { COMPAT_VERSION, type ServerMsg, type SessionDef } from '../shared/protocol.ts';
 
@@ -20,6 +21,7 @@ async function until<T>(read: () => T | undefined): Promise<T> {
 }
 
 test('shared targets use filtered lists and server join authorization', { timeout: 35_000 }, async (t) => {
+  const dbEnv = await testServerEnv(t);
   const data = await mkdtemp(path.join(os.tmpdir(), 'tonarium-links-'));
   t.after(() => rm(data, { recursive: true, force: true }));
   const sessions: SessionDef[] = ['public', 'friends', 'group', 'groupPlus', 'invite'].map((visibility) => ({
@@ -34,7 +36,7 @@ test('shared targets use filtered lists and server join authorization', { timeou
   const port = (listener.address() as net.AddressInfo).port;
   await new Promise<void>((resolve) => listener.close(() => resolve()));
   const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
-    env: { ...process.env, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' },
+    env: { ...process.env, ...dbEnv, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let ready = false;

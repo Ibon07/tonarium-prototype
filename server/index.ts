@@ -54,6 +54,7 @@ import { newSurvivorProfile, SURVIVOR_META_UPGRADES, SURVIVOR_PROFILE_VERSION, S
 import { Follows } from './follows.ts';
 import { POST_RATE, Timeline, UPLOAD_RATE } from './timeline.ts';
 import { POST_IMAGE_MAX_BYTES, isImageId, type Post } from '../shared/timeline.ts';
+import { closeDb, openDb } from './db/index.ts';
 import { createSyncGrant, handleSyncOffer, upgradeSync, revokeSync, revokeUserSync, leaveRoom, livekitRoom, roomSend, roomSendSnapshot, shutdownRooms, type RoomHandlers } from './rooms.ts';
 
 const PORT = Number(process.env.SERVER_PORT ?? 3001);
@@ -2111,8 +2112,16 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => {
   saveTimeline.flush();
   savePeople.flush();
   saveInbox.flush();
-  shutdownRooms().finally(() => process.exit(0));
+  Promise.allSettled([shutdownRooms(), closeDb()]).finally(() => process.exit(0));
 });
+
+try { await openDb(); }
+catch (e) {
+  // Drizzle は失敗したクエリで包むので、接続や認証の失敗は cause の方にある
+  const err = e as Error & { cause?: Error };
+  console.error('DB に接続できませんでした:', err.cause?.message ?? err.message);
+  process.exit(1);
+}
 
 server.listen(PORT, () => {
   console.log(`server on http://localhost:${PORT}`);
