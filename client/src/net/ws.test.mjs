@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { beforeEach, mock, test } from 'node:test';
 
-let state, systemReplies = [], systemResets = 0;
+let state, systemReplies = [], systemResets = 0, notices = [], hits = [];
 const stub = (path, namedExports) => mock.module(new URL(path, import.meta.url).href, { namedExports });
 stub('../store.ts', { get: () => state, set: (patch) => { state = { ...state, ...(typeof patch === 'function' ? patch(state) : patch) }; }, recompute() {}, spawnPoint() {}, showToast() {} });
 stub('../auth.ts', { wsSessionQuery: () => '' });
@@ -11,13 +11,14 @@ stub('../systems/api.ts', {
   resetSystemCommands() { systemResets++; },
 });
 stub('../items/actions.ts', { applyDelta() {} });
-stub('../items/effects.ts', { onHit() {} });
-stub('../actions.ts', { pushNotice() {} });
+stub('../items/effects.ts', { onHit(...args) { hits.push(args); } });
+stub('../actions.ts', { pushNotice(...args) { notices.push(args); } });
 stub('../spatial.ts', { volumeFrom() {} });
 stub('../world/sounds.ts', { playPoke() {}, playSynth() {} });
 stub('../emotes.ts', { receiveEmote() {} });
 stub('../world/survivorAudio.ts', { playSurvivorSound() {} });
 stub('./session.ts', { startSessionSync() {}, stopSessionSync() {}, roomSend() {}, configureSessionSync() {}, syncError() {}, resetSessionSync() {} });
+stub('../ai/support.ts', { setAiSupportTransport() {}, handleAiSupportMessage() { return false; } });
 globalThis.document = { documentElement: { lang: '' }, title: '', querySelector: () => null };
 globalThis.WebSocket = class {
   static OPEN = 1;
@@ -32,10 +33,22 @@ beforeEach(() => {
   state = { session: 'existing', hubOpen: true, mode: '3d', guild: { name: 'test', sessions: [] } };
   globalThis.__tonariumWs = new WebSocket();
   systemReplies = []; systemResets = 0;
+  notices = []; hits = [];
   useSystems.setState({ sid: '', view: undefined, error: undefined });
 });
 
 const systemView = revision => ({ revision, map: { schema: 1, id: 'test-map', objects: [], systems: [], connections: [] }, systems: [], objects: {}, seats: {}, diagnostics: [], traces: [] });
+test('2d and 3d share the self-only same-session hit notification path and retain effects', () => {
+  state.selfId = 'self';
+  for (const mode of ['2d', '3d']) {
+    state.mode = mode;
+    onMessage({ t: 'hit', sid: 'existing', from: 'a', to: 'self' });
+    onMessage({ t: 'hit', sid: 'existing', from: 'a', to: 'other' });
+    onMessage({ t: 'hit', sid: 'elsewhere', from: 'a', to: 'self' });
+  }
+  assert.deepEqual(notices, [['hit', 'a'], ['hit', 'a']]);
+  assert.deepEqual(hits, [['a', 'self'], ['a', 'other'], ['a', 'self'], ['a', 'other']]);
+});
 test('hammer chat updates replace the same row and new IDs append separately', () => {
   const first = { id: 'hit-1', from: null, text: 'A がピコピコハンマーで B を1回叩きました', at: 1000 };
   Object.assign(state, { chats: {}, selfId: 'self', blocked: [] });
