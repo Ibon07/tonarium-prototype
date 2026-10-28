@@ -35,6 +35,11 @@ export class FileStorage implements ObjectStorage {
     checkKey(key);
     return `${this.base}/${key}`;
   }
+  /** url() の配信元（サーバーの /objects/）が読むファイル */
+  file(key: string) {
+    checkKey(key);
+    return path.join(this.dir, key);
+  }
 }
 
 export interface S3Options {

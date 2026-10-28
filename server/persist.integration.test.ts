@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, readdir, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
@@ -26,6 +26,9 @@ test('people, home and the rest of the data survive a server restart from the da
   const data = await mkdtemp(path.join(os.tmpdir(), 'tonarium-persist-'));
   t.after(() => rm(data, { recursive: true, force: true }));
   await writeFile(path.join(data, 'sessions.json'), JSON.stringify({ name: 'Test', sessions: [{ id: 'fixed', name: 'Fixed' }] }));
+  // ディスクに置いていた頃の画像と動画は、起動時に消える
+  await mkdir(path.join(data, 'media'), { recursive: true });
+  await writeFile(path.join(data, 'media', '00000000-0000-0000-0000-000000000000.mp4'), 'old');
   const listener = net.createServer();
   await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', resolve));
   const port = (listener.address() as net.AddressInfo).port;
@@ -100,6 +103,16 @@ test('people, home and the rest of the data survive a server restart from the da
   const guest = await fetch(`${base}/auth/guest`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ name: 'Gus' }) });
   const guestHeaders = { Cookie: (guest.headers.get('set-cookie') ?? '').split(';')[0] };
   assert.equal((await post2('/api/save/x', { save: { antimatter: '1' } }, guestHeaders)).status, 403, 'guests are not saved');
+  // 画像はストレージ（S3 の設定が無いテストでは DATA_DIR/objects）に置き、URL は転送で読ませる
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const upload = (url: string, body: Buffer, headers: Record<string, string>) => fetch(`${base}${url}`, { method: 'POST', body: new Uint8Array(body), headers });
+  assert.equal((await upload('/icon', jpeg, a.headers)).status, 200);
+  const icon = ((await (await upload('/icon', jpeg, a.headers)).json()) as { icon: string }).icon;
+  assert.equal((await upload('/avatar', png, guestHeaders)).status, 200, 'guests keep their avatar');
+  assert.equal((await post2('/avatar/params', { eyeHeight: 1.5 }, guestHeaders)).status, 200);
+  const media = ((await (await upload('/media', png, a.headers)).json()) as { url: string }).url;
+  const guestId = ((await guest.json()) as { account: { id: string } }).account.id;
   // 遅らせてまとめる書き込み（800 ms）が終わるのを待つ。強制終了でも、書き終えた分は DB に残る
   await delay(2000);
   await stop();
@@ -127,7 +140,16 @@ test('people, home and the rest of the data survive a server restart from the da
   assert.equal((await fetch(`${base}/api/save/other-id`, { headers: b.headers })).status, 404, 'each account has its own save');
   const board = (await (await fetch(`${base}/api/leaderboard`, { headers: a.headers })).json()) as { entries: { name: string; antimatterLog10: number; self?: boolean }[] };
   assert.deepEqual(board.entries, [{ name: 'Ann', antimatterLog10: 5, infinities: 1, playTimeSec: 60, self: true }]);
+  const redirect = await fetch(`${base}/icon?id=${a.id}&v=${icon}`, { redirect: 'manual' });
+  assert.equal(redirect.status, 302);
+  assert.equal(redirect.headers.get('location'), `/objects/icons/${a.id}/${icon}.jpg`);
+  assert.deepEqual(Buffer.from(await (await fetch(`${base}/icon?id=${a.id}`)).arrayBuffer()), jpeg);
+  assert.deepEqual(await readdir(path.join(data, 'objects', 'icons', a.id)), [`${icon}.jpg`], 'the replaced icon is removed');
+  assert.deepEqual(Buffer.from(await (await fetch(`${base}/avatar?id=${guestId}`)).arrayBuffer()), png);
+  assert.equal((await fetch(`${base}/avatar/params?id=${guestId}`)).status, 200);
+  assert.deepEqual(Buffer.from(await (await fetch(`${base}${media}`)).arrayBuffer()), png);
   // DB に移したデータは JSON に書かない
   const files = await readdir(data);
+  assert.ok(!files.includes('media'), 'old local media is removed');
   for (const f of ['home.json', 'people.json', 'messages.json', 'follows.json', 'timeline.json', 'items.json', 'market-likes.json', 'ad-saves.json', 'ad-leaderboard.json', 'reports.log']) assert.ok(!files.includes(f), f);
 });

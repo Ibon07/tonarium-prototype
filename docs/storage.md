@@ -1,11 +1,11 @@
 # 保存の仕組み
 
-`data/` の JSON とファイルから、PostgreSQL（データ）と S3 互換のストレージ（画像・動画）へ移している途中。移し終えるまでの段取りは次のとおりで、`feature/storage-auth` にまとめてから `develop` へ入れる。
+`data/` の JSON とファイルから、PostgreSQL（データ）と S3 互換のストレージ（画像）へ移している途中。移し終えるまでの段取りは次のとおりで、`feature/storage-auth` にまとめてから `develop` へ入れる。
 
 1. DB とストレージの土台（この文書の内容。入っている）
 2. Misskey（misskey.resonite.love）でのログインとゲスト（[login.md](login.md)。入っている）
 3. 人を名前ではなくアカウント ID で持つ（3a）。人とホームのデータを DB へ移す（3b）。残り（タイムライン・アイテム・ゲームの進み具合・いいね・通報）を DB へ移す（3c）。どれも入っている
-4. 画像・動画をストレージへ移す
+4. 動画のアップロードと声のメッセージをなくす（4a。入っている）。画像をストレージへ移す（4b）
 
 ## 人はアカウント ID で持つ
 
@@ -31,6 +31,7 @@
 | `session_items` | セッションに置いたアイテム（中身は jsonb） |
 | `market_likes` | マーケットのいいね（商品 → アカウント ID） |
 | `reports` | 通報 |
+| `account_images` | アカウントごとのアイコンとアバター画像のストレージのキー、アバターの調整値と版（ゲストも持つ） |
 | `app_data` | 機能ごとに形が違うデータの汎用の表（下） |
 
 ## 汎用の表（app_data）
@@ -62,12 +63,29 @@
 
 - `server/storage.ts` の `openStorage` が環境変数で置き場を決める。`S3_ENDPOINT` があれば S3（本番は Cloudflare R2、手元は `npm run services` の SeaweedFS）、無ければ `DATA_DIR/objects` に書く（テスト用）
 - 口は `put(キー, 中身, 種類)`・`delete(キー)`・`url(キー)` の 3 つ。キーは推測できない ID で作る前提で、英小文字・数字・`-` と `/` 区切り、拡張子付きのものだけ受け付ける（ストレージの外を指すキーを作らせないため）
-- 中身ごとにキーを変えるので、書くときに `Cache-Control: public, max-age=31536000, immutable` を付ける。ブラウザは `url()` の URL（R2 の公開ドメイン）から直接読む
+- 中身ごとにキーを変えるので、書くときに `Cache-Control: public, max-age=31536000, immutable` を付ける
 - 手元の SeaweedFS は認証の設定を置いていないので、だれでも読み書きできる。`S3_CREATE_BUCKET=1` のとき起動時にバケットを作る。本番の R2 はバケットを先に作っておく
-- まだ誰も使っていない。画像・動画を移すときに使い始める
+- S3 の設定が無いとき（テスト）は、`DATA_DIR/objects` のファイルをサーバーの `/objects/<キー>` が配る
+
+### 置いている画像
+
+| 画像 | キー | 読む URL |
+|---|---|---|
+| チャット・メッセージの添付とアイテムの画像 | `media/<UUID>.<拡張子>` | `/media/<UUID>.<拡張子>` |
+| アイコン | `icons/<アカウント ID>/<版>.jpg` | `/icon?id=<アカウント ID>&v=<版>` |
+| アバターの画像 | `avatars/<アカウント ID>/<版>.png`（か `.jpg`） | `/avatar?id=<アカウント ID>&v=<版>` |
+| グループの画像 | `groups/<グループ ID>/<imageVersion>.jpg` | `/group-image/<グループ ID>?v=<imageVersion>` |
+| タイムラインの写真 | `timeline/<画像 ID>.jpg` | `/timeline-image/<画像 ID>` |
+
+- アイテムやメッセージに残すのは右の列の URL で、ストレージの URL（R2 の公開ドメイン）は残さない。サーバーはこれらの URL に 302 でストレージの URL を返し、ブラウザは中身をストレージから直接読む（ドメインを変えても保存したデータを直さずに済む）。版や ID が入った URL は中身が変わらないので、転送ごと長くキャッシュさせる
+- 3D の板やアバターの画像は WebGL のテクスチャにするので、ストレージ側の CORS でアプリのオリジンからの GET を許す（[deploy.md](deploy.md) の「R2 の準備」）
+- アイコン・アバター・グループの画像は、差し替えると新しいキーで置き、古いキーは消す。アバターの調整値は DB（`account_images.avatar_params`）にあり、`/avatar/params?id=` が返す
+- タイムラインの写真は、ポストが消えると消す。上げたまま 1 時間ポストに使われなかったものも消す（サーバーを再起動するとこの追跡は消えるので、そのとき上げたばかりの分は残る）
+- チャットの添付は消さない（前は合計 1GB で古いものから消していた）
+- ディスク（`data/`）に置いていた頃の画像と動画は引き継がず、起動時に `media`・`icons`・`avatars`・`group-images`・`timeline-images` を消す
 
 ## テスト
 
 - サーバーを起動する integration test は、`server/test-db.ts` の `testServerEnv(t)` でテストごとに `tonarium_test_<乱数>` という DB を作り、終わったら消す。`.env` の `DATABASE_URL` と `S3_*` は引き継がない（開発用のデータに書き込まないため）
 - 使い捨ての DB を作る管理用の接続先は `TEST_DATABASE_URL`（既定は開発用の PostgreSQL）。CI（Web checks）は `services` で PostgreSQL を立ててそこを使う
-- `npm run test:integration`（ログイン・ID・再起動しても DB から戻るか（AD のアカウントごとの保存を含む）・空のセッションの片付け・グループ・セッションのリンク・翻訳）と `npm run test:storage`（`S3_TEST_ENDPOINT=http://localhost:8333` を付けると SeaweedFS でも試す）
+- `npm run test:integration`（ログイン・ID・再起動しても DB から戻るか（AD のアカウントごとの保存、アイコン・アバター・画像を含む）・空のセッションの片付け・グループ・セッションのリンク・翻訳）と `npm run test:storage`（`S3_TEST_ENDPOINT=http://localhost:8333` を付けると SeaweedFS でも試す）

@@ -11,10 +11,10 @@ import { WebSocket } from 'ws';
 import { COMPAT_VERSION, type Group } from '../shared/protocol.ts';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-async function until<T>(read: () => T | undefined): Promise<T> {
+async function until<T>(read: () => T | undefined | Promise<T | undefined>): Promise<T> {
   const end = Date.now() + 15_000;
   while (Date.now() < end) {
-    const value = read();
+    const value = await read();
     if (value !== undefined) return value;
     await delay(20);
   }
@@ -103,9 +103,9 @@ test('group permissions, uploads, legacy data, broadcasts and persistence', { ti
   await until(() => outsider.groups()[0].imageVersion === 1 ? true : undefined);
   assert.equal(owner.groups()[0].name, 'Editor name');
   assert.deepEqual(new Uint8Array(await (await fetch(`${base}/group-image/legacy?v=1`)).arrayBuffer()), image);
-  await writeFile(path.join(data, 'group-images', 'legacy.png'), 'old');
+  const objects = () => readdir(path.join(data, 'objects', 'groups', 'legacy')).catch(() => []);
   assert.equal((await upload('Owner')).status, 200);
-  assert.deepEqual(await readdir(path.join(data, 'group-images')), ['legacy.jpg']);
+  await until(async () => JSON.stringify(await objects()) === '["2.jpg"]' ? true : undefined);
   await delay(1000);
   assert.equal((await readHomeData(dbEnv)).groups[0].imageVersion, 2);
   await stop();
@@ -120,5 +120,5 @@ test('group permissions, uploads, legacy data, broadcasts and persistence', { ti
   assert.equal((await upload('Editor')).status, 204);
   restored.send({ t: 'groupDelete', id: 'legacy' });
   await until(() => restored.groups().length === 0 ? true : undefined);
-  assert.deepEqual(await readdir(path.join(data, 'group-images')), []);
+  await until(async () => (await objects()).length === 0 ? true : undefined);
 });

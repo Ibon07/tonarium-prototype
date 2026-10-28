@@ -43,7 +43,7 @@ owner（作成者）と編集者にだけ歯車が表示され、名前と端末
 
 `groupUpdate { groupId, name?, editors? }` はサーバーで権限を検証する。名前は owner/編集者のみ変更でき、前後の空白を取り40文字まで、空文字は無視する。編集者の変更は owner のみ受け付け、現在のメンバー（アカウント ID）から owner と重複を除いて保存する。脱退時は編集者からも外れる。不正な要求は無視し、変更後は `groups` を全員に再配信する。owner/editors はアカウント ID で持つ。
 
-画像はプロフィールアイコンと共通の選択・正方形切り抜き・128px JPEG 変換を経て、`POST /group-image/:groupId` に送る。サーバーはログインしている本人で owner/編集者を検証し（ゲストは不可）、アイコンと同じ JPEG 判定と300,000バイト上限を使う（元ファイルの拡張子では判定しない）。`data/group-images/<groupId>.jpg` に保存し、異なる拡張子の旧ファイルは削除する。保存後に `imageVersion` を増やして全員へ配信し、`GET /group-image/:groupId?v=<imageVersion>` で取得する。画像は選択後すぐに保存され、グループ削除時には画像も削除される。
+画像はプロフィールアイコンと共通の選択・正方形切り抜き・128px JPEG 変換を経て、`POST /group-image/:groupId` に送る。サーバーはログインしている本人で owner/編集者を検証し（ゲストは不可）、アイコンと同じ JPEG 判定と300,000バイト上限を使う（元ファイルの拡張子では判定しない）。ストレージの `groups/<groupId>/<imageVersion>.jpg` に置き、前の版は消す。保存後に `imageVersion` を増やして全員へ配信し、`GET /group-image/:groupId?v=<imageVersion>` で取得する。画像は選択後すぐに保存され、グループ削除時には画像も削除される。
 
 グループ名・`editors`（アカウント ID の配列）・`imageVersion` は DB の `groups` に残り、画像とともに再起動後も戻る。旧データで editors がなければ空配列として読む。見出し・ナビ・一覧・公開範囲のチップ・セッション内の会話一覧は共通の `GroupAvatar` で画像を表示し、画像がなければ従来の頭文字を表示する。
 

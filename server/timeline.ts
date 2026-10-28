@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { POST_MAX_CHARS, cleanAttach, isImageId, isReaction, prunePosts, withoutOrphans, type Post, type PostAttach, type PostPlace } from '../shared/timeline.ts';
 
@@ -17,23 +15,21 @@ export class Timeline {
   posts: Post[];
   /** id は中身が変わったポスト。消えただけのときは渡さない（保存側が全体と比べて消す） */
   private changed: (id?: string) => void;
-  /** 画像 ID → 上げた人。上げた本人が 1 つのポストにだけ使える（他人の画像を付けて消させないため） */
-  private uploads = new Map<string, string>();
+  /** 画像 ID → 上げた人と時刻。上げた本人が 1 つのポストにだけ使える（他人の画像を付けて消させないため） */
+  private uploads = new Map<string, { by: string; at: number }>();
   private hits = new Map<string, number[]>();
 
-  constructor(saved: Post[], private imageDir: string, changed: (id?: string) => void, now = Date.now()) {
+  /** removeImage は画像（ストレージのオブジェクト）を消す */
+  constructor(saved: Post[], private removeImage: (id: string) => void, changed: (id?: string) => void, now = Date.now()) {
     this.changed = changed;
-    fs.mkdirSync(imageDir, { recursive: true });
     this.posts = saved;
     for (const p of this.posts) { p.reactions ??= {}; p.reposts ??= []; }
     this.prune(now);
   }
 
-  imageFile(id: string) { return path.join(this.imageDir, `${id}.jpg`); }
-
   newImageId() { return randomUUID(); }
 
-  registerUpload(id: string, uploader: string) { this.uploads.set(id, uploader); }
+  registerUpload(id: string, uploader: string, now = Date.now()) { this.uploads.set(id, { by: uploader, at: now }); }
 
   /** key ごとに直近 ms の回数を数え、limit 未満なら数えて true */
   allow(key: string, rate: { limit: number; ms: number }, now = Date.now()) {
@@ -48,7 +44,7 @@ export class Timeline {
 
   create(author: string, input: PostInput, ctx: PostContext, now = Date.now()): Post | null {
     const text = String(input.text ?? '').trim().slice(0, POST_MAX_CHARS);
-    const image = isImageId(input.image) && this.uploads.get(input.image) === author && fs.existsSync(this.imageFile(input.image)) ? input.image : undefined;
+    const image = isImageId(input.image) && this.uploads.get(input.image)?.by === author ? input.image : undefined;
     let attach: PostAttach | undefined = cleanAttach(input.attach);
     if (attach?.kind === 'session') {
       const s = ctx.session(attach.id);
@@ -102,18 +98,12 @@ export class Timeline {
     return this.replace(prunePosts(this.posts, now));
   }
 
-  /** どのポストにも使われていない古い画像を消す */
+  /** 上げたままポストに使われなかった古い画像を消す。再起動をまたいだものは追えないので残る */
   sweepImages(now = Date.now()) {
-    const used = new Set(this.posts.flatMap((p) => (p.image ? [p.image] : [])));
-    let names: string[] = [];
-    try { names = fs.readdirSync(this.imageDir); } catch { return; }
-    for (const f of names) {
-      const id = f.replace(/\.jpg$/, '');
-      if (used.has(id)) continue;
-      const file = path.join(this.imageDir, f);
-      try {
-        if (fs.statSync(file).mtimeMs < now - ORPHAN_IMAGE_MS) { fs.rmSync(file, { force: true }); this.uploads.delete(id); }
-      } catch { /* 消えていてもよい */ }
+    for (const [id, u] of this.uploads) {
+      if (u.at >= now - ORPHAN_IMAGE_MS) continue;
+      this.uploads.delete(id);
+      this.removeImage(id);
     }
   }
 
@@ -122,7 +112,7 @@ export class Timeline {
     const keep = new Set(next.map((p) => p.id));
     const gone = this.posts.filter((p) => !keep.has(p.id));
     this.posts = next;
-    for (const p of gone) if (p.image) fs.rmSync(this.imageFile(p.image), { force: true });
+    for (const p of gone) if (p.image) this.removeImage(p.image);
     this.changed();
     return gone.map((p) => p.id);
   }

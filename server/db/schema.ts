@@ -158,3 +158,16 @@ export const appData = pgTable('app_data', {
   data: jsonb('data').notNull(),
   updatedAt: at('updated_at').notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.scope, t.key] })]);
+
+/**
+ * アカウントのアイコンとアバター（ゲストも持てる）。画像の中身はストレージにあり、ここにはそのキーを持つ。
+ * キーは差し替えるたびに新しくし、古いキーのオブジェクトは消す
+ */
+export const accountImages = pgTable('account_images', {
+  accountId: uuid('account_id').primaryKey().references(() => accounts.id, { onDelete: 'cascade' }),
+  icon: text('icon'),
+  avatarImage: text('avatar_image'),
+  avatarParams: jsonb('avatar_params'),
+  /** 画像か調整値のどちらかが変わると新しくなる。画面はこれで読み直す */
+  avatarVersion: text('avatar_version'),
+});

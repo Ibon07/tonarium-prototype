@@ -44,7 +44,7 @@
 
 `groupUpdate { groupId, name?, editors? }` をサーバーで検証し、名前は owner/編集者、編集者変更は owner のみ受け付ける。不正な要求は無視し、変更後は `groups` を全員へ再配信する。`editors` はアカウント ID の配列で、owner・非メンバー・重複は除く。脱退時にも編集者から外れる。
 
-画像はプロフィールアイコンと共通の処理で中央を正方形に切り抜き、128px JPEG に変換し、`POST /group-image/:groupId` へ送る。サーバーはログインしている本人（アカウント ID）で owner/編集者を検証し（ゲストは不可）、アイコンと同じ JPEG 判定・300,000 バイト上限を適用する（元ファイルの拡張子では判定しない）。`data/group-images/<groupId>.jpg` に保存し、異なる拡張子の旧画像は削除する。`imageVersion` を増やし、`GET /group-image/:groupId?v=<imageVersion>` で配信する。グループ削除時は画像も削除する。
+画像はプロフィールアイコンと共通の処理で中央を正方形に切り抜き、128px JPEG に変換し、`POST /group-image/:groupId` へ送る。サーバーはログインしている本人（アカウント ID）で owner/編集者を検証し（ゲストは不可）、アイコンと同じ JPEG 判定・300,000 バイト上限を適用する（元ファイルの拡張子では判定しない）。ストレージの `groups/<groupId>/<imageVersion>.jpg` に置き、`imageVersion` を増やして前の版を消す。`GET /group-image/:groupId?v=<imageVersion>` はストレージの URL へ転送する（[storage.md](storage.md)）。グループ削除時は画像も削除する。
 
 見出し・所属グループのナビ・一覧・セッションの公開範囲のチップ・会話一覧は共通の `GroupAvatar` を使い、画像がなければ従来の頭文字を表示する。画像は選択後すぐに保存される。グループの名前・`editors`・`imageVersion` は `data/home.json` に保存され、画像とともに再起動後も残る。旧データの editors 未定義は空配列として読む。
 
