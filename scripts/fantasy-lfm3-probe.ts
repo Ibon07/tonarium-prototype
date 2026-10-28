@@ -21,6 +21,8 @@ const prompts: Record<NpcLocale, string[]> = {
 type Message = { role: 'system' | 'user' | 'assistant'; content: string };
 
 async function main() {
+  const thinking = process.env.LFM3_DEFAULT_THINKING === '1';
+  const maxTokens = thinking ? 1536 : 512;
   const binary = resolve(process.env.LFM3_BINARY ?? 'llama-server');
   const directory = await mkdtemp(join(tmpdir(), 'tonarium-lfm3-probe-'));
   const controller = new AbortController();
@@ -33,7 +35,7 @@ async function main() {
   const samples: unknown[] = [];
   try {
     const prepared = await prepareModel({ directory, manifest, signal: controller.signal });
-    child = spawn(binary, ['--model', prepared.path, '--alias', 'lfm3-1.7b', '--host', '127.0.0.1', '--port', '18743', '--ctx-size', '4096', '--parallel', '1', '--threads', '2', '--threads-batch', '2', '--n-gpu-layers', '0', '--jinja', '--reasoning', 'off', '--n-predict', '512'], {
+    child = spawn(binary, ['--model', prepared.path, '--alias', 'lfm3-1.7b', '--host', '127.0.0.1', '--port', '18743', '--ctx-size', '4096', '--parallel', '1', '--threads', '2', '--threads-batch', '2', '--n-gpu-layers', '0', '--jinja', '--reasoning', thinking ? 'auto' : 'off', '--n-predict', String(maxTokens)], {
       stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true,
       env: { ...process.env, LD_LIBRARY_PATH: `${dirname(binary)}:${process.env.LD_LIBRARY_PATH ?? ''}` },
     });
@@ -55,8 +57,8 @@ async function main() {
     const models = await (await fetch(endpoint + '/v1/models')).json() as { data?: { id: string }[] };
     if (!models.data?.some(model => model.id === 'lfm3-1.7b')) throw new Error('Unexpected runtime model');
     const npc = NPC_PUBLIC.find(npc => npc.id === 'oldwatch-orran')!;
-    console.log('LFM3_CONFIG ' + JSON.stringify({ manifest, runtime: 'b11938', threads: 2, context: 4096, fullHistory: true, productionChanged: false, sampling: { temperature: .1, top_k: 50, repeat_penalty: 1.1, max_tokens: 512 } }));
-    for (const locale of ['ko', 'en', 'ja'] as const) for (const arm of ['bare', 'minimal-npc', 'current-npc-prompt'] as const) {
+    console.log('LFM3_CONFIG ' + JSON.stringify({ manifest, runtime: 'b11938', threads: 2, context: 4096, thinking, fullHistory: true, productionChanged: false, sampling: { temperature: .1, top_k: 50, repeat_penalty: 1.1, max_tokens: maxTokens } }));
+    for (const locale of ['ko', 'en', 'ja'] as const) for (const arm of (thinking ? ['minimal-npc'] : ['bare', 'minimal-npc', 'current-npc-prompt']) as ('bare'|'minimal-npc'|'current-npc-prompt')[]) {
       const history: Message[] = [];
       for (const [turn, question] of prompts[locale].entries()) {
         const system = arm === 'bare' ? { ko: '한국어로 자연스럽게 대화하세요.', en: 'Converse naturally in English.', ja: '日本語で自然に会話してください。' }[locale]
@@ -64,14 +66,14 @@ async function main() {
           : npcSystemPrompt(locale, npc.id, 'stranger', {}, question);
         const messages: Message[] = [{ role: 'system', content: system }, ...history, { role: 'user', content: question }];
         const started = performance.now();
-        const response = await fetch(endpoint + '/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]), body: JSON.stringify({ model: 'lfm3-1.7b', messages, stream: false, temperature: .1, top_k: 50, repeat_penalty: 1.1, seed: 20261028, max_tokens: 512, chat_template_kwargs: { enable_thinking: false } }) });
+        const response = await fetch(endpoint + '/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(thinking ? 90000 : 60000)]), body: JSON.stringify({ model: 'lfm3-1.7b', messages, stream: false, temperature: .1, top_k: 50, repeat_penalty: 1.1, seed: 20261028, max_tokens: maxTokens, chat_template_kwargs: { enable_thinking: thinking } }) });
         if (!response.ok) throw new Error(`LFM3 HTTP ${response.status}: ${(await response.text()).slice(0,1000)}`);
         const value = await response.json() as { model?: string; choices?: { finish_reason?: string; message?: { content?: string; reasoning_content?: string } }[]; usage?: unknown };
         if (value.model !== 'lfm3-1.7b') throw new Error('Unexpected completion model');
         const message = value.choices?.[0]?.message;
         const raw = message?.content ?? '';
         const answer = raw.replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, '').replace(/<\/?think\b[^>]*>/gi, '').trim();
-        const sample = { locale, arm, turn: turn + 1, question, answer, elapsedMs: Math.round(performance.now() - started), finishReason: value.choices?.[0]?.finish_reason, usage: value.usage, reasoningChars: (message?.reasoning_content?.length ?? 0) + raw.length - answer.length, system };
+        const sample = { locale, arm, thinking, turn: turn + 1, question, answer, elapsedMs: Math.round(performance.now() - started), finishReason: value.choices?.[0]?.finish_reason, usage: value.usage, reasoningChars: (message?.reasoning_content?.length ?? 0) + raw.length - answer.length, system };
         samples.push(sample); console.log('LFM3_SAMPLE ' + JSON.stringify(sample));
         try { const status = await readFile(`/proc/${child.pid}/status`, 'utf8'); peakRssKb = Math.max(peakRssKb, Number(status.match(/^VmHWM:\s+(\d+)/m)?.[1] ?? 0)); } catch {}
         if (!answer) break;
