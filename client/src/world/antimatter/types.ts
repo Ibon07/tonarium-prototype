@@ -1,3 +1,4 @@
+import type { UiMessage } from '../../i18n/core.ts';
 export interface BigNum {
   mantissa: number;
   exponent: number;
@@ -96,7 +97,7 @@ export interface OfflineNotice {
 
 export interface ImportResult {
   ok: boolean;
-  message: string;
+  message: UiMessage;
 }
 
 /**
@@ -118,7 +119,7 @@ export interface AntimatterSlice {
   activeProfile: AdProfile | null;
   offlineNotice: OfflineNotice | null;
   leaderboard: LeaderboardEntry[];
-  serverStatus: string | null;
+  serverStatus: UiMessage | null;
   syncState: 'disconnected' | 'loading' | 'choice' | 'ready' | 'error';
   chooseSave: (source: 'local' | 'remote') => void;
   issueTransfer: () => Promise<{ code: string; expiresAt: number }>;
