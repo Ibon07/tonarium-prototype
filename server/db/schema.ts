@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { bigint, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, index, integer, jsonb, pgTable, primaryKey, serial, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 const at = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -118,3 +118,43 @@ export const messageReads = pgTable('message_reads', {
   conv: text('conv').notNull(),
   at: ms('at').notNull(),
 }, (t) => [primaryKey({ columns: [t.accountId, t.conv] })]);
+
+/** タイムラインのポスト。中身（Post）は jsonb のまま持つ */
+export const posts = pgTable('posts', {
+  id: text('id').primaryKey(),
+  at: ms('at').notNull(),
+  data: jsonb('data').notNull(),
+});
+
+/** セッションに置いたアイテム。中身（Item）は種類ごとに形が違うので jsonb のまま持つ */
+export const sessionItems = pgTable('session_items', {
+  sessionId: text('session_id').notNull(),
+  itemId: text('item_id').notNull(),
+  data: jsonb('data').notNull(),
+}, (t) => [primaryKey({ columns: [t.sessionId, t.itemId] })]);
+
+export const marketLikes = pgTable('market_likes', {
+  product: text('product').notNull(),
+  accountId: uuid('account_id').notNull(),
+}, (t) => [primaryKey({ columns: [t.product, t.accountId] })]);
+
+export const reports = pgTable('reports', {
+  id: serial('id').primaryKey(),
+  at: at('at').notNull().defaultNow(),
+  fromAccount: uuid('from_account').notNull(),
+  fromName: text('from_name').notNull(),
+  target: text('target').notNull(),
+  reason: text('reason').notNull(),
+});
+
+/**
+ * 機能ごとに形が違い、今後も増えるデータ（ゲームの進み具合など。UGC を想定）を、機能ごとに表を作らずに入れる汎用の表。
+ * scope は「機能.種類」（ad.save など）。人に結び付くものは account_id を入れ、アカウントを消したら一緒に消す
+ */
+export const appData = pgTable('app_data', {
+  scope: text('scope').notNull(),
+  key: text('key').notNull(),
+  accountId: uuid('account_id').references(() => accounts.id, { onDelete: 'cascade' }),
+  data: jsonb('data').notNull(),
+  updatedAt: at('updated_at').notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.scope, t.key] })]);

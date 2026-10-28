@@ -7,7 +7,7 @@ import { Timeline } from './timeline.ts';
 
 function fresh() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tonarium-timeline-'));
-  const tl = new Timeline(path.join(dir, 'timeline.json'), path.join(dir, 'images'), () => {});
+  const tl = new Timeline([], path.join(dir, 'images'), () => {});
   const upload = (name: string) => {
     const id = tl.newImageId();
     fs.writeFileSync(tl.imageFile(id), Buffer.from([0xff, 0xd8]));

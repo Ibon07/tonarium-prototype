@@ -15,22 +15,19 @@ export const UPLOAD_RATE = { limit: 10, ms: 10 * 60 * 1000 };
 
 export class Timeline {
   posts: Post[];
-  private changed: () => void;
+  /** id は中身が変わったポスト。消えただけのときは渡さない（保存側が全体と比べて消す） */
+  private changed: (id?: string) => void;
   /** 画像 ID → 上げた人。上げた本人が 1 つのポストにだけ使える（他人の画像を付けて消させないため） */
   private uploads = new Map<string, string>();
   private hits = new Map<string, number[]>();
 
-  constructor(private file: string, private imageDir: string, changed: () => void, now = Date.now()) {
+  constructor(saved: Post[], private imageDir: string, changed: (id?: string) => void, now = Date.now()) {
     this.changed = changed;
     fs.mkdirSync(imageDir, { recursive: true });
-    let raw: unknown = [];
-    try { raw = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { /* まだ無い */ }
-    this.posts = Array.isArray(raw) ? raw.filter((p): p is Post => !!p && typeof p === 'object' && typeof (p as Post).id === 'string') : [];
+    this.posts = saved;
     for (const p of this.posts) { p.reactions ??= {}; p.reposts ??= []; }
     this.prune(now);
   }
-
-  serialize() { return JSON.stringify(this.posts); }
 
   imageFile(id: string) { return path.join(this.imageDir, `${id}.jpg`); }
 
@@ -67,7 +64,7 @@ export class Timeline {
     if (quote) post.quote = quote;
     if (replyTo) post.replyTo = replyTo;
     this.posts.push(post);
-    this.changed();
+    this.changed(post.id);
     return post;
   }
 
@@ -86,7 +83,7 @@ export class Timeline {
     if (has === on) return null;
     const next = on ? [...list, who] : list.filter((n) => n !== who);
     if (next.length) p.reactions[emoji] = next; else delete p.reactions[emoji];
-    this.changed();
+    this.changed(p.id);
     return p;
   }
 
@@ -96,7 +93,7 @@ export class Timeline {
     const has = p.reposts.some((r) => r.id === who);
     if (has === on) return null;
     p.reposts = on ? [...p.reposts, { id: who, at: now }] : p.reposts.filter((r) => r.id !== who);
-    this.changed();
+    this.changed(p.id);
     return p;
   }
 

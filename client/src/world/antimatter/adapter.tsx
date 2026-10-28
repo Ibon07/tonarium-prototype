@@ -66,7 +66,7 @@ export function adaptAdSlice(slice: AdSlice, options: AdaptOptions = {}): Antima
   const game = slice.adGame;
   if (!game) return null;
   const storage = options.storage ?? safeStorage();
-  const serverStatus = slice.adServer === 'connected' ? 'Tonarium サーバーに保存しています' : slice.adServer === 'error' ? 'サーバー接続に失敗しました（ローカルで継続）' : 'ローカルで動作中（Tonarium サーバーへの保存は未確認）';
+  const serverStatus = slice.adServer === 'connected' ? 'Tonarium サーバーに保存しています' : slice.adServer === 'error' ? 'サーバー接続に失敗しました（ローカルで継続）' : slice.adServer === 'guest' ? 'ゲストの進行はこの端末にだけ保存されます（ログインするとサーバーに残ります）' : 'ローカルで動作中（Tonarium サーバーへの保存は未確認）';
   const offline = slice.adOffline && !dismissedOffline.has(offlineKey(slice.adOffline)) ? slice.adOffline : null;
 
   return {

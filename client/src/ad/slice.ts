@@ -51,7 +51,8 @@ export interface AdSlice {
   adGame: GameState | null;
   adVersion: number;
   adOffline: OfflineResult | null;
-  adServer: 'local' | 'connected' | 'error';
+  /** guest はゲストなのでサーバーに残らない（サーバーが 403 を返す） */
+  adServer: 'local' | 'connected' | 'error' | 'guest';
   adLastLocalSaveAt: number | null;
   adLastServerSaveAt: number | null;
   adLeaderboard: LeaderboardEntry[];
@@ -79,6 +80,8 @@ export interface AdSlice {
 
 export type AdSet = (partial: Partial<AdSlice>) => void;
 export type AdGet = () => AdSlice;
+
+const serverState = (error: unknown): AdSlice['adServer'] => ((error as { status?: number } | null)?.status === 403 ? 'guest' : 'error');
 
 export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
   let started = false;
@@ -137,8 +140,8 @@ export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
       set({ adServer: 'connected', adLastServerSaveAt: Date.now() });
       if (manual) emitAdFeedback({ kind: 'save' });
       return true;
-    } catch {
-      set({ adServer: 'error' });
+    } catch (error) {
+      set({ adServer: serverState(error) });
       if (manual) emitAdFeedback({ kind: 'error' });
       return false;
     }
@@ -351,8 +354,8 @@ export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
         saveLocalNow();
         emitAdFeedback({ kind: 'load' });
         return true;
-      } catch {
-        set({ adServer: 'error' });
+      } catch (error) {
+        set({ adServer: serverState(error) });
         emitAdFeedback({ kind: 'error' });
         return false;
       }
@@ -373,8 +376,8 @@ export function createAdSlice(set: AdSet, get: AdGet): AdSlice {
         set({ adLeaderboard: entries });
         emitAdFeedback({ kind: 'submit' });
         return true;
-      } catch {
-        set({ adServer: 'error' });
+      } catch (error) {
+        set({ adServer: serverState(error) });
         emitAdFeedback({ kind: 'error' });
         return false;
       }

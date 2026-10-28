@@ -51,14 +51,16 @@ export async function markIdData(dir: string) {
   await writeFile(`${dir}/.ids-v1`, '');
 }
 
-/** サーバーを立てる前に、作ったセッション・グループ・イベントやフォローを DB に置く */
-export async function seedHomeData(env: Record<string, string>, data: { home?: Partial<import('./db/home-store.ts').HomeData>; follows?: [string, string][] }) {
+/** サーバーを立てる前に、作ったセッション・グループ・イベント・フォロー・セッションのアイテムを DB に置く */
+export async function seedHomeData(env: Record<string, string>, data: { home?: Partial<import('./db/home-store.ts').HomeData>; follows?: [string, string][]; items?: Record<string, import('../shared/items.ts').Item[]> }) {
   const { openDb, closeDb } = await import('./db/index.ts');
   const store = await import('./db/home-store.ts');
+  const content = await import('./db/content-store.ts');
   await openDb(env.DATABASE_URL);
   try {
     if (data.home) await store.saveHome({ sessions: [], groups: [], events: [], renamed: {}, ...data.home });
     if (data.follows) await store.saveFollows(data.follows);
+    if (data.items) await content.saveItems(data.items);
   } finally { await closeDb(); }
 }
 
@@ -69,6 +71,9 @@ export async function readHomeData(env: Record<string, string>) {
   const sql = postgres(env.DATABASE_URL, { max: 1, onnotice: () => {} });
   try {
     const d = drizzle(sql);
-    return { sessions: await d.select().from(schema.userSessions), groups: await d.select().from(schema.groups), events: await d.select().from(schema.events) };
+    return {
+      sessions: await d.select().from(schema.userSessions), groups: await d.select().from(schema.groups), events: await d.select().from(schema.events),
+      items: await d.select().from(schema.sessionItems),
+    };
   } finally { await sql.end(); }
 }
