@@ -31,7 +31,7 @@ test('browser NPC generation uses only allowed context and commits one plain dia
   const result = await service.chat('browser-alice', request(), { browserGenerate });
   assert.equal(result.source, 'browser'); assert.equal(result.model, BROWSER_AI_MODEL); assert.equal(result.error, undefined);
   assert.equal(result.text, 'We could share a quiet cup of tea.'); assert.equal(result.actions, undefined); assert.equal(calls, 0);
-  assert.equal(jobs[0].kind, 'npc'); assert.ok(jobs[0].maxTokens <= 256);
+  assert.equal(jobs[0].kind, 'npc'); assert.ok(jobs[0].maxTokens <= 256); assert.equal(jobs[0].temperature, 0.35);
   for (const definition of Object.values(NPC_SERVER)) for (const secret of definition.privateSecrets) assert.ok(!JSON.stringify(jobs).includes(secret));
   now = 2000;
   await service.chat('browser-alice', request('I brought a different kind of tea.'), { browserGenerate });
@@ -184,7 +184,7 @@ test('the NPC uses the local model with bounded generation, no tools, no key and
   assert.equal(reply.model, 'qwen3-1.7b');
   assert.equal(received?.stream, false);
   assert.equal(received?.max_tokens, 128);
-  assert.equal(received?.temperature, 0.7);
+  assert.equal(received?.temperature, 0.35);
   assert.equal(received?.chat_template_kwargs.enable_thinking, false);
   assert.equal(received?.tools, undefined);
 });
@@ -209,9 +209,9 @@ test('NPC social prompts omit unrelated world facts while factual questions sele
 test('all three locales select an explicit response language and localized persona name', async () => {
   const bodies: Body[] = [];
   const service = new NpcChat({ fetch: (async (_url, init) => { bodies.push(JSON.parse(String(init?.body))); return answer(); }) as typeof fetch });
-  for (const [locale, language, name] of [['ko', 'Korean', '린'], ['en', 'English', 'Rin'], ['ja', 'Japanese', 'リン']] as const) {
+  for (const [locale, language, name] of [['ko', /한국어 대사만/, '린'], ['en', /English dialogue only/, 'Rin'], ['ja', /日本語の台詞だけ/, 'リン']] as const) {
     assert.equal((await service.chat(locale, request(undefined, { locale }))).error, undefined);
-    assert.match(bodies.at(-1)!.messages[0].content, new RegExp(`ONLY in ${language}`));
+    assert.match(bodies.at(-1)!.messages[0].content, language);
     assert.ok(bodies.at(-1)!.messages[0].content.includes(name));
     assert.match(npcSystemPrompt(locale), /Never claim to have granted gold, items, professions or results/);
   }
@@ -656,7 +656,7 @@ test('home WebSocket NPC works after hello without joining a session and uses it
   const second = await until(() => bob.messages.find(m => m.requestId === other.requestId));
   assert.equal(second.npcId, 'borin');
   assert.ok(!prompts[1].messages.some(m => m.content === 'My secret is blue.'));
-  assert.match(prompts[1].messages[0].content, /ONLY in Korean/);
+  assert.match(prompts[1].messages[0].content, /한국어 대사만/);
   const reset = request('', { reset: true, locale: 'en' });
   alice.ws.send(JSON.stringify({ t: 'npcChat', ...reset }));
   assert.equal((await until(() => alice.messages.find(m => m.requestId === reset.requestId))).error, undefined);

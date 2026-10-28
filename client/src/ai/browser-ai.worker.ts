@@ -5,7 +5,7 @@ import { cleanupBrowserAiCache } from './cache.ts';
 export type BrowserAiWorkerRequest = { id: string; type: 'load' | 'interrupt' | 'dispose' } | { id: string; type: 'generate'; job: BrowserAiJob };
 export type BrowserAiWorkerResponse = { id: string; type: 'ok'; text?: string } | { id: string; type: 'chunk'; text: string } | { id: string; type: 'error'; reason: 'gpu' | 'error' | 'cancelled' | 'invalid' } | { type: 'progress'; progress: number } | { type: 'fatal'; reason: 'gpu' | 'error' };
 export interface BrowserAiEngine {
-  stream(messages: BrowserAiMessage[], maxTokens: number): Promise<AsyncIterable<string>>;
+  stream(messages: BrowserAiMessage[], maxTokens: number, temperature: number): Promise<AsyncIterable<string>>;
   interrupt(): void; unload(): Promise<void>; reset(): Promise<void>;
 }
 export interface BrowserAiRuntimeDependencies {
@@ -32,8 +32,8 @@ async function createEngine(progress: (value: number) => void): Promise<BrowserA
   // prefill_chunk_size は公開 ChatOptions ではなく WASM metadata に固定されている。
   const engine = await webllm.CreateMLCEngine(BROWSER_AI_MODEL, { appConfig: browserAiAppConfig(webllm.prebuiltAppConfig), initProgressCallback: report => progress(report.progress), logLevel: 'WARN' }, { context_window_size: BROWSER_AI_CONTEXT, temperature: 0.7 });
   return {
-    async stream(messages, maxTokens) {
-      const chunks = await engine.chat.completions.create({ messages, stream: true, max_tokens: maxTokens, temperature: 0.7, extra_body: { enable_thinking: false } });
+    async stream(messages, maxTokens, temperature) {
+      const chunks = await engine.chat.completions.create({ messages, stream: true, max_tokens: maxTokens, temperature, extra_body: { enable_thinking: false } });
       return { async *[Symbol.asyncIterator]() { for await (const chunk of chunks) { const content = chunk.choices[0]?.delta.content; if (typeof content === 'string') yield content; } } };
     },
     interrupt: () => engine.interruptGenerate(), unload: () => engine.unload(), reset: () => engine.resetChat(),
@@ -70,7 +70,7 @@ export class BrowserAiRuntime {
       try {
         await engine.reset();
         if (cancelled() || this.dependencies.now() >= job.expiresAt) throw abort();
-        const chunks = await engine.stream(structuredClone(job.messages), job.maxTokens);
+        const chunks = await engine.stream(structuredClone(job.messages), job.maxTokens, job.temperature);
         let text = '';
         for await (const chunk of chunks) {
           if (cancelled() || this.dependencies.now() >= job.expiresAt) throw abort();

@@ -20,8 +20,8 @@ test('all registered residents receive authored role, personality and speech gui
     assert.ok(voice.length > 30, `${npc.id}:${locale}`);
     const prompt = npcSystemPrompt(locale, npc.id, 'stranger');
     assert.ok(prompt.includes(npc.role.en) || prompt.includes(npc.role[locale]), `Role missing from the actual prompt for ${npc.id}:${locale}`);
-    assert.ok(voice.includes(npc.personality.en.slice(0, 24)), `Authored temperament missing for ${npc.id}:${locale}`);
-    assert.ok(voice.includes(npc.speech.en.slice(0, 24)), `Authored speech missing for ${npc.id}:${locale}`);
+    assert.ok(voice.includes(npc.personality[locale]), `Localized temperament missing for ${npc.id}:${locale}`);
+    assert.ok(voice.includes(npc.speech[locale]), `Localized speech missing for ${npc.id}:${locale}`);
     assert.notEqual(voice, fantasyGmVoice(locale));
   }
 });
@@ -43,7 +43,7 @@ test('the player relationship changes speech guidance while preserving the resid
   for (const id of ['rin', 'borin', 'hearth-mira', 'redweave-voss']) for (const locale of locales) {
     const npc = NPC_PUBLIC.find(npc => npc.id === id)!, stranger = fantasyNpcVoice(id, 'stranger', locale), familiar = fantasyNpcVoice(id, 'familiar', locale), trusted = fantasyNpcVoice(id, 'trusted', locale);
     assert.equal(new Set([stranger, familiar, trusted]).size, 3, `${id}:${locale}: relationship ignored`);
-    assert.ok([stranger, familiar, trusted].every(voice => voice.includes(npc.personality.en.slice(0, 24))));
+    assert.ok([stranger, familiar, trusted].every(voice => voice.includes(npc.personality[locale])));
     assert.ok(npcSystemPrompt(locale, id, 'trusted', {}, 'Tell me about your profession.').includes(trusted));
   }
 });

@@ -96,6 +96,31 @@ test('readiness retries a loading response but fails within the shared startup d
   assert.equal(composeCommands(ready.calls, 'exec').filter(({ args }) => args.at(-1).endsWith('/health')).length, 2);
 });
 
+test('optional NPC probes use the healthy isolated model before cleanup and preserve payloads', async () => {
+  const fixture = dockerFixture();
+  const payload = { model: 'qwen3-1.7b', messages: [{ role: 'user', content: '한글 日本語 $() `literal`' }], temperature: 0.25, max_tokens: 128 };
+  let probes = 0;
+  await runSmoke({ run: fixture.run, log: quiet, onReady: async ({ request, model }) => {
+    assert.equal(model, 'qwen3-1.7b');
+    assert.equal(composeCommands(fixture.calls, 'rm').length, 0);
+    const response = await request(payload);
+    assert.equal(response.choices[0].message.content, 'Hello.');
+    probes++;
+  } });
+  assert.equal(probes, 1);
+  const requests = composeCommands(fixture.calls, 'exec').filter(({ args }) => args.at(-1).endsWith('/v1/chat/completions'));
+  assert.equal(requests.length, 4);
+  assert.deepEqual(JSON.parse(requests.at(-1).options.input), payload);
+  assert.equal(composeCommands(fixture.calls, 'rm').length, 1);
+});
+
+test('an NPC probe failure still collects diagnostics and cleans only its isolated model', async () => {
+  const fixture = dockerFixture();
+  await assert.rejects(runSmoke({ run: fixture.run, log: quiet, onReady: async () => { throw new Error('NPC probe failed'); } }), /NPC probe failed/);
+  assert.equal(composeCommands(fixture.calls, 'logs').length, 1);
+  assert.equal(composeCommands(fixture.calls, 'rm').length, 1);
+});
+
 test('wrong model alias fails before generation and still removes only the smoke model volume', async () => {
   const fixture = dockerFixture({ models: reply({ object: 'list', data: [{ id: 'unexpected-model', object: 'model', created: 1, owned_by: 'llamacpp' }] }) });
   await assert.rejects(runSmoke({ run: fixture.run, log: quiet }), /qwen3-1\.7b/);

@@ -8,7 +8,7 @@ import { NpcChat } from './npc.ts';
 import { FantasyGmChat, type FantasyGmContext } from './fantasy-gm-chat.ts';
 import { applyFantasyAction, newFantasyProfile } from '../shared/fantasy-engine.ts';
 import type { BrowserAiGeneration, BrowserAiGenerate } from '../shared/ai-support.ts';
-import { fantasyGmVoice, fantasyNpcVoice } from '../shared/fantasy-dialogue-voice.ts';
+import { FANTASY_NPC_TEMPERATURE, fantasyGmVoice, fantasyNpcConversationInstructions, fantasyNpcVoice } from '../shared/fantasy-dialogue-voice.ts';
 
 const input = (text = 'Tell me a joke.', extra: Partial<BrowserAiPeerInput> = {}): BrowserAiPeerInput => ({ requestId: 'public-request', kind: 'gm', locale: 'en', text, ...extra });
 const npcRequest = (text: string): NpcChatRequest => ({ requestId: crypto.randomUUID(), npcId: 'rin', locale: 'en', text });
@@ -31,7 +31,7 @@ test('public conversation accepts natural variations in all three languages with
     assert.deepEqual(job.messages[1], { role: 'user', content: text });
     assert.match(job.messages[0].content, new RegExp(`ONLY in ${language}`));
     assert.match(job.messages[0].content, /Never change settings, execute an action, grant anything or claim a dice result/);
-    assert.ok(job.maxTokens <= 160); assert.equal(job.temperature, .7);
+    assert.ok(job.maxTokens <= 160); assert.equal(job.temperature, kind === 'npc' ? .35 : .7);
   }
 });
 
@@ -106,6 +106,9 @@ test('shared NPC generation preserves public character voices but always uses st
     for (const id of ['rin', 'borin', 'hearth-mira', 'hearth-daren', 'redweave-voss']) {
       const request = { ...input('Tell me a joke.', { kind: 'npc', locale, npcId: id }), relationship: 'trusted', relationshipDetail: 'PRIVATE_RELATIONSHIP_SENTINEL', history: 'PRIVATE_HISTORY_SENTINEL' };
       const job = browserAiPeerRequest(request); assert.ok(job); const npc = NPC_PUBLIC.find(npc => npc.id === id)!, system = job.messages[0].content;
+      const speech = fantasyNpcConversationInstructions(id, 'stranger', locale);
+      assert.ok(system.startsWith(speech.header)); assert.ok(system.endsWith(speech.direction));
+      assert.equal(job.temperature, FANTASY_NPC_TEMPERATURE);
       assert.ok(system.includes(fantasyNpcVoice(id, 'stranger', locale))); assert.equal(system.includes(fantasyNpcVoice(id, 'trusted', locale)), false);
       assert.ok(system.includes(npc.name[locale])); assert.ok(system.includes(npc.role[locale])); assert.ok(system.includes(String(npc.age)));
       assert.doesNotMatch(system, /PRIVATE_RELATIONSHIP_SENTINEL|PRIVATE_HISTORY_SENTINEL|trusted visitor|relaxed familiarity/);

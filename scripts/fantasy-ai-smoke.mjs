@@ -103,7 +103,7 @@ export async function cleanupSmokeProject({
 
 export async function runSmoke({
   run = runCommand, log = console.log, now = Date.now, sleep: pause = sleep,
-  composeFile = resolve(root, 'docker-compose.yml'), startupTimeoutMs = 12 * 60_000, signal, stateFile,
+  composeFile = resolve(root, 'docker-compose.yml'), startupTimeoutMs = 12 * 60_000, signal, stateFile, onReady,
 } = {}) {
   if (!Number.isFinite(startupTimeoutMs) || startupTimeoutMs <= 0) throw new Error('A positive startup timeout is required.');
   const projectName = `tonarium-fantasy-ai-smoke-${randomUUID().replaceAll('-', '')}`;
@@ -155,6 +155,7 @@ export async function runSmoke({
       if (message?.role !== 'assistant' || !/[\p{L}\p{N}]/u.test(spoken)) throw new Error(`${language} completion did not contain nonempty spoken content.`);
       log(`${language}: HTTP 200, expected model alias, and nonempty spoken content passed.`);
     }
+    if (onReady) await onReady({ request: (payload) => curl('/v1/chat/completions', { input: JSON.stringify(payload) }), model });
   } catch (error) {
     failure = error;
     if (!signal?.aborted) {

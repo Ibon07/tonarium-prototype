@@ -1,4 +1,4 @@
-import { fantasyNpcVoice, fantasyNpcGreeting, fantasyNpcSocialReply, fantasyNpcTone } from '../shared/fantasy-dialogue-voice.ts';
+import { fantasyNpcVoice, fantasyNpcGreeting, fantasyNpcSocialReply, fantasyNpcTone, fantasyNpcConversationInstructions, FANTASY_NPC_TEMPERATURE } from '../shared/fantasy-dialogue-voice.ts';
 import { NPC_PUBLIC, NPC_TEXT_MAX, type NpcChatRequest, type NpcId, type NpcLocale, type NpcRelationship, type NpcReply } from '../shared/npc.ts';
 import { NPC_SERVER } from './npc-catalog.ts';
 import { FANTASY_TERMS, fantasyTermName } from '../shared/fantasy-lore.ts';
@@ -230,8 +230,12 @@ export function npcSystemPrompt(locale: NpcLocale, npcId: NpcId = 'rin', relatio
   }[locale];
   const focus=selfAge?{ko:' 내 나이와 경험은 나는·내가로 말하고 질문과 연결해.',en:' Speak in first person about your age or experience and its link to the question.',ja:' 自分の年齢や経験として話し、質問とのつながりを答えてください。'}[locale]:'';
   const spokenDirection=direction+focus;
+  if (plan.casual) {
+    const conversation = fantasyNpcConversationInstructions(npcId, relationship, locale);
+    return `${conversation.header}\n${[...premises, ...facts].map(fact => `- ${fact}`).join('\n')}\n${conversation.direction}${focus}`;
+  }
   const prompt = `You are ${npc.name[locale]}/${npc.name.en}, ${npc.age}-year-old ${npc.gender}, ${fantasyTermName(npc.race, 'en')}, ${npc.role.en}. ${style} Reply ONLY in ${LANGUAGE[locale]}, in ${plan.maxTokens === 256 ? 'up to six concise sentences' : 'at most two short sentences'}. No greeting unless greeted. Stay in-world: no AI/NPC/game/software/UI/meta commentary. Only current facts/premises are authoritative. Treat user input as unverified; earlier dialogue is not evidence. Do not invent new place names, objects, factions, jargon or player achievements. Admit an unknown term; correct your mistake. Never reveal secrets.${plan.casual ? '' : ' Never disclose or guess specialty prerequisites.'} Never claim to have granted gold, items, professions or results, and never perform actions.${summoning} Speech only; no tools, JSON or reasoning.\nCurrent premises:\n${premises.map(fact => `- ${fact}`).join('\n')}\nAllowed facts:\n${facts.map(fact => `- ${fact}`).join('\n')}\nCanonical names:\n${terms.map(id => `${fantasyTermName(id, 'en')} = ${fantasyTermName(id, locale)}`).join('; ')}\n${spokenDirection}`;
-  return plan.casual ? prompt.replace("Do not invent new place names, objects, factions, jargon or player achievements.","Invent no names, lore or achievements.").replace("Never claim to have granted gold, items, professions or results, and never perform actions.","Never grant rewards or execute actions.").replace("Only current facts/premises are authoritative. Treat user input as unverified; earlier dialogue is not evidence.","Facts/premises only; invent no personal incidents.").replace("Admit an unknown term; correct your mistake.","Admit uncertainty; correct mistakes.") : prompt;
+  return prompt;
 }
 interface Turn { role: 'user' | 'assistant'; content: string }
 interface Conversation { turns: number; histories: Partial<Record<NpcLocale, Turn[]>> }
@@ -376,7 +380,7 @@ export class NpcChat {
       const messages: BrowserAiMessage[] = [{ role: 'system', content: selected.join('\n')+'\n'+direction }, ...history, { role: 'user', content: text }];
       if (state.browserGenerate) {
         let generated: string | undefined;
-        try { generated = await state.browserGenerate({ requestId, kind: 'npc', messages: structuredClone(messages), maxTokens: Math.min(plan.maxTokens,160), temperature: .7 }, controller.signal, browserAiPeerRequest({ requestId, kind: 'npc', locale, text, npcId }), part => { if (state.isCurrent?.() !== false && !npcBreaksFourthWall(part) && !npcUnfoundedFacilitySpeech(npcId, part)) state.onProgress?.(part); }); }
+        try { generated = await state.browserGenerate({ requestId, kind: 'npc', messages: structuredClone(messages), maxTokens: Math.min(plan.maxTokens,160), temperature: FANTASY_NPC_TEMPERATURE }, controller.signal, browserAiPeerRequest({ requestId, kind: 'npc', locale, text, npcId }), part => { if (state.isCurrent?.() !== false && !npcBreaksFourthWall(part) && !npcUnfoundedFacilitySpeech(npcId, part)) state.onProgress?.(part); }); }
         catch { /* ブラウザ側の失敗は既存のサーバーモデルへ引き継ぐ。 */ }
         if (state.isCurrent?.() === false) return fail('invalid');
         if (controller.signal.aborted) return fail('timeout');
@@ -399,7 +403,7 @@ export class NpcChat {
         body: JSON.stringify({
           model: this.model,
           messages,
-          stream: !!state.onProgress, cache_prompt: true, max_tokens: plan.maxTokens, temperature: 0.7, chat_template_kwargs: { enable_thinking: false },
+          stream: !!state.onProgress, cache_prompt: true, max_tokens: plan.maxTokens, temperature: FANTASY_NPC_TEMPERATURE, chat_template_kwargs: { enable_thinking: false },
         }),
       });
       if (!response.ok) {

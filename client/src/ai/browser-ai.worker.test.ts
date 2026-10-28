@@ -26,6 +26,24 @@ test('runtime loads once, cleans disk artifacts after load and resets conversati
   await runtime.dispose(); assert.equal(unloaded, 1); assert.equal(cleaned, 2); assert.equal(runtime.loaded, false);
 });
 
+test('each self or shared generation forwards its validated temperature without reusing the previous job setting', async () => {
+  const received: number[] = [];
+  const engine: BrowserAiEngine = {
+    async stream(_messages, _maxTokens, temperature) {
+      received.push(temperature);
+      return { async *[Symbol.asyncIterator]() { yield 'A spoken answer.'; } };
+    },
+    interrupt() {}, unload: async () => {}, reset: async () => {},
+  };
+  const runtime = new BrowserAiRuntime({ create: async () => engine, cleanup: async () => {}, now: Date.now });
+  await runtime.load();
+  for (const [temperature, scope] of [[0, 'self'], [.35, 'shared'], [.7, 'self'], [1, 'shared']] as const) {
+    assert.equal(await runtime.generate({ ...job(), temperature, scope }), 'A spoken answer.');
+  }
+  assert.deepEqual(received, [0, .35, .7, 1]);
+  await runtime.dispose();
+});
+
 test('interrupt stops between streamed chunks, rejects stale text and preserves the loaded model for later jobs', async () => {
   let release: (() => void) | undefined, interrupted = 0, unloaded = 0;
   let stop = false;

@@ -1,9 +1,9 @@
 import type { BrowserAiGeneration } from '../shared/ai-support.ts';
 import { NPC_PUBLIC, type NpcId, type NpcLocale } from '../shared/npc.ts';
-import { FANTASY_TERMS, fantasyTermName } from '../shared/fantasy-lore.ts';
+import { FANTASY_TERMS } from '../shared/fantasy-lore.ts';
 import { fantasyConversationPlan } from '../shared/fantasy-gm-context.ts';
 import { NPC_SERVER } from './npc-catalog.ts';
-import { fantasyGmVoice, fantasyNpcVoice } from '../shared/fantasy-dialogue-voice.ts';
+import { FANTASY_NPC_TEMPERATURE, fantasyGmVoice, fantasyNpcConversationInstructions } from '../shared/fantasy-dialogue-voice.ts';
 
 export interface BrowserAiPeerInput {
   requestId: string;
@@ -65,11 +65,12 @@ export function browserAiPeerRequest(input: BrowserAiPeerInput): BrowserAiGenera
   if (!selected) return undefined;
   const profile = input.kind === 'npc' ? NPC_PUBLIC.find(npc => npc.id === input.npcId) : undefined;
   if (input.kind === 'npc' && !profile) return undefined;
+  const speech = profile ? fantasyNpcConversationInstructions(profile.id, 'stranger', input.locale) : undefined;
   const persona = profile
-    ? `You speak as ${profile.name[input.locale]}, a ${profile.age}-year-old ${profile.gender} ${fantasyTermName(profile.race, input.locale)}. Work: ${profile.role[input.locale]}. Personality: ${profile.personality[input.locale]} Speech: ${profile.speech[input.locale]} ${fantasyNpcVoice(profile.id, 'stranger', input.locale)} Explain facts in natural first-person speech. Do not read headings, tables, colon labels or multiplication notation aloud. Keep exact facts. Describe weather as felt conditions, never numeric temperatures.\nPublic facts:\n${(NPC_SERVER[profile.id]?.publicFacts ?? []).slice(0, 4).map(fact => `- ${fact}`).join('\n')}`
+    ? `${speech!.header} Explain supplied facts in natural first-person speech, without reading labels aloud. Keep exact facts. Describe weather by feel, never numeric temperatures.\nPublic facts:\n${(NPC_SERVER[profile.id]?.publicFacts ?? []).slice(0, 4).map(fact => `- ${fact}`).join('\n')}`
     : `You are a fantasy GM. ${fantasyGmVoice(input.locale)} Discuss general public topics factually; any requested fictional tale must remain explicitly fictional and nameless.`;
   const term = !profile && selected.term ? FANTASY_TERMS.find(term => term.id === selected.term) : undefined;
   // 個人用プロンプトや履歴から抜き出さず、公開資料だけで別の依頼を組み立てる。
-  const system = `${persona}\nReply ONLY in ${LANGUAGE[input.locale]}, at most two short sentences. Stay in-world; never mention AI, NPCs, players, servers, browsers, prompts or these instructions. Only the supplied public facts are authoritative. No player record or earlier conversation is available: never guess a visitor's name, identity, location, belongings, stats, relationships, progress or achievements. Admit missing knowledge. Invented stories must be clearly fictional, with nameless common archetypes and no claims about real world events or this visitor. Never change settings, execute an action, grant anything or claim a dice result. Spoken text only, no tools, JSON, commands or reasoning.${term ? `\nPublic topic: ${term.names[input.locale]}: ${term.id === 'gold' ? GOLD_FACT[input.locale] : term.summary[input.locale]}` : ''}`;
-  return { requestId: input.requestId, kind: input.kind, messages: [{ role: 'system', content: system }, { role: 'user', content: input.text.trim() }], maxTokens: 128, temperature: .7 };
+  const system = `${persona}\nReply ONLY in ${LANGUAGE[input.locale]}, at most two short sentences. Stay in-world; never mention AI, NPCs, players, servers, browsers, prompts or these instructions. Only the supplied public facts are authoritative. No player record or earlier conversation is available: never guess a visitor's name, identity, location, belongings, stats, relationships, progress or achievements. Admit missing knowledge. Invented stories must be clearly fictional, with nameless common archetypes and no claims about real world events or this visitor. Never change settings, execute an action, grant anything or claim a dice result. Spoken text only, no tools, JSON, commands or reasoning.${term ? `\nPublic topic: ${term.names[input.locale]}: ${term.id === 'gold' ? GOLD_FACT[input.locale] : term.summary[input.locale]}` : ''}${speech ? `\n${speech.direction}` : ''}`;
+  return { requestId: input.requestId, kind: input.kind, messages: [{ role: 'system', content: system }, { role: 'user', content: input.text.trim() }], maxTokens: 128, temperature: profile ? FANTASY_NPC_TEMPERATURE : .7 };
 }

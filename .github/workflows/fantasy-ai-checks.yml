@@ -8,9 +8,14 @@ on:
       - 'docker-compose.yml'
       - 'Dockerfile.fantasy-ai-model'
       - 'scripts/fantasy-ai-*.mjs'
+      - 'scripts/fantasy-npc-samples*'
       - 'server/local-inference*'
       - 'server/npc.ts'
+      - 'server/browser-ai-peer-context*'
       - 'server/fantasy-gm-chat.ts'
+      - 'shared/fantasy-dialogue-voice.ts'
+      - 'shared/fantasy-gm-context.ts'
+      - 'client/src/ai/browser-ai.worker.ts'
       - 'package.json'
       - 'package-lock.json'
   workflow_dispatch:
@@ -39,14 +44,19 @@ jobs:
         run: |
           npm ci
           npm run test:fantasy-ai-config
+          node --import tsx --test scripts/fantasy-npc-samples.test.ts
+      - name: Check NPC conversation and browser sharing regressions
+        run: |
+          npm run test:npc
+          npm run test:browser-ai
       - name: Validate Compose configuration
         run: docker compose config --quiet
-      - name: Run real CPU model smoke
+      - name: Run real CPU model smoke and collect NPC samples
         env:
           FANTASY_AI_SMOKE_STATE_FILE: ${{ runner.temp }}/tonarium-fantasy-ai-smoke-project
         run: |
           set -o pipefail
-          node scripts/fantasy-ai-smoke.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+          node --import tsx scripts/fantasy-npc-samples.ts | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Recover AI smoke cleanup after failure or cancellation
         if: ${{ always() }}
         timeout-minutes: 3
