@@ -38,7 +38,7 @@ import { EMOTES, isEmoteId } from '../shared/emotes.ts';
 import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts';
 import type { PeerOperation } from '../shared/session-events.ts';
 import { getOgp } from './ogp.ts';
-import { IMAGE_TYPES, MEDIA_NAME_RE, MEDIA_TOTAL_MAX, pipeFile, saveMedia } from './media.ts';
+import { IMAGE_MAX, IMAGE_TYPES, MEDIA_NAME_RE, MEDIA_TOTAL_MAX, pipeFile, saveMedia } from './media.ts';
 import { FileStorage, openStorage } from './storage.ts';
 import { addMediaFile, loadAccountImages, loadMediaFiles, removeMediaFiles, saveAccountImages, type AccountImages } from './db/image-store.ts';
 import { SharedService } from './shared-service.ts';
@@ -357,11 +357,14 @@ function recentMediaUploads(id: string) {
   if (recent.length) mediaUploads.set(id, recent); else mediaUploads.delete(id);
   return recent;
 }
-function allowMediaUpload(id: string) {
+/** 送り始める前に、1 枚の上限ぶんの枠をその場で押さえる（同時に送られても判定をまとめて通さない）。保存できたら実際の大きさに直す */
+function reserveMediaUpload(id: string) {
   const recent = recentMediaUploads(id);
-  return recent.length < MEDIA_RATE.files && recent.reduce((n, u) => n + u.size, 0) < MEDIA_RATE.bytes;
+  if (recent.length >= MEDIA_RATE.files || recent.reduce((n, u) => n + u.size, 0) + IMAGE_MAX > MEDIA_RATE.bytes) return null;
+  const slot = { at: Date.now(), size: IMAGE_MAX };
+  mediaUploads.set(id, [...recent, slot]);
+  return { done: (size: number) => { slot.size = size; }, cancel: () => { const list = mediaUploads.get(id); if (list) mediaUploads.set(id, list.filter((u) => u !== slot)); } };
 }
-const recordMediaUpload = (id: string, size: number) => { mediaUploads.set(id, [...recentMediaUploads(id), { at: Date.now(), size }]); };
 /** 画像の中身はストレージから直接読ませる。版付きの URL は中身が変わらないので、転送ごと長くキャッシュさせる */
 function redirectToObject(res: http.ServerResponse, key: string, immutable: boolean) {
   res.statusCode = 302;
@@ -2607,11 +2610,12 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     res.setHeader('Content-Type', 'application/json');
     // 添付は合計の上限で古いものから消えるので、ほかの人の画像を押し出させないよう、送れる人と量を絞る
     if (account.kind === 'guest') { res.statusCode = 403; res.end(JSON.stringify({ error: 'ゲストは画像を共有できません。ログインすると共有できます' })); return; }
-    if (!allowMediaUpload(account.id)) { res.statusCode = 429; res.end(JSON.stringify({ error: '画像を送りすぎています。しばらくしてからもう一度お試しください' })); return; }
+    const slot = reserveMediaUpload(account.id);
+    if (!slot) { res.statusCode = 429; res.end(JSON.stringify({ error: '画像を送りすぎています。しばらくしてからもう一度お試しください' })); return; }
     let r: Awaited<ReturnType<typeof saveMedia>>;
-    try { r = await saveMedia(req, storage); } catch (e) { console.error('画像を保存できませんでした:', e); res.statusCode = 500; res.end(); return; }
-    if ('error' in r) { res.statusCode = r.status; res.end(JSON.stringify(r)); return; }
-    recordMediaUpload(account.id, r.size);
+    try { r = await saveMedia(req, storage); } catch (e) { slot.cancel(); console.error('画像を保存できませんでした:', e); res.statusCode = 500; res.end(); return; }
+    if ('error' in r) { slot.cancel(); res.statusCode = r.status; res.end(JSON.stringify(r)); return; }
+    slot.done(r.size);
     addMedia(r.name, r.size);
     res.end(JSON.stringify({ url: r.url }));
     return;

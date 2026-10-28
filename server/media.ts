@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { ObjectStorage } from './storage.ts';
 
-const IMAGE_MAX = 10 * 1024 * 1024;
+export const IMAGE_MAX = 10 * 1024 * 1024;
 /** 添付画像の合計の上限。超えたら古いものから消す（MEDIA_TOTAL_MAX_BYTES はテスト用） */
 export const MEDIA_TOTAL_MAX = Number(process.env.MEDIA_TOTAL_MAX_BYTES) || 1024 * 1024 * 1024;
 

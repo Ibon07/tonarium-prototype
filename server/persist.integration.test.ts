@@ -141,12 +141,14 @@ test('people, home and the rest of the data survive a server restart from the da
   assert.equal((await fetch(`${base}/avatar/params?id=${guestId}`)).status, 200);
   assert.deepEqual(Buffer.from(await (await fetch(`${base}${media}`)).arrayBuffer()), png);
   // 添付画像は合計の上限（テストでは 20 バイト）を超えると古いものから消える。再起動前の分も DB から数える
-  const later = [];
-  for (let i = 0; i < 2; i++) later.push(((await (await upload('/media', png, a.headers)).json()) as { url: string }).url);
+  // 1 人が送れる数には上限がある（テストでは 1 時間に 2 枚）。同時に送っても上限を超えて通らない
+  const sent = await Promise.all([0, 1, 2].map(() => upload('/media', png, a.headers)));
+  assert.deepEqual(sent.map((r) => r.status).sort(), [200, 200, 429]);
+  const later = await Promise.all(sent.filter((r) => r.status === 200).map(async (r) => ((await r.json()) as { url: string }).url));
   await until(async () => (await fetch(`${base}${media}`)).status === 404 ? true : undefined);
   for (const url of later) assert.equal((await fetch(`${base}${url}`)).status, 200);
-  // 1 人が送れる数には上限がある（テストでは 1 時間に 2 枚）。ゲストは送れない
   assert.equal((await upload('/media', png, a.headers)).status, 429);
+  // ゲストは送れない
   const guestAgain = await fetch(`${base}/auth/guest`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ name: 'Gia' }) });
   assert.equal((await upload('/media', png, { Cookie: (guestAgain.headers.get('set-cookie') ?? '').split(';')[0] })).status, 403);
   // DB に移したデータは JSON に書かない
