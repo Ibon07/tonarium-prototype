@@ -1,4 +1,3 @@
-import { t, getLanguage, useLanguage } from '../../i18n/index.ts';
 import {
   bigGte, canAntimatterGalaxy, canDimensionalBoost, canInfinity, canSacrifice,
   getAntimatterPerSecond, getDimensionalBoostRequirement, getDimensionCost,
@@ -6,7 +5,7 @@ import {
   getInfinityGain, getMaxUnlockedTier, getTickspeedCost, getTickspeedPerPurchase,
   type GameState,
 } from '../../ad/engine.mjs';
-import { deleteProfile, listProfiles, parseImportBundle, type StorageLike } from '../../ad/user.mjs';
+import { deleteProfile, listProfiles, parseImportBundle, saveKeyFor, type StorageLike } from '../../ad/user.mjs';
 import { safeStorage } from '../../ad/storage.ts';
 import type { AdSlice } from '../../ad/slice.ts';
 import type { AntimatterSlice, DerivedSnapshot, OfflineNotice } from './types.ts';
@@ -64,7 +63,7 @@ export function adaptAdSlice(slice: AdSlice, options: AdaptOptions = {}): Antima
   const game = slice.adGame;
   if (!game) return null;
   const storage = options.storage ?? safeStorage();
-  const serverStatus = slice.adSync === 'loading' ? t('adSyncLoading') : slice.adSync === 'choice' ? t('adSyncChoice') : slice.adSync === 'error' ? t('adSyncError') : null;
+  const serverStatus = slice.adServer === 'connected' ? 'Tonarium サーバーに保存しています' : slice.adServer === 'error' ? 'サーバー接続に失敗しました（ローカルで継続）' : 'ローカルで動作中（Tonarium サーバーへの保存は未確認）';
   const offline = slice.adOffline && !dismissedOffline.has(offlineKey(slice.adOffline)) ? slice.adOffline : null;
 
   return {
@@ -76,11 +75,7 @@ export function adaptAdSlice(slice: AdSlice, options: AdaptOptions = {}): Antima
     offlineNotice: offline,
     leaderboard: slice.adLeaderboard,
     serverStatus,
-    syncState: slice.adSync,
-    chooseSave: slice.adChooseSave,
-    issueTransfer: slice.adIssueTransfer,
-    exchangeTransfer: slice.adExchangeTransfer,
-    lastSavedAt: slice.adLastLocalSaveAt ? new Date(slice.adLastLocalSaveAt).toLocaleTimeString(getLanguage()) : null,
+    lastSavedAt: slice.adLastLocalSaveAt ? new Date(slice.adLastLocalSaveAt).toLocaleTimeString('ja-JP') : null,
     buyDimension: (tier) => { void slice.adBuyDimension(tier); },
     buyUntilNextTen: (tier) => {
       const dim = game.dimensions[tier - 1];
@@ -110,38 +105,44 @@ export function adaptAdSlice(slice: AdSlice, options: AdaptOptions = {}): Antima
         if (rest.length === profiles.length) return;
         const wasActive = slice.adProfile?.id === userId;
         if (wasActive && !rest[0]) { emitAdFeedback({ kind: 'error' }); return; }
-
+        deleteProfile(storage, userId);
         if (wasActive && rest[0]) {
           switching = true;
           slice.adSwitchProfile(rest[0].id);
         }
-        deleteProfile(storage, userId);
         if (!wasActive) emitAdFeedback({ kind: 'profile' });
       } catch {
         if (!switching) emitAdFeedback({ kind: 'error' });
         // 削除に失敗してもパネル側は続行する
       }
     },
-    resetGame: slice.adResetGame,
-    recoveryRecords: slice.adListRecovery(),
-    exportRecoveryBundle: (source, key) => { const bundle = slice.adExportRecovery(source, key); return bundle ? JSON.stringify(bundle, null, 2) : ''; },
+    resetGame: () => {
+      // スライスにリセットが無いため、保存を消して同プロフィールを再読込する。
+      // 再読込はセーブ無しで新規ゲームを作る。
+      if (!slice.adProfile) return;
+      try { storage.removeItem(saveKeyFor(slice.adProfile.id)); } catch (error) {
+        emitAdFeedback({ kind: 'error' });
+        throw error;
+      }
+      slice.adSwitchProfile(slice.adProfile.id);
+    },
     exportBundle: () => {
       const bundle = slice.adExport();
       return bundle ? JSON.stringify(bundle, null, 2) : '';
     },
-    importBundle: (text, confirmLegacy = false) => {
+    importBundle: (text) => {
       let bundle;
       try {
         bundle = parseImportBundle(text);
       } catch {
         emitAdFeedback({ kind: 'error' });
-        return { ok: false, message: t('adImportFailed') };
+        return { ok: false, message: 'インポートに失敗しました: v2 バンドルの形式ではありません' };
       }
       try {
-        const profile = slice.adImport(bundle, confirmLegacy);
-        return { ok: true, message: t('adImportDone', profile.name) };
+        const profile = slice.adImport(bundle);
+        return { ok: true, message: `v2 バンドルをインポートしました（現在のユーザー「${profile.name}」）` };
       } catch {
-        return { ok: false, message: t('adImportFailed') };
+        return { ok: false, message: 'インポートに失敗しました: v2 バンドルの形式ではありません' };
       }
     },
     dismissOffline: () => {
@@ -152,15 +153,19 @@ export function adaptAdSlice(slice: AdSlice, options: AdaptOptions = {}): Antima
     },
     saveToServer: async () => { await slice.adSaveServer(); },
     loadFromServer: async () => { await slice.adLoadServer(); },
-    refreshLeaderboard: async () => { if (!await slice.adRefreshLeaderboard()) throw new Error('Ranking refresh failed'); },
-    submitScore: async (name) => { if (!await slice.adSubmitScore(name)) throw new Error('Score submission failed'); },
+    refreshLeaderboard: async () => {
+      // スライスに読込専用アクションが無いため、ここでは更新できない。
+      // ランキングは adSubmitScore 時に更新される。adRefreshLeaderboard の追加が要る。
+      emitAdFeedback({ kind: 'error' });
+      throw new Error('Ranking refresh is not available');
+    },
+    submitScore: async () => { if (!await slice.adSubmitScore()) throw new Error('Score submission failed'); },
   };
 }
 
 // ad スライスがまだ起動していない間はパネルを出さないための容器。
 // WindowLayer への登録は親エージェントが行い、ここでは slice の受け渡しだけを担う。
 export function AntimatterPanelFromSlice({ slice, storage }: { slice: AdSlice; storage?: StorageLike }) {
-  useLanguage();
   const ad = adaptAdSlice(slice, { storage });
   if (!ad) return null;
   return <AntimatterPanel ad={ad} />;

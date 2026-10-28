@@ -1,11 +1,11 @@
-import { t, useLanguage } from '../../i18n/index.ts';
+import { useState } from 'react';
 import type { AntimatterSlice } from './types.ts';
 import { formatDuration, formatFromLog10, formatNumber } from './format.ts';
 import { ACHIEVEMENT_DEFS, s } from './styles.ts';
 import { LabBanner } from './LabArt.tsx';
 
 export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: string) => void }) {
-  useLanguage();
+  const [scoreName, setScoreName] = useState('');
   const { game } = ad;
   const owned = new Set(game.achievements);
   const playTimeSec = Math.max(0, Math.floor((Date.now() - (game.createdAt || Date.now())) / 1000));
@@ -43,6 +43,7 @@ export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: 
       </div>
       <div>
         <h3 style={s.sectionTitle}>ランキング</h3>
+        {ad.serverStatus && <p style={s.muted}>{ad.serverStatus}</p>}
         {ad.leaderboard.length === 0 ? (
           <p style={s.muted}>ランキングはまだ空です。</p>
         ) : (
@@ -62,8 +63,9 @@ export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: 
           </table>
         )}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-          <span style={s.muted}>{t('adRankingAuto', ad.activeProfile?.name ?? '')}</span>
-          <button style={s.btn} onClick={() => { void ad.refreshLeaderboard().catch(() => notice(t('adRankingFailed'))); }}>{t('adRankingRefresh')}</button>
+          <input style={s.input} value={scoreName} onChange={(e) => setScoreName(e.target.value)} placeholder="ランキング表示名（空ならプロフィール名）" aria-label="ランキング表示名" />
+          <button style={s.btn} onClick={() => { void ad.submitScore(scoreName.trim() || ad.activeProfile?.name || '').then(() => notice('スコアを送信しました')).catch(() => notice('スコアを送信できませんでした')); }}>スコアを送信</button>
+          <button style={s.btn} onClick={() => { void ad.refreshLeaderboard().catch(() => notice('ランキングの個別更新はまだ利用できません。スコア送信時に更新されます')); }}>ランキングを更新</button>
         </div>
       </div>
     </div>
