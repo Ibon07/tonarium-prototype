@@ -4,6 +4,8 @@ export default {
   adRankingRank: "順位",
   adLabText54: "名前",
   adLabText55: "反物質",
+  adRankingBoost: "Boost",
+  adRankingUnavailable: "未取得",
   adRankingInfinity: "Infinity",
   adLabText56: "プレイ時間",
   adRankingScroll: "ランキングの記録（横にスクロールできます）",

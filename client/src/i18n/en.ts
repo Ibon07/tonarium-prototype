@@ -4,6 +4,8 @@ export default {
   adRankingRank: "Rank",
   adLabText54: "Name",
   adLabText55: "Antimatter",
+  adRankingBoost: "Boost",
+  adRankingUnavailable: "Not recorded",
   adRankingInfinity: "Infinity",
   adLabText56: "Play time",
   adRankingScroll: "Ranking records (scroll horizontally)",

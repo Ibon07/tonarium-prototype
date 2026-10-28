@@ -4,6 +4,8 @@ export default {
   adRankingRank: "순위",
   adLabText54: "이름",
   adLabText55: "반물질",
+  adRankingBoost: "Boost",
+  adRankingUnavailable: "미수집",
   adRankingInfinity: "Infinity",
   adLabText56: "플레이 시간",
   adRankingScroll: "순위 기록 (가로로 스크롤 가능)",
