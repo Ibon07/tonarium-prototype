@@ -54,7 +54,7 @@ export function XRSettings() {
   const update = updateXRSettings;
   if (!active) return null;
   return <fieldset className="xr-settings"><legend>{tr('xrSettings')}</legend>
-    <label>{tr('xrTurnMode')} <select value={value.mode} onChange={e => update({ mode: e.target.value as typeof value.mode })}><option value="snap">{tr('xrSnap')}</option><option value="smooth">{tr('xrSmooth')}</option></select></label>
+    <label className="settings-select-row"><span>{tr('xrTurnMode')}</span><select className="settings-select" value={value.mode} onChange={e => update({ mode: e.target.value as typeof value.mode })}><option value="snap">{tr('xrSnap')}</option><option value="smooth">{tr('xrSmooth')}</option></select></label>
     <label className="volrow">
       <span className="vollabel"><span>{tr('xrTurnSpeed')}</span><b>{tr('xrTurnSpeedValue', value.speed)}</b></span>
       <input aria-label={tr('xrTurnSpeedName')} type="range" min="15" max="180" step="15" value={value.speed} onChange={e => update({ speed: Number(e.target.value) })} />
@@ -63,7 +63,7 @@ export function XRSettings() {
       <span className="vollabel"><span>{tr('xrTurnAngle')}</span><b>{tr('xrTurnAngleValue', value.angle)}</b></span>
       <input aria-label={tr('xrTurnAngleName')} type="range" min="15" max="90" step="15" value={value.angle} onChange={e => update({ angle: Number(e.target.value) })} />
     </label>
-    <label><input type="checkbox" checked={value.restrictMovementWhileAiming} onChange={e => update({ restrictMovementWhileAiming: e.target.checked })} />{tr('xrRestrictMovement')}</label>
+    <label className="switchrow settings-row"><span>{tr('xrRestrictMovement')}</span><input type="checkbox" checked={value.restrictMovementWhileAiming} onChange={e => update({ restrictMovementWhileAiming: e.target.checked })} /></label>
   </fieldset>;
 }
 
