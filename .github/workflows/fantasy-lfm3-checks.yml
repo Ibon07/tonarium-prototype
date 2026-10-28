@@ -1,0 +1,45 @@
+name: LFM3 dialogue experiment
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - '.github/workflows/fantasy-lfm3-checks.yml'
+      - 'scripts/fantasy-lfm3-probe.ts'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: lfm3-experiment-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  lfm3:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: npm ci
+      - name: Download verified LFM3-compatible CPU runtime
+        run: |
+          curl --fail --location --retry 2 --max-time 180 https://github.com/ggml-org/llama.cpp/releases/download/b11938/llama-b11938-bin-ubuntu-x64.tar.gz --output "$RUNNER_TEMP/lfm3-runtime.tar.gz"
+          echo "0206adf559a226dfcafadf8051a91f1f813cf53b2ad570b1262658f1fddaefa4  $RUNNER_TEMP/lfm3-runtime.tar.gz" | sha256sum --check
+          mkdir "$RUNNER_TEMP/lfm3-runtime"
+          tar -xzf "$RUNNER_TEMP/lfm3-runtime.tar.gz" -C "$RUNNER_TEMP/lfm3-runtime"
+      - name: Compare free multi-turn conversation in three languages
+        env:
+          LFM3_REPORT: ${{ runner.temp }}/lfm3-report.json
+        run: |
+          export LFM3_BINARY="$(find "$RUNNER_TEMP/lfm3-runtime" -type f -name llama-server -print -quit)"
+          test -n "$LFM3_BINARY"
+          node --import tsx scripts/fantasy-lfm3-probe.ts
+      - name: Save synthetic dialogue report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: lfm3-dialogue-report
+          path: ${{ runner.temp }}/lfm3-report.json
+          retention-days: 14
