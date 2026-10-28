@@ -36,7 +36,7 @@ export type WinMode = 'simple' | 'free';
 /** ウィンドウのキー: share（画面共有）/ cam:<アイテムID> / view:<ユーザーID> / item:<アイテムID> */
 export interface Win { key: string; x: number; y: number }
 /** key は attention ならウィンドウのキー、invite なら session:<id> / group:<id>、askJoin なら session:<id> */
-export interface Notice { id: number; kind: 'poke' | 'hit' | 'follow' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean }
+export interface Notice { id: number; kind: 'poke' | 'hit' | 'follow' | 'live' | 'attention' | 'invite' | 'askJoin' | 'online'; from: string; key?: string; fromName: string; at: number; unread: boolean; count?: number; lastHitAt?: number }
 /** ホームの右の欄に出すもの */
 export type SideWidget = 'now' | 'events' | 'sessions' | 'worlds' | 'items';
 
@@ -208,6 +208,7 @@ interface State extends AdSlice {
   /** 注目を集めているアイテム ID → 光らせる期限（performance.now） */
   attention: Record<string, number>;
   popupPausedUntil: number;
+  chatNotificationSound: boolean;
   arrivals: Partial<Record<ArrivalKind, Arrival>>;
   phoneLayout: boolean;
   rightView: 'log' | 'msg';
@@ -375,6 +376,7 @@ export const useStore = create<State>((set, get) => ({
   elevators: {},
   attention: {},
   ...initialArrivalState(),
+  chatNotificationSound: load('tonarium.chatNotificationSound', true),
   phoneLayout: false,
   rightView: 'log',
   rightConversation: null,

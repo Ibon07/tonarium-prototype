@@ -1,7 +1,7 @@
 :root {
   --ground: #EAE5DB; --dots: #D6CFC1; --paper: #FFFDF9; --glass: rgba(255, 253, 249, .86); --sand: #F3EEE4; --sand2: #F1ECE3;
   --ink: #26262E; --ink2: #3A3942; --muted: #5E5C64; --muted2: #4A4852; --line: #DCD5C8; --line2: #EEE8DD;
-  --hover: rgba(38, 38, 46, .07); --dock: #26262E; --dock2: #3A3B44; --dock3: #44454F;
+  --hover: rgba(38, 38, 46, .07); --dock: #FFFDF9; --dock2: #EEEEF1; --dock3: #DFDFE5;
   --accent: #2F5FC4; --accentbg: #EEF3FC; --live: #D9483B; --danger: #C2402F; --speak: #2E9A64; --global: #5B47A8; --globalbg: #EEEAF8;
   --hi: #FDEBD9; --shadow: 0 8px 30px rgba(60, 40, 10, .12); --pop: 0 12px 32px rgba(40, 30, 10, .18);
   font-family: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
@@ -26,15 +26,19 @@ button.small { height: 30px; padding: 0 10px; font-size: 12px; border-radius: 9p
 button.big { height: 40px; }
 button.square { width: 44px; height: 44px; padding: 0; border-radius: 12px; flex: none; }
 button.swatch { width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid #0002; }
-input, textarea, .language-select select {
+input, textarea, .language-select select, .settings-select {
   font: inherit; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; outline: none;
 }
-input, .language-select select { height: 44px; }
+input, .language-select select, .settings-select { height: 44px; }
 textarea { padding: 10px 12px; resize: vertical; }
-input:focus, textarea:focus, .language-select select:focus { border-color: var(--accent); }
+input:focus, textarea:focus, .language-select select:focus, .settings-select:focus { border-color: var(--accent); }
 .language-select { display: flex; flex-direction: column; gap: 10px; font-size: 12px; font-weight: 700; color: var(--muted); }
 .language-select select { width: 100%; min-width: 0; font-size: 14px; font-weight: 400; cursor: pointer; }
 .language-select select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-select-row { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; padding: 6px 8px; font-size: 13px; }
+.settings-select-row > span { min-width: 0; overflow-wrap: anywhere; }
+.settings-select { width: 100%; min-width: 0; flex-shrink: 0; cursor: pointer; }
+.settings-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .spacer { flex: 1; }
 .sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sub.wrap { white-space: normal; }

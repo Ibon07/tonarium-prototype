@@ -7,11 +7,13 @@ import { DimensionList } from './DimensionList.tsx';
 import { ActionBar } from './ActionBar.tsx';
 import { StatsPanel } from './StatsPanel.tsx';
 import { ProfilePanel } from './ProfilePanel.tsx';
+import { ProgressPicker, ProgressSummary } from './ProgressPicker.tsx';
 import { LayerTabs } from './LayerTabs.tsx';
 import './antimatter-panel.css';
 import { LabBanner } from './LabArt.tsx';
 import { emitAdFeedback } from '../../ad/feedback.ts';
 import { AdPurchaseParticles } from './AdPurchaseParticles.tsx';
+import { t, useLanguage } from '../../i18n/index.ts';
 
 type TabId = 'dimensions' | 'actions' | 'stats' | 'profiles' | 'layers';
 
@@ -19,11 +21,12 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'dimensions', label: '次元' },
   { id: 'actions', label: 'Boost / 銀河 / Sacrifice / Crunch' },
   { id: 'stats', label: '統計・実績・ランキング' },
-  { id: 'profiles', label: 'プロフィール・セーブ' },
+  { id: 'profiles', label: 'adSaveTab' },
   { id: 'layers', label: 'レイヤー' },
 ];
 
 export function AntimatterPanel({ ad }: AntimatterPanelProps) {
+  useLanguage();
   const root = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<TabId>('dimensions');
   const [notice, setNotice] = useState<string | null>(null);
@@ -52,15 +55,25 @@ export function AntimatterPanel({ ad }: AntimatterPanelProps) {
         {ad.activeProfile && <span style={s.muted}>{ad.activeProfile.name}</span>}
       </div>
       <div style={s.tabs} aria-label="研究メニュー">
-        {TABS.map((t) => (
-          <button key={t.id} aria-pressed={t.id === tab} style={t.id === tab ? s.tabActive : s.tab} onClick={() => {
-            if (t.id === tab) return;
-            setTab(t.id);
+        {TABS.map((item) => (
+          <button key={item.id} aria-pressed={item.id === tab} style={item.id === tab ? s.tabActive : s.tab} onClick={() => {
+            if (item.id === tab) return;
+            setTab(item.id);
             emitAdFeedback({ kind: 'navigate' });
-          }}>{t.label}</button>
+          }}>{item.id === 'profiles' ? t('adSaveTab') : item.label}</button>
         ))}
       </div>
       {notice && <div style={s.notice}>{notice}</div>}
+      {ad.serverStatus && <div role="status" style={s.notice}>{ad.serverStatus}</div>}
+      {ad.migration && <div style={s.notice}><h3>{t('adUseProgress')}</h3><ProgressPicker ad={ad} migration notice={showNotice} /></div>}
+      {!ad.migration && ad.syncState === 'choice' && <div style={s.row}>
+        {(['local', 'remote'] as const).map(source => <div key={source}>
+          {ad.syncSources && <ProgressSummary save={ad.syncSources[source]} />}
+          <button style={s.btn} onClick={() => {
+            try { ad.chooseSave(source); } catch { showNotice(t('adProfileFailed')); }
+          }}>{t(source === 'local' ? 'adChooseLocal' : 'adChooseRemote')}</button>
+        </div>)}
+      </div>}
       {tab === 'dimensions' && <DimensionList ad={ad} />}
       {tab === 'actions' && <ActionBar ad={ad} notice={showNotice} />}
       {tab === 'stats' && <StatsPanel ad={ad} notice={showNotice} />}
@@ -68,7 +81,7 @@ export function AntimatterPanel({ ad }: AntimatterPanelProps) {
       {tab === 'layers' && <LayerTabs ad={ad} />}
       <AdPurchaseParticles root={root} />
       {offlineGained && createPortal(
-        <div style={s.modal} data-xr-surface="ad-offline" data-xr-title="ADオフライン報酬" onClick={() => ad.dismissOffline()}>
+        <div style={s.modal} data-xr-surface="ad-offline" data-xr-layout="dialog" data-xr-min-width="512" data-xr-title="ADオフライン報酬" onClick={() => ad.dismissOffline()}>
           <div style={s.modalBox} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0 }}>おかえりなさい</h3>
             <p style={{ margin: 0 }}>

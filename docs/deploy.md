@@ -21,7 +21,7 @@ cloudflared 以外（ngrok など）を使う場合は、`.env` の `ALLOWED_HOS
 ## Coolify にデプロイする
 リポジトリに `Dockerfile` と `docker-compose.yml` があるので、Coolify でそのまま動く。
 
-アプリ（`tonarium`）と LiveKit（`livekit`）の 2 つのサービスが立つ。
+アプリ（`tonarium`）と LiveKit（`livekit`）の2サービスを定義する。NPC・GM は外部 KokoaAI に接続し、モデル取得・推論コンテナは起動しない。設定は下の「RPG のサーバー AI」を参照。
 
 1. サーバーのファイアウォール（VPS のセキュリティグループなど）で **TCP 7881・UDP 7882・UDP 3478** を開ける（LiveKit の音声・映像と TURN。Coolify の外の設定）
 2. DNS で LiveKit 用のサブドメイン（例: `livekit.example.com`）をサーバーに向ける
@@ -62,7 +62,7 @@ cloudflared 以外（ngrok など）を使う場合は、`.env` の `ALLOWED_HOS
 
 Coolify の Docker Compose では、`tonarium` の環境変数に次を設定して再デプロイする。今回追加した Compose の参照で値をコンテナへ渡す。
 
-- `FANTASY_TRUSTED_PROXY_IPS`: **アプリの接続元として見える実際のプロキシ IP**。複数ならカンマ区切り。Docker ブリッジの範囲全体や `*` は指定しない。値は対象サーバーで確認し、固定するか変更時に更新する。
+- `FANTASY_TRUSTED_PROXY_IPS`: **アプリの接続元として見える実際のプロキシ IP、または CIDR 表記の帯域**。複数ならカンマ区切り。プロキシの IP がコンテナの再作成で変わる環境では、プロキシが接続する Docker ネットワークの帯域（例: `172.18.0.0/16`）を指定すれば、IP が変わっても設定を更新しなくてよい。帯域はプロキシが実際に使うプライベート帯域だけに絞り、`*` は指定しない。`0.0.0.0/0` のような全域指定は無効として扱われる。
 - `FANTASY_TRUST_PROXY=1`: プロキシがアプリへループバックで接続する場合だけ使用する。この値だけでは Docker ブリッジを信頼しない。通常の別コンテナ構成では前項を設定する。
 
 プロキシは外部の `Host` を維持し、信頼できる HTTPS 終端からの `X-Forwarded-Proto: https` をアプリへ渡す。任意のクライアントが送った転送ヘッダーをそのまま採用しない。Cloudflare など複数段の経路でも、実際の TLS 終端とアプリ直前のヘッダーを運営側で確認する。
@@ -73,36 +73,33 @@ Coolify の Docker Compose では、`tonarium` の環境変数に次を設定し
 
 参考: [Coolify の Compose 環境変数](https://coolify.io/docs/applications/configuration/environment-variables)、[Docker のコンテナ環境変数](https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/)。
 
-## RPG の NPC・GM が AI に接続できない場合
+## RPG のサーバー AI
 
-`AI サポート` はプレイヤーのブラウザで動く WebLLM、`NPC_LLM_URL` は運営サーバーの推論先で、別の経路である。ブラウザが未準備・非対応・負荷による停止中、または生成に失敗するとサーバーへ引き継ぐ。`ECONNREFUSED 127.0.0.1:18081` は、この引き継ぎ先で TCP 接続が拒否されたことを示し、ブラウザ側の失敗理由までは示さない。
+NPC・GM の自由会話は外部の OpenAI 互換 KokoaAI へ送る。標準 Compose は自前の推論・モデル取得サービスを起動せず、モデル用ボリュームも作らない。ブラウザ AI の同意画面・設定・モデル取得・端末間支援は利用しない。ゲームの言語選択は残す。
 
-標準 Compose は Tonarium と LiveKit だけを起動し、推論プロセスとモデルは含まない。`scripts/start-local-npc.ps1` は Windows 開発機向けで、Linux のアプリイメージからは実行されない。運営側で別途 llama.cpp などの対応する推論サービスを用意し、次の値を設定して再デプロイする。
+| 環境変数 | 値 | 用途 |
+| --- | --- | --- |
+| `KOKOAAI_BASEURL` | `https://chat.kokoa.dev/v1` | HTTPS の API ベース URL |
+| `KOKOAAI_MODEL` | `lfm3-1.7b` | サーバーで公開されるモデル ID |
+| `KOKOAAI_APIKEY` | 運営が保存する秘密値 | サーバーからの Bearer 認証。既定値なし |
 
-- `NPC_LLM_URL`: アプリのコンテナから届く OpenAI 互換 API のベース URL。例えば同じ Docker ネットワークに `llama` サービスを用意した場合は `http://llama:8080/v1`。この名前のサービスを Compose が自動作成するわけではない。
-- `NPC_LLM_MODEL`: 推論サービスが公開するモデル名。既定は `qwen3-1.7b`。サービス側のエイリアスと一致させる。
+すでに Coolify に保存済みなら再入力は不要。ただし、変数名を正確に合わせて再ビルド・再デプロイし、アプリコンテナに渡す。Dockerfile のみで配備する場合も同じ三変数をアプリへ渡す。API キーを Git、ブラウザ、VITE_ 変数、プレイヤーへの返信に含めない。旧 `NPC_LLM_*` の接続・移行設定は削除した。
 
-未設定時の `http://127.0.0.1:18081/v1` は **Tonarium コンテナ自身** を指す。ホスト OS、別コンテナ、プレイヤー PC のループバックではない。ホストで動くモデルへ接続する場合も、コンテナから届く内部アドレスとモデルの待受設定が必要である。Linux での `host.docker.internal` の名前解決も構成による。推論 API をインターネットへ公開する必要はない。認証情報入り URL や公開 IP は既存の接続先検証で許可していない。
+リクエストは `/chat/completions` に送り、`model/messages/stream/max_tokens/temperature` に加えて `chat_template_kwargs: { enable_thinking: true }` を明示する。NPC・GM と運営の生成検査に同じ指定が入る。`cache_prompt` は送らない。KokoaAI がこの拡張をモデルに反映するかと実際の応答品質・速度は、マージ・再配備後のゲーム内試験で確認する。思考を使うモデルの余地を含めて出力上限を1536トークンとし、要求全体の45秒期限は維持する。SSE と JSON の両方を受信し、思考本文は表示しない。HTTPS の URL 内認証・クエリ・フラグメントを拒否し、リダイレクトには追従しない。
 
-アプリの `/healthz` は Web サーバーだけの確認で、AI の稼働を保証しない。llama.cpp の状態は **アプリのコンテナ内から** 確認する。次のコマンドは会話を送信せず、接続先のホスト・ポートと HTTP ステータスだけを表示する。
+KokoaAI に接続できない場合は失敗を明示し、ブラウザ・他プレイヤー・旧ローカルモデルへ引き継がない。価格・現在値・秘密の公開範囲・行動承認・報酬などの権限はゲームサーバーが保持する。既存の確定案内を AI 生成したものと表示しない。診断記録の `source: local` は互換性上残した「サーバー生成」の識別子であり、コンテナ内でモデルを実行する意味ではない。
 
-```bash
-docker compose exec -T tonarium node --input-type=module -e '
-const base = new URL(process.env.NPC_LLM_URL ?? "http://127.0.0.1:18081/v1");
-console.log({configured: Boolean(process.env.NPC_LLM_URL), host: base.hostname, port: base.port});
-try {
-  const r = await fetch(new URL("/health", base), {signal: AbortSignal.timeout(5000), redirect: "error"});
-  console.log({healthStatus: r.status});
-  if (!r.ok) process.exitCode = 1;
-} catch (e) {
-  console.log({error: e.cause?.code ?? e.name});
-  process.exitCode = 1;
-}'
-```
+### 旧 AI コンテナの整理
 
-`ECONNREFUSED` は接続先に待受がない状態、`ENOTFOUND` は名前解決失敗、HTTP503 は llama.cpp がロード中などの未準備状態である。ホスト側の `/health` だけが成功するなら、アプリからのアドレスと Docker ネットワークを確認する。HTTP200 の後に `/v1/models` でモデル名を確認し、テストアカウントで **AI サポートと「自分の質問をほかのプレイヤーの端末で処理することを許可」の両方をオフ** にして自由会話も検証する。サポートをオフにするだけでは支援を受け取る設定は残る。固定の案内でなく、応答の `source: local`（サーバー生成）が成功したことを診断記録で確認する。これらの環境変数を渡す変更だけでは、停止中・未導入の推論サービスは起動しない。
+Compose からサービスを削除しても、すでに動作中の旧コンテナやモデル保存ボリュームが自動削除されるとは限らない。運営側で対象プロジェクトの `fantasy-ai` と `fantasy-ai-model` だけを停止・削除する。不要な `fantasy-ai-models` ボリュームも、接続元がないことと正確な名前を確認してから削除できる。`tonarium-data` はプレイヤーの保存先なので削除しない。`docker compose down --volumes` を一括実行しない。
 
-ブラウザ側はワールド内の AI 設定に表示される停止理由と `[browser-ai]` のコンソール警告を確認する。`サーバー AI 使用` は切替先の案内であり、サーバーモデルの稼働確認結果ではない。詳しい条件は [ブラウザ AI サポート](browser-ai-support.md)、開発機のモデル起動手順は [ローカル NPC](local-npc.md) を参照。
+### 検証
+
+`npm run test:kokoa-ai` は三言語の NPC・GM、認証ヘッダー、JSON/SSE、設定不備、401/429/503、期限と資格情報の非公開を合成応答で確認する。`npm run test:npc` は WebSocket からテスト用 HTTPS サーバーへ認証付きで到達する経路も検証する。テスト用自己署名証明書だけを子プロセスの追加 CA とし、TLS 検証自体は無効化しない。
+
+運営コンテナで `npm run check:kokoa-ai` を実行すると設定と認証済みモデル一覧を検査し、`npm run check:kokoa-ai -- --generate` では三言語の合成会話も生成する。キーや生の上流エラーは表示しない。実サーバーの API キーはこの作業環境にないため、認証済みの本番生成確認とは別である。`https://chat.kokoa.dev/v1/models` への未認証の確認は401だった。配備後、実際の自由質問で応答・モデル名・診断ログを確認する。Web の `/healthz` 成功だけでは AI 生成成功にならない。
+
+旧ローカルモデルの取得・推論・比較用 Dockerfile/Compose/起動スクリプトと CPU 実モデル CI は削除した。PR の検証ではモデルや運営キーを取得しない。過去の比較結果は [KokoaAI 会話の記録](local-npc.md#過去の比較記録) に整理する。
 
 ## 変更履歴の集約
 
