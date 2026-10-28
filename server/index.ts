@@ -1203,8 +1203,10 @@ interface HomeConnectionState {
   remoteAddress?: string;
   testModeSent?: boolean;
 }
+/** fantasy のアカウントで動いている間だけ、替わる前に写しておいた本人（state.homeUser）を使う。ふだんは今の本人（マイク・共有などが最新） */
 function homeUser(state:HomeConnectionState):Participant|undefined {
-  const active=state.id?users.get(state.id):undefined,original=state.homeUser??active,id=state.homeId??state.id;
+  const active=state.id?users.get(state.id):undefined,id=state.homeId??state.id;
+  const original=state.id&&state.id===id?active??state.homeUser:state.homeUser??active;
   return original&&id?{...original,id,session:active?.session??null,mode:active?.mode??original.mode}:undefined;
 }
 function homeUsers():Participant[]{
@@ -1278,6 +1280,7 @@ function fantasyAccountState(ws:WebSocket,state:HomeConnectionState,error?:strin
 function switchFantasyIdentity(ws:WebSocket,state:HomeConnectionState,target:string):Participant|undefined {
   const old=state.id&&users.get(state.id);if(!old)return undefined;
   if(old.id===target)return old;
+  if(old.id===state.homeId)state.homeUser={...old,viewing:[...old.viewing]};
   let next=users.get(target);
   if(!next){const source=target===state.homeId?state.homeUser??old:old;next={...source,id:target,session:null,mode:'2d',follow:null,pos:null,micOn:false,sharing:false,viewing:[],viewLive:false,display:null};users.set(target,next);}
   else if(target.startsWith('fantasy:')&&![...sockets.get(target)??[]].some(fantasySocketAuthorized)){
