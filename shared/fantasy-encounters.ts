@@ -4,7 +4,9 @@ import type { NpcLocale } from './npc.ts';
 type Text = Record<NpcLocale, string>;
 type Words = [string, string, string];
 const l = ([ko, en, ja]: Words): Text => ({ ko, en, ja });
-export type FantasyEncounterCause = 'escape-failed' | 'stealth-failed' | 'crime-exposed' | 'pursuit-failed';
+export type FantasyEncounterCause = 'escape-failed' | 'stealth-failed' | 'crime-exposed' | 'pursuit-failed' | 'travel-ambush' | 'escort-ambush';
+/** 護衛中の襲撃だけが開く遭遇。戦闘開始時に契約IDと馬車へ引き継ぐ目印になる。 */
+export const FANTASY_ESCORT_AMBUSH_ENCOUNTER = 'encounter-escort-ambush';
 export interface FantasyHostileEncounter extends FantasyEvent { opponent: 'monster' | 'person' }
 const action = (id: string, labels: Words, stat: FantasyStat, dc: number, successes: Words, failures: Words): FantasyEventChoice => {
   const name = l(labels), success = l(successes), failure = l(failures);
@@ -38,6 +40,8 @@ export const FANTASY_HOSTILE_ENCOUNTERS: FantasyHostileEncounter[] = [
     ['들킨 행동을 따라온 경비대가 길을 막는다. 대응을 결정해야 한다. 무력 저항은 악명을 높인다.', 'A patrol following your exposed activity blocks the way. Decide how to respond. Armed resistance raises notoriety.', '露見した行動を追った警備隊が道を塞ぐ。対応を決めよう。武力抵抗は悪名を高める。'], 'person', 14),
   encounter('encounter-bandits', ['골목의 추격자', 'Pursuers in the Alley', '路地の追跡者'],
     ['무장한 추격자들이 앞을 막고 짐을 노린다. 싸움과 도주, 대화 중 대응을 선택해야 한다.', 'Armed pursuers block your way and eye your belongings. Choose to fight, flee or talk.', '武装した追跡者が荷を狙って立ち塞がる。戦闘、逃走、会話から対応を選ぶ必要がある。'], 'person', 15),
+  encounter(FANTASY_ESCORT_AMBUSH_ENCOUNTER, ['호송 수레를 노리는 습격자', 'Raiders after the Convoy', '護送隊を狙う襲撃者'],
+    ['호송 수레를 노리고 길을 막아선 무장한 무리다. 수레를 지키며 싸우거나, 틈을 찾아 빠져나가야 한다.', 'Armed raiders block the road, eyeing the caravan wagon. Stand and protect it, or find an opening and slip away.', '護送馬車を狙って道を塞ぐ武装した一団。馬車を守って戦うか、隙を突いて抜けるかだ。'], 'person', 14),
 ];
 
 export function fantasyHostileEncounter(id: string | null | undefined): FantasyHostileEncounter | undefined {
@@ -48,6 +52,7 @@ export function fantasyEncounterChoiceStat(id: string | null | undefined, choice
   return event?.choices.some(value => value.id === choice) ? choice === 'fight' ? combatStat : event.choices.find(value => value.id === choice)!.stat : undefined;
 }
 export function fantasyEncounterFor(kind: FantasyLocation['kind'], cause: FantasyEncounterCause, crime = false): FantasyHostileEncounter {
+  if (cause === 'escort-ambush') return fantasyHostileEncounter(FANTASY_ESCORT_AMBUSH_ENCOUNTER)!;
   const id = cause === 'crime-exposed' || crime && cause === 'stealth-failed' ? 'encounter-watch'
     : kind === 'city' || cause === 'pursuit-failed' ? 'encounter-bandits'
     : ['forest', 'snow'].includes(kind) ? 'encounter-woodland-wolf'
@@ -65,12 +70,14 @@ export function fantasyFailedEventPursuit(event: string, choice: string): boolea
 export const fantasyEncounterOriginLog = (cause: FantasyEncounterCause): string => `遭遇の発端［${cause}］。`;
 export const fantasyEncounterOutcomeLog = (id: string, choice: string, success: boolean): string => `遭遇［${id}］${choice}：${success ? '成功' : '失敗'}。`;
 export function fantasyEncounterLogText(text: string, locale: NpcLocale): string | undefined {
-  const source = /^遭遇の発端［(escape-failed|stealth-failed|crime-exposed|pursuit-failed)］。$/.exec(text);
+  const source = /^遭遇の発端［(escape-failed|stealth-failed|crime-exposed|pursuit-failed|travel-ambush|escort-ambush)］。$/.exec(text);
   if (source) return ({
     'escape-failed': l(['위험을 피하지 못해 상대와 마주쳤다.', 'You failed to avoid the danger and were confronted.', '危険を避けきれず、相手と対峙した。']),
     'stealth-failed': l(['은밀한 움직임을 들켜 상대가 다가온다.', 'Your covert movement was noticed and an opponent approaches.', '密かな動きに気づかれ、相手が迫る。']),
     'crime-exposed': l(['범행을 들켜 추격을 받았다.', 'Your crime was exposed and brought pursuit.', '犯行が露見し、追跡を受けた。']),
     'pursuit-failed': l(['추격을 끊지 못해 길을 막혔다.', 'You failed to break pursuit and were cornered.', '追跡を切れず、行く手を塞がれた。']),
+    'travel-ambush': l(['이동 중 습격을 받았다.', 'You were ambushed on the road.', '移動中に襲撃を受けた。']),
+    'escort-ambush': l(['호송 수레가 길에서 습격을 받았다.', 'The caravan wagon was ambushed on the road.', '護送馬車が道で襲撃を受けた。']),
   } as Record<string, Text>)[source[1]][locale];
   const outcome = /^遭遇［([a-z-]+)］(fight|escape|talk)：(成功|失敗)。$/.exec(text);
   if (!outcome) return undefined;

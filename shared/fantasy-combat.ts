@@ -1,7 +1,8 @@
 import type { NpcLocale } from './npc.ts';
 import { fantasyCombatEnemy, createFantasyCombatEnemyStats, type FantasyCombatStats } from './fantasy-combat-catalog.ts';
 import { createFantasyPartyCombatSnapshot, fantasyPartyCombatScale, type FantasyPartyCombatSnapshot } from './fantasy-party-balance.ts';
-import { fantasyCombatActors, fantasyCombatCover, fantasyCombatDistance, fantasyCombatField, fantasyCombatMoveRange, fantasyCombatPath, fantasyCombatPlace, fantasyCombatTileKey, fantasyCombatValidField, fantasyCombatValidTile, fantasyCombatWithinRange, type FantasyCombatBattlefield, type FantasyCombatTile } from './fantasy-combat-tactics.ts';
+import { fantasyCombatActors, fantasyCombatBreakObstacle, fantasyCombatCoverTile, fantasyCombatPlaceObstacle, fantasyCombatCover, fantasyCombatDistance, fantasyCombatField, fantasyCombatMoveRange, fantasyCombatPath, fantasyCombatPlace, fantasyCombatTileKey, fantasyCombatValidField, fantasyCombatValidTile, fantasyCombatWithinRange, type FantasyCombatBattlefield, type FantasyCombatTile } from './fantasy-combat-tactics.ts';
+import { fantasyObstacleKind } from './fantasy-obstacles.ts';
 import { createFantasyEscortBattle, fantasyEscortAtExit, fantasyEscortCanCommand, fantasyEscortHasCommander, fantasyEscortOrderError, fantasyEscortReady, isFantasyEscortBattleOrder, validFantasyEscortBattle, type FantasyEscortBattle, type FantasyEscortBattleInput, type FantasyEscortBattleOrder } from './fantasy-escort-battle.ts';
 
 export type FantasyCombatText = Record<NpcLocale, string>;
@@ -22,13 +23,15 @@ export interface FantasyCombatFighter {
   effects: FantasyCombatEffect[]; fled: boolean; guarding: boolean; ward: number; wardOwner?: string; wardUnit?: string;
   contribution: { effectiveActions: number; activeRounds: number; manualActions: number };
   tile?: FantasyCombatTile;
+  /** 体の特徴。穴や低い障害物の通過判定に使う。 */
+  body?: { small?: boolean; large?: boolean; flying?: boolean };
   companion?: { ownerId: string; generation: number; member: string; kind: 'troop' | 'syndicate' | 'summons' };
   aim?: { bonus: number; turns: number; owner: string; generation: number; skill: string; mp: number; unit?: string };
 }
 export type FantasyCombatActorOrder = { type: 'attack'; target: string } | { type: 'guard' } | { type: 'escape' }
   | { type: 'move'; position: FantasyCombatPosition } | { type: 'skill'; skill: string; target: string } | { type: 'item'; item: string; target: string };
 export type FantasyCombatUnitOrder = Exclude<FantasyCombatActorOrder, { type: 'item' | 'escape' }> | { type: 'moveTo'; tile: FantasyCombatTile };
-export type FantasyCombatOrder = FantasyCombatActorOrder | { type: 'moveTo'; tile: FantasyCombatTile } | { type: 'unit'; unit: string; order: FantasyCombatUnitOrder } | { type: 'escort'; order: FantasyEscortBattleOrder };
+export type FantasyCombatOrder = FantasyCombatActorOrder | { type: 'moveTo'; tile: FantasyCombatTile } | { type: 'break'; tile: FantasyCombatTile } | { type: 'unit'; unit: string; order: FantasyCombatUnitOrder } | { type: 'escort'; order: FantasyEscortBattleOrder };
 export type FantasyCombatSource = string;
 export interface FantasyCombatLog { id: number; round: number; text: FantasyCombatText; roll?: { sides: 20; value: number; target: number; success: boolean } }
 export interface FantasyCombatState {
@@ -85,6 +88,7 @@ export function isFantasyCombatOrder(value: unknown): value is FantasyCombatOrde
     case 'skill': return Object.keys(value).length === 3 && keys(value, ['type', 'skill', 'target']) && identifier(value.skill) && identifier(value.target);
     case 'item': return Object.keys(value).length === 3 && keys(value, ['type', 'item', 'target']) && identifier(value.item) && identifier(value.target);
     case 'moveTo': return Object.keys(value).length === 2 && keys(value, ['type', 'tile']) && fantasyCombatValidTile(fantasyCombatField(), value.tile);
+    case 'break': return Object.keys(value).length === 2 && keys(value, ['type', 'tile']) && fantasyCombatValidTile(fantasyCombatField(), value.tile);
     case 'unit': return Object.keys(value).length === 3 && keys(value, ['type', 'unit', 'order']) && identifier(value.unit) && object(value.order)
       && !['unit', 'item', 'escape', 'escort'].includes(String(value.order.type)) && isFantasyCombatOrder(value.order);
     case 'escort': return Object.keys(value).length === 2 && keys(value, ['type', 'order']) && isFantasyEscortBattleOrder(value.order);
@@ -235,6 +239,12 @@ export function fantasyCombatOrderError(state: FantasyCombatState, userId: strin
     const path = fantasyCombatPath(state, actor, order.tile);
     return path && path.length - 1 <= fantasyCombatMoveRange(actor) ? undefined : 'blocked';
   }
+  if (order.type === 'break') {
+    const entry = state.battlefield?.obstacles?.find(value => fantasyCombatTileKey(value.tile) === fantasyCombatTileKey(order.tile));
+    if (!entry) return 'target';
+    if (!actor.tile) return undefined;
+    return fantasyCombatDistance(actor.tile, order.tile) <= (actor.range === 'melee' ? 1 : 7) ? undefined : 'range';
+  }
   const target = fantasyCombatActors(state).find(f => f.id === order.target);
   if (!target || !living(target)) return 'target';
   if (order.type === 'attack') return legalTarget(state, actor, target, actor.range) ? undefined : actor.side === target.side ? 'target' : 'range';
@@ -368,6 +378,20 @@ function resolveRound(input: FantasyCombatState, at: number, options: FantasyCom
         if (escaped) { actor.fled = true; for (const unit of state.units ?? []) if (unit.companion?.ownerId === actor.userId) unit.fled = true; credit(actor.userId); }
         log(state, t(`${actor.names.ko}: 도주 ${escaped ? '성공' : '실패'}.`, `${actor.names.en}: escape ${escaped ? 'succeeded' : 'failed'}.`, `${actor.names.ja}：逃走${escaped ? '成功' : '失敗'}。`), { sides: 20, value, target, success: escaped }); continue;
       }
+      if (order.type === 'break') {
+        // 障害物を狙って壊す。届かなければ何もしない。
+        const key = fantasyCombatTileKey(order.tile), entry = state.battlefield?.obstacles?.find(value => fantasyCombatTileKey(value.tile) === key);
+        if (!entry || !actor.tile) continue;
+        const distance = fantasyCombatDistance(actor.tile, order.tile), reach = actor.range === 'melee' ? 1 : 7;
+        if (distance > reach) continue;
+        const power = 4 + Math.floor(actor.stats.agility / 3) + (actor.range === 'magic' ? Math.floor(actor.stats.intelligence / 3) : 0);
+        const broken = fantasyCombatBreakObstacle(state, order.tile, power, actor.range === 'magic' ? 'fire' : 'blunt');
+        if (!broken) continue;
+        credit(actor.userId ?? actor.companion?.ownerId, actor.companion ? actor.id : undefined);
+        const kindName = fantasyObstacleKind(entry.kind)?.names.ja ?? entry.kind;
+        log(state, t(`${actor.names.ko}이 ${kindName}을 부쉈다.`, `${actor.names.en} breaks the ${fantasyObstacleKind(entry.kind)?.names.en ?? entry.kind}.`, `${actor.names.ja}が${kindName}を壊した。`));
+        continue;
+      }
       let target = actors.find(f => f.id === order.target);
       if (order.type === 'item') {
         const item = supply(options, actor.userId!, order.item);
@@ -393,7 +417,7 @@ function resolveRound(input: FantasyCombatState, at: number, options: FantasyCom
           const healed = Math.min(target.stats.hp - target.hp, skill.power + Math.floor(actor.stats.intelligence * .8));
           if (!healed) continue; target.hp += healed; credit(actor.userId ?? actor.companion?.ownerId, actor.companion ? actor.id : undefined);
           log(state, t(`${actor.names.ko}이 ${target.names.ko}의 HP를 ${healed} 회복했다.`, `${actor.names.en} restores ${healed} HP to ${target.names.en}.`, `${actor.names.ja}が${target.names.ja}のHPを${healed}回復した。`));
-        } else { target.ward += skill.power + Math.floor(actor.stats.intelligence * .3); target.wardOwner = actor.userId ?? actor.companion?.ownerId; if (actor.companion) target.wardUnit = actor.id; else delete target.wardUnit; log(state, t(`${actor.names.ko}이 ${target.names.ko}을 보호했다.`, `${actor.names.en} wards ${target.names.en}.`, `${actor.names.ja}が${target.names.ja}を守った。`)); }
+        } else { target.ward += skill.power + Math.floor(actor.stats.intelligence * .3); if (skill.id.includes('shieldbearer')) { const cover = fantasyCombatCoverTile(state, actor); if (cover && fantasyCombatPlaceObstacle(state, 'low-wall', cover)) log(state, t('방패를 세워 임시 엄폐물을 만들었다.', 'Set up a shield as temporary cover.', '盾を立てて仮の遮蔽を作った。')); } target.wardOwner = actor.userId ?? actor.companion?.ownerId; if (actor.companion) target.wardUnit = actor.id; else delete target.wardUnit; log(state, t(`${actor.names.ko}이 ${target.names.ko}을 보호했다.`, `${actor.names.en} wards ${target.names.en}.`, `${actor.names.ja}が${target.names.ja}を守った。`)); }
         actor.mp -= skill.mp; continue;
       }
       const range = skill?.range ?? (skill?.magic ? 'magic' : actor.range);

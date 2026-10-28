@@ -15,7 +15,7 @@ export function FantasyPartyExtras({ profile, state, selfId, blocked, command }:
 }) {
   const [locale] = useLocale(), [destination, setDestination] = useState(''), [transport, setTransport] = useState('foot');
   const [message, setMessage] = useState(''), [deposit, setDeposit] = useState(''), [amount, setAmount] = useState(1);
-  const [quantities, setQuantities] = useState<Record<string, number>>({}), [confirm, setConfirm] = useState(false);
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
   const c = profile.character;
   if (!c) return null;
   const say = (ko: string, en: string, ja: string) => ({ ko, en, ja })[locale];
@@ -46,9 +46,8 @@ export function FantasyPartyExtras({ profile, state, selfId, blocked, command }:
       {state.travelHours !== undefined && <p className="fr-muted">{say('함께 도착하기까지', 'Time to arrive together', '一緒に到着するまで')} · {realDuration(state.travelHours,locale)}</p>}
       {me?.isLeader && <ReasonButton className="fr-btn primary" disabled={busy || !state.canStartTravel} reason={busy ? reason : say('모두 같은 목적지와 이동수단에 동의해야 해요.', 'Everyone must agree to the same destination and transport.', '全員が同じ行き先と移動手段に同意してください。')} onClick={() => command({ type: 'startTravel' })}>{say('함께 출발', 'Depart together', '一緒に出発')}</ReasonButton>}
     </details>
-    {state.battle && !profile.combatId && <details><summary>{say('동료 전투에 합류', 'Join an ally’s battle', '仲間の戦闘に合流')}</summary>
-      {state.battle.needsConfirmation && <label><input type="checkbox" checked={confirm} onChange={e => setConfirm(e.target.checked)}/>{say('위험과 선제공격의 책임을 확인했어요.', 'I understand the danger and responsibility of attacking.', '危険と先制攻撃の責任を確認しました。')}</label>}
-      <ReasonButton className="fr-btn" disabled={busy || !!state.battle.needsConfirmation && !confirm} reason={busy ? reason : say('최상급 상대는 현지 전투 메뉴에서 위험도 먼저 조사해야 해요.', 'For an apex foe, first inspect its warning in Combat here.', '最上位の相手は現地の戦闘メニューで先に危険を調べてください。')} onClick={() => command({ type: 'joinCombat', combatId: state.battle!.id, ...(confirm ? { confirm: true } : {}) })}>{say('직접 합류', 'Join battle', '合流する')}</ReasonButton>
+    {state.battle && !profile.combatId && <details><summary>{say('동료의 전투 상황', 'Ally battle status', '仲間の戦闘状況')}</summary>
+      <p className="fr-muted">{say('파티장이 전투를 시작하면 각자 수락·거절·참여하지 않음을 고릅니다. 전투 중 합류 버튼은 없습니다.', 'When the leader starts a battle, each member chooses accept, decline or sit out. There is no join button.', 'リーダーが戦闘を始めると、各自が参加・辞退・不参加を選びます。合流ボタンはありません。')}</p>
     </details>}
     {vault && <details><summary>{say('공동 소지품', 'Shared supplies', '共有の持ち物')}</summary>
       <div className="fr-party-deposit"><select aria-label={say('맡길 물건', 'Item to deposit', '預ける品')} value={selected?.key ?? ''} disabled={busy} onChange={e => { setDeposit(e.target.value); setAmount(1); }}>{options.map(option => <option value={option.key} key={option.key}>{option.label}</option>)}</select>

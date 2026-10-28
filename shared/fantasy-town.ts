@@ -198,8 +198,8 @@ export function fantasyCanCraft(character: Pick<FantasyCharacter, 'job' | 'locat
   return FANTASY_ITEMS.some(item => item.id === recipe.output);
 }
 
-export function fantasyKnownLocations(character: Pick<FantasyCharacter, 'visited' | 'charted'> & Partial<Pick<FantasyCharacter, 'completed'>>): string[] {
-  const known = new Set([...(character.visited ?? []), ...(character.charted ?? [])]);
+export function fantasyKnownLocations(character: Pick<FantasyCharacter, 'visited' | 'charted'> & Partial<Pick<FantasyCharacter, 'completed' | 'seen'>>): string[] {
+  const known = new Set([...(character.visited ?? []), ...(character.charted ?? []), ...(character.seen ?? [])]);
   if (fantasyIsleAccess(character)) known.add(FANTASY_FINAL_ISLE_ID);
   return FANTASY_LOCATIONS.filter(location => known.has(location.id) && fantasyIsleLocationVisible(character, location.id)).map(location => location.id);
 }

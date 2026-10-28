@@ -12,7 +12,7 @@ export interface FantasyPartyActor { id: string; name: string; session: string |
 interface Consent extends FantasyGroupInvestigationPlan { expiresAt: number }
 interface CombatConsent extends FantasyCombatPlan { expiresAt: number }
 interface TravelConsent extends FantasyGroupTravelPlan { expiresAt: number; cost: number; hours: number }
-interface Party { id: string; session: string; leader: string; members: string[]; ready: Map<string, Consent>; combatReady: Map<string, CombatConsent>; travelReady: Map<string, TravelConsent>; chat: NonNullable<FantasyPartyState['chat']> }
+interface Party { id: string; session: string; leader: string; members: string[]; ready: Map<string, Consent>; combatReady: Map<string, CombatConsent>; combatDeclined: Set<string>; combatSitOut: Set<string>; travelReady: Map<string, TravelConsent>; chat: NonNullable<FantasyPartyState['chat']> }
 interface Invitation { id: string; party: string; target: string; from: string; expiresAt: number }
 interface Options {
   lookup: (user: string) => FantasyPartyActor | undefined;
@@ -56,11 +56,11 @@ export class FantasyParty {
     if (!route || route.cost > c.gold) return;
     return { user: actor.id, generation: actor.profile.generation ?? 1, location: c.location, destination, transport, cost: route.cost, hours: route.hours, expiresAt: this.now() + FANTASY_PARTY_TTL_MS };
   }
-  invalidate(user: string) { const party = this.party(user); party?.ready.delete(user); party?.combatReady.delete(user); party?.travelReady.delete(user); }
+  invalidate(user: string) { const party = this.party(user); party?.ready.delete(user); party?.combatReady.delete(user); party?.combatDeclined.delete(user); party?.combatSitOut.delete(user); party?.travelReady.delete(user); }
   leave(user: string) {
     const party = this.party(user); if (!party) return;
     const returned = this.options.returnDeposits?.(party.id, user); if (returned?.error) return returned.error;
-    party.members = party.members.filter(id => id !== user); party.ready.clear(); party.combatReady.clear(); party.travelReady.clear();
+    party.members = party.members.filter(id => id !== user); party.ready.clear(); party.combatReady.clear(); party.combatDeclined.clear(); party.combatSitOut.clear(); party.travelReady.clear();
     if (!party.members.length) this.parties.delete(party.id);
     else if (party.leader === user) party.leader = party.members[0];
     for (const [id, invite] of this.invitations) if (invite.target === user || invite.from === user || invite.party === party.id) this.invitations.delete(id);
@@ -93,7 +93,9 @@ export class FantasyParty {
       if (!member?.profile.character) return { id, name: '…', isLeader: party.leader === id, here: false, ready: false, compatible: false };
       return { id, name: member.name, isLeader: party.leader === id, here: member.profile.character.location === actor?.profile.character?.location,
         ready: party.ready.has(id) || party.combatReady.has(id) || party.travelReady.has(id), compatible: combatReference ? this.sameCombat(combatReference, this.combatPlan(member, combatReference.source, combatReference.target, combatReference.confirm)) : !!q && this.same(reference, this.plan(member, q, 'observe')),
-        ...(combatReference ? { combatReady: party.combatReady.has(id) } : {}), ...(party.travelReady.size ? { travelReady: party.travelReady.has(id) } : {}) };
+        ...(combatReference ? { combatReady: party.combatReady.has(id) } : {}),
+        ...(party.combatReady.has(id) ? { combatDecision: 'accept' as const } : party.combatDeclined.has(id) ? { combatDecision: 'decline' as const } : party.combatSitOut.has(id) ? { combatDecision: 'sit-out' as const } : {}),
+        ...(party.travelReady.size ? { travelReady: party.travelReady.has(id) } : {}) };
     }) ?? [];
     const travels = party && [...party.travelReady.values()], travel = travels?.[0];
     const battle = party && party.members.map(id => this.options.lookup(id)).filter(member => member?.profile.character?.location === actor?.profile.character?.location).map(member => member && this.options.battle?.(member.id, party.session)).find(Boolean);
@@ -104,7 +106,7 @@ export class FantasyParty {
       ...(party && this.options.vault ? { vault: this.options.vault(party.id) } : {}),
       ...(party?.chat.length ? { chat: party.chat.slice(-80) } : {}),
       ...(battle ? { battle: { id: battle.id, needsConfirmation: battle.source.startsWith('apex:') || battle.source.startsWith('challenge:') } } : {}),
-      ...(combatReference ? { canStartCombat: party!.leader === user && members.length >= 2 && members.every(member => party!.combatReady.has(member.id) && member.compatible) } : {}) };
+      ...(combatReference ? { canStartCombat: party!.leader === user && members.length >= 2 && party!.members.some(id => party!.combatReady.has(id)) && party!.members.every(id => party!.combatReady.has(id) || party!.combatDeclined.has(id) || party!.combatSitOut.has(id)) && members.every(member => !party!.combatReady.has(member.id) || member.compatible) } : {}) };
   }
   request(user: string, input: unknown): { error?: FantasyPartyError; updates?: FantasyGroupInvestigationResult['updates'] } {
     this.sweep(); if (!isFantasyPartyCommand(input)) return { error: 'invalid' };
@@ -117,7 +119,7 @@ export class FantasyParty {
     const party = this.party(user);
     if (input.type === 'create') {
       if (party) return { error: 'already-in-party' };
-      const id = `party-${randomUUID()}`; this.parties.set(id, { id, session: actor.session!, leader: user, members: [user], ready: new Map(), combatReady: new Map(), travelReady: new Map(), chat: [] }); return {};
+      const id = `party-${randomUUID()}`; this.parties.set(id, { id, session: actor.session!, leader: user, members: [user], ready: new Map(), combatReady: new Map(), combatDeclined: new Set(), combatSitOut: new Set(), travelReady: new Map(), chat: [] }); return {};
     }
     if (input.type === 'respond') {
       const invite = this.invitations.get(input.invite);
@@ -126,7 +128,7 @@ export class FantasyParty {
       if (input.accept && party) return { error: 'already-in-party' };
       if (input.accept && group.members.length >= FANTASY_PARTY_MAX_MEMBERS) return { error: 'party-full' };
       this.invitations.delete(invite.id);
-      if (input.accept) { group.members.push(user); group.ready.clear(); group.combatReady.clear(); group.travelReady.clear(); }
+      if (input.accept) { group.members.push(user); group.ready.clear(); group.combatReady.clear(); group.combatDeclined.clear(); group.combatSitOut.clear(); group.travelReady.clear(); }
       return {};
     }
     if (!party) return { error: 'no-party' };
@@ -167,7 +169,42 @@ export class FantasyParty {
     if (input.type === 'readyCombat') {
       const plan = this.combatPlan(actor, input.source, input.target, input.confirm);
       if (!plan) return { error: actor.profile.activity || actor.profile.event || actor.profile.combatId ? 'busy' : 'incompatible' };
-      this.invalidate(user); party.combatReady.set(user, { ...plan, expiresAt: time + FANTASY_PARTY_TTL_MS }); return {};
+      this.invalidate(user); party.combatReady.set(user, { ...plan, expiresAt: time + FANTASY_PARTY_TTL_MS });
+      if (user === party.leader) { party.combatDeclined.clear(); party.combatSitOut.clear(); }
+      return {};
+    }
+    // リーダーが用意した戦闘に、各員が参加・辞退・不参加を選ぶ。
+    if (input.type === 'combatDecision') {
+      if (input.decision === 'accept') {
+        const reference = party.combatReady.get(party.leader) ?? [...party.combatReady.values()][0];
+        if (!reference) return { error: 'not-ready' };
+        const plan = this.combatPlan(actor, reference.source, reference.target, reference.confirm);
+        if (!plan) return { error: actor.profile.activity || actor.profile.event || actor.profile.combatId ? 'busy' : 'incompatible' };
+        party.combatDeclined.delete(user); party.combatSitOut.delete(user);
+        party.combatReady.set(user, { ...plan, expiresAt: time + FANTASY_PARTY_TTL_MS });
+        return {};
+      }
+      party.combatReady.delete(user);
+      if (input.decision === 'decline') { party.combatDeclined.add(user); party.combatSitOut.delete(user); }
+      else { party.combatSitOut.add(user); party.combatDeclined.delete(user); }
+      return {};
+    }
+    if (input.type === 'transferLeader') {
+      if (party.leader !== user) return { error: 'leader-only' };
+      if (input.target === user || !party.members.includes(input.target)) return { error: 'incompatible' };
+      party.leader = input.target;
+      this.invalidate(user);
+      return {};
+    }
+    if (input.type === 'kick') {
+      if (party.leader !== user) return { error: 'leader-only' };
+      if (input.target === user || !party.members.includes(input.target)) return { error: 'incompatible' };
+      const returned = this.options.returnDeposits?.(party.id, input.target);
+      if (returned?.error) return { error: returned.error as FantasyPartyError };
+      party.members = party.members.filter(id => id !== input.target);
+      party.ready.delete(input.target); party.combatReady.delete(input.target); party.travelReady.delete(input.target);
+      for (const [id, invite] of this.invitations) if (invite.target === input.target) this.invitations.delete(id);
+      return {};
     }
     if (party.leader !== user) return { error: 'leader-only' };
     if (party.members.length < 2) return { error: 'too-small' };
@@ -182,13 +219,15 @@ export class FantasyParty {
       party.travelReady.clear(); return { updates: result.updates };
     }
     if (input.type === 'startCombat') {
+      const participants = party.members.filter(id => party.combatReady.has(id));
+      if (!participants.length) return { error: 'not-ready' };
+      if (!party.members.every(id => party.combatReady.has(id) || party.combatDeclined.has(id) || party.combatSitOut.has(id))) return { error: 'not-ready' };
       if (!this.options.startCombat) return { error: 'unavailable' };
-      if (!party.members.every(id => party.combatReady.has(id))) return { error: 'not-ready' };
-      const plans = party.members.map(id => party.combatReady.get(id)!);
+      const plans = participants.map(id => party.combatReady.get(id)!);
       if (!plans.every(plan => this.sameCombat(plans[0], plan))) return { error: 'incompatible' };
       const result = this.options.startCombat(plans.map(({ expiresAt: _, ...plan }) => plan));
       if (result.error) return { error: result.error === 'save-failed' ? 'save-failed' : 'incompatible' };
-      party.ready.clear(); party.combatReady.clear(); return { updates: result.updates };
+      party.ready.clear(); party.combatReady.clear(); party.combatDeclined.clear(); party.combatSitOut.clear(); return { updates: result.updates };
     }
     if (!party.members.every(id => party.ready.has(id))) return { error: 'not-ready' };
     const plans = party.members.map(id => party.ready.get(id)!);

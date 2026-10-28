@@ -178,6 +178,7 @@ export interface FantasyCharacter {
   quests: string[];
   completed: string[];
   visited: string[];
+  seen?: string[];
   jobXp: Record<string, number>;
   buff: { stat?: FantasyStat; power: number; effect: FantasySkill['effect']; skill?: string; mp?: number; diceFaces?: 'steady' | 'even' | 'upper'; dice?: number; expiresAt?: number } | null;
   equipment?: Partial<Record<FantasyEquipmentSlot, string>>;
@@ -209,6 +210,7 @@ export interface FantasyCharacter {
   taskProgress?: Record<string, { acceptedAt: number; progress: number; lastAt: number }>;
   escort?: { id: string; from: string; destination: string; hours: number; reward: number; acceptedAt: number; defense?: 'pending' | 'cleared' };
   escortHistory?: Record<string, number>;
+  escortPenalty?: { amount: number; paid: number; hour: number; destination: string };
   voyageEnding?: { hour: number };
   voyageDecisions?: Record<string, { choice: string; hour: number }>;
   combatStoryVersion?: 1;
@@ -299,7 +301,9 @@ export type FantasyAction =
   | { type: 'magicPrepare'; slot: number; element: string; form: string }
   | { type: 'magicCast'; slot: number }
   | { type: 'alchemy'; formula: string }
-  | { type: 'event'; choice: string };
+  | { type: 'event'; choice: string }
+  | { type: 'cancel' }
+  | { type: 'redirect'; destination: string; transport?: string };
 export interface FantasyTransport {
   id: string;
   name: string;

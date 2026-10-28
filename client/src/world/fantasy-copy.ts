@@ -239,6 +239,7 @@ export function fantasyLogText(text:string,locale:NpcLocale,character:FantasyCha
   if(text==='戦場で力尽き、この人生は終わった。足跡は世界に残る。')return {ko:'전장에서 쓰러져 이번 삶이 끝났다. 발자취는 세계에 남는다.',en:'Fell in battle and this life ended. Its footprints remain in the world.',ja:text}[locale];
   const decisionText=fantasyVoyageDecisionLogText(text,character,locale);if(decisionText!==undefined)return decisionText;
   const sceneText=fantasyVoyageSceneLogText(text,locale,character??undefined);if(sceneText!==undefined)return sceneText;
+  if(text==='行動を途中で取り消した。判定済みの受取分は残り、依頼や調査の完了は数えない。')return {ko:'행동을 중간에 취소했다. 이미 판정된 보수는 남고, 의뢰·조사의 완료는 인정되지 않는다.',en:'Cancelled the action midway. Rewards already resolved stay, but the quest or investigation does not count as complete.',ja:text}[locale];
   const workText=fantasyWorkLogText(text,locale);if(workText)return workText;
   const campText=fantasyCampLogText(text,locale);if(campText)return campText;
   const encounterText=fantasyEncounterLogText(text,locale);if(encounterText)return encounterText;
@@ -298,6 +299,8 @@ export function fantasyLogText(text:string,locale:NpcLocale,character:FantasyCha
     [/^護衛に出発した。(.+)まで([\d.]+)時間。到着後に金貨(\d+)枚。$/,m=>pick(`${names(m[1])}행 호위에 출발했다. 게임 ${m[2]}시간 · 도착 후 +${m[3]} G.`,`Departed as escort to ${names(m[1])}. ${m[2]} game hours · +${m[3]} G on arrival.`)],
     [/^護衛を完了し、金貨(\d+)枚の報酬を受け取った。$/,m=>pick(`호위 완료. ${m[1]} G를 받았다.`,`Escort completed. Received ${m[1]} G.`)],
     [/^護衛依頼を辞退した。報酬は受け取っていない。$/,()=>pick('호위 배정을 포기했다. 보수는 받지 않았다.','Abandoned the escort. No pay received.')],
+    [/^護衛依頼を辞退した。報酬は受け取らず、違約金(\d+)枚（支払い(\d+)枚）を負った。$/,m=>pick(`호위 배정을 포기했다. 보수는 받지 못하고 위약금 ${m[1]} G(지불 ${m[2]} G)를 부담했다.`,`Abandoned the escort. No pay, and a ${m[1]} G penalty (${m[2]} G paid).`)],
+    [/^仲間の調査結果を共有され、証拠を確認した。$/,()=>pick('동료의 조사 결과를 공유받아 증거를 확인했다.','Shared a companion’s investigation and confirmed the evidence.')],
     [/^旧仕様の転移予約を解除した。位置・金貨・所持品は変更していない。$/,()=>pick('이전 방식의 전이문 예약이 취소되었다. 위치·금화·소지품은 그대로다.','Canceled a legacy gate reservation. Location, gold and inventory are preserved.')],
     [/^神殿で静かに祈った。司祭の熟練\+(\d+)、悪名-(\d+)。$/,m=>pick(`신전에서 기도했다.${+m[1]?` 사제 숙련 +${m[1]}.`:''}${+m[2]?` 악명 -${m[2]}.`:''}`,`Prayed at the temple.${+m[1]?` Priest proficiency +${m[1]}.`:''}${+m[2]?` Notoriety -${m[2]}.`:''}`)],
     [/^「(.+)」を読み、知識を記録した。$/,m=>pick(`『${names(m[1])}』을 정독했다.`,`Studied “${names(m[1])}”.`)],

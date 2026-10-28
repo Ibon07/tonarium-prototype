@@ -4,7 +4,7 @@ import { FANTASY_SETTLEMENTS } from './fantasy-town.ts';
 import { FANTASY_APEX_PROVOCATIONS, FANTASY_COMBAT_ENEMIES, fantasyCombatEnemy } from './fantasy-combat-catalog.ts';
 import { fantasyMainStage } from './fantasy-main-trials.ts';
 import { fantasyStoryCombatRequirement } from './fantasy-combat-stories.ts';
-import { fantasyHostileEncounter } from './fantasy-encounters.ts';
+import { fantasyHostileEncounter, FANTASY_ESCORT_AMBUSH_ENCOUNTER } from './fantasy-encounters.ts';
 import { fantasyEnvironmentActionError } from './fantasy-environment.ts';
 
 export type FantasyCombatStartKind = 'hunt' | 'story' | 'encounter' | 'apex' | 'challenge' | 'escort';
@@ -22,6 +22,8 @@ export function fantasyCombatHumanOptions(c: FantasyCharacter) {
 export function fantasyCombatStartPlan(profile: FantasyProfile, kind: FantasyCombatStartKind, target: string): FantasyCombatStartPlan | undefined {
   const c = profile.character;
   if (!c || typeof target !== 'string') return undefined;
+  if (kind === 'escort') return fantasyEscortCombatPlan(profile, target);
+  if (kind === 'encounter' && target === FANTASY_ESCORT_AMBUSH_ENCOUNTER && profile.event === target) return fantasyEscortCombatPlan(profile, c.escort?.id);
   let enemy: string | undefined, source = `${kind}:${target}`;
   if (kind === 'hunt') enemy = fantasyCombatHuntOptions(c).find(enemy => enemy.id === target)?.id;
   if (kind === 'challenge') enemy = fantasyCombatHumanOptions(c).find(enemy => enemy.id === target)?.id;
@@ -40,11 +42,20 @@ export function fantasyCombatStartPlan(profile: FantasyProfile, kind: FantasyCom
   if (!template || template.provocationOnly && kind !== 'apex') return undefined;
   return { source, enemies: [{ id: 'enemy-1', template: template.id, position: 'front' }], ...(kind === 'story' ? { victoryKey: source } : {}) };
 }
+/** 護衛契約の馬車を守る戦闘。出発前の路確保と移動中の襲撃を同じ計画にまとめる。 */
+function fantasyEscortCombatPlan(profile: FantasyProfile, contractId: string | undefined): FantasyCombatStartPlan | undefined {
+  const c = profile.character, contract = c?.escort;
+  if (!c || !contract || !contractId || contract.id !== contractId || contract.from !== c.location) return undefined;
+  const beforeDeparture = contract.defense === 'pending' && !profile.activity && !profile.event;
+  if (!beforeDeparture && profile.event !== FANTASY_ESCORT_AMBUSH_ENCOUNTER) return undefined;
+  const template = fantasyCombatEnemy(c.level >= 7 ? 'monster-goblin-raider' : c.level >= 3 ? 'monster-forest-wolf' : 'monster-cave-slime');
+  return template ? { source: `escort:${contract.id}`, enemies: [{ id: 'road-ambusher', template: template.id, position: 'front' }] } : undefined;
+}
 export function fantasyCombatStartError(profile: FantasyProfile, kind: FantasyCombatStartKind, target: string, confirmed = false): string | undefined {
   const c = profile.character;
   if (!c || profile.death || c.hp <= 0) return '生きている人物で戦闘に参加してください。';
   if (profile.combatId) return 'すでに戦闘中です。';
-  if (profile.activity || profile.event && !(kind === 'encounter' && target === profile.event)) return '現在の行動や出来事を先に終えてください。';
+  if (profile.activity || profile.event && !(kind === 'encounter' && target === profile.event) && !(kind === 'escort' && fantasyCombatStartPlan(profile, 'escort', target))) return '現在の行動や出来事を先に終えてください。';
   if (!fantasyCombatStartPlan(profile, kind, target)) return 'ここではその相手と戦えません。';
   const dark = fantasyEnvironmentActionError(c, { type: 'hunt' });
   if (dark && kind !== 'encounter') return dark;

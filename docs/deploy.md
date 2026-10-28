@@ -73,6 +73,37 @@ Coolify の Docker Compose では、`tonarium` の環境変数に次を設定し
 
 参考: [Coolify の Compose 環境変数](https://coolify.io/docs/applications/configuration/environment-variables)、[Docker のコンテナ環境変数](https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/)。
 
+## RPG の NPC・GM が AI に接続できない場合
+
+`AI サポート` はプレイヤーのブラウザで動く WebLLM、`NPC_LLM_URL` は運営サーバーの推論先で、別の経路である。ブラウザが未準備・非対応・負荷による停止中、または生成に失敗するとサーバーへ引き継ぐ。`ECONNREFUSED 127.0.0.1:18081` は、この引き継ぎ先で TCP 接続が拒否されたことを示し、ブラウザ側の失敗理由までは示さない。
+
+標準 Compose は Tonarium と LiveKit だけを起動し、推論プロセスとモデルは含まない。`scripts/start-local-npc.ps1` は Windows 開発機向けで、Linux のアプリイメージからは実行されない。運営側で別途 llama.cpp などの対応する推論サービスを用意し、次の値を設定して再デプロイする。
+
+- `NPC_LLM_URL`: アプリのコンテナから届く OpenAI 互換 API のベース URL。例えば同じ Docker ネットワークに `llama` サービスを用意した場合は `http://llama:8080/v1`。この名前のサービスを Compose が自動作成するわけではない。
+- `NPC_LLM_MODEL`: 推論サービスが公開するモデル名。既定は `qwen3-1.7b`。サービス側のエイリアスと一致させる。
+
+未設定時の `http://127.0.0.1:18081/v1` は **Tonarium コンテナ自身** を指す。ホスト OS、別コンテナ、プレイヤー PC のループバックではない。ホストで動くモデルへ接続する場合も、コンテナから届く内部アドレスとモデルの待受設定が必要である。Linux での `host.docker.internal` の名前解決も構成による。推論 API をインターネットへ公開する必要はない。認証情報入り URL や公開 IP は既存の接続先検証で許可していない。
+
+アプリの `/healthz` は Web サーバーだけの確認で、AI の稼働を保証しない。llama.cpp の状態は **アプリのコンテナ内から** 確認する。次のコマンドは会話を送信せず、接続先のホスト・ポートと HTTP ステータスだけを表示する。
+
+```bash
+docker compose exec -T tonarium node --input-type=module -e '
+const base = new URL(process.env.NPC_LLM_URL ?? "http://127.0.0.1:18081/v1");
+console.log({configured: Boolean(process.env.NPC_LLM_URL), host: base.hostname, port: base.port});
+try {
+  const r = await fetch(new URL("/health", base), {signal: AbortSignal.timeout(5000), redirect: "error"});
+  console.log({healthStatus: r.status});
+  if (!r.ok) process.exitCode = 1;
+} catch (e) {
+  console.log({error: e.cause?.code ?? e.name});
+  process.exitCode = 1;
+}'
+```
+
+`ECONNREFUSED` は接続先に待受がない状態、`ENOTFOUND` は名前解決失敗、HTTP503 は llama.cpp がロード中などの未準備状態である。ホスト側の `/health` だけが成功するなら、アプリからのアドレスと Docker ネットワークを確認する。HTTP200 の後に `/v1/models` でモデル名を確認し、テストアカウントで **AI サポートと「自分の質問をほかのプレイヤーの端末で処理することを許可」の両方をオフ** にして自由会話も検証する。サポートをオフにするだけでは支援を受け取る設定は残る。固定の案内でなく、応答の `source: local`（サーバー生成）が成功したことを診断記録で確認する。これらの環境変数を渡す変更だけでは、停止中・未導入の推論サービスは起動しない。
+
+ブラウザ側はワールド内の AI 設定に表示される停止理由と `[browser-ai]` のコンソール警告を確認する。`サーバー AI 使用` は切替先の案内であり、サーバーモデルの稼働確認結果ではない。詳しい条件は [ブラウザ AI サポート](browser-ai-support.md)、開発機のモデル起動手順は [ローカル NPC](local-npc.md) を参照。
+
 ## 変更履歴の集約
 
 Web の Vite ビルド時に、既存の共通履歴と作業別 JSON を自動集約する。Dockerfile の `npx vite build` でも同じ処理が動く。集約結果を入力へ書き戻さないため再デプロイでも重複しない。配置・形式・並び順は [変更履歴の開発ガイド](changelog.md) を参照。

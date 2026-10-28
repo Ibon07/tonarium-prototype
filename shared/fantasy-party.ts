@@ -7,8 +7,10 @@ export const FANTASY_PARTY_MAX_MEMBERS = 6;
 export const FANTASY_PARTY_TTL_MS = 120_000;
 export type FantasyPartyCommand = { type: 'create' | 'leave' | 'unready' | 'start' | 'sync' }
   | { type: 'invite'; target: string } | { type: 'respond'; invite: string; accept: boolean }
+  | { type: 'transferLeader'; target: string } | { type: 'kick'; target: string }
   | { type: 'ready'; quest: string; approach: FantasyMainApproach }
   | { type: 'readyCombat'; source: FantasyCombatStartKind; target: string; confirm?: boolean } | { type: 'startCombat' }
+  | { type: 'combatDecision'; decision: 'accept' | 'decline' | 'sit-out' }
   | { type: 'readyTravel'; destination: string; transport: string } | { type: 'startTravel' }
   | { type: 'chat'; text: string } | { type: 'joinCombat'; combatId: string; confirm?: boolean }
   | FantasyPartyVaultCommand;
@@ -16,7 +18,7 @@ export type FantasyPartyError = 'invalid' | 'unavailable' | 'not-in-world' | 'no
   | 'not-found' | 'party-full' | 'invite-expired' | 'self-invite' | 'invite-pending' | 'busy' | 'incompatible' | 'not-ready' | 'too-small' | 'save-failed' | 'rate-limit' | 'stale' | 'equipped';
 export interface FantasyPartyState {
   id: string | null;
-  members: { id: string; name: string; isLeader: boolean; here: boolean; ready: boolean; compatible: boolean; combatReady?: boolean; travelReady?: boolean }[];
+  members: { id: string; name: string; isLeader: boolean; here: boolean; ready: boolean; compatible: boolean; combatReady?: boolean; combatDecision?: 'accept' | 'decline' | 'sit-out'; travelReady?: boolean }[];
   invitations: { id: string; fromId: string; fromName: string; expiresAt: number }[];
   canStart: boolean;
   canStartCombat?: boolean;
@@ -56,12 +58,14 @@ export function isFantasyPartyCommand(value: unknown): value is FantasyPartyComm
   switch (v.type) {
     case 'create': case 'leave': case 'unready': case 'start': case 'startCombat': case 'startTravel': case 'sync': return keys();
     case 'invite': return keys('target') && id(v.target);
+    case 'transferLeader': case 'kick': return keys('target') && id(v.target);
     case 'respond': return keys('invite', 'accept') && id(v.invite) && typeof v.accept === 'boolean';
     case 'ready': return keys('quest', 'approach') && id(v.quest) && ['observe', 'analyze', 'restore'].includes(String(v.approach));
     case 'readyCombat': return (keys('source', 'target') || keys('source', 'target', 'confirm') && typeof v.confirm === 'boolean') && ['hunt', 'story', 'encounter', 'apex', 'challenge'].includes(String(v.source)) && id(v.target);
     case 'readyTravel': return keys('destination', 'transport') && id(v.destination) && id(v.transport);
     case 'chat': return keys('text') && typeof v.text === 'string' && v.text.trim().length > 0 && [...v.text].length <= 500 && !/[\u0000-\u001f\u007f]/.test(v.text);
     case 'joinCombat': return (keys('combatId') || keys('combatId', 'confirm') && typeof v.confirm === 'boolean') && id(v.combatId);
+    case 'combatDecision': return keys('decision') && ['accept', 'decline', 'sit-out'].includes(String(v.decision));
     case 'deposit': return (keys('revision', 'item', 'count') || keys('revision', 'item', 'count', 'instance') && id(v.instance)) && Number.isSafeInteger(v.revision) && Number(v.revision) >= 0 && id(v.item) && Number.isSafeInteger(v.count) && Number(v.count) > 0 && Number(v.count) <= 999;
     case 'requestWithdraw': return keys('revision', 'lot', 'count') && Number.isSafeInteger(v.revision) && Number(v.revision) >= 0 && id(v.lot) && Number.isSafeInteger(v.count) && Number(v.count) > 0 && Number(v.count) <= 999;
     case 'approveWithdraw': return keys('revision', 'request', 'approve') && Number.isSafeInteger(v.revision) && Number(v.revision) >= 0 && id(v.request) && typeof v.approve === 'boolean';

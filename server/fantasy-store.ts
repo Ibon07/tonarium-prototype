@@ -29,6 +29,7 @@ import { resetFantasyTestLife } from './fantasy-test-reset.ts';
 import { fantasyMainInvestigationError, fantasyMainStage, validFantasyMainTrials } from '../shared/fantasy-main-trials.ts';
 import { validFantasyTaskProgress } from '../shared/fantasy-task-progress.ts';
 import { fantasyEscortTransportError, validFantasyEscort } from '../shared/fantasy-escort.ts';
+import { FANTASY_ESCORT_AMBUSH_ENCOUNTER } from '../shared/fantasy-encounters.ts';
 import { FANTASY_GATE_HOURS, fantasyHasGate } from '../shared/fantasy-gates.ts';
 import { FANTASY_VOYAGE_FINAL_QUEST, validFantasyVoyageEnding } from '../shared/fantasy-voyage-ending.ts';
 import { FANTASY_PARTY_MAX_MEMBERS, type FantasyPartyError } from '../shared/fantasy-party.ts';
@@ -159,7 +160,7 @@ export function isFantasyAction(value: unknown): value is FantasyAction {
   const optionalKeys = (required: string[], optional: string[]) => required.every(key => Object.hasOwn(value, key))
     && Object.keys(value).every(key => key === 'type' || required.includes(key) || optional.includes(key));
   switch (value.type) {
-    case 'sync': case 'draw': case 'keep': case 'skip': case 'explore': case 'rest': case 'work': case 'skin': case 'rebirth': case 'pray': case 'escortAbandon': case 'finishVoyage':
+    case 'sync': case 'draw': case 'keep': case 'skip': case 'explore': case 'rest': case 'work': case 'skin': case 'rebirth': case 'pray': case 'escortAbandon': case 'finishVoyage': case 'cancel':
       return keys();
     case 'hunt': return optionalKeys([], ['monster']) && (value.monster === undefined || id(value.monster));
     case 'wear': return keys('item') && id(value.item);
@@ -187,6 +188,7 @@ export function isFantasyAction(value: unknown): value is FantasyAction {
         && (value.gender === 'male' || value.gender === 'female')
         && (value.source === 'human' || value.source === 'candidate' || value.source === 'kept') && (value.job === undefined || id(value.job));
     case 'travel': return keys('destination', 'transport') && id(value.destination) && id(value.transport);
+    case 'redirect': return optionalKeys(['destination'], ['transport']) && id(value.destination) && (value.transport === undefined || id(value.transport));
     case 'escortAccept': return keys('destination') && id(value.destination);
     case 'job':
       return Object.keys(value).every(key => ['type', 'job', 'via', 'npcId'].includes(key)) && id(value.job)
@@ -231,7 +233,7 @@ function isProfile(value: unknown): value is FantasyProfile {
     && count(c.level) && c.level >= 1 && count(c.xp) && count(c.gold) && count(c.hp) && count(c.mp) && id(c.location)
     && typeof c.hour === 'number' && Number.isFinite(c.hour) && c.hour >= 0
     && count(c.fatigue) && c.fatigue <= 100 && count(c.hunger) && c.hunger <= 100
-    && strings(c.charted) && Array.isArray(c.foodLots)
+    && strings(c.charted) && (c.seen === undefined || strings(c.seen) && new Set(c.seen).size === c.seen.length && c.seen.every(id => FANTASY_LOCATIONS.some(place => place.id === id))) && Array.isArray(c.foodLots)
     && amounts(c.inventory) && strings(c.quests) && strings(c.completed) && strings(c.visited) && amounts(c.jobXp)
     && (c.buff === null || (object(c.buff) && count(c.buff.power) && c.buff.power > 0
       && ['check', 'guard', 'reward', 'travel'].includes(String(c.buff.effect))
@@ -318,6 +320,8 @@ interface StoreOptions {
   worldHour?: () => number;
   clockError?: () => string | undefined;
   combatEnabled?: boolean;
+  /** 実際のサーバーだけが移動中の襲撃抽選を有効にする。テストは決定的なまま。 */
+  ambush?: boolean;
 }
 export interface FantasyGroupInvestigationPlan {
   user: string; quest: string; approach: 'observe' | 'analyze' | 'restore'; generation: number; location: string; stage: 'field' | 'verify' | 'compare';
@@ -336,6 +340,7 @@ export class FantasyStore {
   private economy: FantasyEconomyLedger = newFantasyEconomyLedger();
   private civics: FantasyCivicLedger = newFantasyCivicLedger();
   private combatEnabled: boolean;
+  private ambushEnabled: boolean;
   private limits = new Map<string, { at: number; count: number }>();
   private save: (file: string, data: string) => void;
   private onError: (error: unknown) => void;
@@ -352,6 +357,7 @@ export class FantasyStore {
     this.worldHour = options.worldHour;
     this.clockError = options.clockError ?? (() => undefined);
     this.combatEnabled = options.combatEnabled === true;
+    this.ambushEnabled = options.ambush === true;
     try {
       const saved: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
       if (!object(saved)) throw new Error('Invalid fantasy save');
@@ -606,7 +612,7 @@ export class FantasyStore {
     if (this.loadError || this.clockError()) return this.reject(user, this.loadError ?? this.clockError()!);
     const hour = this.worldHour();
     if (Math.floor(current.character.hour * 60) === Math.floor(hour * 60) && (!current.activity || current.activity.endsAt > hour)) return { profile: current, changed: false };
-    const result = advanceFantasyWorld(current, hour, { accrueIdleNeeds });
+    const result = advanceFantasyWorld(current, hour, { accrueIdleNeeds, ambush: this.ambushEnabled && this.onlineUsers.has(user) });
     return result.changed && !result.error ? this.commit(user, result) : result;
   }
 
@@ -623,7 +629,7 @@ export class FantasyStore {
         && profile.activity.startedAt + (profile.activity.work.completed + 1) * fantasyWorkInterval(profile.activity) <= hour);
       if (!due && !(wasOnline || isOnline)) continue;
       if (!due && wasOnline === isOnline && Math.floor(profile.character.hour * 60) === Math.floor(hour * 60)) continue;
-      const result = advanceFantasyWorld(profile, hour, { accrueIdleNeeds: wasOnline });
+      const result = advanceFantasyWorld(profile, hour, { accrueIdleNeeds: wasOnline, ambush: this.ambushEnabled && (wasOnline || isOnline) });
       if (result.changed) result.profile = this.enableCombat(result.profile) as FantasyProfile;
       if (result.error) { this.onError(new Error(result.error)); continue; }
       if (!result.changed) continue;
@@ -693,6 +699,11 @@ export class FantasyStore {
       sourcePlan = resolved; prepared.push(p);
     }
     if (!sourcePlan) return fail('invalid');
+    // 護衛中の襲撃は馬車付きの専用戦闘へ渡す。馬車の指揮権は一つなので単独開始に限る。
+    if (sourcePlan.source.startsWith('escort:')) {
+      if (plans.length !== 1) return fail('incompatible');
+      return this.startEscortCombat(plans[0].user, plans[0].session, sourcePlan.source.slice('escort:'.length), rng);
+    }
     const id = `combat-${randomUUID()}`;
     let state: FantasyCombatState;
     try { state = createFantasyCombat({ id, location: plans[0].location, source: sourcePlan.source, players: prepared.map((p, index) => fantasyCombatPlayer(p, plans[index].user)), enemies: sourcePlan.enemies, seed: Math.floor(Math.max(0, Math.min(.999999999, rng())) * 4294967296), hour, tactical: true }); }
@@ -721,13 +732,16 @@ export class FantasyStore {
     if (this.loadError || this.clockError() || !session) return fail('unavailable');
     const synchronized = this.synchronize(user); if (synchronized.error) return fail('busy');
     const original = this.profile(user), c = original.character, assignment = c?.escort;
-    if (!c || original.death || c.hp <= 0 || original.activity || original.combatId || original.event || this.civicBlocked(user)) return fail('busy');
-    if (!assignment || assignment.id !== contractId || assignment.defense !== 'pending' || assignment.from !== c.location) return fail('incompatible');
+    if (!c || original.death || c.hp <= 0 || original.activity || original.combatId || this.civicBlocked(user)) return fail('busy');
+    // 移動中の襲撃だけは遭遇から直接この戦闘へ入る。他の出来事は先に片付けさせる。
+    const ambushed = original.event === FANTASY_ESCORT_AMBUSH_ENCOUNTER;
+    if (original.event && !ambushed) return fail('busy');
+    const plan = assignment?.id === contractId ? fantasyCombatStartPlan(original, ambushed ? 'encounter' : 'escort', ambushed ? original.event! : contractId) : undefined;
+    if (!plan || !assignment || plan.source !== `escort:${assignment.id}`) return fail('incompatible');
     const p = structuredClone(original), hour = this.worldHour?.() ?? c.hour, id = randomUUID();
-    const level = c.level, template = level >= 7 ? 'monster-goblin-raider' : level >= 3 ? 'monster-forest-wolf' : 'monster-cave-slime';
-    const enemy = fantasyCombatEnemy(template) ? template : 'monster-cave-slime';
-    const state = createFantasyCombat({ id, location: c.location, source: `escort:${contractId}`, hour, seed: Math.floor(rng() * 0x100000000) >>> 0, tactical: true,
-      players: [fantasyCombatPlayer(p, user)], enemies: [{ id: 'road-ambusher', template: enemy }], escort: { owner: user, contractId, destination: assignment.destination } });
+    const state = createFantasyCombat({ id, location: c.location, source: plan.source, hour, seed: Math.floor(rng() * 0x100000000) >>> 0, tactical: true,
+      players: [fantasyCombatPlayer(p, user)], enemies: plan.enemies, escort: { owner: user, contractId: assignment.id, destination: assignment.destination } });
+    if (ambushed) { p.event = null; this.combatLog(p, '護送隊への襲撃だ。馬車を守り抜け。', 'failure'); }
     p.combatId = id; p.revision++;
     const next = new Map(this.profiles); next.set(user, p); const combats = new Map(this.combats); combats.set(id, { state, session });
     try { this.writeState(next, combats); } catch (error) { this.onError(error); return fail('save-failed'); }
@@ -823,10 +837,13 @@ export class FantasyStore {
     if (state.escort && state.status !== 'active') {
       const owner = profiles.get(state.escort.owner);
       if (owner?.character?.escort?.id === state.escort.contractId && (owner.generation ?? 1) === state.escort.ownerGeneration) {
+        const beforeDeparture = owner.character.escort.defense === 'pending';
         if (state.status === 'victory' && state.escort.wagon.hp > 0) owner.character.escort.defense = 'cleared';
         else delete owner.character.escort;
         owner.revision++;
-        this.combatLog(owner,state.status === 'victory' ? '護衛隊の出発路を確保した。' : '護衛隊を守れず、依頼は終了した。',state.status === 'victory' ? 'success' : 'failure');
+        this.combatLog(owner, state.status === 'victory'
+          ? beforeDeparture ? '護衛隊の出発路を確保した。' : '護送隊を守り抜いた。旅を続けられる。'
+          : '護送隊を守れず、依頼は終了した。', state.status === 'victory' ? 'success' : 'failure');
         if (!updates.some(update=>update.user===state.escort!.owner)) updates.push({user:state.escort.owner,profile:owner});
       }
     }
@@ -973,8 +990,11 @@ export class FantasyStore {
       next.set(plan.user, result.profile); updates.push({ user: plan.user, profile: result.profile });
     }
     const arrival = Math.max(...updates.map(update => update.profile.activity!.endsAt));
+    const seed = updates[0].profile.activity!.seed;
     for (const update of updates) {
       update.profile.activity!.endsAt = arrival;
+      // 同じ隊列で歩く全員が同じ時刻に同じ襲撃を受けるよう、抽選の種をそろえる。
+      update.profile.activity!.seed = seed;
       if (!isProfile(update.profile)) return fail('invalid');
     }
     try { this.writeState(next); }
@@ -1053,7 +1073,10 @@ export class FantasyStore {
     if (limit && now - limit.at < 1000 && limit.count >= 8) return this.reject(user, '操作が続いています。少し待ってからお試しください。');
     if (limit && now - limit.at < 1000) limit.count++;
     else this.limits.set(user, { at: now, count: 1 });
-    const result = this.worldHour ? startFantasyActivity(current, action, this.worldHour(), rng, options) : applyFantasyAction(current, action, rng, options);
+    // 取り消しは進行中の行動を閉じる操作なので、新しい行動として予約しない。
+    const result = ['cancel', 'redirect'].includes(action.type)
+      ? applyFantasyAction(current, action, rng, this.worldHour ? { worldHour: this.worldHour() } : {})
+      : this.worldHour ? startFantasyActivity(current, action, this.worldHour(), rng, options) : applyFantasyAction(current, action, rng, options);
     if (!result.changed || result.error) return { ...result, profile: this.profile(user), changed: false };
     if (!current.character && result.profile.character && this.worldHour) {
       const character = result.profile.character;

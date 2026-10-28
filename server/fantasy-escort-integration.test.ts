@@ -9,6 +9,8 @@ import { fantasyCombatOrderError, validFantasyCombatState, type FantasyCombatOrd
 import { fantasyCombatDistance, fantasyCombatMoveRange, fantasyCombatPath } from '../shared/fantasy-combat-tactics.ts';
 import { fantasyEscortAdvanceTile, fantasyEscortBattleWon } from '../shared/fantasy-escort-battle.ts';
 import { fantasyEscortPair, fantasyEscortTransportError } from '../shared/fantasy-escort.ts';
+import { FANTASY_AMBUSH_SLOT_HOURS, fantasyAmbushHit } from '../shared/fantasy-ambush.ts';
+import { FANTASY_ESCORT_AMBUSH_ENCOUNTER } from '../shared/fantasy-encounters.ts';
 import type { FantasyAction, FantasyProfile } from '../shared/fantasy.ts';
 
 function person(name: string, level = 30, job = 'warrior') {
@@ -17,11 +19,11 @@ function person(name: string, level = 30, job = 'warrior') {
   c.location = 'hearth'; c.visited = ['hearth', 'greenwood', 'sunmeadow']; c.hunger = c.fatigue = 0; c.inventory.lantern = 1;
   c.hp = fantasyStats(c).hp; c.mp = fantasyStats(c).mp; return p;
 }
-function fixture(t: TestContext, input: Record<string, FantasyProfile> = { a: person('호위자'), b: person('동료') }) {
+function fixture(t: TestContext, input: Record<string, FantasyProfile> = { a: person('호위자'), b: person('동료') }, options: { ambush?: boolean } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fantasy-escort-integration-'));
   t.after(() => { const resolved = path.resolve(directory); assert.equal(path.dirname(resolved), path.resolve(os.tmpdir())); assert.ok(path.basename(resolved).startsWith('fantasy-escort-integration-')); fs.rmSync(resolved, { recursive: true, force: true }); });
   const file = path.join(directory, 'fantasy.json'); fs.writeFileSync(file, JSON.stringify(input)); let hour = 12, wall = 1000, fail = false;
-  const errors: string[] = [], make = () => new FantasyStore(file, { combatEnabled: true, worldHour: () => hour, now: () => wall, onError: error => errors.push(String(error)), save: (target, text) => { if (fail) throw new Error('Test save failure'); fs.writeFileSync(target, text); } });
+  const errors: string[] = [], make = () => new FantasyStore(file, { combatEnabled: true, ambush: options.ambush === true, worldHour: () => hour, now: () => wall, onError: error => errors.push(String(error)), save: (target, text) => { if (fail) throw new Error('Test save failure'); fs.writeFileSync(target, text); } });
   let store = make(); assert.equal(store.loadError, undefined);
   const apply = (user: string, action: FantasyAction) => { wall += 1100; return store.apply(user, store.profile(user).revision, action, () => .999); };
   return { get store() { return store; }, file, errors, apply, time: (value: number) => { hour = value; }, fail: (value: boolean) => { fail = value; }, restart: () => { store = make(); assert.equal(store.loadError, undefined); return store; },
@@ -128,8 +130,59 @@ test('busy support cannot join convoy defense and retain a simultaneous rest act
   const f = fixture(t); const sleeping = f.apply('b', { type: 'rest' }); assert.equal(sleeping.error, undefined); assert.ok(f.store.profile('b').activity);
   const state = start(f), before = f.store.profile('b'); const result = f.store.joinCombat('b', 'same', state.id); assert.ok(result.error); assert.deepEqual(f.store.profile('b'), before); assert.equal(f.store.combat('b', 'same'), null);
 });
+test('an ambush on an escort journey opens the wagon battle and a destroyed wagon fails the contract', t => {
+  const f = fixture(t, { a: person('호위자') }, { ambush: true }), contract = accept(f);
+  win(f, start(f));
+  assert.equal(f.store.profile('a').character!.escort!.defense, 'cleared');
+  assert.equal(f.apply('a', { type: 'travel', destination: contract.destination, transport: 'escort' }).error, undefined);
+  const activity = f.store.profile('a').activity!;
+  let seed = 0;
+  for (; seed < 50000; seed++) if (fantasyAmbushHit({ ...activity, seed }, activity.startedAt + FANTASY_AMBUSH_SLOT_HOURS)?.slot === 0) break;
+  assert.ok(seed < 50000, 'a seed that ambushes on the first travel slot');
+  f.editFixture(saved => { saved.profiles.a.activity.seed = seed; });
+  f.time(activity.startedAt + FANTASY_AMBUSH_SLOT_HOURS + 1e-6);
+  f.store.tick(new Set(['a']));
+  const ambushed = f.store.profile('a');
+  assert.equal(ambushed.activity, undefined, 'the convoy stops on the road');
+  assert.equal(ambushed.event, FANTASY_ESCORT_AMBUSH_ENCOUNTER);
+  assert.equal(ambushed.character!.location, contract.from);
+  assert.equal(ambushed.character!.escort!.id, contract.id);
+  const started = f.store.startCombat([{ user: 'a', session: 'same', location: contract.from, generation: 1, source: 'encounter', target: FANTASY_ESCORT_AMBUSH_ENCOUNTER }]);
+  assert.equal(started.error, undefined, f.errors.join('\n'));
+  const state = started.state!;
+  assert.equal(state.source, `escort:${contract.id}`); assert.ok(state.escort);
+  assert.equal(state.escort!.contractId, contract.id); assert.equal(state.escort!.destination, contract.destination);
+  assert.ok(state.escort!.wagon.hp > 0); assert.ok(validFantasyCombatState(state));
+  const fighting = f.store.profile('a');
+  assert.equal(fighting.event, null); assert.equal(fighting.combatId, state.id); assert.equal(fighting.character!.escort!.id, contract.id);
+  assert.ok(fighting.log.some(entry => entry.text === '護送隊への襲撃だ。馬車を守り抜け。'));
+  f.editFixture(saved => {
+    const battle = saved.combats[state.id].state;
+    battle.escort.wagon.hp = 1;
+    battle.fighters.find((fighter: any) => fighter.userId === 'a').tile = { x: 8, y: 7 };
+    battle.fighters.find((fighter: any) => fighter.side === 'enemies').tile = { x: 2, y: 4 };
+  });
+  let battle = f.store.combat('a', 'same')!;
+  for (let n = 0; n < 12 && battle.status === 'active'; n++) { battle = choose(f, battle, 'a', { type: 'guard' }); battle = choose(f, battle, 'a', { type: 'escort', order: { type: 'guard' } }); }
+  assert.equal(battle.status, 'defeat'); assert.equal(battle.escort!.wagon.hp, 0);
+  const after = f.store.profile('a');
+  assert.equal(after.character!.escort, undefined, 'losing the wagon ends the escort contract');
+  assert.equal(after.event, null); assert.equal(after.combatId, undefined); assert.equal(after.death, undefined);
+  f.restart(); assert.equal(f.store.profile('a').character!.escort, undefined); assert.equal(f.store.profile('a').death, undefined);
+});
+test('a plain road encounter never opens the wagon battle on a cleared escort contract', t => {
+  const f = fixture(t, { a: person('호위자') }), contract = accept(f);
+  win(f, start(f));
+  assert.equal(f.store.profile('a').character!.escort!.defense, 'cleared');
+  f.editFixture(saved => { saved.profiles.a.event = 'encounter-woodland-wolf'; });
+  assert.equal(f.store.startEscortCombat('a', 'same', contract.id).error, 'busy');
+  const normal = f.store.startCombat([{ user: 'a', session: 'same', location: 'hearth', generation: 1, source: 'encounter', target: 'encounter-woodland-wolf' }]);
+  assert.equal(normal.error, undefined, f.errors.join('\n'));
+  assert.equal(normal.state!.source, 'encounter:encounter-woodland-wolf'); assert.equal(normal.state!.escort, undefined);
+});
 test('effective mana growth during escort combat keeps the wagon snapshot and saved battle valid', t => {
   const p = person('성장 호위자', 30, 'mage'); p.character!.mana = { stage: 1, mastery: 1, strain: 0, affinity: 'balanced', useXp: 39 }; p.character!.hp = fantasyStats(p.character!).hp; p.character!.mp = fantasyStats(p.character!).mp;
   const f = fixture(t, { a: p }); accept(f); const initial = start(f); const hp = initial.escort!.wagon.stats.hp; const final = win(f, initial, true);
   assert.equal(final.escort!.wagon.stats.hp, hp); assert.ok(f.store.profile('a').character!.mana!.stage >= 2); f.restart(); assert.ok(validFantasyCombatState(f.store.combat('a', 'same')));
 });
+

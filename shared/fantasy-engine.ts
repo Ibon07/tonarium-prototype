@@ -4,7 +4,7 @@ import type {
 } from './fantasy.ts';
 import { FANTASY_EVENT_CHANCE } from './fantasy.ts';
 import { FANTASY_GATE_HOURS, fantasyGateFare, fantasyHasGate } from './fantasy-gates.ts';
-import { fantasyEscortAccept, fantasyEscortAcceptError, fantasyEscortComplete, fantasyEscortTerms, fantasyEscortTransportError } from './fantasy-escort.ts';
+import { fantasyEscortAccept, fantasyEscortAcceptError, fantasyEscortComplete, fantasyEscortPenalty, fantasyEscortTerms, fantasyEscortTransportError } from './fantasy-escort.ts';
 import { fantasyIsleLocationVisible } from './fantasy-isle-access.ts';
 import { fantasyMainApproachStat, fantasyMainInvestigationError, fantasyMainProgress, fantasyMainReady, fantasyMainStage, fantasyMainTrial, validFantasyMainTrials } from './fantasy-main-trials.ts';
 import { fantasyTaskObjective, fantasyTaskProgress, fantasyTaskReady, grantFantasyTaskProgress } from './fantasy-task-progress.ts';
@@ -44,6 +44,7 @@ import { fantasyVoyageFinishError, FANTASY_VOYAGE_CHART_QUEST, FANTASY_VOYAGE_FI
 import { fantasyIsleAccess, FANTASY_FINAL_ISLE_ID } from './fantasy-isle-access.ts';
 import { fantasyVoyageScene } from './fantasy-voyage-scenes.ts';
 import { FANTASY_VOYAGE_DECISIONS, fantasyVoyageDecisionError } from './fantasy-voyage-decisions.ts';
+import { fantasyAmbushHit } from './fantasy-ambush.ts';
 import { fantasyCovertWork, fantasyEncounterChoiceStat, fantasyEncounterFor, fantasyEncounterOriginLog, fantasyEncounterOutcomeLog, fantasyFailedEventPursuit, fantasyHostileEncounter, type FantasyEncounterCause } from './fantasy-encounters.ts';
 export { fantasyEventEligible, fantasyQuestEligible } from './fantasy-access.ts';
 
@@ -305,8 +306,19 @@ function maybeEvent(profile: FantasyProfile, rng: () => number) {
   addLog(profile, `${event.name}：${event.description}`, 'story');
 }
 
-function confront(profile: FantasyProfile, cause: FantasyEncounterCause): boolean {
-  if (profile.event || profile.death || !profile.character || profile.character.hp <= 0) return false;
+/** 護衛を辞退する。報酬は受け取らず、報酬の半分（最低1枚）を違約金として負う。 */
+function abandonEscort(profile: FantasyProfile): boolean {
+  const character = profile.character;
+  if (!character?.escort) return false;
+  const amount = fantasyEscortPenalty(character.escort.reward), paid = Math.min(character.gold, amount);
+  character.gold -= paid;
+  character.escortPenalty = { amount, paid, hour: character.hour, destination: character.escort.destination };
+  delete character.escort;
+  addLog(profile, `護衛依頼を辞退した。報酬は受け取らず、違約金${amount}枚（支払い${paid}枚）を負った。`, 'system');
+  return true;
+}
+
+function confront(profile: FantasyProfile, cause: FantasyEncounterCause): boolean {  if (profile.event || profile.death || !profile.character || profile.character.hp <= 0) return false;
   const c = profile.character, place = placeOf(c.location)!;
   const event = fantasyEncounterFor(place.kind, cause, jobOf(c.job)?.category === 'crime');
   profile.event = event.id;
@@ -374,6 +386,46 @@ export function applyFantasyAction(profile: FantasyProfile, action: FantasyActio
   }
   if (profile.death) return fail('この人生は終わっています。新しい人生を始めてください。');
   if (profile.combatId) return fail('戦闘を終えるか離脱してから行動してください。');
+  // 途中で取り消しても、判定が済んだ分（仕事の各手番の金貨・経験値）は確定済みなので残す。
+  if (action.type === 'cancel') {
+    const activity = profile.activity;
+    if (!activity) return fail('取り消せる行動がありません。');
+    if (activity.action.type === 'travel' && activity.action.transport === 'escort') return fail('護衛の移動は途中で取り消せません。依頼の辞退を使ってください。');
+    const cancelled = structuredClone(profile), work = cancelled.activity?.work;
+    delete cancelled.activity;
+    if (work && work.completed > 0 && cancelled.character) addLog(cancelled, fantasyWorkSummaryLog(cancelled.character.job, work), 'system');
+    addLog(cancelled, '行動を途中で取り消した。判定済みの受取分は残り、依頼や調査の完了は数えない。', 'system');
+    cancelled.revision++;
+    return { profile: cancelled, changed: true };
+  }
+  // 移動中に進路を変える。船と護衛は途中変更できず、馬車からは降りて徒歩になる。
+  if (action.type === 'redirect') {
+    const activity = profile.activity;
+    if (!activity || activity.action.type !== 'travel') return fail('移動中にだけ進路を変えられます。');
+    const riding = activity.action.transport;
+    if (['ship', 'working-ship'].includes(riding)) return fail('船の上では目的地を変えられません。');
+    if (riding === 'escort') return fail('護衛中は目的地を変えられません。依頼を辞退してから移動してください。');
+    const changed = structuredClone(profile), character = changed.character!;
+    const wanted = action.transport ?? (riding === 'carriage' ? 'foot' : riding);
+    const quotes = fantasyTransports(character, action.destination);
+    const chosen = quotes.find(route => route.id === wanted && route.available)
+      ?? (wanted === 'carriage' ? quotes.find(route => route.id === 'foot' && route.available) : undefined);
+    if (!chosen) return fail('その目的地へ進める手段がありません。');
+    const seed = Math.floor(random(rng) * 4294967296);
+    delete changed.activity;
+    changed.activity = { action: { type: 'travel', destination: action.destination, transport: chosen.id }, startedAt: character.hour, endsAt: character.hour + chosen.hours, seed };
+    addLog(changed, `進路を変え、${placeOf(action.destination)!.name}へ${chosen.name}で向かう。`, 'system');
+    changed.revision++;
+    return { profile: changed, changed: true };
+  }
+  // 護衛の移動中でも、依頼を辞退すればそこで足を止める。違約金は同じ規則。
+  if (action.type === 'escortAbandon' && profile.activity?.action.type === 'travel' && profile.activity.action.transport === 'escort') {
+    const left = structuredClone(profile);
+    delete left.activity;
+    if (!abandonEscort(left)) return fail('受注中の護衛依頼はありません。');
+    left.revision++;
+    return { profile: left, changed: true };
+  }
   if (profile.activity) return fail('現在の行動が終わるまで、新しい行動は開始できません。');
   let next = structuredClone(profile);
   const target = action.type === 'investigate' ? `${action.quest}:${profile.character ? fantasyMainProgress(profile.character, action.quest) : 0}:${action.approach}` : action.type === 'craft' ? action.recipe : action.type === 'gather' ? action.resource : action.type === 'fish' ? action.mode : action.type === 'skill' ? action.skill : '';
@@ -551,9 +603,7 @@ export function applyFantasyAction(profile: FantasyProfile, action: FantasyActio
       return finish();
     }
     case 'escortAbandon': {
-      if (!character.escort) return fail('受注中の護衛依頼はありません。');
-      delete character.escort;
-      addLog(next, '護衛依頼を辞退した。報酬は受け取っていない。', 'system');
+      if (!abandonEscort(next)) return fail('受注中の護衛依頼はありません。');
       return finish();
     }
     case 'travel': {
@@ -571,6 +621,13 @@ export function applyFantasyAction(profile: FantasyProfile, action: FantasyActio
       advance(transport.hours);
       character.location = action.destination;
       for (const id of transport.path) if (!character.visited.includes(id)) character.visited.push(id);
+      // 経由地の周辺は霧が晴れる。通過しただけの場所は訪問記録に数えない。
+      const scouted = new Set(character.seen ?? []);
+      for (const id of transport.path.slice(1, -1)) for (const route of FANTASY_ROUTES) {
+        if (route.mode === 'gate') continue;
+        for (const other of route.from === id ? [route.to] : route.to === id ? [route.from] : []) if (!character.visited.includes(other) && other !== character.location) scouted.add(other);
+      }
+      if (scouted.size) character.seen = [...scouted];
       const escortReward = action.transport === 'escort' ? fantasyEscortComplete(character, departure, action.destination) : 0;
       if (character.buff?.effect === 'travel') { if (fantasyTransports({ ...profile.character!, buff: null }, action.destination).find(route => route.id === action.transport)!.hours > transport.hours) creditBuff(next, character.buff); character.buff = null; }
       addLog(next, `${transport.name}で${placeOf(action.destination)!.name}へ到着。${options.durationHours ?? transport.hours}時間・金貨${transport.cost}枚。経路：${transport.path.map(id => placeOf(id)!.name).join(' → ')}`, 'story');
@@ -1145,6 +1202,7 @@ export function fantasyActionHours(profile: FantasyProfile, action: FantasyActio
     case 'fish': return action.mode === 'sea' ? 4 : 2;
     case 'boat': return 0.25;
     case 'manaTrain': return 0;
+    case 'cancel': return 0;
     case 'terrain': return fantasyTerrainHours(action);
     default: return fantasySpecializationHours(profile, action);
   }
@@ -1186,7 +1244,7 @@ export function startFantasyActivity(profile: FantasyProfile, action: FantasyAct
 }
 
 /** 共通時計に追従する。オフラインの待機中は食品だけが経時変化し、進行中の行動は続ける。 */
-export function advanceFantasyWorld(profile: FantasyProfile, worldHour: number, options: { accrueIdleNeeds?: boolean } = {}): FantasyResult {
+export function advanceFantasyWorld(profile: FantasyProfile, worldHour: number, options: { accrueIdleNeeds?: boolean; ambush?: boolean } = {}): FantasyResult {
   if (!Number.isFinite(worldHour) || worldHour < 0) return { profile, changed: false, error: '世界の時刻を確認できません。' };
   if (profile.activity && (!Number.isFinite(profile.activity.startedAt) || !Number.isFinite(profile.activity.endsAt)
     || profile.activity.startedAt < 0 || profile.activity.endsAt <= profile.activity.startedAt
@@ -1240,6 +1298,20 @@ export function advanceFantasyWorld(profile: FantasyProfile, worldHour: number, 
     if (!activity) {
       if (advanceTo(target, false)) continue;
       break;
+    }
+    // 移動中は実時間10秒ごとに襲撃を抽選する。当たればその場で足を止め、遭遇として扱う。
+    if (options.ambush && activity.action.type === 'travel') {
+      const ambushed = fantasyAmbushHit(activity, Math.min(target, activity.endsAt));
+      if (ambushed) {
+        if (advanceTo(ambushed.hour, true)) continue;
+        // 護衛の隊列は荷ごと狙われるため、契約の馬車を守る戦闘へ引き継ぐ専用の遭遇にする。
+        const escort = activity.action.transport === 'escort';
+        delete next.activity;
+        next.revision++;
+        addLog(next, escort ? '護送中の隊列が襲撃を受け、足を止めた。' : '移動中に襲撃を受け、足を止めた。', 'failure');
+        confront(next, escort ? 'escort-ambush' : 'travel-ambush');
+        break;
+      }
     }
     const nextWork = activity.action.type === 'work' && activity.work ? activity.startedAt + (activity.work.completed + 1) * fantasyWorkInterval(activity) : undefined;
     const end = Math.min(target, activity.endsAt, nextWork ?? Infinity);

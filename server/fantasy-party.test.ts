@@ -177,3 +177,38 @@ test('real WebSocket party requests enforce session boundaries, individual conse
   }
   const leftAt=a.messages.length;b.send({t:'leave'});await until(()=>a.messages.slice(leftAt).find(message=>message.state?.members.length===1));
 });
+
+test('the founder leads, can hand leadership over and remove a member',t=>{
+  const f=fixture(t,3);f.create();f.join('p1');f.join('p2');
+  const leader=(id:string)=>f.party.state(id).members.find(member=>member.isLeader)?.id;
+  assert.equal(leader('p2'),'p0');
+  assert.equal(f.request('p1',{type:'transferLeader',target:'p1'}).error,'leader-only');
+  assert.equal(f.request('p0',{type:'transferLeader',target:'p0'}).error,'incompatible');
+  assert.equal(f.request('p0',{type:'transferLeader',target:'ghost'}).error,'incompatible');
+  assert.equal(f.request('p0',{type:'transferLeader',target:'p1'}).error,undefined);
+  assert.equal(leader('p0'),'p1');
+  assert.equal(f.request('p0',{type:'kick',target:'p2'}).error,'leader-only');
+  assert.equal(f.request('p1',{type:'kick',target:'p1'}).error,'incompatible');
+  assert.equal(f.request('p1',{type:'kick',target:'p0'}).error,undefined);
+  assert.deepEqual(f.party.state('p1').members.map(member=>member.id),['p1','p2']);
+  assert.equal(f.party.state('p0').id,null);
+  assert.equal(isFantasyPartyCommand({type:'transferLeader',target:'p1'}),true);
+  assert.equal(isFantasyPartyCommand({type:'kick',target:'p1'}),true);
+  assert.equal(isFantasyPartyCommand({type:'kick'}),false);
+  assert.equal(isFantasyPartyCommand({type:'kick',target:'p1',extra:1}),false);
+});
+
+test('members can decline or sit out of a proposed battle and the leader cannot start with nobody',t=>{
+  const f=fixture(t,3);f.create();f.join('p1');f.join('p2');
+  const decision=(id:string)=>f.party.state('p0').members.find(member=>member.id===id)?.combatDecision;
+  assert.equal(f.request('p1',{type:'combatDecision',decision:'decline'}).error,undefined);
+  assert.equal(decision('p1'),'decline');
+  assert.equal(f.request('p1',{type:'combatDecision',decision:'sit-out'}).error,undefined);
+  assert.equal(decision('p1'),'sit-out');
+  assert.equal(f.request('p2',{type:'combatDecision',decision:'decline'}).error,undefined);
+  assert.equal(decision('p2'),'decline');
+  assert.equal(f.request('p0',{type:'startCombat'}).error,'not-ready');
+  assert.equal(isFantasyPartyCommand({type:'combatDecision',decision:'accept'}),true);
+  assert.equal(isFantasyPartyCommand({type:'combatDecision',decision:'maybe'}),false);
+  assert.equal(isFantasyPartyCommand({type:'combatDecision',decision:'accept',target:'x'}),false);
+});

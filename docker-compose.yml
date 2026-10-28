@@ -16,6 +16,9 @@ services:
       # HTTPS 終端プロキシの実アドレスだけを信頼する。未設定では転送ヘッダーを信頼しない。
       - FANTASY_TRUST_PROXY=${FANTASY_TRUST_PROXY:-0}
       - FANTASY_TRUSTED_PROXY_IPS=${FANTASY_TRUSTED_PROXY_IPS:-}
+      # 推論プロセスは別途用意し、アプリのコンテナから届く内部 URL を指定する。
+      - NPC_LLM_URL=${NPC_LLM_URL:-http://127.0.0.1:18081/v1}
+      - NPC_LLM_MODEL=${NPC_LLM_MODEL:-qwen3-1.7b}
       # - SESSIONS_FILE=/config/sessions.json
     expose:
       - "3001"

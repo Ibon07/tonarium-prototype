@@ -86,6 +86,20 @@ export function playPoke() {
   } catch { /* 音が出せない環境では無視 */ }
 }
 
+/** ダイスが転がる音。演出だけの任意機能なので、鳴らせない環境では黙って諦める。 */
+export function playDiceRoll() {
+  const volume = fxVolume() * 0.42;
+  if (volume <= 0.001) return;
+  try {
+    ctx ??= new AudioContext();
+    if (ctx.state !== 'running') { void ctx.resume().catch(() => {}); }
+    const t = ctx.currentTime, out = ctx.destination;
+    for (let i = 0; i < 7; i++) noise(ctx, out, t + i * 0.075 + Math.random() * 0.02, 0.05, volume);
+    tone(ctx, out, t, 240, 90, 0.2, 'square', volume * 0.22);
+    tone(ctx, out, t + 0.5, 520, 300, 0.12, 'triangle', volume * 0.3);
+  } catch { /* optional audio */ }
+}
+
 export function playSynth(id: string, distanceVolume: number) {
   const f = SYNTH[id];
   const volume = distanceVolume * fxVolume();

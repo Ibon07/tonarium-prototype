@@ -7,6 +7,7 @@ import { FANTASY_STORY_COMBATS, fantasyStoryCombatRequirement } from './fantasy-
 import { fantasyMainInvestigationError, fantasyMainStage } from './fantasy-main-trials.ts';
 import { FANTASY_APEX_PROVOCATIONS, fantasyCombatEnemy } from './fantasy-combat-catalog.ts';
 import { fantasyCombatHuntOptions, fantasyCombatStartError, fantasyCombatStartPlan, validFantasyCombatProgress } from './fantasy-combat-challenges.ts';
+import { FANTASY_ESCORT_AMBUSH_ENCOUNTER } from './fantasy-encounters.ts';
 import { fantasyHuntTargets } from './fantasy-gathering.ts';
 import { fantasyGmReply } from './fantasy-gm.ts';
 
@@ -89,6 +90,24 @@ test('a criminal profession alone never begins combat and lawful opponents requi
   for (const locale of ['ko', 'en', 'ja'] as const) {
     const reply = fantasyGmReply(active, 'What am I doing?', locale); assert.equal(reply.suggestions.length, 0); assert.ok(reply.text);
   }
+});
+
+test('an escort ambush plans the wagon battle while other encounters keep their own opponents', () => {
+  const p = player(1), c = p.character!;
+  c.location = 'hearth'; c.hour = 12; c.level = 5;
+  const contract = { id: 'escort-hearth-sunmeadow-48', from: 'hearth', destination: 'sunmeadow', hours: 4, reward: 6, acceptedAt: 12, defense: 'pending' as const };
+  c.escort = contract;
+  const departing = fantasyCombatStartPlan(p, 'escort', contract.id)!;
+  assert.equal(departing.source, `escort:${contract.id}`); assert.equal(departing.enemies[0].template, 'monster-forest-wolf');
+  assert.equal(fantasyCombatStartPlan(p, 'encounter', FANTASY_ESCORT_AMBUSH_ENCOUNTER), undefined, 'no ambush is pending yet');
+  p.event = 'encounter-woodland-wolf';
+  assert.equal(fantasyCombatStartPlan(p, 'escort', contract.id), undefined, 'another encounter never opens the wagon battle');
+  p.event = FANTASY_ESCORT_AMBUSH_ENCOUNTER;
+  assert.equal(fantasyCombatStartPlan(p, 'encounter', FANTASY_ESCORT_AMBUSH_ENCOUNTER)!.source, `escort:${contract.id}`);
+  assert.equal(fantasyCombatStartError(p, 'encounter', FANTASY_ESCORT_AMBUSH_ENCOUNTER), undefined);
+  assert.equal(fantasyCombatStartPlan(p, 'escort', 'escort-forged'), undefined);
+  c.location = 'sunmeadow';
+  assert.equal(fantasyCombatStartPlan(p, 'encounter', FANTASY_ESCORT_AMBUSH_ENCOUNTER), undefined);
 });
 
 test('hostile encounters preserve their actual opponents rather than replacing a waterside crab with a goblin', () => {

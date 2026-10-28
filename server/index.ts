@@ -143,6 +143,7 @@ let fantasyClock: FantasyClock;
 const fantasyStore = new FantasyStore(path.join(DATA_DIR, 'fantasy.json'), {
   save: saveFantasyData,
   combatEnabled: true,
+  ambush: true,
   worldHour: () => fantasyClock.snapshot().hour,
   clockError: () => fantasyClock.error,
 });

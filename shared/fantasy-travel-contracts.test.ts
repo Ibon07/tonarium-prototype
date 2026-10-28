@@ -7,7 +7,7 @@ import type { FantasyAction, FantasyProfile } from './fantasy.ts';
 import { FANTASY_JOBS, FANTASY_LOCATIONS, FANTASY_ROUTES } from './fantasy-data.ts';
 import { applyFantasyAction, advanceFantasyWorld, fantasyTransports, newFantasyProfile, startFantasyActivity } from './fantasy-engine.ts';
 import { FANTASY_GATE_HOURS, FANTASY_GATE_SETTLEMENTS, fantasyGateFare, fantasyHasGate } from './fantasy-gates.ts';
-import { FANTASY_ESCORT_JOBS, FANTASY_ESCORT_COOLDOWN_HOURS, fantasyEscortOffers, fantasyEscortPair, fantasyEscortTransportError, validFantasyEscort } from './fantasy-escort.ts';
+import { FANTASY_ESCORT_JOBS, FANTASY_ESCORT_COOLDOWN_HOURS, fantasyEscortOffers, fantasyEscortPair, fantasyEscortPenalty, fantasyEscortTransportError, validFantasyEscort } from './fantasy-escort.ts';
 import { FANTASY_SETTLEMENTS, fantasyFrontierLocations, fantasyKnownLocations } from './fantasy-town.ts';
 import { recordFantasyDeath } from './fantasy-mortality.ts';
 import { FantasyStore, isFantasyAction } from '../server/fantasy-store.ts';
@@ -157,7 +157,9 @@ test('escort completion cooldown covers reverse routes, ordinary travel cannot c
   let p=apply(fresh(),{type:'escortAccept',destination:'suncourt'});const gold=p.character!.gold;
   const walked=apply(p,{type:'travel',destination:'suncourt',transport:'foot'});
   assert.equal(walked.character!.gold,gold);assert.ok(walked.character!.escort);
-  p=apply(walked,{type:'escortAbandon'});assert.equal(p.character!.gold,gold);assert.equal(p.character!.escort,undefined);
+  const reward=p.character!.escort!.reward,penalty=fantasyEscortPenalty(reward);
+  p=apply(walked,{type:'escortAbandon'});assert.equal(p.character!.gold,gold-Math.min(gold,penalty));assert.equal(p.character!.escort,undefined);
+  assert.equal(p.character!.escortPenalty!.amount,penalty);assert.equal(p.character!.escortPenalty!.paid,Math.min(gold,penalty));assert.ok(validFantasyEscort(p.character!));
   p.character!.location='hearth';
   p=apply(p,{type:'escortAccept',destination:'suncourt'});p=apply(p,{type:'travel',destination:'suncourt',transport:'escort'});
   const completedAt=p.character!.hour,paid=p.character!.gold;
@@ -170,6 +172,21 @@ test('escort completion cooldown covers reverse routes, ordinary travel cannot c
   p.character!.hour=completedAt+FANTASY_ESCORT_COOLDOWN_HOURS;
   assert.equal(fantasyEscortOffers(p.character!).find(offer=>offer.destination==='hearth')!.available,true);
   assert.equal(p.character!.gold,paid);
+});
+
+test('abandoning an escort mid-journey stops the trip and charges the same penalty',()=>{
+  let p=apply(fresh(),{type:'escortAccept',destination:'suncourt'});
+  const reward=p.character!.escort!.reward,gold=p.character!.gold,penalty=fantasyEscortPenalty(reward);
+  p=startFantasyActivity(p,{type:'travel',destination:'suncourt',transport:'escort'},p.character!.hour,high).profile;
+  assert.ok(p.activity);
+  const stopped=applyFantasyAction(p,{type:'escortAbandon'},high);
+  assert.equal(stopped.error,undefined);
+  assert.equal(stopped.profile.activity,undefined);
+  assert.equal(stopped.profile.character!.escort,undefined);
+  assert.equal(stopped.profile.character!.location,'hearth');
+  assert.equal(stopped.profile.character!.gold,gold-Math.min(gold,penalty));
+  assert.ok(stopped.profile.log.some(log=>log.text===`護衛依頼を辞退した。報酬は受け取らず、違約金${penalty}枚（支払い${Math.min(gold,penalty)}枚）を負った。`));
+  assert.ok(validFantasyEscort(stopped.profile.character!));
 });
 
 test('forged escort terms and pending duration cannot change money or pass saved-state validation',t=>{
