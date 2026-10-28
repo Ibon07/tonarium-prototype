@@ -66,3 +66,8 @@ jobs:
       - run: npm run test:content-translations
       - run: npm run test:storage
       - run: npm run test:integration
+      - run: npm run test:session-actions
+      - run: npm run test:updates
+      - run: npm run test:ad
+      - run: npm run test:fantasy
+      - run: npm run test:fantasy-accounts
