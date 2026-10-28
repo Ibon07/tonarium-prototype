@@ -112,6 +112,7 @@ if (process.env.AUTH_DEV_LOGIN === '1' && !DEV_LOGIN) console.warn('NODE_ENV=pro
 const auth = new Auth({
   misskeyOrigin: (process.env.MISSKEY_URL || 'https://misskey.resonite.love').replace(/\/$/, ''),
   devLogin: DEV_LOGIN,
+  clientAddress: (req) => fantasyAccounts.clientAddress(req),
   onRenamed: (account) => {
     if (homeUsers().some((u) => u.id === account.id)) { updateHomeUser(account.id, { name: account.name }); broadcastUsers(); }
     if (account.kind !== 'guest') sendDirectory(account.id, account);
@@ -347,6 +348,20 @@ function addMedia(name: string, size: number) {
     for (const n of gone) await removeObject(`media/${n}`);
   });
 }
+/** 1 人が 1 時間に送れる添付画像。合計 1GB の上限をひとりで埋められないようにする（MEDIA_RATE_* はテスト用） */
+const MEDIA_RATE = { files: Number(process.env.MEDIA_RATE_FILES) || 30, bytes: 100 * 1024 * 1024, windowMs: 60 * 60_000 };
+const mediaUploads = new Map<string, { at: number; size: number }[]>();
+function recentMediaUploads(id: string) {
+  const now = Date.now();
+  const recent = (mediaUploads.get(id) ?? []).filter((u) => now - u.at < MEDIA_RATE.windowMs);
+  if (recent.length) mediaUploads.set(id, recent); else mediaUploads.delete(id);
+  return recent;
+}
+function allowMediaUpload(id: string) {
+  const recent = recentMediaUploads(id);
+  return recent.length < MEDIA_RATE.files && recent.reduce((n, u) => n + u.size, 0) < MEDIA_RATE.bytes;
+}
+const recordMediaUpload = (id: string, size: number) => { mediaUploads.set(id, [...recentMediaUploads(id), { at: Date.now(), size }]); };
 /** 画像の中身はストレージから直接読ませる。版付きの URL は中身が変わらないので、転送ごと長くキャッシュさせる */
 function redirectToObject(res: http.ServerResponse, key: string, immutable: boolean) {
   res.statusCode = 302;
@@ -2587,11 +2602,16 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
   if (url.pathname === '/media' && req.method === 'POST') {
-    if (!await who()) { deny(401); return; }
+    const account = await who();
+    if (!account) { deny(401); return; }
     res.setHeader('Content-Type', 'application/json');
+    // 添付は合計の上限で古いものから消えるので、ほかの人の画像を押し出させないよう、送れる人と量を絞る
+    if (account.kind === 'guest') { res.statusCode = 403; res.end(JSON.stringify({ error: 'ゲストは画像を共有できません。ログインすると共有できます' })); return; }
+    if (!allowMediaUpload(account.id)) { res.statusCode = 429; res.end(JSON.stringify({ error: '画像を送りすぎています。しばらくしてからもう一度お試しください' })); return; }
     let r: Awaited<ReturnType<typeof saveMedia>>;
     try { r = await saveMedia(req, storage); } catch (e) { console.error('画像を保存できませんでした:', e); res.statusCode = 500; res.end(); return; }
     if ('error' in r) { res.statusCode = r.status; res.end(JSON.stringify(r)); return; }
+    recordMediaUpload(account.id, r.size);
     addMedia(r.name, r.size);
     res.end(JSON.stringify({ url: r.url }));
     return;

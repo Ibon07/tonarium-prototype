@@ -43,6 +43,13 @@
       "when": 1793188820324,
       "tag": "0005_media_files",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793206340972,
+      "tag": "0006_miauth_callback",
+      "breakpoints": true
     }
   ]
 }

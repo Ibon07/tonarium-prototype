@@ -46,7 +46,7 @@ test('people, home and the rest of the data survive a server restart from the da
   t.after(stop);
   async function start() {
     child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
-      env: { ...process.env, ...dbEnv, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '', MEDIA_TOTAL_MAX_BYTES: '20' },
+      env: { ...process.env, ...dbEnv, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '', MEDIA_TOTAL_MAX_BYTES: '20', MEDIA_RATE_FILES: '2' },
       stdio: 'ignore',
     });
     const end = Date.now() + 30_000;
@@ -145,6 +145,10 @@ test('people, home and the rest of the data survive a server restart from the da
   for (let i = 0; i < 2; i++) later.push(((await (await upload('/media', png, a.headers)).json()) as { url: string }).url);
   await until(async () => (await fetch(`${base}${media}`)).status === 404 ? true : undefined);
   for (const url of later) assert.equal((await fetch(`${base}${url}`)).status, 200);
+  // 1 人が送れる数には上限がある（テストでは 1 時間に 2 枚）。ゲストは送れない
+  assert.equal((await upload('/media', png, a.headers)).status, 429);
+  const guestAgain = await fetch(`${base}/auth/guest`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ name: 'Gia' }) });
+  assert.equal((await upload('/media', png, { Cookie: (guestAgain.headers.get('set-cookie') ?? '').split(';')[0] })).status, 403);
   // DB に移したデータは JSON に書かない
   const files = await readdir(data);
   assert.ok(!files.includes('media'), 'old local media is removed');
