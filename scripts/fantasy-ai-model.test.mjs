@@ -207,7 +207,7 @@ test('parses Linux MemAvailable in KiB without confusing total or free memory', 
 });
 
 test('validates the operator memory threshold and applies the default', () => {
-  assert.equal(module.parseMinimumAvailableMb(undefined), 4608);
+  assert.equal(module.parseMinimumAvailableMb(undefined), 6144);
   assert.equal(module.parseMinimumAvailableMb('256'), 256);
   assert.equal(module.parseMinimumAvailableMb('65536'), 65536);
   for (const value of ['', '0', '255', '65537', '2304.5', 'NaN', '2e3']) {
@@ -221,7 +221,7 @@ test('stops CLI preparation when Linux available memory is below the operator th
     env: {},
     readMeminfo: async () => 'MemTotal: 16777216 kB\nMemAvailable: 4718591 kB\n',
     prepare: async () => { throw new Error('model preparation started despite low memory'); },
-  }), /available memory.*4608 MiB/i);
+  }), /available memory.*6144 MiB/i);
 });
 
 test('allows sufficient Linux memory and passes the fixed model manifest to preparation', async () => {

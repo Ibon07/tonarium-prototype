@@ -41,7 +41,7 @@ services:
     restart: "on-failure:3"
     environment:
       - MODEL_DIRECTORY=/models
-      - NPC_AI_MIN_AVAILABLE_MB=${NPC_AI_MIN_AVAILABLE_MB:-4608}
+      - NPC_AI_MIN_AVAILABLE_MB=${NPC_AI_MIN_AVAILABLE_MB:-6144}
     volumes:
       - fantasy-ai-models:/models
     mem_limit: 256m
@@ -85,7 +85,7 @@ services:
       - "8080"
     volumes:
       - fantasy-ai-models:/models:ro
-    mem_limit: ${NPC_AI_MEMORY_LIMIT:-5g}
+    mem_limit: ${NPC_AI_MEMORY_LIMIT:-6g}
     cpus: ${NPC_AI_CPU_LIMIT:-2.0}
     user: "1000:1000"
     read_only: true

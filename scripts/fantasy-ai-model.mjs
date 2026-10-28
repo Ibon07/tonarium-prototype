@@ -74,7 +74,7 @@ export function parseAvailableMemoryMb(meminfo) {
 }
 
 export function parseMinimumAvailableMb(value) {
-  if (value === undefined) return 4608;
+  if (value === undefined) return 6144;
   const minimum = Number(value);
   if (!/^\d+$/.test(value) || !Number.isSafeInteger(minimum) || minimum < 256 || minimum > 65536) {
     throw new Error('NPC_AI_MIN_AVAILABLE_MB must be an integer from 256 to 65536');

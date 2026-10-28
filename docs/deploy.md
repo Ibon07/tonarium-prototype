@@ -87,16 +87,16 @@ Coolify の Docker Compose では、`tonarium` の環境変数に次を設定し
 
 ### 資源と設定
 
-GPU は不要だが CPU・メモリ・ディスクの余裕が必要である。推論の既定は CPU 上限 2 コア、メモリ上限 5 GiB、2 スレッド、同時枠 2、各枠 4096 トークン。準備コンテナは CPU 上限 1 コア・メモリ上限 256 MiB でストリーム取得する。空きディスクはモデル全体と 128 MiB の余裕が必要で、破損モデルを置き換える場合は既存分と別に確保する。上限は実測の常用消費量ではない。
+GPU は不要だが CPU・メモリ・ディスクの余裕が必要である。推論の既定は CPU 上限 2 コア、メモリ上限 6 GiB、2 スレッド、同時枠 2、各枠 4096 トークン。準備コンテナは CPU 上限 1 コア・メモリ上限 256 MiB でストリーム取得する。空きディスクはモデル全体と 128 MiB の余裕が必要で、破損モデルを置き換える場合は既存分と別に確保する。上限は実測の常用消費量ではない。
 
-Linux では準備開始時の `/proc/meminfo` の `MemAvailable` が既定で 4608 MiB 未満なら中止してログに理由を出す。これは開始時点のホストの目安であり、その後の負荷や cgroup 内の余裕は保証しない。Tonarium・LiveKit・OS の分も含め、容量を確認すること。既存の `NPC_AI_MEMORY_LIMIT=3g` や `NPC_AI_MIN_AVAILABLE_MB=2304` などの明示設定は上書きしない。4B 移行時には設定とサーバー容量の再確認が必要になる。
+Linux では準備開始時の `/proc/meminfo` の `MemAvailable` が既定で 6144 MiB 未満なら中止してログに理由を出す。これは開始時点のホストの目安であり、その後の負荷や cgroup 内の余裕は保証しない。Tonarium・LiveKit・OS の分も含め、容量を確認すること。既存の `NPC_AI_MEMORY_LIMIT=3g` や `NPC_AI_MIN_AVAILABLE_MB=2304` などの明示設定は上書きしない。4B 移行時には設定とサーバー容量の再確認が必要になる。
 
 | 環境変数 | 既定 | 用途 |
 | --- | --- | --- |
 | `NPC_AI_THREADS` | `2` | 推論・入力処理の CPU スレッド数 |
 | `NPC_AI_CPU_LIMIT` | `2.0` | 推論コンテナの CPU 上限 |
-| `NPC_AI_MEMORY_LIMIT` | `5g` | 推論コンテナのメモリ上限。小さすぎると起動に失敗する |
-| `NPC_AI_MIN_AVAILABLE_MB` | `4608` | 準備開始時の最低 MemAvailable（MiB、256～65536）。下げる前に容量を確認する |
+| `NPC_AI_MEMORY_LIMIT` | `6g` | 推論コンテナのメモリ上限。小さすぎると起動に失敗する |
+| `NPC_AI_MIN_AVAILABLE_MB` | `6144` | 準備開始時の最低 MemAvailable（MiB、256～65536）。下げる前に容量を確認する |
 | `NPC_LLM_URL` | `http://fantasy-ai:8080/v1` | アプリが接続する内部 OpenAI 互換 API |
 | `NPC_LLM_MODEL` | `qwen3-4b` | API のモデル名。同梱サービスでは既定名を使う |
 | `NPC_LLM_BUNDLED_URL` | 標準 Compose が固定指定 | 旧開発用 URL の内部移行先。運営側での追加設定は不要 |
