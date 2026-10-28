@@ -132,7 +132,7 @@ export interface AntimatterSlice {
   saveToServer: () => Promise<void>;
   loadFromServer: () => Promise<void>;
   refreshLeaderboard: () => Promise<void>;
-  submitScore: (name: string) => Promise<void>;
+  submitScore: () => Promise<void>;
 }
 
 export interface AntimatterPanelProps {

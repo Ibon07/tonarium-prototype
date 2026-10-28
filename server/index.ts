@@ -55,7 +55,9 @@ import { Follows } from './follows.ts';
 import { POST_RATE, Timeline, UPLOAD_RATE } from './timeline.ts';
 import { POST_IMAGE_MAX_BYTES, isImageId, type Post } from '../shared/timeline.ts';
 import { closeDb, db, openDb } from './db/index.ts';
-import { debounced, drain } from './db/persist.ts';
+import { debounced, drain, enqueue } from './db/persist.ts';
+import { listAppData, putAppData, getAppData } from './db/app-data.ts';
+import { addMarketLike, addReport, loadContent, savePosts, saveItems as writeItems } from './db/content-store.ts';
 import { loadPeopleAndHome, saveConversations, saveFollows as writeFollows, saveHome as writeHome, savePeople as writePeople, saveReads, type PersonRec } from './db/home-store.ts';
 import { accounts } from './db/schema.ts';
 import { ne } from 'drizzle-orm';
@@ -104,30 +106,17 @@ try {
 } catch { console.error('Content translation registration failed; original text remains available.'); }
 const ICON_DIR = path.join(DATA_DIR, 'icons');
 const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
-const TIMELINE_FILE = path.join(DATA_DIR, 'timeline.json');
 const TIMELINE_IMAGE_DIR = path.join(DATA_DIR, 'timeline-images');
 const GROUP_IMAGE_DIR = path.join(DATA_DIR, 'group-images');
-const REPORTS_FILE = path.join(DATA_DIR, 'reports.log');
-const ITEMS_FILE = path.join(DATA_DIR, 'items.json');
-const SURVIVORS_FILE = path.join(DATA_DIR, 'survivors.json');
-const AD_SAVES_FILE = path.join(DATA_DIR, 'ad-saves.json');
-const AD_LEADERBOARD_FILE = path.join(DATA_DIR, 'ad-leaderboard.json');
 /** 2 人以上がこの時間以上いたセッションだけ、グループのチャンネルにまとめを残す */
 const RECAP_MIN_MS = Number(process.env.RECAP_MIN_MINUTES ?? 10) * 60_000;
-function readJson<T>(file: string, fallback: T): T {
-  try { return JSON.parse(fs.readFileSync(file, 'utf-8')) as T; } catch { return fallback; }
-}
 /** ユーザー由来のキー（ID・名前）を入れるレコードは prototype を持たせない。__proto__ 等も通常のキーとして扱い、Object.prototype を汚染させない */
 function newRecord<T>(): Record<string, T> { return Object.create(null) as Record<string, T>; }
 function nullRecord<T>(obj: Record<string, T>): Record<string, T> { return Object.assign(newRecord<T>(), obj); }
-/** 書き込みが続いてもまとめて 1 回にする。flush は保留分をその場で流す（終了時の保存用） */
-function later(fn: () => void, ms = 800) {
+/** 続けて呼ばれてもまとめて 1 回にする（配信用。保存は db/persist.ts の debounced） */
+function later(fn: () => void, ms: number) {
   let t: ReturnType<typeof setTimeout> | null = null;
-  // 失敗で落とさない。従来の非同期書き込みもエラーを握りつぶしていたし、終了時に 1 件の失敗で他を巻き込まないため
-  const run = () => { t = null; try { fn(); } catch { /* noop */ } };
-  const trigger = () => { if (!t) t = setTimeout(run, ms); };
-  trigger.flush = () => { if (t) { clearTimeout(t); run(); } };
-  return trigger;
+  return () => { if (!t) t = setTimeout(() => { t = null; fn(); }, ms); };
 }
 /**
  * 人を名前で持っていた頃のデータは引き継がない。最初の起動で data/archive-<日時>/ へ移して残し、新しく空から始める
@@ -160,25 +149,16 @@ catch (e) {
   process.exit(1);
 }
 const loaded = await loadPeopleAndHome();
-const MARKET_LIKES_FILE = path.join(DATA_DIR, 'market-likes.json');
-const marketLikes = new MarketLikes(readJson<unknown>(MARKET_LIKES_FILE, {}));
-const saveMarketLikes = later(() => fs.writeFileSync(MARKET_LIKES_FILE, JSON.stringify(marketLikes.serialize())));
-const survivorProfiles = nullRecord(readJson<Record<string, SurvivorProfile>>(SURVIVORS_FILE, {}));
+const content = await loadContent();
+const marketLikes = new MarketLikes(content.likes);
+const survivorProfiles = nullRecord(Object.fromEntries((await listAppData<SurvivorProfile>('survivors.profile')).map((r) => [r.key, r.data])));
 /** ゲストの進み具合は保存しない（端末を変えると別人になるため、ログインした人だけ残す） */
 const guestIds = new Set<string>();
-const saveSurvivorProfiles = later(() => fs.writeFileSync(SURVIVORS_FILE, JSON.stringify(Object.fromEntries(Object.entries(survivorProfiles).filter(([id]) => !guestIds.has(id))))));
-/** AD のセーブとランキングは Tonarium サーバー内で完結する（Workers は使わない） */
-interface AdLeaderboardEntry { playerId: string; name: string; antimatterLog10: number; infinities: number; playTimeSec: number }
-const adSaves = nullRecord(readJson<Record<string, { save: unknown; updatedAt: string }>>(AD_SAVES_FILE, {}));
-const adLeaderboard = readJson<AdLeaderboardEntry[]>(AD_LEADERBOARD_FILE, []);
-/** AD の保存は 30 秒に 1 回程度のため、survivors のデバウンス書きとは別に tmp＋リネームで同期書きする（再起動後も残る） */
-function writeJsonAtomic(file: string, value: unknown): void {
-  const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value));
-  fs.renameSync(tmp, file);
-}
-const saveAdSaves = () => writeJsonAtomic(AD_SAVES_FILE, adSaves);
-const saveAdLeaderboard = () => writeJsonAtomic(AD_LEADERBOARD_FILE, adLeaderboard);
+// 1 人分ずつの印は付けず、変わったら全員分を 1 回で書く（人数ぶんの行しかない）
+const saveSurvivorProfiles = debounced('survivors', () => putAppData('survivors.profile',
+  Object.entries(survivorProfiles).filter(([id]) => !guestIds.has(id)).map(([id, data]) => ({ key: id, accountId: id, data }))));
+/** AD のセーブとランキングはアカウントごとに 1 つ（app_data の ad.save・ad.leaderboard。キーはアカウント ID） */
+interface AdScore { antimatterLog10: number; infinities: number; playTimeSec: number }
 function survivorCount(value: unknown, max: number) {
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.min(max, Math.max(0, Math.floor(value)))
@@ -340,7 +320,7 @@ const thumbnails = new SessionThumbnails(
   () => broadcastSessionInfo(),
 );
 // アイテムはだれもいなくなっても残し、再起動しても戻す（盤面の続きをするため）
-const savedItems = nullRecord(readJson<Record<string, Item[]>>(ITEMS_FILE, {}));
+const savedItems = content.items;
 /** 持っている人や編集中の人は再起動でいなくなるので外す */
 function settle(it: Item) {
   if (it.kind === 'bike') Object.assign(it, releaseBike(it));
@@ -361,17 +341,14 @@ function registerSession(def: SessionDef) {
 /** アイテムが変わったセッションの印。保存は印があるときだけ文字列化する（無変更でも 5 秒ごとに全アイテムを文字列化していたのをやめる） */
 const dirtyItemSessions = new Set<string>();
 const markItemsDirty = (sid: string) => { dirtyItemSessions.add(sid); };
-const itemsJson = () => JSON.stringify(Object.fromEntries([...items].filter(([, m]) => m.size).map(([sid, m]) => [sid, [...m.values()]])));
+/** 終了時にも呼び、保留分を書き込みの列に積む */
 function saveItems() {
   if (!dirtyItemSessions.size) return;
+  const sids = [...dirtyItemSessions];
   dirtyItemSessions.clear();
-  fs.writeFile(ITEMS_FILE, itemsJson(), () => {});
-}
-/** 終了時は保留分をその場で書き出す */
-function flushItems() {
-  if (!dirtyItemSessions.size) return;
-  dirtyItemSessions.clear();
-  try { fs.writeFileSync(ITEMS_FILE, itemsJson()); } catch { /* noop */ }
+  const bySession = Object.fromEntries(sids.map((sid) => [sid, [...(items.get(sid)?.values() ?? [])]]));
+  // 失敗したら印を戻し、次の 5 秒でもう一度書く
+  enqueue('items', () => writeItems(bySession), () => { for (const sid of sids) dirtyItemSessions.add(sid); });
 }
 setInterval(saveItems, 5000);
 
@@ -407,6 +384,8 @@ for (const w of guild.sessions) {
   registerSession(w);
   scheduleEmptyCheck(w.id);
 }
+// sessions.json から外したセッションなどのアイテムは、次の保存で DB から消す
+for (const sid of Object.keys(savedItems)) if (!sessionIds.has(sid)) markItemsDirty(sid);
 // 配信のたびにフレンド全走査と全ユーザー配列化を人数分繰り返さないよう、1 回の配信で使い回す写し
 interface UserSnapshot { all: Participant[]; friendsById: Map<string, string[]> }
 function snapshotUsers(): UserSnapshot {
@@ -519,8 +498,15 @@ function broadcastFollows() {
   for (const id of users.keys()) sendTo([id], followsMsg(id, map));
 }
 
-const saveTimeline = later(() => fs.writeFileSync(TIMELINE_FILE, timeline.serialize()));
-const timeline = new Timeline(TIMELINE_FILE, TIMELINE_IMAGE_DIR, () => saveTimeline());
+/** 変わったポスト。消えたポストは保存のときに全体と比べて消す */
+const dirtyPosts = new Set<string>();
+const saveTimeline = debounced('timeline', async () => {
+  const ids = [...dirtyPosts];
+  dirtyPosts.clear();
+  try { await savePosts(timeline.posts, ids); }
+  catch (e) { for (const id of ids) dirtyPosts.add(id); throw e; }
+});
+const timeline = new Timeline(content.posts, TIMELINE_IMAGE_DIR, (id) => { if (id) dirtyPosts.add(id); saveTimeline(); });
 timeline.sweepImages();
 setInterval(() => {
   const gone = timeline.prune();
@@ -1011,7 +997,7 @@ function handle(ws: WebSocket, state: { id: string | null; account: Account | nu
   if (me.guest && LOGIN_ONLY.has(msg.t)) { send(ws, { t: 'loginRequired' }); return; }
   if (msg.t === 'marketLike') {
     if (marketLikes.like(msg.product, me.id)) {
-      saveMarketLikes();
+      enqueue('marketLike', () => addMarketLike(msg.product as string, me.id));
       for (const id of sockets.keys()) sendTo([id], { t: 'marketLikes', ...marketLikes.snapshot(id) });
     } else send(ws, { t: 'marketLikes', ...marketLikes.snapshot(me.id) });
     return;
@@ -1975,33 +1961,33 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const body = await readBody(req, 10_000);
     try {
       const r = JSON.parse(body?.toString('utf-8') ?? '') as { target?: unknown; reason?: unknown };
-      fs.appendFileSync(REPORTS_FILE, `${JSON.stringify({ at: new Date().toISOString(), from: account.id, fromName: account.name, target: String(r.target).slice(0, 64), reason: String(r.reason ?? '').slice(0, 500) })}\n`);
+      const report = { fromAccount: account.id, fromName: account.name, target: String(r.target).slice(0, 64), reason: String(r.reason ?? '').slice(0, 500) };
+      enqueue('report', () => addReport(report));
       console.log(`report: ${account.name} -> ${String(r.target)}`);
     } catch { res.statusCode = 400; }
     res.end();
     return;
   }
-  // AD の保存・ランキング。Tonarium にアカウント認証は無く、URL の playerId をキーとしてそのまま受け入れる。
-  // Workers 版にあった他人セーブの 403 保護はここでは成立しない（docs/items.md の「AD ポータルと研究所パネル」参照）。
-  const adSaveMatch = /^\/api\/save\/([^/]+)$/.exec(url.pathname);
-  if (adSaveMatch) {
-    let playerId: string;
-    try { playerId = decodeURIComponent(adSaveMatch[1]).slice(0, 128); } catch { res.statusCode = 400; res.end('bad path'); return; }
+  // AD の保存・ランキング。URL や本文の playerId は使わず、ログインのアカウントごとに 1 つ持つ。ゲストは残さない
+  if (/^\/api\/save\/[^/]+$/.test(url.pathname)) {
     res.setHeader('Content-Type', 'application/json');
+    const account = await who();
+    if (!account) { deny(401); return; }
     if (req.method === 'GET') {
-      const rec = playerId ? adSaves[playerId] : undefined;
+      const rec = account.kind === 'guest' ? undefined : await getAppData<{ save: unknown }>('ad.save', account.id);
       if (!rec) { res.statusCode = 404; res.end(JSON.stringify({ error: 'not found' })); return; }
       res.end(JSON.stringify({ save: rec.save }));
       return;
     }
     if (req.method === 'POST') {
+      if (account.kind === 'guest') { deny(403); return; }
       const body = await readBody(req, 1_000_000);
-      if (!body || !playerId) { res.statusCode = 413; res.end(); return; }
+      if (!body) { res.statusCode = 413; res.end(); return; }
       let parsed: { save?: unknown; updatedAt?: unknown } | null = null;
       try { parsed = JSON.parse(body.toString('utf-8')) as { save?: unknown; updatedAt?: unknown }; } catch { res.statusCode = 400; res.end(); return; }
       if (!parsed || typeof parsed.save !== 'object' || parsed.save === null || Array.isArray(parsed.save)) { res.statusCode = 400; res.end(); return; }
-      adSaves[playerId] = { save: parsed.save, updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString() };
-      try { saveAdSaves(); } catch { res.statusCode = 500; res.end(); return; }
+      const data = { save: parsed.save, updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString() };
+      try { await putAppData('ad.save', [{ key: account.id, accountId: account.id, data }]); } catch { res.statusCode = 500; res.end(); return; }
       res.end(JSON.stringify({ ok: true }));
       return;
     }
@@ -2010,31 +1996,31 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   if (url.pathname === '/api/leaderboard') {
     res.setHeader('Content-Type', 'application/json');
     if (req.method === 'GET') {
-      // playerId はセーブの読み書きキーそのものなので応答には含めない (#210)。
-      // 自分の行の強調表示のため、クライアントが既に送っている X-User-Id と一致する行にだけ self を付ける。
-      const selfId = typeof req.headers['x-user-id'] === 'string' ? req.headers['x-user-id'].slice(0, 128) : '';
-      const entries = adLeaderboard.map(({ playerId, ...rest }) => (selfId && playerId === selfId ? { ...rest, self: true } : rest));
+      // 名前は送られたものではなく名簿の表示名。アカウント ID は返さず、自分の行にだけ self を付ける
+      const self = (await who())?.id;
+      const rows = await listAppData<AdScore>('ad.leaderboard');
+      const entries = rows
+        .sort((a, b) => b.data.antimatterLog10 - a.data.antimatterLog10 || b.data.infinities - a.data.infinities)
+        .slice(0, 50)
+        .map((r) => ({ name: directory.get(r.key)?.name ?? '', ...r.data, ...(r.key === self ? { self: true } : {}) }));
       res.end(JSON.stringify({ entries }));
       return;
     }
     if (req.method === 'POST') {
+      const account = await who();
+      if (!account) { deny(401); return; }
+      if (account.kind === 'guest') { deny(403); return; }
       const body = await readBody(req, 20_000);
       if (!body) { res.statusCode = 413; res.end(); return; }
-      let e: Partial<AdLeaderboardEntry> | null = null;
-      try { e = JSON.parse(body.toString('utf-8')) as Partial<AdLeaderboardEntry>; } catch { res.statusCode = 400; res.end(); return; }
+      let e: Partial<AdScore> | null = null;
+      try { e = JSON.parse(body.toString('utf-8')) as Partial<AdScore>; } catch { res.statusCode = 400; res.end(); return; }
       const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : null);
       const antimatterLog10 = num(e?.antimatterLog10);
       const infinities = num(e?.infinities);
       const playTimeSec = num(e?.playTimeSec);
-      const playerId = typeof e?.playerId === 'string' ? e.playerId.slice(0, 128) : '';
-      const name = typeof e?.name === 'string' ? e.name.slice(0, 24) : '';
-      if (!playerId || antimatterLog10 === null || infinities === null || playTimeSec === null) { res.statusCode = 400; res.end(); return; }
-      const entry: AdLeaderboardEntry = { playerId, name, antimatterLog10, infinities, playTimeSec };
-      const at = adLeaderboard.findIndex((x) => x.playerId === playerId);
-      if (at >= 0) adLeaderboard[at] = entry; else adLeaderboard.push(entry);
-      adLeaderboard.sort((a, b) => b.antimatterLog10 - a.antimatterLog10 || b.infinities - a.infinities);
-      adLeaderboard.length = Math.min(adLeaderboard.length, 50);
-      try { saveAdLeaderboard(); } catch { res.statusCode = 500; res.end(); return; }
+      if (antimatterLog10 === null || infinities === null || playTimeSec === null) { res.statusCode = 400; res.end(); return; }
+      const data: AdScore = { antimatterLog10, infinities, playTimeSec };
+      try { await putAppData('ad.leaderboard', [{ key: account.id, accountId: account.id, data }]); } catch { res.statusCode = 500; res.end(); return; }
       res.end(JSON.stringify({ ok: true }));
       return;
     }
@@ -2183,10 +2169,9 @@ systemTick.unref();
 for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => {
   clearInterval(systemTick);
   systems.dispose();
-  // 遅延保存の保留分は落とす前に書き出す。broadcast の later は保存ではないので対象外
-  saveMarketLikes.flush();
+  // まとめ待ちの保存も落とす前に積む
   saveSurvivorProfiles.flush();
-  flushItems();
+  saveItems();
   saveHome.flush();
   saveFollows.flush();
   saveTimeline.flush();

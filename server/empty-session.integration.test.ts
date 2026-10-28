@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
@@ -10,6 +10,7 @@ import { devLogin } from './test-auth.ts';
 import { pathToFileURL } from 'node:url';
 import { WebSocket } from 'ws';
 import { COMPAT_VERSION, type ClientMsg, type ServerMsg, type SessionDef, type EventDef } from '../shared/protocol.ts';
+import type { Item } from '../shared/items.ts';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(check: () => boolean | Promise<boolean>) {
@@ -32,8 +33,8 @@ test('empty user sessions expire; joins, fixed sessions and manual deletion keep
   const manual = { ...restored, id: 'manual', name: 'Manual' };
   const events = [restored, manual].map((s) => ({ id: s.id, title: s.name, at: Date.now(), group: null, session: s.id, owner: ids.owner, attendees: [], maybe: [], declined: [] }));
   await writeFile(path.join(data, 'sessions.json'), JSON.stringify({ name: 'Test', sessions: [fixed] }));
-  await seedHomeData(dbEnv, { home: { sessions: [restored, manual] as SessionDef[], events } });
-  await writeFile(path.join(data, 'items.json'), JSON.stringify(Object.fromEntries([restored, manual].map((s) => [s.id, [{ id: 'canvas', kind: 'canvas', x: 0, z: 0, ry: 0, strokes: [] }]]))));
+  const items = Object.fromEntries([restored, manual].map((s) => [s.id, [{ id: 'canvas', kind: 'canvas', x: 0, z: 0, ry: 0, strokes: [] } as unknown as Item]]));
+  await seedHomeData(dbEnv, { home: { sessions: [restored, manual] as SessionDef[], events }, items });
   // 本番の TTL は変えず、子プロセス内の空セッション用タイマーだけ短縮する。
   const preload = path.join(data, 'short-ttl.mjs');
   await writeFile(preload, `const original = globalThis.setTimeout; globalThis.setTimeout = (fn, ms, ...args) => original(fn, ms === 300000 ? 1500 : ms, ...args);`);
@@ -125,14 +126,9 @@ test('empty user sessions expire; joins, fixed sessions and manual deletion keep
   owner.ws.close();
   await until(() => !has(observer, disconnected));
   assert.ok(has(observer, 'fixed'), 'sessions.json sessions never expire');
-  // アイテムはまだ JSON をその場で上書きするので、書いている途中に読むと空や途切れた中身になる。そのときは読み直す
-  const readSaved = async (file: string) => {
-    try { return JSON.parse(await readFile(path.join(data, file), 'utf8')); } catch { return null; }
-  };
   await until(async () => {
     const saved = await readHomeData(dbEnv);
-    const items = await readSaved('items.json');
-    return !!items && saved.sessions.length === 0 && saved.events.every((e) => e.sessionId === null) && !items.restored && !items.manual;
+    return saved.sessions.length === 0 && saved.events.every((e) => e.sessionId === null) && saved.items.length === 0;
   });
   assert.equal(deletions.length, 4);
   assert.ok(deletions.every((line) => line.includes('empty for 5min')));

@@ -6,7 +6,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { testServerEnv } from './test-db.ts';
+import { seedHomeData, testServerEnv } from './test-db.ts';
 import { devLogin } from './test-auth.ts';
 import { WebSocket } from 'ws';
 import { KokosyncClient } from '../vendor/kokosync/index.js';
@@ -36,7 +36,7 @@ test('live kokosync: initial canvas, deltas, private delivery, independent media
     strokes: Array.from({ length: 600 }, (_, i) => ({ id: `line-${i}`, by: 'seed', color: '#334455', size: 3, pts: Array.from({ length: 100 }, (_, n) => (n * 3) % 400) })) };
   const sessions = [{ id: 'sync-test', name: 'Sync test' }, { id: 'other-test', name: 'Other test' }, { id: 'peer-five', name: 'Peer five' }];
   await writeFile(path.join(data, 'sessions.json'), JSON.stringify({ name: 'test', sessions }));
-  await writeFile(path.join(data, 'items.json'), JSON.stringify({ 'sync-test': [canvas] }));
+  await seedHomeData(dbEnv, { items: { 'sync-test': [canvas as unknown as Item] } });
   const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
     env: { ...process.env, ...dbEnv, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' }, stdio: ['ignore', 'pipe', 'pipe'],
   });

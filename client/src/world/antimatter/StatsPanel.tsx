@@ -1,11 +1,9 @@
-import { useState } from 'react';
 import type { AntimatterSlice } from './types.ts';
 import { formatDuration, formatFromLog10, formatNumber } from './format.ts';
 import { ACHIEVEMENT_DEFS, s } from './styles.ts';
 import { LabBanner } from './LabArt.tsx';
 
 export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: string) => void }) {
-  const [scoreName, setScoreName] = useState('');
   const { game } = ad;
   const owned = new Set(game.achievements);
   const playTimeSec = Math.max(0, Math.floor((Date.now() - (game.createdAt || Date.now())) / 1000));
@@ -62,9 +60,9 @@ export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: 
             </tbody>
           </table>
         )}
+        <p style={s.muted}>ランキングには Tonarium の表示名で載ります（アカウントごとに 1 つ。ゲストは載りません）</p>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-          <input style={s.input} value={scoreName} onChange={(e) => setScoreName(e.target.value)} placeholder="ランキング表示名（空ならプロフィール名）" aria-label="ランキング表示名" />
-          <button style={s.btn} onClick={() => { void ad.submitScore(scoreName.trim() || ad.activeProfile?.name || '').then(() => notice('スコアを送信しました')).catch(() => notice('スコアを送信できませんでした')); }}>スコアを送信</button>
+          <button style={s.btn} onClick={() => { void ad.submitScore().then(() => notice('スコアを送信しました')).catch(() => notice('スコアを送信できませんでした')); }}>スコアを送信</button>
           <button style={s.btn} onClick={() => { void ad.refreshLeaderboard().catch(() => notice('ランキングの個別更新はまだ利用できません。スコア送信時に更新されます')); }}>ランキングを更新</button>
         </div>
       </div>
