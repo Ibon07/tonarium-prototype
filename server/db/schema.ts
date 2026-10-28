@@ -171,3 +171,10 @@ export const accountImages = pgTable('account_images', {
   /** 画像か調整値のどちらかが変わると新しくなる。画面はこれで読み直す */
   avatarVersion: text('avatar_version'),
 });
+
+/** ストレージの media/ に置いた添付画像。合計の大きさを見て、上限を超えたら古いものから消すために持つ */
+export const mediaFiles = pgTable('media_files', {
+  name: text('name').primaryKey(),
+  size: integer('size').notNull(),
+  at: at('at').notNull().defaultNow(),
+});

@@ -37,9 +37,9 @@ import { EMOTES, isEmoteId } from '../shared/emotes.ts';
 import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts';
 import type { PeerOperation } from '../shared/session-events.ts';
 import { getOgp } from './ogp.ts';
-import { IMAGE_TYPES, MEDIA_NAME_RE, pipeFile, saveMedia } from './media.ts';
+import { IMAGE_TYPES, MEDIA_NAME_RE, MEDIA_TOTAL_MAX, pipeFile, saveMedia } from './media.ts';
 import { FileStorage, openStorage } from './storage.ts';
-import { loadAccountImages, saveAccountImages, type AccountImages } from './db/image-store.ts';
+import { addMediaFile, loadAccountImages, loadMediaFiles, removeMediaFiles, saveAccountImages, type AccountImages } from './db/image-store.ts';
 import { SharedService } from './shared-service.ts';
 import { sharedSolids } from '../shared/shared-presentation.ts';
 import { SystemService } from './system-service.ts';
@@ -245,6 +245,24 @@ function setImages(id: string, patch: Partial<AccountImages>) {
   enqueue('accountImages', async () => {
     await saveAccountImages(id, next);
     for (const k of stale) await removeObject(k);
+  });
+}
+/** 添付画像（古い順）。合計が上限を超えたら古いものから、DB の記録とストレージのオブジェクトを消す */
+const mediaFiles = await loadMediaFiles();
+let mediaTotal = mediaFiles.reduce((n, f) => n + f.size, 0);
+function addMedia(name: string, size: number) {
+  mediaFiles.push({ name, size });
+  mediaTotal += size;
+  const gone: string[] = [];
+  while (mediaTotal > MEDIA_TOTAL_MAX && mediaFiles.length > 1) {
+    const f = mediaFiles.shift()!;
+    mediaTotal -= f.size;
+    gone.push(f.name);
+  }
+  enqueue('media', async () => {
+    await addMediaFile(name, size);
+    await removeMediaFiles(gone);
+    for (const n of gone) await removeObject(`media/${n}`);
   });
 }
 /** 画像の中身はストレージから直接読ませる。版付きの URL は中身が変わらないので、転送ごと長くキャッシュさせる */
@@ -1960,8 +1978,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     res.setHeader('Content-Type', 'application/json');
     let r: Awaited<ReturnType<typeof saveMedia>>;
     try { r = await saveMedia(req, storage); } catch (e) { console.error('画像を保存できませんでした:', e); res.statusCode = 500; res.end(); return; }
-    if ('error' in r) res.statusCode = r.status;
-    res.end(JSON.stringify(r));
+    if ('error' in r) { res.statusCode = r.status; res.end(JSON.stringify(r)); return; }
+    addMedia(r.name, r.size);
+    res.end(JSON.stringify({ url: r.url }));
     return;
   }
   if (url.pathname.startsWith('/media/')) {

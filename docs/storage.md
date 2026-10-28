@@ -31,6 +31,7 @@
 | `session_items` | セッションに置いたアイテム（中身は jsonb） |
 | `market_likes` | マーケットのいいね（商品 → アカウント ID） |
 | `reports` | 通報 |
+| `media_files` | ストレージの `media/` に置いた添付画像の名前・大きさ・時刻（合計の上限のため） |
 | `account_images` | アカウントごとのアイコンとアバター画像のストレージのキー、アバターの調整値と版（ゲストも持つ） |
 | `app_data` | 機能ごとに形が違うデータの汎用の表（下） |
 
@@ -81,11 +82,11 @@
 - 3D の板やアバターの画像は WebGL のテクスチャにするので、ストレージ側の CORS でアプリのオリジンからの GET を許す（[deploy.md](deploy.md) の「R2 の準備」）
 - アイコン・アバター・グループの画像は、差し替えると新しいキーで置き、古いキーは消す。アバターの調整値は DB（`account_images.avatar_params`）にあり、`/avatar/params?id=` が返す
 - タイムラインの写真は、ポストが消えると消す。上げたまま 1 時間ポストに使われなかったものも消す（サーバーを再起動するとこの追跡は消えるので、そのとき上げたばかりの分は残る）
-- チャットの添付は消さない（前は合計 1GB で古いものから消していた）
+- チャット・メッセージの添付とアイテムの画像（`media/`）は、大きさを DB の `media_files` に記録し、合計が 1GB を超えたら古いものから消す（記録とオブジェクトの両方。消えた画像を使うアイテムやメッセージは表示されなくなる）
 - ディスク（`data/`）に置いていた頃の画像と動画は引き継がず、起動時に `media`・`icons`・`avatars`・`group-images`・`timeline-images` を消す
 
 ## テスト
 
 - サーバーを起動する integration test は、`server/test-db.ts` の `testServerEnv(t)` でテストごとに `tonarium_test_<乱数>` という DB を作り、終わったら消す。`.env` の `DATABASE_URL` と `S3_*` は引き継がない（開発用のデータに書き込まないため）
 - 使い捨ての DB を作る管理用の接続先は `TEST_DATABASE_URL`（既定は開発用の PostgreSQL）。CI（Web checks）は `services` で PostgreSQL を立ててそこを使う
-- `npm run test:integration`（ログイン・ID・再起動しても DB から戻るか（AD のアカウントごとの保存、アイコン・アバター・画像を含む）・空のセッションの片付け・グループ・セッションのリンク・翻訳）と `npm run test:storage`（`S3_TEST_ENDPOINT=http://localhost:8333` を付けると SeaweedFS でも試す）
+- `npm run test:integration`（ログイン・ID・再起動しても DB から戻るか（AD のアカウントごとの保存、アイコン・アバター・画像、添付画像の合計の上限を含む）・空のセッションの片付け・グループ・セッションのリンク・翻訳）と `npm run test:storage`（`S3_TEST_ENDPOINT=http://localhost:8333` を付けると SeaweedFS でも試す）

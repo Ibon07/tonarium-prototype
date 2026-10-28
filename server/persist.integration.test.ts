@@ -11,10 +11,10 @@ import { WebSocket } from 'ws';
 import { COMPAT_VERSION, dmKey, type ServerMsg } from '../shared/protocol.ts';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-async function until<T>(read: () => T | undefined | false, timeout = 10_000): Promise<T> {
+async function until<T>(read: () => T | undefined | false | Promise<T | undefined | false>, timeout = 10_000): Promise<T> {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
-    const value = read();
+    const value = await read();
     if (value !== undefined && value !== false) return value;
     await delay(25);
   }
@@ -46,7 +46,7 @@ test('people, home and the rest of the data survive a server restart from the da
   t.after(stop);
   async function start() {
     child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
-      env: { ...process.env, ...dbEnv, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' },
+      env: { ...process.env, ...dbEnv, SERVER_PORT: String(port), DATA_DIR: data, SESSIONS_FILE: path.join(data, 'sessions.json'), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '', MEDIA_TOTAL_MAX_BYTES: '20' },
       stdio: 'ignore',
     });
     const end = Date.now() + 30_000;
@@ -148,6 +148,11 @@ test('people, home and the rest of the data survive a server restart from the da
   assert.deepEqual(Buffer.from(await (await fetch(`${base}/avatar?id=${guestId}`)).arrayBuffer()), png);
   assert.equal((await fetch(`${base}/avatar/params?id=${guestId}`)).status, 200);
   assert.deepEqual(Buffer.from(await (await fetch(`${base}${media}`)).arrayBuffer()), png);
+  // 添付画像は合計の上限（テストでは 20 バイト）を超えると古いものから消える。再起動前の分も DB から数える
+  const later = [];
+  for (let i = 0; i < 2; i++) later.push(((await (await upload('/media', png, a.headers)).json()) as { url: string }).url);
+  await until(async () => (await fetch(`${base}${media}`)).status === 404 ? true : undefined);
+  for (const url of later) assert.equal((await fetch(`${base}${url}`)).status, 200);
   // DB に移したデータは JSON に書かない
   const files = await readdir(data);
   assert.ok(!files.includes('media'), 'old local media is removed');

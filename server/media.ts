@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import type { ObjectStorage } from './storage.ts';
 
 const IMAGE_MAX = 10 * 1024 * 1024;
+/** 添付画像の合計の上限。超えたら古いものから消す（MEDIA_TOTAL_MAX_BYTES はテスト用） */
+export const MEDIA_TOTAL_MAX = Number(process.env.MEDIA_TOTAL_MAX_BYTES) || 1024 * 1024 * 1024;
 
 export const IMAGE_TYPES: Record<string, string> = {
   jpg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
@@ -21,7 +23,7 @@ function sniff(b: Buffer): string | null {
 /** /media/<名前> の名前。ストレージのキーは media/<名前> */
 export const MEDIA_NAME_RE = /^[0-9a-f-]{36}\.(jpg|png|gif|webp)$/;
 
-export async function saveMedia(req: http.IncomingMessage, storage: ObjectStorage): Promise<{ url: string } | { error: string; status: number }> {
+export async function saveMedia(req: http.IncomingMessage, storage: ObjectStorage): Promise<{ url: string; name: string; size: number } | { error: string; status: number }> {
   const declared = Number(req.headers['content-length'] ?? 0);
   if (declared > IMAGE_MAX) return { error: '画像は 10MB までです', status: 413 };
   const chunks: Buffer[] = [];
@@ -36,7 +38,7 @@ export async function saveMedia(req: http.IncomingMessage, storage: ObjectStorag
   if (!ext) return { error: '画像（JPEG/PNG/GIF/WebP）だけ送れます', status: 415 };
   const name = `${randomUUID()}.${ext}`;
   await storage.put(`media/${name}`, body, IMAGE_TYPES[ext]);
-  return { url: `/media/${name}` };
+  return { url: `/media/${name}`, name, size: body.length };
 }
 
 /** ファイル配信のストリームエラーの受け皿。存在確認後にファイルが消える競合などで
