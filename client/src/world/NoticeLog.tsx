@@ -124,7 +124,7 @@ function Composer() {
         ))}
       </div>
       <form className="composer" onSubmit={submit}>
-        <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm" hidden onChange={(e) => { void attach(e.target.files?.[0]); e.target.value = ''; }} />
+        <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { void attach(e.target.files?.[0]); e.target.value = ''; }} />
         <button type="button" className="ib square" aria-label={tr("ui255")} title={tr("ui652")} onClick={() => fileRef.current?.click()}><Icon name="attach" size={18} /></button>
         <label htmlFor="chatinput" className="sr">{tr("ui181")}</label>
         <input
@@ -166,7 +166,6 @@ function LogLine({ m, selfId }: { m: ChatMessage; selfId: string }) {
         {firstUrl(m.text) && <OgpCard url={firstUrl(m.text)!} />}
         <ChatImage src={m.image} />
         {m.media?.kind === 'image' && <ChatImage src={m.media.url} />}
-        {m.media?.kind === 'video' && <video className="chatvideo" src={m.media.url} controls preload="metadata" playsInline />}
         {canItemize(m) && (
           <button className="ib itemize" onClick={() => void itemizeMessage(m)} title={tr("ui655")}>
             <Icon name="box" size={12} />{tr("ui656")}</button>

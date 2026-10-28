@@ -87,7 +87,7 @@ export function SessionMessages({ open, onOpen }: { open: string | null; onOpen:
       {convs.map((c) => {
         const n = unreadOf(s, c.key);
         const last = s.inbox[c.key]?.at(-1);
-        const preview = last ? (last.recap ? tr("ui234") : last.voice ? tr("ui703") : last.plan ? tr("ui704", last.text) : last.invite ? tr("ui705") : last.item ? last.item.summary : last.text) : '';
+        const preview = last ? (last.recap ? tr("ui234") : last.plan ? tr("ui704", last.text) : last.invite ? tr("ui705") : last.item ? last.item.summary : last.text) : '';
         return (
           <button key={c.key} className={`ib convrow ${n ? 'unread' : ''}`} onClick={() => onOpen(c.key)}>
             {c.mark}

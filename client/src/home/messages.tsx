@@ -1,5 +1,4 @@
 import { useUpdateDraft } from '../updateDraft.ts';
-import { useVoiceRecorder } from '../updateRecording.ts';
 import { t as tr, systemText } from '../i18n/index.ts';
 import { TranslatedText } from '../TranslatedText.tsx';
 import { useEffect, useRef, useState } from 'react';
@@ -143,9 +142,7 @@ export function MessageView({ conv, m }: { conv: string; m: Message }) {
       <div className="msgbody">
         <span className="mhead"><b><PersonName id={m.from} /></b><span className="sub">{timeLabel(m.at)}</span></span>
         {m.text && <p className="mtext"><TranslatedText text={m.text} /></p>}
-        {m.voice && <audio className="mvoice" src={m.voice.url} controls preload="metadata" aria-label={tr("ui247", m.voice.sec)} />}
         {m.media?.kind === 'image' && <ChatImage src={m.media.url} />}
-        {m.media?.kind === 'video' && <video className="chatvideo" src={m.media.url} controls preload="metadata" playsInline />}
         {m.plan && <PlanCard conv={conv} m={m} />}
         {m.invite && <InviteCard sid={m.invite} />}
         {m.item && <ItemRefCard item={m.item} />}
@@ -191,7 +188,6 @@ export function Composer({ conv, placeholder, allowPlan, extra }: { conv: string
   const [text, setText] = useUpdateDraft(`message.${conv}`, '');
   const [plan, setPlan] = useUpdateDraft<{ at: string; session: string } | null>(`plan.${conv}`, null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const voice = useVoiceRecorder(conv);
   const planAt = plan ? new Date(plan.at).getTime() : NaN;
   const submit = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -224,11 +220,11 @@ export function Composer({ conv, placeholder, allowPlan, extra }: { conv: string
         </div>
       )}
       <div className="mbar">
-        <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm" hidden onChange={(e) => { void attach(e.target.files?.[0]); e.target.value = ''; }} />
+        <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { void attach(e.target.files?.[0]); e.target.value = ''; }} />
         <label className="sr" htmlFor={`m-${conv}`}>{tr("ui181")}</label>
         <input
-          id={`m-${conv}`} value={text} placeholder={voice.recording ? tr("ui251", voice.sec) : plan ? tr("ui252") : placeholder}
-          disabled={voice.recording} onChange={(e) => setText(e.target.value)}
+          id={`m-${conv}`} value={text} placeholder={plan ? tr("ui252") : placeholder}
+          onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && e.nativeEvent.isComposing) e.preventDefault(); }}
         />
         {extra}
@@ -238,10 +234,7 @@ export function Composer({ conv, placeholder, allowPlan, extra }: { conv: string
           </button>
         )}
         <button type="button" className="ib square" aria-label={tr("ui255")} onClick={() => fileRef.current?.click()}><Icon name="attach" size={17} /></button>
-        <button type="button" className={`ib square ${voice.recording ? 'rec' : ''}`} aria-label={voice.recording ? tr("ui256") : tr("ui257")} aria-pressed={voice.recording} onClick={voice.toggle}>
-          <Icon name="mic" size={17} />
-        </button>
-        <button type="submit" className="primary square" aria-label={tr("ui258")} disabled={voice.recording}><Icon name="send" size={17} /></button>
+        <button type="submit" className="primary square" aria-label={tr("ui258")}><Icon name="send" size={17} /></button>
       </div>
     </form>
   );

@@ -103,7 +103,6 @@ export interface Message {
   from: string;
   at: number;
   text: string;
-  voice?: { url: string; sec: number };
   media?: ChatMedia;
   plan?: Plan;
   recap?: Recap;
@@ -235,7 +234,7 @@ export interface ChatMessage {
   hammer?: { from: string; to: string; count: number; lastHitAt: number };
 }
 
-export interface ChatMedia { kind: 'image' | 'video'; url: string; w: number; h: number }
+export interface ChatMedia { kind: 'image'; url: string; w: number; h: number }
 
 export const LEAN_ANGLE = Math.PI / 18;
 
@@ -334,7 +333,7 @@ export type HomeClientMsg =
   | { t: 'eventCreate'; title: string; at: number; group: string | null; session: string | null }
   | { t: 'eventAttend'; id: string; answer: Rsvp | null }
   | { t: 'channelCreate'; group: string; name: string }
-  | { t: 'msg'; conv: string; text: string; voice?: { url: string; sec: number }; media?: ChatMedia; plan?: { at: number; session: string | null }; invite?: string; item?: { session: string; id: string } }
+  | { t: 'msg'; conv: string; text: string; media?: ChatMedia; plan?: { at: number; session: string | null }; invite?: string; item?: { session: string; id: string } }
   /** at までを読んだ */
   | { t: 'read'; conv: string; at: number }
   | { t: 'rsvp'; conv: string; id: string; answer: Rsvp | null }

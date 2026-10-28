@@ -336,7 +336,11 @@ function registerSession(def: SessionDef) {
   worldOf.set(def.id, isWorldKind(def.world) ? def.world : 'room');
   chats.set(def.id, []);
   avatars.set(def.id, new Map());
-  items.set(def.id, new Map((savedItems[def.id] ?? []).map((it) => [it.id, settle(it)])));
+  const saved = savedItems[def.id] ?? [];
+  // なくした種類（動画など）のアイテムは戻さず、保存からも消す
+  const known = saved.filter((it) => Object.hasOwn(ITEM_INFO, it.kind));
+  items.set(def.id, new Map(known.map((it) => [it.id, settle(it)])));
+  if (known.length !== saved.length) markItemsDirty(def.id);
 }
 /** アイテムが変わったセッションの印。保存は印があるときだけ文字列化する（無変更でも 5 秒ごとに全アイテムを文字列化していたのをやめる） */
 const dirtyItemSessions = new Set<string>();
@@ -567,9 +571,8 @@ const MAX_IMAGES = 40;
 
 function chatMedia(m: ChatMedia | undefined): ChatMedia | undefined {
   if (!m || typeof m.url !== 'string' || !MEDIA_URL_RE.test(m.url) || !mediaExists(m.url)) return undefined;
-  const kind = /\.(mp4|webm)$/.test(m.url) ? 'video' : 'image';
   const size = (n: number) => Math.max(1, Math.min(10000, Math.round(Number(n) || 1)));
-  return { kind, url: m.url, w: size(m.w), h: size(m.h) };
+  return { kind: 'image', url: m.url, w: size(m.w), h: size(m.h) };
 }
 
 function pushChat(sid: string, from: User | null, text: string, opt: { scope?: ChatScope; image?: string; media?: ChatMedia; to?: string[]; about?: string; dice?: DiceRoll; clientRequestId?: string } = {}, peerEvent?: PeerOperation) {
@@ -747,7 +750,7 @@ function broadcastItemMove(sid: string, it: Item) {
   const send = () => {
     itemMoveSentAt.set(key, Date.now());
     roomSend(sid, { t: 'itemMove', sid, id: it.id, x: it.x, z: it.z, ry: it.ry,
-      ...((it.kind === 'image' || it.kind === 'video') ? mediaTransform(it) : {}) });
+      ...(it.kind === 'image' ? mediaTransform(it) : {}) });
   };
   const wait = ITEM_MOVE_MS - (Date.now() - (itemMoveSentAt.get(key) ?? 0));
   if (wait <= 0) { send(); return; }
@@ -1329,7 +1332,7 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
     case 'itemMove': {
       const it = sessItems.get(msg.id);
       if (!it || isSystemControlledItem(it) || (it.kind === 'hammer' && it.holder) || (it.kind === 'bike' && it.rider)) return;
-      const media = it.kind === 'image' || it.kind === 'video';
+      const media = it.kind === 'image';
       const half = (worldOf.get(sid) === 'city' ? CITY_HALF : ROOM_HALF) - 0.5;
       const p = media ? { x: Math.max(-half, Math.min(half, finNum(msg.x))), z: Math.max(-half, Math.min(half, finNum(msg.z))) }
         : placeIn(sid, msg.x, msg.z, itemRadius(it) * 0.6);
@@ -1617,10 +1620,6 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
       const members = convMembers(msg.conv);
       if (!members?.includes(me.id)) return true;
       const text = trimTo(msg.text, 2000);
-      // Browsers record WebM/Opus; the native Windows client records AAC in MP4.
-      // Both must still reference an uploaded file whose content type was sniffed.
-      const voice = msg.voice && MEDIA_URL_RE.test(msg.voice.url) && /\.(webm|mp4)$/.test(msg.voice.url) && mediaExists(msg.voice.url)
-        ? { url: msg.voice.url, sec: Math.max(1, Math.min(120, Math.round(Number(msg.voice.sec) || 1))) } : undefined;
       const media = chatMedia(msg.media);
       const at = Number(msg.plan?.at);
       const visible = sessionsVisibleTo(me.id);
@@ -1629,10 +1628,10 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
       const invite = msg.invite && visible.some((d) => d.id === msg.invite) ? msg.invite : undefined;
       const it = msg.item && visible.some((d) => d.id === msg.item!.session) ? items.get(msg.item.session)?.get(msg.item.id) : undefined;
       const item = it ? { session: msg.item!.session, id: it.id, kind: it.kind, summary: itemSummary(it) ?? ITEM_INFO[it.kind].name } : undefined;
-      if (!text && !voice && !media && !plan && !invite && !item) return true;
+      if (!text && !media && !plan && !invite && !item) return true;
       pushMessage(msg.conv, {
         id: randomUUID(), from: me.id, at: Date.now(), text,
-        ...(voice ? { voice } : {}), ...(media ? { media } : {}), ...(plan ? { plan } : {}), ...(invite ? { invite } : {}), ...(item ? { item } : {}),
+        ...(media ? { media } : {}), ...(plan ? { plan } : {}), ...(invite ? { invite } : {}), ...(item ? { item } : {}),
       });
       // 送った会話は読んだことにする
       (inbox.reads[me.id] ??= newRecord())[msg.conv] = Date.now();

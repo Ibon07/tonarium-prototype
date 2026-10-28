@@ -234,7 +234,7 @@ export function onMessage(msg: ServerMsg) {
     case 'itemMove':
       set((s) => {
         const cur = s.itemsBy[msg.sid]?.[msg.id];
-        const transform = cur && (cur.kind === 'image' || cur.kind === 'video') ? { y: msg.y ?? cur.y, scale: msg.scale ?? cur.scale } : {};
+        const transform = cur && cur.kind === 'image' ? { y: msg.y ?? cur.y, scale: msg.scale ?? cur.scale } : {};
         return cur ? { itemsBy: { ...s.itemsBy, [msg.sid]: { ...s.itemsBy[msg.sid], [msg.id]: { ...cur, x: msg.x, z: msg.z, ry: msg.ry, ...transform } } } } : {};
       });
       break;
