@@ -9,6 +9,8 @@ on:
       - 'Dockerfile.fantasy-ai-model'
       - 'scripts/fantasy-ai-*.mjs'
       - 'server/local-inference*'
+      - 'server/npc.ts'
+      - 'server/fantasy-gm-chat.ts'
       - 'package.json'
       - 'package-lock.json'
   workflow_dispatch:
@@ -33,6 +35,10 @@ jobs:
           node-version: '24'
       - name: Check model provisioning and smoke runner
         run: node --test scripts/fantasy-ai-model.test.mjs scripts/fantasy-ai-smoke.test.mjs
+      - name: Check legacy inference URL migration
+        run: |
+          npm ci
+          npm run test:fantasy-ai-config
       - name: Validate Compose configuration
         run: docker compose config --quiet
       - name: Run real CPU model smoke

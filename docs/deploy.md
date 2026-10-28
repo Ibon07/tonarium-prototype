@@ -81,6 +81,8 @@ Coolify の Docker Compose では、`tonarium` の環境変数に次を設定し
 
 `fantasy-ai` はダイジェスト固定の公式 llama.cpp CPU イメージ（b11913）で、モデルを読み取り専用で使う。ホストにはポートを公開せず、アプリは同じ Compose ネットワークの `http://fantasy-ai:8080/v1` へ接続する。`127.0.0.1:18081` は Tonarium コンテナ自身を指し、ホストや別コンテナのモデルへは届かない。
 
+標準 Compose は内部移行先の `NPC_LLM_BUNDLED_URL` も固定で渡す。既存の `NPC_LLM_URL` に開発用の HTTP ループバック 18081 番が残っていても、NPC・GM は起動時に同梱サービスのアドレスへ自動移行する。対象は `127.0.0.1`・`localhost`・`[::1]` と既定 API パスだけで、別ホスト・別ポート・独自パスや HTTPS の設定は変更しない。明示的なプログラム側の URL 指定と既存の内部アドレス検証も維持する。サーバーに保存された環境変数を書き換える処理ではない。
+
 アプリはモデル準備・推論完了を待つ依存関係を持たず、準備中も Web サーバーと固定案内を使える。AI 側の失敗時の再試行は 3 回まで。デプロイツールが全サービスの正常性を要求する場合、その判定は別途確認する。
 
 ### 資源と設定
@@ -97,8 +99,9 @@ Linux では準備開始時の `/proc/meminfo` の `MemAvailable` が既定で 2
 | `NPC_AI_MIN_AVAILABLE_MB` | `2304` | 準備開始時の最低 MemAvailable（MiB、256～65536）。下げる前に容量を確認する |
 | `NPC_LLM_URL` | `http://fantasy-ai:8080/v1` | アプリが接続する内部 OpenAI 互換 API |
 | `NPC_LLM_MODEL` | `qwen3-1.7b` | API のモデル名。同梱サービスでは既定名を使う |
+| `NPC_LLM_BUNDLED_URL` | 標準 Compose が固定指定 | 旧開発用 URL の内部移行先。運営側での追加設定は不要 |
 
-Coolify で旧 `NPC_LLM_URL=http://127.0.0.1:18081/v1` を設定していた場合は新しい内部 URL に直して再デプロイする。別の推論サービスへ上書きすることもできるが、同梱サービスを自動停止する設定ではない。別構成で不要な場合は `fantasy-ai` と `fantasy-ai-model` を起動対象から外す。Dockerfile のみのアプリ起動にはモデルサービスは自動追加されない。
+Coolify に旧開発用 URL が残っている場合も、標準 Compose の再デプロイで自動移行するため、手で削除・修正する必要はない。別の推論サービスへ上書きすることもできるが、同梱サービスを自動停止する設定ではない。別構成で不要な場合は `fantasy-ai` と `fantasy-ai-model` を起動対象から外す。Dockerfile のみのアプリ起動にはモデルサービスや移行先の目印は自動追加されず、既存の開発用設定を維持する。
 
 ### 運営側の確認
 
@@ -113,7 +116,8 @@ docker compose exec -T fantasy-ai curl --fail --silent http://127.0.0.1:8080/v1/
 
 ```bash
 docker compose exec -T tonarium node --input-type=module -e '
-const base = new URL(process.env.NPC_LLM_URL ?? "http://127.0.0.1:18081/v1");
+const {resolveLocalInferenceUrl} = await import("./server/local-inference-config.ts");
+const base = new URL(resolveLocalInferenceUrl());
 console.log({host: base.hostname, port: base.port});
 try {
   const r = await fetch(new URL("/health", base), {signal: AbortSignal.timeout(5000), redirect: "error"});

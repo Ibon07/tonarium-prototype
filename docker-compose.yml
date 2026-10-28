@@ -18,6 +18,8 @@ services:
       - FANTASY_TRUSTED_PROXY_IPS=${FANTASY_TRUSTED_PROXY_IPS:-}
       - NPC_LLM_URL=${NPC_LLM_URL:-http://fantasy-ai:8080/v1}
       - NPC_LLM_MODEL=${NPC_LLM_MODEL:-qwen3-1.7b}
+      # 旧開発用ループバック設定も、同梱推論サービスへ移行する。
+      - NPC_LLM_BUNDLED_URL=http://fantasy-ai:8080/v1
       # - SESSIONS_FILE=/config/sessions.json
     expose:
       - "3001"
