@@ -17,7 +17,7 @@ import type {
   AvatarState, ChatMedia, ChatMessage, ChatScope, ClientMsg, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, Recap, RoomClientMsg, Rsvp,
   ServerMsg, SessionDef, SessionInfo, StatusKind, User,
 } from '../shared/protocol.ts';
-import { COMPAT_VERSION, PLAN_QUORUM, ROOM_HALF, STATUS_INFO, STATUS_TEXT_MAX, VISIBILITY_INFO, channelKey, isGroupVisibility } from '../shared/protocol.ts';
+import { COMPAT_VERSION, PLAN_QUORUM, ROOM_HALF, STATUS_INFO, STATUS_TEXT_MAX, VISIBILITY_INFO, channelKey, dmKey, isGroupVisibility, type DirectoryEntry } from '../shared/protocol.ts';
 import { GROUP_COLORS, canSeeSession } from '../shared/home.ts';
 import { WORLDS, WORLD_COUNTDOWN_MS, isWorldKind, pushOut, type WorldKind } from '../shared/worlds.ts';
 import { ITEM_INFO, MEDIA_URL_RE, ONLY_3D, applyItemAction, canAddMirror, createItem, isDeltaAction, isHandheld, itemSummary, type Item } from '../shared/items.ts';
@@ -54,7 +54,9 @@ import { newSurvivorProfile, SURVIVOR_META_UPGRADES, SURVIVOR_PROFILE_VERSION, S
 import { Follows } from './follows.ts';
 import { POST_RATE, Timeline, UPLOAD_RATE } from './timeline.ts';
 import { POST_IMAGE_MAX_BYTES, isImageId, type Post } from '../shared/timeline.ts';
-import { closeDb, openDb } from './db/index.ts';
+import { closeDb, db, openDb } from './db/index.ts';
+import { accounts } from './db/schema.ts';
+import { ne } from 'drizzle-orm';
 import { Auth, normalizeName, requestOrigin, type Account } from './auth.ts';
 import { createSyncGrant, handleSyncOffer, upgradeSync, revokeSync, revokeUserSync, leaveRoom, livekitRoom, roomSend, roomSendSnapshot, shutdownRooms, type RoomHandlers } from './rooms.ts';
 
@@ -74,9 +76,8 @@ const auth = new Auth({
   devLogin: DEV || process.env.AUTH_DEV_LOGIN === '1',
   onRenamed: (account) => {
     const u = users.get(account.id);
-    if (!u) return;
-    u.name = account.name;
-    broadcastUsers();
+    if (u) { u.name = account.name; broadcastUsers(); }
+    if (account.kind !== 'guest') sendDirectory(account.id, account);
   },
 });
 setInterval(() => { void auth.sweep().catch((e) => console.error('auth sweep', e)); }, 3_600_000).unref();
@@ -100,7 +101,6 @@ try {
 const ICON_DIR = path.join(DATA_DIR, 'icons');
 const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
 const PROFILE_DIR = path.join(DATA_DIR, 'profiles');
-const FRIENDS_FILE = path.join(DATA_DIR, 'friends.json');
 const FOLLOWS_FILE = path.join(DATA_DIR, 'follows.json');
 const TIMELINE_FILE = path.join(DATA_DIR, 'timeline.json');
 const TIMELINE_IMAGE_DIR = path.join(DATA_DIR, 'timeline-images');
@@ -130,6 +130,26 @@ function later(fn: () => void, ms = 800) {
   trigger.flush = () => { if (t) { clearTimeout(t); run(); } };
   return trigger;
 }
+/**
+ * 人を名前で持っていた頃のデータは引き継がない。最初の起動で data/archive-<日時>/ へ移して残し、新しく空から始める
+ * （印のファイルを置き、2 回目からは何もしない）。メディア・共有アセット/システム・翻訳は人に結び付かないのでそのまま
+ */
+function archiveNameKeyedData() {
+  const mark = path.join(DATA_DIR, '.ids-v1');
+  if (fs.existsSync(mark)) return;
+  const names = ['home.json', 'people.json', 'messages.json', 'follows.json', 'friends.json', 'timeline.json', 'items.json', 'survivors.json',
+    'market-likes.json', 'ad-saves.json', 'ad-leaderboard.json', 'reports.log', 'icons', 'avatars', 'profiles', 'group-images', 'timeline-images'];
+  const found = names.filter((n) => fs.existsSync(path.join(DATA_DIR, n)));
+  if (found.length) {
+    const dir = path.join(DATA_DIR, `archive-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+    fs.mkdirSync(dir, { recursive: true });
+    for (const n of found) fs.renameSync(path.join(DATA_DIR, n), path.join(dir, n));
+    console.log(`名前で持っていた古いデータを ${dir} へ移しました: ${found.join(' ')}`);
+  }
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(mark, '');
+}
+archiveNameKeyedData();
 for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR, GROUP_IMAGE_DIR]) fs.mkdirSync(d, { recursive: true });
 const MARKET_LIKES_FILE = path.join(DATA_DIR, 'market-likes.json');
 const marketLikes = new MarketLikes(readJson<unknown>(MARKET_LIKES_FILE, {}));
@@ -216,15 +236,16 @@ function survivorProfile(id: string): SurvivorProfile {
   return p;
 }
 
-const nameHash = (name: string) => createHash('sha1').update(normalizeName(name)).digest('hex');
-const iconFile = (name: string) => path.join(ICON_DIR, `${nameHash(name)}.jpg`);
-const avatarImageFile = (name: string) => path.join(AVATAR_DIR, `${nameHash(name)}.img`);
-const avatarParamsFile = (name: string) => path.join(AVATAR_DIR, `${nameHash(name)}.json`);
-const profileFile = (name: string) => path.join(PROFILE_DIR, `${nameHash(name)}.json`);
+// アイコン・アバター・自己紹介はアカウント ID ごとのファイル。URL から来た ID が形を外れていたらハッシュにして、フォルダの外を指させない
+const idKey = (id: string) => (/^[0-9a-f-]{36}$/.test(id) ? id : createHash('sha1').update(id).digest('hex'));
+const iconFile = (id: string) => path.join(ICON_DIR, `${idKey(id)}.jpg`);
+const avatarImageFile = (id: string) => path.join(AVATAR_DIR, `${idKey(id)}.img`);
+const avatarParamsFile = (id: string) => path.join(AVATAR_DIR, `${idKey(id)}.json`);
+const profileFile = (id: string) => path.join(PROFILE_DIR, `${idKey(id)}.json`);
 // mtime とサイズが変わっていなければ前回の読み結果を使い、変わったら読み直す（サーバー経由・外部どちらの変更も検出できる）
 const bioCache = new Map<string, { mtimeMs: number; size: number; bio: string }>();
-function bioOf(name: string) {
-  const file = profileFile(name);
+function bioOf(id: string) {
+  const file = profileFile(id);
   let stat: fs.Stats | undefined;
   try { stat = fs.statSync(file); } catch { stat = undefined; }
   if (!stat) { bioCache.delete(file); return ''; }
@@ -236,9 +257,9 @@ function bioOf(name: string) {
   return bio;
 }
 const mtime = (file: string) => { try { return Math.floor(fs.statSync(file).mtimeMs); } catch { return 0; } };
-const iconVersion = (name: string) => { const v = mtime(iconFile(name)); return v ? String(v) : null; };
-function avatarVersion(name: string) {
-  const v = Math.max(mtime(avatarImageFile(name)), mtime(avatarParamsFile(name)));
+const iconVersion = (id: string) => { const v = mtime(iconFile(id)); return v ? String(v) : null; };
+function avatarVersion(id: string) {
+  const v = Math.max(mtime(avatarImageFile(id)), mtime(avatarParamsFile(id)));
   return v ? String(v) : null;
 }
 const isJpeg = (b: Buffer) => b[0] === 0xff && b[1] === 0xd8;
@@ -272,7 +293,7 @@ for (const g of home.groups) {
   if (!g.channels?.length) g.channels = defaultChannels();
   g.editors = [...new Set((g.editors ?? []).filter((n) => n !== g.owner && g.members.includes(n)))];
 }
-const canEditGroup = (g: Group, name: string) => g.owner === name || !!g.editors?.includes(name);
+const canEditGroup = (g: Group, id: string) => g.owner === id || !!g.editors?.includes(id);
 const groupImageFile = (g: Group, ext = 'jpg') => path.join(GROUP_IMAGE_DIR, `${g.id}.${ext}`);
 function deleteGroupImages(g: Group, keep?: string) {
   for (const ext of ['jpg', 'jpeg', 'png', 'webp']) {
@@ -299,14 +320,10 @@ setInterval(() => {
 const sessionIds = new Set(guild.sessions.map((w) => w.id));
 const shortId = () => randomUUID().slice(0, 8);
 
-// フォローは名前の組で保存する（アイコンなどと同じく名前が本人の識別）。お互いにフォローしているとフレンド。
-// follows.json が無いときは旧 friends.json のフレンドを相互フォローとして引き継ぐ（friends.json は書き換えない）
-const follows = fs.existsSync(FOLLOWS_FILE)
-  ? new Follows(readJson<[string, string][]>(FOLLOWS_FILE, []))
-  : Follows.fromFriendPairs(readJson<[string, string][]>(FRIENDS_FILE, []));
+// フォローはアカウント ID の組で保存する。お互いにフォローしているとフレンド
+const follows = new Follows(readJson<[string, string][]>(FOLLOWS_FILE, []));
 const saveFollows = later(() => fs.writeFileSync(FOLLOWS_FILE, JSON.stringify(follows.edges())));
-if (!fs.existsSync(FOLLOWS_FILE)) saveFollows();
-const friendsOf = (name: string) => follows.friendsOf(name);
+const friendsOf = (id: string) => follows.friendsOf(id);
 /** 付け外しを繰り返しても、同じ人からのフォロー通知はこの間に 1 回だけ */
 const FOLLOW_NOTICE_MS = 60 * 60 * 1000;
 const followNoticeAt = new Map<string, number>();
@@ -364,15 +381,15 @@ setInterval(saveItems, 5000);
 interface PersonRec { status: StatusKind; statusText: string; recent: string[]; lastSeen: number | null; watchers: string[] }
 const people = nullRecord(readJson<Record<string, PersonRec>>(PEOPLE_FILE, {}));
 const savePeople = later(() => fs.writeFileSync(PEOPLE_FILE, JSON.stringify(people)));
-function personRec(name: string) {
-  return (people[name] ??= { status: 'online', statusText: '', recent: [], lastSeen: null, watchers: [] });
+function personRec(id: string) {
+  return (people[id] ??= { status: 'online', statusText: '', recent: [], lastSeen: null, watchers: [] });
 }
 
-/** convs は会話ごとのメッセージ、reads は 名前 → 会話 → 読んだ時刻 */
+/** convs は会話ごとのメッセージ、reads は アカウント ID → 会話 → 読んだ時刻 */
 const inboxRaw = readJson<{ convs: Record<string, Message[]>; reads: Record<string, Record<string, number>> }>(MESSAGES_FILE, { convs: {}, reads: {} });
 const inbox = {
   convs: nullRecord(inboxRaw.convs ?? {}),
-  reads: nullRecord(Object.fromEntries(Object.entries(inboxRaw.reads ?? {}).map(([name, r]) => [name, nullRecord(r)]))),
+  reads: nullRecord(Object.fromEntries(Object.entries(inboxRaw.reads ?? {}).map(([id, r]) => [id, nullRecord(r)]))),
 };
 /** 保存のたびに受信箱全体を文字列化しないよう、会話ごと・名前ごとの JSON を覚えておき、変わった分だけ作り直す。
  * 中身を書き換える場所（pushMessage / 送信時の既読 / 既読 / RSVP）では、対応するキャッシュを必ず捨てること。
@@ -391,25 +408,24 @@ function inboxJson() {
 const saveInbox = later(() => fs.writeFileSync(MESSAGES_FILE, inboxJson()));
 
 /** セッションにだれかが入ってから全員が出るまで。終わったらまとめにする */
-const visits = new Map<string, { from: number; people: Set<string>; log: Recap['log'] }>();
+const visits = new Map<string, { from: number; people: Map<string, string>; log: Recap['log'] }>();
 for (const w of guild.sessions) {
   registerSession(w);
   scheduleEmptyCheck(w.id);
 }
 // 配信のたびにフレンド全走査と全ユーザー配列化を人数分繰り返さないよう、1 回の配信で使い回す写し
-interface UserSnapshot { all: Participant[]; friendsByName: Map<string, string[]>; onlineNames: Set<string> }
+interface UserSnapshot { all: Participant[]; friendsById: Map<string, string[]> }
 function snapshotUsers(): UserSnapshot {
-  const all = [...users.values()];
-  return { all, friendsByName: follows.friendMap(), onlineNames: new Set(all.map((u) => u.name)) };
+  return { all: [...users.values()], friendsById: follows.friendMap() };
 }
 // 写しが渡されたとき（配信の一括計算）だけそれを使い、単発呼び出しでは全体の写しを作らない。
 // friendsOf と friendsByName は同じ follows から求めるので、対象者の集合は写し経由と一致する
-const sessionsVisibleTo = (name: string, snap?: UserSnapshot) => {
-  const friends = snap ? snap.friendsByName.get(name) ?? [] : friendsOf(name);
+const sessionsVisibleTo = (id: string, snap?: UserSnapshot) => {
+  const friends = snap ? snap.friendsById.get(id) ?? [] : friendsOf(id);
   const all = snap ? snap.all : [...users.values()];
-  return guild.sessions.filter((d) => canSeeSession(d, name, friends, home.groups, all));
+  return guild.sessions.filter((d) => canSeeSession(d, id, friends, home.groups, all));
 };
-const broadcastSessions = () => { const snap = snapshotUsers(); for (const u of users.values()) sendTo([u.id], { t: 'sessions', list: sessionsVisibleTo(u.name, snap) }); };
+const broadcastSessions = () => { const snap = snapshotUsers(); for (const u of users.values()) sendTo([u.id], { t: 'sessions', list: sessionsVisibleTo(u.id, snap) }); };
 const broadcastGroups = () => broadcast({ t: 'groups', list: home.groups });
 const broadcastEvents = () => broadcast({ t: 'events', list: home.events });
 
@@ -426,10 +442,31 @@ function sendTo(ids: Iterable<string>, msg: ServerMsg) {
   for (const id of ids)
     for (const ws of sockets.get(id) ?? []) if (ws.readyState === WebSocket.OPEN) ws.send(data);
 }
-const idsByName = (name: string) => [...users.values()].filter((u) => u.name === name).map((u) => u.id);
-const isOnline = (name: string) => [...users.values()].some((u) => u.name === name);
+const isOnline = (id: string) => users.has(id);
 
-/** 会話に入っている人の名前。会話として成り立たなければ null */
+/**
+ * ログインした人（ゲスト以外）の名簿。フォロー・DM・グループなど人に残るものはアカウント ID で持つので、
+ * オフラインの人の名前とアイコンはここから引いてもらう（起動時に DB から読み、変わったら 1 人分ずつ配る）
+ */
+const directory = new Map<string, DirectoryEntry>();
+const entryOf = (a: Pick<Account, 'id' | 'name' | 'username' | 'kind'>): DirectoryEntry => ({
+  id: a.id, name: a.name, username: a.kind === 'misskey' ? a.username : null, icon: iconVersion(a.id), avatar: avatarVersion(a.id),
+});
+async function loadDirectory() {
+  const rows = await db().select().from(accounts).where(ne(accounts.kind, 'guest'));
+  for (const r of rows) directory.set(r.id, entryOf({ id: r.id, name: r.displayName, username: r.username, kind: r.kind }));
+}
+/** 1 人分を作り直して全員へ配る。account を渡さなければ今の名簿の名前のまま、アイコンとアバターだけ読み直す */
+function sendDirectory(id: string, account?: Pick<Account, 'id' | 'name' | 'username' | 'kind'>) {
+  const current = directory.get(id);
+  const base = account ?? (current && { id, name: current.name, username: current.username, kind: 'misskey' as const });
+  if (!base) return;
+  const entry = entryOf(base);
+  directory.set(id, entry);
+  broadcast({ t: 'directory', list: [entry], full: false });
+}
+
+/** 会話に入っている人のアカウント ID。会話として成り立たなければ null */
 function convMembers(conv: string): string[] | null {
   if (conv.startsWith('dm:')) {
     const pair = conv.slice(3).split('\u0000');
@@ -439,58 +476,53 @@ function convMembers(conv: string): string[] | null {
   const g = m && home.groups.find((x) => x.id === m[1]);
   return g && g.channels.some((c) => c.id === m[2]) ? g.members : null;
 }
-function sendToNames(names: Iterable<string>, msg: ServerMsg) {
-  const set = new Set(names);
-  sendTo([...users.values()].filter((u) => set.has(u.name)).map((u) => u.id), msg);
-}
 function pushMessage(conv: string, m: Message) {
   const list = (inbox.convs[conv] ??= []);
   list.push(m);
   if (list.length > 300) list.shift();
   inboxPartJson.convs.delete(conv);
   saveInbox();
-  sendToNames(convMembers(conv) ?? [], { t: 'msg', conv, m });
+  sendTo(convMembers(conv) ?? [], { t: 'msg', conv, m });
 }
 /** 見える会話だけ、新しい方から 100 件ずつ。
  * 全会話を走査せず、その人の会話のキーだけを組み立てて引く。拾う条件は convMembers と一致する
  * （DM はフレンド同士の組だけ、チャンネルは入っているグループのものだけ）。
  * 常駐の参加者インデックスは持たない（フレンド追加やグループの出入り・削除のたびに同期が必要で、ずれると会話が消えるため） */
-function convsOf(name: string) {
+function convsOf(id: string) {
   const out: Record<string, Message[]> = {};
   const take = (conv: string) => { const list = inbox.convs[conv]; if (list) out[conv] = list.slice(-100); };
-  // DM のキーは名前順が正規形。保存済みデータに逆順のキー（旧データ）があっても従来どおり拾えるよう両方見る
-  for (const f of friendsOf(name)) { take(`dm:${name}\u0000${f}`); take(`dm:${f}\u0000${name}`); }
-  for (const g of home.groups) if (g.members.includes(name)) for (const c of g.channels) take(channelKey(g.id, c.id));
+  for (const f of friendsOf(id)) take(dmKey(id, f));
+  for (const g of home.groups) if (g.members.includes(id)) for (const c of g.channels) take(channelKey(g.id, c.id));
   return out;
 }
 
 /** フレンドと、同じグループの人 */
-function knownPeopleOf(name: string, friendsByName?: Map<string, string[]>) {
+function knownPeopleOf(id: string, friendsById?: Map<string, string[]>) {
   // 写しが渡されたらそれだけを使う（無い人はフレンドなし）。friendsOf へ落とすと配信の人数分だけ全走査が戻ってしまう
-  const set = new Set(friendsByName ? friendsByName.get(name) ?? [] : friendsOf(name));
-  for (const g of home.groups) if (g.members.includes(name)) for (const m of g.members) set.add(m);
-  set.delete(name);
+  const set = new Set(friendsById ? friendsById.get(id) ?? [] : friendsOf(id));
+  for (const g of home.groups) if (g.members.includes(id)) for (const m of g.members) set.add(m);
+  set.delete(id);
   return [...set];
 }
-function personOf(name: string, onlineNames?: Set<string>): Person {
-  const r = personRec(name);
-  return { name, status: r.status, statusText: r.statusText, lastSeen: (onlineNames ? onlineNames.has(name) : isOnline(name)) ? null : r.lastSeen };
+function personOf(id: string): Person {
+  const r = personRec(id);
+  return { id, status: r.status, statusText: r.statusText, lastSeen: isOnline(id) ? null : r.lastSeen };
 }
-const watchingOf = (name: string) => Object.entries(people).filter(([, r]) => r.watchers.includes(name)).map(([n]) => n);
-function sendWatching(name: string) {
-  sendToNames([name], { t: 'watching', names: watchingOf(name), recentStatus: personRec(name).recent });
+const watchingOf = (id: string) => Object.entries(people).filter(([, r]) => r.watchers.includes(id)).map(([n]) => n);
+function sendWatching(id: string) {
+  sendTo([id], { t: 'watching', ids: watchingOf(id), recentStatus: personRec(id).recent });
 }
 function broadcastPeople() {
   const snap = snapshotUsers();
-  for (const u of users.values()) sendTo([u.id], { t: 'people', list: knownPeopleOf(u.name, snap.friendsByName).map((n) => personOf(n, snap.onlineNames)) });
+  for (const u of users.values()) sendTo([u.id], { t: 'people', list: knownPeopleOf(u.id, snap.friendsById).map((n) => personOf(n)) });
 }
-function followsMsg(name: string, friendMap?: Map<string, string[]>): ServerMsg {
-  return { t: 'follows', following: follows.following(name), followers: follows.followers(name), fof: follows.friendsOfFriends(name, friendMap) };
+function followsMsg(id: string, friendMap?: Map<string, string[]>): ServerMsg {
+  return { t: 'follows', following: follows.following(id), followers: follows.followers(id), fof: follows.friendsOfFriends(id, friendMap) };
 }
 // フレンドのフレンドはだれかのフォロー 1 つで遠くの人まで変わるので、全員に送り直す
 function broadcastFollows() {
   const map = follows.friendMap();
-  for (const name of new Set([...users.values()].map((u) => u.name))) sendToNames([name], followsMsg(name, map));
+  for (const id of users.keys()) sendTo([id], followsMsg(id, map));
 }
 
 const saveTimeline = later(() => fs.writeFileSync(TIMELINE_FILE, timeline.serialize()));
@@ -507,13 +539,13 @@ const publicSessionName = (def: SessionDef) => ((def.visibility ?? 'public') ===
 function handleTimeline(me: User, msg: ClientMsg): boolean {
   switch (msg.t) {
     case 'postCreate': {
-      if (!timeline.allow(`post:${me.name}`, POST_RATE)) return true;
+      if (!timeline.allow(`post:${me.id}`, POST_RATE)) return true;
       const here = me.session ? guild.sessions.find((d) => d.id === me.session) : undefined;
-      const post = timeline.create(me.name, msg, {
+      const post = timeline.create(me.id, msg, {
         place: msg.withPlace && here ? { sid: here.id, name: publicSessionName(here), mode: me.mode } : null,
         session: (id) => {
           const def = guild.sessions.find((d) => d.id === id);
-          return def && canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()]) ? { name: publicSessionName(def) } : null;
+          return def && canSeeSession(def, me.id, friendsOf(me.id), home.groups, [...users.values()]) ? { name: publicSessionName(def) } : null;
         },
       });
       if (!post) return true;
@@ -523,13 +555,13 @@ function handleTimeline(me: User, msg: ClientMsg): boolean {
       return true;
     }
     case 'postDelete': {
-      const gone = timeline.remove(msg.id, me.name);
+      const gone = timeline.remove(msg.id, me.id);
       if (gone.length) broadcast({ t: 'postsRemoved', ids: gone });
       return true;
     }
     case 'postReact':
     case 'postRepost': {
-      const p: Post | null = msg.t === 'postReact' ? timeline.react(msg.id, me.name, msg.emoji, !!msg.on) : timeline.repost(msg.id, me.name, !!msg.on);
+      const p: Post | null = msg.t === 'postReact' ? timeline.react(msg.id, me.id, msg.emoji, !!msg.on) : timeline.repost(msg.id, me.id, !!msg.on);
       if (p) broadcast({ t: 'post', p });
       return true;
     }
@@ -547,7 +579,7 @@ function finishVisit(sid: string) {
     const summary = itemSummary(it);
     return summary ? [{ id: it.id, kind: it.kind, summary, ...(it.kind === 'image' ? { image: it.url } : {}) }] : [];
   });
-  const recap: Recap = { session: sid, sessionName: def.name, from: v.from, to: Date.now(), people: [...v.people], items: left.slice(0, 6), log: v.log };
+  const recap: Recap = { session: sid, sessionName: def.name, from: v.from, to: Date.now(), people: [...v.people].map(([id, name]) => ({ id, name })), items: left.slice(0, 6), log: v.log };
   pushMessage(channelKey(g.id, g.channels[0].id), { id: randomUUID(), from: '', at: Date.now(), text: '', recap });
 }
 /** 途中参加のスナップショットが重くならないよう、古い画像は捨てる */
@@ -575,7 +607,7 @@ function pushChat(sid: string, from: User | null, text: string, opt: { scope?: C
   list.push(m);
   if (list.length > 500) list.shift();
   const visit = visits.get(sid);
-  if (visit && from && text && m.scope !== 'near' && visit.log.length < 200) visit.log.push({ name: from.name, text: text.slice(0, 300), at: m.at });
+  if (visit && from && text && m.scope !== 'near' && visit.log.length < 200) visit.log.push({ id: from.id, name: from.name, text: text.slice(0, 300), at: m.at });
   if (opt.image) {
     const withImage = list.filter((x) => x.image);
     for (const old of withImage.slice(0, -MAX_IMAGES)) { delete old.image; old.text += '（画像は古いため省略）'; }
@@ -932,25 +964,28 @@ function handle(ws: WebSocket, state: { id: string | null; account: Account | nu
     state.id = account.id;
     const name = account.name;
     if (account.kind === 'guest') guestIds.add(account.id);
+    // 初めてログインした人は名簿に足して皆へ知らせる（フォローなどで ID から名前を引けるように）
+    else if (!directory.has(account.id)) sendDirectory(account.id, account);
     void auth.touch(account.id).catch(() => {});
-    const rec = personRec(name);
-    const cameOnline = !isOnline(name);
+    const rec = personRec(account.id);
+    const cameOnline = !isOnline(account.id);
     const lastSeen = rec.lastSeen;
     if (!users.has(account.id))
       users.set(account.id, {
         id: account.id, name, session: null, mode: '2d',
         micOn: false, sharing: false, follow: null, pos: null,
-        icon: iconVersion(name), avatar: avatarVersion(name), bio: bioOf(name), status: rec.status, statusText: rec.statusText, guest: account.kind === 'guest', username: account.kind === 'misskey' ? account.username : null,
+        icon: iconVersion(account.id), avatar: avatarVersion(account.id), bio: bioOf(account.id), status: rec.status, statusText: rec.statusText, guest: account.kind === 'guest', username: account.kind === 'misskey' ? account.username : null,
         viewing: [], viewLive: false, display: null,
       });
     if (!sockets.has(account.id)) sockets.set(account.id, new Set());
     sockets.get(account.id)!.add(ws);
+    send(ws, { t: 'directory', list: [...directory.values()], full: true });
     send(ws, {
       t: 'snapshot',
       s: {
-        guild: { ...guild, sessions: sessionsVisibleTo(name) },
+        guild: { ...guild, sessions: sessionsVisibleTo(account.id) },
         users: [...users.values()].map(publicUser),
-        friends: friendsOf(name),
+        friends: friendsOf(account.id),
         groups: home.groups,
         events: home.events,
         sessions: allSessionInfo(),
@@ -959,12 +994,12 @@ function handle(ws: WebSocket, state: { id: string | null; account: Account | nu
       },
     });
     send(ws, {
-      t: 'inbox', convs: convsOf(name), reads: inbox.reads[name] ?? {}, people: knownPeopleOf(name).map((n) => personOf(n)),
-      watching: watchingOf(name), lastSeen, recentStatus: rec.recent,
+      t: 'inbox', convs: convsOf(account.id), reads: inbox.reads[account.id] ?? {}, people: knownPeopleOf(account.id).map((n) => personOf(n)),
+      watching: watchingOf(account.id), lastSeen, recentStatus: rec.recent,
     });
     send(ws, { t: 'survivorProfile', profile: survivorProfile(account.id) });
     send(ws, { t: 'marketLikes', ...marketLikes.snapshot(account.id) });
-    send(ws, followsMsg(name));
+    send(ws, followsMsg(account.id));
     send(ws, { t: 'posts', list: timeline.posts });
     broadcastUsers();
     if (cameOnline) {
@@ -972,7 +1007,7 @@ function handle(ws: WebSocket, state: { id: string | null; account: Account | nu
       const watchers = rec.watchers;
       rec.watchers = [];
       if (watchers.length) savePeople();
-      for (const w of watchers) { sendToNames([w], { t: 'online', from: account.id, fromName: name }); sendWatching(w); }
+      for (const w of watchers) { sendTo([w], { t: 'online', from: account.id, fromName: name }); sendWatching(w); }
       broadcastPeople();
     }
     return;
@@ -988,26 +1023,26 @@ function handle(ws: WebSocket, state: { id: string | null; account: Account | nu
     return;
   }
   if (msg.t === 'profileUpdated') {
-    const icon = iconVersion(me.name);
-    const avatar = avatarVersion(me.name);
-    const bio = bioOf(me.name);
-    for (const u of users.values()) if (u.name === me.name) { u.icon = icon; u.avatar = avatar; u.bio = bio; }
+    me.icon = iconVersion(me.id);
+    me.avatar = avatarVersion(me.id);
+    me.bio = bioOf(me.id);
     broadcastUsers();
+    if (!me.guest) sendDirectory(me.id);
     return;
   }
   if (msg.t === 'followUser') {
-    const target = typeof msg.name === 'string' ? msg.name : '';
-    // 一度でも来たことのある名前だけ。打ち間違いや存在しない名前の辺を溜めない
-    if (target === me.name || !Object.hasOwn(people, target)) return;
-    const changed = msg.on ? follows.add(me.name, target) : follows.remove(me.name, target);
+    const target = typeof msg.to === 'string' ? msg.to : '';
+    // 名簿にいる人（ログインした人）だけ。ゲストや存在しない ID の辺を溜めない
+    if (target === me.id || !directory.has(target)) return;
+    const changed = msg.on ? follows.add(me.id, target) : follows.remove(me.id, target);
     if (!changed) return;
     saveFollows();
-    const noticeKey = `${me.name}\u0000${target}`;
+    const noticeKey = `${me.id}\u0000${target}`;
     if (msg.on && !(Date.now() - (followNoticeAt.get(noticeKey) ?? 0) < FOLLOW_NOTICE_MS)) {
       followNoticeAt.set(noticeKey, Date.now());
-      sendToNames([target], { t: 'followed', from: me.id, fromName: me.name });
+      sendTo([target], { t: 'followed', from: me.id, fromName: me.name });
     }
-    for (const n of [me.name, target]) sendToNames([n], { t: 'friends', names: friendsOf(n) });
+    for (const n of [me.id, target]) sendTo([n], { t: 'friends', ids: friendsOf(n) });
     broadcastFollows();
     broadcastSessions();
     broadcastPeople();
@@ -1034,7 +1069,7 @@ function handle(ws: WebSocket, state: { id: string | null; account: Account | nu
     }
     case 'join': {
       const def = guild.sessions.find((d) => d.id === msg.sid);
-      if (!def || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) {
+      if (!def || !canSeeSession(def, me.id, friendsOf(me.id), home.groups, [...users.values()])) {
         if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId, error: 'このセッションには参加できません' });
         return;
       }
@@ -1047,8 +1082,8 @@ function handle(ws: WebSocket, state: { id: string | null; account: Account | nu
       cancelEmptyCheck(msg.sid);
       me.mode = '2d';
       thumbnails.update(msg.sid, inSession(msg.sid));
-      const visit = visits.get(msg.sid) ?? { from: Date.now(), people: new Set<string>(), log: [] };
-      visit.people.add(me.name);
+      const visit = visits.get(msg.sid) ?? { from: Date.now(), people: new Map<string, string>(), log: [] };
+      visit.people.set(me.id, me.name);
       visits.set(msg.sid, visit);
       broadcastUsers(); sendPresence(msg.sid);
       event(msg.sid, `${me.name} が入室しました`);
@@ -1529,12 +1564,12 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
     case 'sessionCreate': {
       const name = trimTo(msg.name, 40);
       const visibility = Object.hasOwn(VISIBILITY_INFO, msg.visibility) ? msg.visibility : 'public';
-      const group = isGroupVisibility(visibility) ? home.groups.find((g) => g.id === msg.group && g.members.includes(me.name))?.id : undefined;
+      const group = isGroupVisibility(visibility) ? home.groups.find((g) => g.id === msg.group && g.members.includes(me.id))?.id : undefined;
       if (!name || (isGroupVisibility(visibility) && !group)) {
         if (msg.requestId) send(ws, { t: 'sessionResult', requestId: msg.requestId, error: !name ? 'セッション名を入力してください' : 'このグループには所属していません' });
         return true;
       }
-      const def: SessionDef = { id: shortId(), name, topic: trimTo(msg.topic, 100), world: isWorldKind(msg.world) ? msg.world : 'room', visibility, owner: me.name, group, invited: [] };
+      const def: SessionDef = { id: shortId(), name, topic: trimTo(msg.topic, 100), world: isWorldKind(msg.world) ? msg.world : 'room', visibility, owner: me.id, group, invited: [] };
       home.sessions.push(def);
       guild.sessions.push(def);
       registerSession(def);
@@ -1546,7 +1581,7 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
       return true;
     }
     case 'sessionDelete': {
-      const def = home.sessions.find((d) => d.id === msg.id && d.owner === me.name);
+      const def = home.sessions.find((d) => d.id === msg.id && d.owner === me.id);
       if (!def || [...users.values()].some((u) => u.session === def.id)) return true;
       destroyUserSession(def.id);
       return true;
@@ -1554,20 +1589,20 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
     case 'groupCreate': {
       const name = trimTo(msg.name, 40);
       if (!name) return true;
-      home.groups.push({ id: shortId(), name, color: GROUP_COLORS.includes(msg.color) ? msg.color : GROUP_COLORS[0], owner: me.name, editors: [], members: [me.name], channels: defaultChannels() });
+      home.groups.push({ id: shortId(), name, color: GROUP_COLORS.includes(msg.color) ? msg.color : GROUP_COLORS[0], owner: me.id, editors: [], members: [me.id], channels: defaultChannels() });
       saveHome();
       broadcastGroups();
       return true;
     }
     case 'groupUpdate': {
       const g = home.groups.find((x) => x.id === msg.groupId);
-      if (!g || !canEditGroup(g, me.name)) return true;
+      if (!g || !canEditGroup(g, me.id)) return true;
       let changed = false;
       if (typeof msg.name === 'string') {
         const name = trimTo(msg.name, 40);
         if (name && name !== g.name) { g.name = name; changed = true; }
       }
-      if (g.owner === me.name && Array.isArray(msg.editors)) {
+      if (g.owner === me.id && Array.isArray(msg.editors)) {
         g.editors = [...new Set(msg.editors.filter((n) => typeof n === 'string' && n !== g.owner && g.members.includes(n)))];
         changed = true;
       }
@@ -1578,19 +1613,19 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
     case 'groupLeave': {
       const g = home.groups.find((x) => x.id === msg.id);
       if (!g) return true;
-      if (msg.t === 'groupJoin' && !g.members.includes(me.name)) g.members.push(me.name);
-      if (msg.t === 'groupLeave') g.members = g.members.filter((n) => n !== me.name);
+      if (msg.t === 'groupJoin' && !g.members.includes(me.id)) g.members.push(me.id);
+      if (msg.t === 'groupLeave') g.members = g.members.filter((n) => n !== me.id);
       g.editors = g.editors?.filter((n) => g.members.includes(n));
       saveHome();
       broadcastGroups();
       broadcastSessions();
       broadcastPeople();
       // チャンネルが見えるようになった・見えなくなったので、メッセージを送り直す
-      sendToNames([me.name], { t: 'inbox', convs: convsOf(me.name), reads: inbox.reads[me.name] ?? {}, people: knownPeopleOf(me.name).map((n) => personOf(n)), watching: watchingOf(me.name), lastSeen: null, recentStatus: personRec(me.name).recent });
+      sendTo([me.id], { t: 'inbox', convs: convsOf(me.id), reads: inbox.reads[me.id] ?? {}, people: knownPeopleOf(me.id).map((n) => personOf(n)), watching: watchingOf(me.id), lastSeen: null, recentStatus: personRec(me.id).recent });
       return true;
     }
     case 'channelCreate': {
-      const g = home.groups.find((x) => x.id === msg.group && x.owner === me.name);
+      const g = home.groups.find((x) => x.id === msg.group && x.owner === me.id);
       const name = trimTo(msg.name, 20).replace(/^#\s*/, '');
       if (!g || !name || g.channels.length >= 8 || g.channels.some((c) => c.name === name)) return true;
       g.channels.push({ id: shortId(), name });
@@ -1600,7 +1635,7 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
     }
     case 'msg': {
       const members = convMembers(msg.conv);
-      if (!members?.includes(me.name)) return true;
+      if (!members?.includes(me.id)) return true;
       const text = trimTo(msg.text, 2000);
       // Browsers record WebM/Opus; the native Windows client records AAC in MP4.
       // Both must still reference an uploaded file whose content type was sniffed.
@@ -1608,46 +1643,46 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
         ? { url: msg.voice.url, sec: Math.max(1, Math.min(120, Math.round(Number(msg.voice.sec) || 1))) } : undefined;
       const media = chatMedia(msg.media);
       const at = Number(msg.plan?.at);
-      const visible = sessionsVisibleTo(me.name);
+      const visible = sessionsVisibleTo(me.id);
       const plan = msg.plan && msg.conv.startsWith('ch:') && Number.isFinite(at)
-        ? { at, session: visible.find((d) => d.id === msg.plan!.session)?.id ?? null, answers: { [me.name]: 'yes' as Rsvp }, event: null } : undefined;
+        ? { at, session: visible.find((d) => d.id === msg.plan!.session)?.id ?? null, answers: { [me.id]: 'yes' as Rsvp }, event: null } : undefined;
       const invite = msg.invite && visible.some((d) => d.id === msg.invite) ? msg.invite : undefined;
       const it = msg.item && visible.some((d) => d.id === msg.item!.session) ? items.get(msg.item.session)?.get(msg.item.id) : undefined;
       const item = it ? { session: msg.item!.session, id: it.id, kind: it.kind, summary: itemSummary(it) ?? ITEM_INFO[it.kind].name } : undefined;
       if (!text && !voice && !media && !plan && !invite && !item) return true;
       pushMessage(msg.conv, {
-        id: randomUUID(), from: me.name, at: Date.now(), text,
+        id: randomUUID(), from: me.id, at: Date.now(), text,
         ...(voice ? { voice } : {}), ...(media ? { media } : {}), ...(plan ? { plan } : {}), ...(invite ? { invite } : {}), ...(item ? { item } : {}),
       });
       // 送った会話は読んだことにする
-      (inbox.reads[me.name] ??= newRecord())[msg.conv] = Date.now();
-      inboxPartJson.reads.delete(me.name);
+      (inbox.reads[me.id] ??= newRecord())[msg.conv] = Date.now();
+      inboxPartJson.reads.delete(me.id);
       return true;
     }
     case 'read': {
-      if (!convMembers(msg.conv)?.includes(me.name)) return true;
-      const reads = (inbox.reads[me.name] ??= newRecord());
+      if (!convMembers(msg.conv)?.includes(me.id)) return true;
+      const reads = (inbox.reads[me.id] ??= newRecord());
       const at = Math.min(Date.now(), Number(msg.at) || 0);
       if (at <= (reads[msg.conv] ?? 0)) return true;
       reads[msg.conv] = at;
-      inboxPartJson.reads.delete(me.name);
+      inboxPartJson.reads.delete(me.id);
       saveInbox();
-      sendToNames([me.name], { t: 'read', conv: msg.conv, at });
+      sendTo([me.id], { t: 'read', conv: msg.conv, at });
       return true;
     }
     case 'rsvp': {
       const m = inbox.convs[msg.conv]?.find((x) => x.id === msg.id);
-      if (!m?.plan || !convMembers(msg.conv)?.includes(me.name)) return true;
+      if (!m?.plan || !convMembers(msg.conv)?.includes(me.id)) return true;
       const plan = m.plan;
-      if (msg.answer === null) delete plan.answers[me.name];
-      else if (msg.answer === 'yes' || msg.answer === 'maybe' || msg.answer === 'no') plan.answers[me.name] = msg.answer;
+      if (msg.answer === null) delete plan.answers[me.id];
+      else if (msg.answer === 'yes' || msg.answer === 'maybe' || msg.answer === 'no') plan.answers[me.id] = msg.answer;
       const who = (a: Rsvp) => Object.keys(plan.answers).filter((n) => plan.answers[n] === a);
       let ev = plan.event ? home.events.find((x) => x.id === plan.event) : undefined;
       // 剪定済みの古い日程相談 (開始が保持期間を過ぎている) からはイベントを作り直さない。
       // 回答の記録や既存イベントの出席更新は従来どおり行う
       if (!ev && who('yes').length >= PLAN_QUORUM && !isStaleEvent(plan.at, Date.now())) {
         const group = msg.conv.split(':')[1];
-        ev = { id: shortId(), title: m.text.split('\n')[0].slice(0, 60) || '集まり', at: plan.at, group, session: plan.session, owner: m.from || me.name, attendees: [], maybe: [], declined: [] };
+        ev = { id: shortId(), title: m.text.split('\n')[0].slice(0, 60) || '集まり', at: plan.at, group, session: plan.session, owner: m.from || me.id, attendees: [], maybe: [], declined: [] };
         pruneOldEvents();
         home.events.push(ev);
         home.events.sort((a, b) => a.at - b.at);
@@ -1656,40 +1691,41 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
       if (ev) { ev.attendees = who('yes'); ev.maybe = who('maybe'); ev.declined = who('no'); saveHome(); broadcastEvents(); }
       inboxPartJson.convs.delete(msg.conv);
       saveInbox();
-      sendToNames(convMembers(msg.conv) ?? [], { t: 'msg', conv: msg.conv, m });
+      sendTo(convMembers(msg.conv) ?? [], { t: 'msg', conv: msg.conv, m });
       return true;
     }
     case 'setStatus': {
       if (!Object.hasOwn(STATUS_INFO, msg.status)) return true;
-      const rec = personRec(me.name);
+      const rec = personRec(me.id);
       rec.status = msg.status;
       rec.statusText = trimTo(msg.text, STATUS_TEXT_MAX);
       if (rec.statusText) rec.recent = [rec.statusText, ...rec.recent.filter((t) => t !== rec.statusText)].slice(0, 5);
       savePeople();
-      for (const u of users.values()) if (u.name === me.name) { u.status = rec.status; u.statusText = rec.statusText; }
+      me.status = rec.status;
+      me.statusText = rec.statusText;
       broadcastUsers();
       broadcastPeople();
-      sendWatching(me.name);
+      sendWatching(me.id);
       return true;
     }
     case 'watch': {
-      const name = normalizeName(msg.name);
-      if (!friendsOf(me.name).includes(name)) return true;
-      const rec = personRec(name);
-      rec.watchers = rec.watchers.filter((n) => n !== me.name);
-      if (msg.on) rec.watchers.push(me.name);
+      const target = typeof msg.to === 'string' ? msg.to : '';
+      if (!friendsOf(me.id).includes(target)) return true;
+      const rec = personRec(target);
+      rec.watchers = rec.watchers.filter((n) => n !== me.id);
+      if (msg.on) rec.watchers.push(me.id);
       savePeople();
-      sendWatching(me.name);
+      sendWatching(me.id);
       return true;
     }
     case 'askJoin': {
       const target = users.get(msg.to);
-      if (!target?.session || target.status === 'busy' || !friendsOf(me.name).includes(target.name)) return true;
+      if (!target?.session || target.status === 'busy' || !friendsOf(me.id).includes(target.id)) return true;
       sendTo([target.id], { t: 'askJoin', from: me.id, fromName: me.name, session: target.session });
       return true;
     }
     case 'groupDelete': {
-      const g = home.groups.find((x) => x.id === msg.id && x.owner === me.name);
+      const g = home.groups.find((x) => x.id === msg.id && x.owner === me.id);
       if (!g) return true;
       home.groups.splice(home.groups.indexOf(g), 1);
       deleteGroupImages(g);
@@ -1706,10 +1742,10 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
       const title = trimTo(msg.title, 60);
       const at = Number(msg.at);
       if (!title || !Number.isFinite(at)) return true;
-      const group = home.groups.find((g) => g.id === msg.group && g.members.includes(me.name))?.id ?? null;
-      const session = sessionsVisibleTo(me.name).find((d) => d.id === msg.session)?.id ?? null;
+      const group = home.groups.find((g) => g.id === msg.group && g.members.includes(me.id))?.id ?? null;
+      const session = sessionsVisibleTo(me.id).find((d) => d.id === msg.session)?.id ?? null;
       pruneOldEvents();
-      home.events.push({ id: shortId(), title, at, group, session, owner: me.name, attendees: [me.name], maybe: [], declined: [] });
+      home.events.push({ id: shortId(), title, at, group, session, owner: me.id, attendees: [me.id], maybe: [], declined: [] });
       home.events.sort((a, b) => a.at - b.at);
       saveHome();
       broadcastEvents();
@@ -1718,16 +1754,16 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
     case 'eventAttend': {
       const ev = home.events.find((x) => x.id === msg.id);
       if (!ev) return true;
-      for (const k of ['attendees', 'maybe', 'declined'] as const) ev[k] = ev[k].filter((n) => n !== me.name);
-      if (msg.answer === 'yes') ev.attendees.push(me.name);
-      if (msg.answer === 'maybe') ev.maybe.push(me.name);
-      if (msg.answer === 'no') ev.declined.push(me.name);
+      for (const k of ['attendees', 'maybe', 'declined'] as const) ev[k] = ev[k].filter((n) => n !== me.id);
+      if (msg.answer === 'yes') ev.attendees.push(me.id);
+      if (msg.answer === 'maybe') ev.maybe.push(me.id);
+      if (msg.answer === 'no') ev.declined.push(me.id);
       saveHome();
       broadcastEvents();
       return true;
     }
     case 'eventDelete': {
-      const ev = home.events.find((x) => x.id === msg.id && x.owner === me.name);
+      const ev = home.events.find((x) => x.id === msg.id && x.owner === me.id);
       if (!ev) return true;
       home.events.splice(home.events.indexOf(ev), 1);
       saveHome();
@@ -1737,13 +1773,13 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
     case 'invite': {
       const other = users.get(msg.to);
       // 取り込み中の人には誘いを届けない
-      if (!other || other.name === me.name || other.status === 'busy') return true;
+      if (!other || other.id === me.id || other.status === 'busy') return true;
       if (msg.kind === 'session') {
         const def = guild.sessions.find((d) => d.id === msg.id);
-        if (!def || !canSeeSession(def, me.name, friendsOf(me.name), home.groups, [...users.values()])) return true;
-        if (def.owner && !def.invited!.includes(other.name)) { def.invited!.push(other.name); saveHome(); broadcastSessions(); }
-      } else if (!home.groups.find((g) => g.id === msg.id)?.members.includes(me.name)) return true;
-      sendTo(idsByName(other.name), { t: 'invite', kind: msg.kind, id: msg.id, from: me.id, fromName: me.name });
+        if (!def || !canSeeSession(def, me.id, friendsOf(me.id), home.groups, [...users.values()])) return true;
+        if (def.owner && !def.invited!.includes(other.id)) { def.invited!.push(other.id); saveHome(); broadcastSessions(); }
+      } else if (!home.groups.find((g) => g.id === msg.id)?.members.includes(me.id)) return true;
+      sendTo([other.id], { t: 'invite', kind: msg.kind, id: msg.id, from: me.id, fromName: me.name });
       return true;
     }
   }
@@ -1765,8 +1801,8 @@ function onClose(ws: WebSocket, id: string | null) {
   lastRoll.delete(id);
   broadcastUsers();
   if (wasIn) broadcastSessions();
-  if (u && !isOnline(u.name)) {
-    personRec(u.name).lastSeen = Date.now();
+  if (u && !isOnline(u.id)) {
+    personRec(u.id).lastSeen = Date.now();
     savePeople();
     broadcastPeople();
   }
@@ -1808,7 +1844,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
     const account = await who();
     if (!account || account.kind === 'guest') { deny(403); return; }
-    const uploader = account.name;
+    const uploader = account.id;
     if (!timeline.allow(`upload:${uploader}`, UPLOAD_RATE)) { res.statusCode = 429; res.end(); return; }
     const body = await readBody(req, POST_IMAGE_MAX_BYTES);
     if (!body) { res.statusCode = 413; res.end(); return; }
@@ -1833,12 +1869,12 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const g = home.groups.find((x) => x.id === url.pathname.slice('/group-image/'.length));
     if (req.method === 'POST') {
       const account = await who();
-      const name = account && account.kind !== 'guest' ? account.name : '';
-      if (!g || !canEditGroup(g, name)) { res.statusCode = 204; res.end(); return; }
+      const editor = account && account.kind !== 'guest' ? account.id : '';
+      if (!g || !canEditGroup(g, editor)) { res.statusCode = 204; res.end(); return; }
       const body = await readBody(req, ICON_MAX_BYTES);
       if (!body || !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
       // 読み込み中の脱退・権限変更・削除も反映する。
-      if (!home.groups.includes(g) || !canEditGroup(g, name)) { res.statusCode = 204; res.end(); return; }
+      if (!home.groups.includes(g) || !canEditGroup(g, editor)) { res.statusCode = 204; res.end(); return; }
       fs.writeFileSync(groupImageFile(g), body);
       deleteGroupImages(g, 'jpg');
       g.imageVersion = (g.imageVersion ?? 0) + 1;
@@ -1860,14 +1896,13 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       // 自分のアイコンだけ書き換えられる。ゲストも残せる
       const account = await who();
       if (!account) { deny(401); return; }
-      const name = account.name;
       const body = await readBody(req, ICON_MAX_BYTES);
       if (!body || !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
-      fs.writeFileSync(iconFile(name), body);
-      res.end(JSON.stringify({ icon: iconVersion(name) }));
+      fs.writeFileSync(iconFile(account.id), body);
+      res.end(JSON.stringify({ icon: iconVersion(account.id) }));
       return;
     }
-    const file = iconFile(url.searchParams.get('name') ?? '');
+    const file = iconFile(url.searchParams.get('id') ?? '');
     if (!fs.existsSync(file)) { res.statusCode = 404; res.end(); return; }
     res.setHeader('Content-Type', 'image/jpeg');
     // URL に版を付けて取得するので長期キャッシュしてよい
@@ -1879,9 +1914,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     // 書くのは自分のアバターだけ（ゲストも残せる）。読むのはだれのものでも
     const account = req.method === 'POST' ? await who() : null;
     if (req.method === 'POST' && !account) { deny(401); return; }
-    const name = account?.name ?? url.searchParams.get('name') ?? '';
+    const id = account?.id ?? url.searchParams.get('id') ?? '';
     const isParams = url.pathname === '/avatar/params';
-    const file = isParams ? avatarParamsFile(name) : avatarImageFile(name);
+    const file = isParams ? avatarParamsFile(id) : avatarImageFile(id);
     if (req.method === 'POST') {
       const body = await readBody(req, isParams ? 20_000 : 6_000_000);
       if (!body) { res.statusCode = 413; res.end(); return; }
@@ -1893,7 +1928,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         if (!isPng(body) && !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
         fs.writeFileSync(file, body);
       }
-      res.end(JSON.stringify({ avatar: avatarVersion(name) }));
+      res.end(JSON.stringify({ avatar: avatarVersion(id) }));
       return;
     }
     if (!fs.existsSync(file)) { res.statusCode = 404; res.end(); return; }
@@ -1909,15 +1944,14 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       // 自己紹介はログインした人だけ（ゲストが残せるのはアイコンとアバター）
       const account = await who();
       if (!account || account.kind === 'guest') { deny(403); return; }
-      const name = account.name;
       const body = await readBody(req, 10_000);
       let bio = '';
       try { bio = String((JSON.parse(body?.toString('utf-8') ?? '') as { bio?: unknown }).bio ?? '').slice(0, 300); } catch { res.statusCode = 400; res.end(); return; }
-      fs.writeFileSync(profileFile(name), JSON.stringify({ bio }));
+      fs.writeFileSync(profileFile(account.id), JSON.stringify({ bio }));
       res.end(JSON.stringify({ bio }));
       return;
     }
-    res.end(JSON.stringify({ bio: bioOf(url.searchParams.get('name') ?? '') }));
+    res.end(JSON.stringify({ bio: bioOf(url.searchParams.get('id') ?? '') }));
     return;
   }
   if (url.pathname === '/media' && req.method === 'POST') {
@@ -1946,7 +1980,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const body = await readBody(req, 10_000);
     try {
       const r = JSON.parse(body?.toString('utf-8') ?? '') as { target?: unknown; reason?: unknown };
-      fs.appendFileSync(REPORTS_FILE, `${JSON.stringify({ at: new Date().toISOString(), from: account.name, account: account.id, target: String(r.target).slice(0, 24), reason: String(r.reason ?? '').slice(0, 500) })}\n`);
+      fs.appendFileSync(REPORTS_FILE, `${JSON.stringify({ at: new Date().toISOString(), from: account.id, fromName: account.name, target: String(r.target).slice(0, 64), reason: String(r.reason ?? '').slice(0, 500) })}\n`);
       console.log(`report: ${account.name} -> ${String(r.target)}`);
     } catch { res.statusCode = 400; }
     res.end();
@@ -2166,8 +2200,10 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => {
   Promise.allSettled([shutdownRooms(), closeDb()]).finally(() => process.exit(0));
 });
 
-try { await openDb(); }
-catch (e) {
+try {
+  await openDb();
+  await loadDirectory();
+} catch (e) {
   // Drizzle は失敗したクエリで包むので、接続や認証の失敗は cause の方にある
   const err = e as Error & { cause?: Error };
   console.error('DB に接続できませんでした:', err.cause?.message ?? err.message);

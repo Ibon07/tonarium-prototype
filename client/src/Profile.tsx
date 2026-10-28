@@ -53,10 +53,11 @@ const OEKAKI_SITE = 'https://oekaki-avatar.anthrotech.dev/';
 /** 名前ごとに保存されるアイコンと 3D アバターの設定 */
 export function ProfileDialog({ name, onClose }: { name: string; onClose: () => void }) {
   const n = name.trim();
+  const id = useStore((s) => s.selfId);
   const [icon, setIcon] = useState<string | null>(null);
   const [avatar, setAvatar] = useState<string | null>(null);
   const [message, setMessage] = useState<string | UiMessage>('');
-  const [bio, setBio] = useUpdateDraft<string | null>(`profile.bio.${n}`, null);
+  const [bio, setBio] = useUpdateDraft<string | null>(`profile.bio.${id}`, null);
   const loadScale = useStore((s) => s.loadScale);
   const lightweight = useStore((s) => s.lightweight);
   const mapMode = useStore((s) => s.mapMode);
@@ -64,15 +65,15 @@ export function ProfileDialog({ name, onClose }: { name: string; onClose: () => 
   const guest = useStore((s) => s.selfGuest);
   useEffect(() => {
     let alive = true;
-    void fetch(`/profile?name=${encodeURIComponent(n)}`).then((r) => r.json()).then((p: { bio: string }) => { if (alive) setBio(current => current ?? p.bio); });
-    void fetch(iconUrl(n)).then((r) => { if (alive && r.ok) setIcon(iconUrl(n)); });
-    void fetch(`/avatar?name=${encodeURIComponent(n)}&t=${Date.now()}`).then((r) => {
+    void fetch(`/profile?id=${encodeURIComponent(id)}`).then((r) => r.json()).then((p: { bio: string }) => { if (alive) setBio(current => current ?? p.bio); });
+    void fetch(iconUrl(id)).then((r) => { if (alive && r.ok) setIcon(iconUrl(id)); });
+    void fetch(`/avatar?id=${encodeURIComponent(id)}&t=${Date.now()}`).then((r) => {
       if (alive && r.ok) setAvatar(String(Date.now()));
     });
     return () => { alive = false; };
-  }, [n]);
+  }, [id]);
   const saveBio = async () => {
-    const r = await fetch(`/profile?name=${encodeURIComponent(n)}`, { method: 'POST', body: JSON.stringify({ bio }) });
+    const r = await fetch('/profile', { method: 'POST', body: JSON.stringify({ bio }) });
     if (r.ok) send({ t: 'profileUpdated' });
     setMessage(r.ok ? msg("ui42") : msg("ui43"));
   };
@@ -99,16 +100,16 @@ export function ProfileDialog({ name, onClose }: { name: string; onClose: () => 
           <h3>{tr("ui51")}</h3>
           <div className="row">
             {icon ? <img className="av big" src={icon} alt="" /> : <div className="av big noicon">{n.slice(0, 1)}</div>}
-            <button onClick={() => void run(() => pickIcon(n), (v) => setIcon(iconUrl(n, v)), msg("ui52"))}>{tr("ui53")}</button>
+            <button onClick={() => void run(() => pickIcon(), (v) => setIcon(iconUrl(id, v)), msg("ui52"))}>{tr("ui53")}</button>
           </div>
         </section>
         <section>
           <h3>{tr("ui54")}</h3>
-          <img className="avatartex" src={avatarTextureUrl(n, avatar)} alt="" />
+          <img className="avatartex" src={avatarTextureUrl(id, avatar)} alt="" />
           {!avatar && <div className="sub">{tr("ui55")}</div>}
           <div className="row wrap">
-            <button className="primary" onClick={() => void run(() => uploadAvatarImage(n), setAvatar, msg("ui56"))}>{tr("ui53")}</button>
-            <button onClick={() => void run(() => uploadAvatarManifest(n), setAvatar, msg("ui57"))}>{tr("ui58")}</button>
+            <button className="primary" onClick={() => void run(() => uploadAvatarImage(), setAvatar, msg("ui56"))}>{tr("ui53")}</button>
+            <button onClick={() => void run(() => uploadAvatarManifest(), setAvatar, msg("ui57"))}>{tr("ui58")}</button>
             <a className="btnlink" href="/oekaki/template.png" download="oekaki-template.png">{tr("ui59")}</a>
             <a className="btnlink" href={OEKAKI_SITE} target="_blank" rel="noreferrer">{tr("ui60")}</a>
           </div>

@@ -4,8 +4,17 @@
 
 1. DB とストレージの土台（この文書の内容。入っている）
 2. Misskey（misskey.resonite.love）でのログインとゲスト（[login.md](login.md)。入っている）
-3. ユーザーのデータを DB へ移し、名前ではなくアカウント ID で持つ（今の `data/*.json` は引き継がない）
+3. 人を名前ではなくアカウント ID で持つ（3a。入っている。保存はまだ `data/*.json`）。続けて、その保存を DB へ移す（3b・3c）
 4. 画像・動画をストレージへ移す
+
+## 人はアカウント ID で持つ
+
+- フォロー・DM の会話キー（`dm:<ID>\0<ID>`）・既読・グループ（作った人・編集者・メンバー）・イベント（主催・参加表明）・作ったセッション（作った人・誘われた人）・タイムライン（作者・リアクション・リポスト）・ステータスと「来たら知らせる」・セッションのまとめ（いた人）・アイコン/アバター/自己紹介のファイル名は、すべてアカウント ID
+- 表示名とアイコンの版は、サーバーが送る名簿（`directory`。ログインした人の全員）とオンラインの `users` から引く。画面の `nameOf(id)`（`client/src/store.ts`）と `PersonFace` / `PersonName`（`client/src/home/common.tsx`）を使う。名前やアイコンが変わると、名簿の 1 人分が全員へ届く
+- アイコン・アバター・自己紹介の取得は `/icon?id=`・`/avatar?id=`・`/avatar/params?id=`・`/profile?id=`
+- 手元に覚えるブロック・個別の音量とミュートも ID（localStorage の `tonarium.blockedIds`・`tonarium.peerVolumeById`・`tonarium.peerMutedIds`。名前で覚えていた頃のものは読まない）
+- 通信の約束事が変わったので `COMPAT_VERSION` を 8 に上げた
+- 名前で持っていた頃のデータは引き継がない。最初の起動で、人に結び付く `data/*.json` とアイコンなどのフォルダを `data/archive-<日時>/` へ移し、印のファイル `data/.ids-v1` を置く（`server/index.ts` の `archiveNameKeyedData`）。`media/`・共有アセット/システム・翻訳はそのまま。サーバーを立てる前に ID 入りのデータを置くテストは、`server/test-db.ts` の `seedDevAccounts` でアカウントを作り、`markIdData` で印を置く
 
 ## PostgreSQL
 

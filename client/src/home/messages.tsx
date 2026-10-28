@@ -14,7 +14,7 @@ import { uploadMedia } from '../media.ts';
 import { ChatImage } from '../world/common.tsx';
 import { Icon } from '../world/Icon.tsx';
 import { openWindow } from '../world/windows.ts';
-import { NameFace, timeLabel } from './common.tsx';
+import { PersonFace, PersonName, timeLabel } from './common.tsx';
 
 const NONE: Message[] = [];
 const RSVPS = Object.keys(RSVP_LABEL) as Rsvp[];
@@ -42,6 +42,7 @@ const CONTINUE_ORDER: ItemKind[] = ['chess', 'chessAi', 'g2048', 'canvas', 'note
 function RecapCard({ r }: { r: Recap }) {
   const visible = useStore((s) => s.guild.sessions.some((d) => d.id === r.session));
   const world = useStore((s) => s.worldBy[r.session] ?? 'room');
+  const directory = useStore((s) => s.directory);
   const [log, setLog] = useState(false);
   const target = CONTINUE_ORDER.map((k) => r.items.find((it) => it.kind === k)).find(Boolean);
   const min = Math.max(1, Math.round((r.to - r.from) / 60_000));
@@ -56,8 +57,8 @@ function RecapCard({ r }: { r: Recap }) {
       </div>
       <div className="rbody">
         <div className="row">
-          <span className="stack">{r.people.slice(0, 6).map((n) => <NameFace key={n} name={n} size={22} />)}</span>
-          <span className="sub">{r.people.join(tr("ui236"))} · {span}</span>
+          <span className="stack">{r.people.slice(0, 6).map((p) => <PersonFace key={p.id} id={p.id} size={22} />)}</span>
+          <span className="sub">{r.people.map((p) => (directory[p.id]?.name ?? p.name)).join(tr("ui236"))} · {span}</span>
         </div>
         {r.items.length > 0 && <div className="rtiles">{r.items.map((it) => <ItemTile key={it.id} kind={it.kind} summary={it.summary} image={it.image} />)}</div>}
         <div className="row wrap">
@@ -82,9 +83,9 @@ const WORLD_TINT: Record<string, string> = { room: '#DCE6F3', cafe: '#F3E6C6', g
 
 function PlanCard({ conv, m }: { conv: string; m: Message }) {
   const plan = m.plan!;
-  const selfName = useStore((s) => s.selfName);
+  const selfId = useStore((s) => s.selfId);
   const session = useStore((s) => s.guild.sessions.find((d) => d.id === plan.session));
-  const mine = plan.answers[selfName];
+  const mine = plan.answers[selfId];
   const count = (a: Rsvp) => Object.values(plan.answers).filter((x) => x === a).length;
   const yes = count('yes');
   return (
@@ -138,9 +139,9 @@ export function MessageView({ conv, m }: { conv: string; m: Message }) {
   if (m.recap) return <div className="msg sys"><RecapCard r={m.recap} /></div>;
   return (
     <div className="msg">
-      <NameFace name={m.from} size={32} />
+      <PersonFace id={m.from} size={32} />
       <div className="msgbody">
-        <span className="mhead"><b>{m.from}</b><span className="sub">{timeLabel(m.at)}</span></span>
+        <span className="mhead"><b><PersonName id={m.from} /></b><span className="sub">{timeLabel(m.at)}</span></span>
         {m.text && <p className="mtext"><TranslatedText text={m.text} /></p>}
         {m.voice && <audio className="mvoice" src={m.voice.url} controls preload="metadata" aria-label={tr("ui247", m.voice.sec)} />}
         {m.media?.kind === 'image' && <ChatImage src={m.media.url} />}
@@ -156,7 +157,7 @@ export function MessageView({ conv, m }: { conv: string; m: Message }) {
 /** 会話。開いている間は読んだことにし、開いた時点の未読の頭に線を引く */
 export function Thread({ conv, empty }: { conv: string; empty: string }) {
   const list = useStore((s) => s.inbox[conv]) ?? NONE;
-  const selfName = useStore((s) => s.selfName);
+  const selfId = useStore((s) => s.selfId);
   const [since] = useState(() => useStore.getState().reads[conv] ?? 0);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -164,7 +165,7 @@ export function Thread({ conv, empty }: { conv: string; empty: string }) {
     if (el) el.scrollTop = el.scrollHeight;
     markRead(conv);
   }, [conv, list.length]);
-  const firstUnread = list.find((m) => m.at > since && m.from !== selfName)?.id;
+  const firstUnread = list.find((m) => m.at > since && m.from !== selfId)?.id;
   return (
     <div className="thread" ref={ref}>
       {list.length === 0 && <p className="hempty">{empty}</p>}

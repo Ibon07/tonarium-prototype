@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { testServerEnv } from './test-db.ts';
+import { markIdData, seedDevAccounts, testServerEnv } from './test-db.ts';
 import { devLogin } from './test-auth.ts';
 import { WebSocket } from 'ws';
 import { COMPAT_VERSION, dmKey } from '../shared/protocol.ts';
@@ -25,7 +25,10 @@ for (const mode of ['mock', 'missing', 'failed'] as const) {
     const dbEnv = await testServerEnv(t);
     const data = await mkdtemp(path.join(os.tmpdir(), 'tonarium-translation-'));
     await writeFile(path.join(data, 'sessions.json'), JSON.stringify({ name: 'Test', sessions: [] }));
-    await writeFile(path.join(data, 'friends.json'), JSON.stringify([['Alice', 'Bob']]));
+    // DM はフレンド（お互いにフォロー）同士だけ。フォローはアカウント ID の組
+    const ids = await seedDevAccounts(dbEnv, ['Alice', 'Bob']);
+    await markIdData(data);
+    await writeFile(path.join(data, 'follows.json'), JSON.stringify([[ids.Alice, ids.Bob], [ids.Bob, ids.Alice]]));
     const listener = net.createServer();
     await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', resolve));
     const port = (listener.address() as net.AddressInfo).port;
@@ -57,7 +60,7 @@ for (const mode of ['mock', 'missing', 'failed'] as const) {
       return { ws, messages };
     }
     const alice = await peer('Alice'), bob = await peer('Bob');
-    const conv = dmKey('Alice', 'Bob');
+    const conv = dmKey(ids.Alice, ids.Bob);
     alice.ws.send(JSON.stringify({ t: 'msg', conv, text: 'Hello' }));
     await until(() => bob.messages.some((m) => m.t === 'msg' && m.m.text === 'Hello'));
     // 翻訳はつないでいる人だけが使える

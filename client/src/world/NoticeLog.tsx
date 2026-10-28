@@ -28,7 +28,7 @@ const SCOPES: { scope: ChatScope; label: string; title: string; placeholder: str
 function useVisibleChat() {
   const chat = useStore((s) => (s.session ? s.chats[s.session] ?? NO_CHAT : NO_CHAT));
   const blocked = useStore((s) => s.blocked);
-  return chat.filter((m) => !(m.from && blocked.includes(m.fromName)));
+  return chat.filter((m) => !(m.from && blocked.includes(m.from)));
 }
 
 const NOTICE_TEXT: Record<Notice['kind'], string> = localized({
@@ -55,16 +55,16 @@ export function acceptInvite(n: Notice) {
 }
 
 function NoticeRow({ n, onMessage }: { n: Notice; onMessage: (conv: string) => void }) {
-  const selfName = useStore((s) => s.selfName);
+  const selfId = useStore((s) => s.selfId);
   const target = useStore((s) => (n.key ? s.items[n.key.slice(n.key.indexOf(':') + 1)] : undefined));
   const inviteTo = useStore((s) => inviteTarget(s, n));
-  const followingBack = useStore((s) => s.following.includes(n.fromName));
+  const followingBack = useStore((s) => s.following.includes(n.from));
   const text = n.kind === 'attention' ? (target ? tr("ui644", itemLabel(target)) : tr("ui645"))
     : n.kind === 'invite' ? tr("ui177", inviteTo ? `「${inviteTo.name}」` : tr("ui178")) : NOTICE_TEXT[n.kind];
   const reply = n.kind === 'askJoin'
     ? <button className="ib reply" onClick={() => { invite('session', n.key!.slice(8), n.from); removeNotice(n.id); }}>{tr("ui646")}</button>
     : n.kind === 'online'
-    ? <button className="ib reply" onClick={() => { onMessage(dmKey(selfName, n.fromName)); removeNotice(n.id); }}>{tr("ui181")}</button>
+    ? <button className="ib reply" onClick={() => { onMessage(dmKey(selfId, n.from)); removeNotice(n.id); }}>{tr("ui181")}</button>
     : n.kind === 'invite'
     ? <button className="ib reply" disabled={!inviteTo} onClick={() => acceptInvite(n)}>{n.key?.startsWith('group:') ? tr("ui146") : tr("ui194")}</button>
     : n.kind === 'attention'
@@ -75,7 +75,7 @@ function NoticeRow({ n, onMessage }: { n: Notice; onMessage: (conv: string) => v
       ? <button className="ib reply" onClick={() => goNear(n.from)}>{tr("ui611")}</button>
       : n.kind === 'live'
         ? <button className="ib reply" onClick={() => setViewLive(true, n.id)}>{tr("ui648")}</button>
-        : followingBack ? null : <button className="ib reply" onClick={() => { followUser(n.fromName, true); removeNotice(n.id); }}>{tr('followBack')}</button>;
+        : followingBack ? null : <button className="ib reply" onClick={() => { followUser(n.from, true); removeNotice(n.id); }}>{tr('followBack')}</button>;
   return (
     <div className={`notice ${n.unread ? 'unread' : ''}`}>
       <Face id={n.from} name={n.fromName} size={28} />
