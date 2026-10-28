@@ -9,7 +9,7 @@ test('generation probe uses the same supplied configuration for model listing an
     calls++; assert.ok(String(url).startsWith('https://isolated.kokoa.invalid/v1/'));
     assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer probe-test-only');
     if (String(url).endsWith('/models')) return new Response(JSON.stringify({ data: [{ id: 'isolated-model' }] }));
-    const body = JSON.parse(String(init?.body)); assert.equal(body.model, 'isolated-model');
+    const body = JSON.parse(String(init?.body)); assert.equal(body.model, 'isolated-model'); assert.deepEqual(body.chat_template_kwargs, { enable_thinking: true });
     return new Response(JSON.stringify({ model: 'isolated-model', choices: [{ message: { content: 'A quiet pause can help.' } }] }));
   }) as typeof fetch });
   assert.equal(ok, true); assert.equal(calls, 7);

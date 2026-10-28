@@ -18,7 +18,7 @@ Coolify に保存済みなら、同名の値をアプリコンテナに渡して
 プレイヤー画面 → Tonarium ゲームサーバー → HTTPS KokoaAI /v1/chat/completions
 ```
 
-NPC と GM は同じ接続設定を読む。モデル ID は要求に含め、サーバーが返した有効なモデル名を画面へ届ける。URL 内の認証・クエリ・フラグメントは拒否し、リダイレクトしない。Bearer 認証はサーバーの送信ヘッダーだけに付ける。標準の model/messages/stream/max_tokens/temperature を使い、旧ランタイム専用の引数を送らない。
+NPC と GM は同じ接続設定を読む。モデル ID は要求に含め、サーバーが返した有効なモデル名を画面へ届ける。URL 内の認証・クエリ・フラグメントは拒否し、リダイレクトしない。Bearer 認証はサーバーの送信ヘッダーだけに付ける。model/messages/stream/max_tokens/temperature に加え、LFM3 の思考を要求する `chat_template_kwargs: { enable_thinking: true }` を NPC・GM の両方で明示する。`cache_prompt` は送らない。KokoaAI がこの拡張を実際のモデルへ渡すかは配備後のゲーム内試験で確認する。思考を要求することと、思考本文を画面で隠すことは別である。
 
 JSON と SSE を受信する。SSE では途中の発言を順次表示し、思考ブロックや実行命令は表示しない。入力・出力・受信量を制限し、期限は要求全体で45秒、出力上限は1536トークン。NPC と GM の要求は共有の送信枠で制限する。実際の速度・品質は外部サーバーの実行設定と負荷によって変わる。
 

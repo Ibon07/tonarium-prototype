@@ -376,6 +376,7 @@ export class NpcChat {
           model: this.model,
           messages,
           stream: !!state.onProgress, max_tokens: 1536, temperature: FANTASY_NPC_TEMPERATURE,
+          chat_template_kwargs: { enable_thinking: true },
         }),
       });
       if (!response.ok) {

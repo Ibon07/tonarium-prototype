@@ -24,7 +24,7 @@ test('live NPC and GM sockets use authenticated external HTTPS and ignore retire
     let raw = ''; for await (const part of request) raw += String(part);
     const body = JSON.parse(raw);
     assert.equal(body.model, 'lfm3-1.7b'); assert.equal(body.stream, true);
-    assert.ok(!('cache_prompt' in body)); assert.ok(!('chat_template_kwargs' in body));
+    assert.ok(!('cache_prompt' in body)); assert.deepEqual(body.chat_template_kwargs, { enable_thinking: true });
     assert.ok(!raw.includes('websocket-test-only')); assert.ok(!raw.includes('FORGED_DEVICE_REPLY'));
     calls++;
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });

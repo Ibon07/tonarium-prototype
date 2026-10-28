@@ -85,7 +85,7 @@ NPC・GM の自由会話は外部の OpenAI 互換 KokoaAI へ送る。標準 Co
 
 すでに Coolify に保存済みなら再入力は不要。ただし、変数名を正確に合わせて再ビルド・再デプロイし、アプリコンテナに渡す。Dockerfile のみで配備する場合も同じ三変数をアプリへ渡す。API キーを Git、ブラウザ、VITE_ 変数、プレイヤーへの返信に含めない。旧 `NPC_LLM_*` の接続・移行設定は削除した。
 
-リクエストは `/chat/completions` に送り、標準の `model/messages/stream/max_tokens/temperature` を使う。llama.cpp 専用の `cache_prompt` と `chat_template_kwargs` は送らない。思考を使うモデルの余地を含めて出力上限を1536トークンとし、要求全体の45秒期限は維持する。SSE と JSON の両方を受信し、思考本文は表示しない。HTTPS の URL 内認証・クエリ・フラグメントを拒否し、リダイレクトには追従しない。
+リクエストは `/chat/completions` に送り、`model/messages/stream/max_tokens/temperature` に加えて `chat_template_kwargs: { enable_thinking: true }` を明示する。NPC・GM と運営の生成検査に同じ指定が入る。`cache_prompt` は送らない。KokoaAI がこの拡張をモデルに反映するかと実際の応答品質・速度は、マージ・再配備後のゲーム内試験で確認する。思考を使うモデルの余地を含めて出力上限を1536トークンとし、要求全体の45秒期限は維持する。SSE と JSON の両方を受信し、思考本文は表示しない。HTTPS の URL 内認証・クエリ・フラグメントを拒否し、リダイレクトには追従しない。
 
 KokoaAI に接続できない場合は失敗を明示し、ブラウザ・他プレイヤー・旧ローカルモデルへ引き継がない。価格・現在値・秘密の公開範囲・行動承認・報酬などの権限はゲームサーバーが保持する。既存の確定案内を AI 生成したものと表示しない。診断記録の `source: local` は互換性上残した「サーバー生成」の識別子であり、コンテナ内でモデルを実行する意味ではない。
 

@@ -120,7 +120,7 @@ test('unknown conversation uses only the configured transport and returns text w
   assert.equal(body?.stream, false);
   assert.equal(body?.max_tokens, 1536);
   assert.equal(body?.tools, undefined);
-  assert.equal(body?.chat_template_kwargs, undefined);
+  assert.deepEqual(body?.chat_template_kwargs, { enable_thinking: true });
 });
 
 test('GM membership and malformed payloads fail before any model call', async () => {

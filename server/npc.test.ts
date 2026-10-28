@@ -154,7 +154,7 @@ test('the NPC fixture transport uses standard bounded generation without credent
   assert.equal(received?.stream, false);
   assert.equal(received?.max_tokens, 1536);
   assert.equal(received?.temperature, 0.35);
-  assert.equal(received?.chat_template_kwargs, undefined);
+  assert.deepEqual(received?.chat_template_kwargs, { enable_thinking: true });
   assert.equal(received?.tools, undefined);
 });
 

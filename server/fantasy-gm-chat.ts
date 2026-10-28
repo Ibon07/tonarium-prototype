@@ -131,7 +131,7 @@ export class FantasyGmChat {
       context.onProgress?.('');
       const response = await this.fetch(this.endpoint, {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}) }, redirect: 'error', signal: controller.signal,
-        body: JSON.stringify({ model: this.model, messages, stream: !!context.onProgress, max_tokens: 1536, temperature: 0.7 }),
+        body: JSON.stringify({ model: this.model, messages, stream: !!context.onProgress, max_tokens: 1536, temperature: 0.7, chat_template_kwargs: { enable_thinking: true } }),
       });
       if (response.status === 429) return fail('busy');
       if (!response.ok) throw new Error(`KokoaAI HTTP ${response.status}`);

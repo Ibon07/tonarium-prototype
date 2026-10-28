@@ -46,7 +46,8 @@ test('KokoaAI handles NPC and GM JSON and streaming replies in all three languag
         assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer ' + fixtureKey);
         assert.equal(init?.redirect, 'error');
         const body = JSON.parse(String(init?.body));
-        assert.deepEqual(Object.keys(body).sort(), ['max_tokens', 'messages', 'model', 'stream', 'temperature']);
+        assert.deepEqual(Object.keys(body).sort(), ['chat_template_kwargs', 'max_tokens', 'messages', 'model', 'stream', 'temperature']);
+        assert.deepEqual(body.chat_template_kwargs, { enable_thinking: true });
         assert.equal(body.model, 'lfm3-1.7b'); assert.equal(body.stream, stream);
         assert.ok(body.messages.length >= 2);
         assert.match(body.messages[0].content, new RegExp({ ko: 'Korean|한국어', en: 'English', ja: 'Japanese|日本語' }[locale]));
@@ -134,7 +135,7 @@ test('explicit programmatic local endpoints do not receive KokoaAI credentials',
     const options = { url: 'http://127.0.0.1:18081/v1', fetch: (async (input, init) => {
       calls++; assert.equal(String(input), 'http://127.0.0.1:18081/v1/chat/completions');
       assert.equal(new Headers(init?.headers).get('Authorization'), null);
-      const body = JSON.parse(String(init?.body)); assert.ok(!('cache_prompt' in body)); assert.ok(!('chat_template_kwargs' in body));
+      const body = JSON.parse(String(init?.body)); assert.ok(!('cache_prompt' in body)); assert.deepEqual(body.chat_template_kwargs, { enable_thinking: true });
       return new Response(JSON.stringify({ choices: [{ message: { content: spoken.en } }] }));
     }) as typeof fetch };
     await new NpcChat(options).chat('local', { requestId: 'local-test', npcId: 'rin', locale: 'en', text: 'A quiet evening sounds pleasant.' });
