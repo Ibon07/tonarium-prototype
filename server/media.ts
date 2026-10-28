@@ -8,12 +8,11 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const MEDIA_DIR = path.join(process.env.DATA_DIR ?? path.join(ROOT, 'data'), 'media');
 
 const IMAGE_MAX = 10 * 1024 * 1024;
-const VIDEO_MAX = 50 * 1024 * 1024;
 /** 小さな VPS なので、合計がこれを超えたら古いものから消す */
 const TOTAL_MAX = 1024 * 1024 * 1024;
 
 const TYPES: Record<string, string> = {
-  jpg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', mp4: 'video/mp4', webm: 'video/webm',
+  jpg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
 };
 
 /** 中身の先頭で種類を決める（拡張子や Content-Type は信用しない） */
@@ -22,12 +21,9 @@ function sniff(b: Buffer): string | null {
   if (b.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) return 'png';
   if (b.subarray(0, 4).toString('latin1') === 'GIF8') return 'gif';
   if (b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP') return 'webp';
-  if (b.subarray(4, 8).toString('latin1') === 'ftyp') return 'mp4';
-  if (b.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))) return 'webm';
   return null;
 }
 
-const isVideo = (ext: string) => ext === 'mp4' || ext === 'webm';
 const fileOf = (url: string) => path.join(MEDIA_DIR, path.basename(url));
 export const mediaExists = (url: string) => fs.existsSync(fileOf(url));
 
@@ -46,18 +42,17 @@ function prune() {
 
 export async function saveMedia(req: http.IncomingMessage): Promise<{ url: string } | { error: string; status: number }> {
   const declared = Number(req.headers['content-length'] ?? 0);
-  if (declared > VIDEO_MAX) return { error: 'ファイルが大きすぎます', status: 413 };
+  if (declared > IMAGE_MAX) return { error: '画像は 10MB までです', status: 413 };
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const c of req) {
     size += (c as Buffer).length;
-    if (size > VIDEO_MAX) return { error: 'ファイルが大きすぎます', status: 413 };
+    if (size > IMAGE_MAX) return { error: '画像は 10MB までです', status: 413 };
     chunks.push(c as Buffer);
   }
   const body = Buffer.concat(chunks);
   const ext = sniff(body);
-  if (!ext) return { error: '画像（JPEG/PNG/GIF/WebP）か動画（MP4/WebM）だけ送れます', status: 415 };
-  if (!isVideo(ext) && body.length > IMAGE_MAX) return { error: '画像は 10MB までです', status: 413 };
+  if (!ext) return { error: '画像（JPEG/PNG/GIF/WebP）だけ送れます', status: 415 };
   const name = `${randomUUID()}.${ext}`;
   fs.writeFileSync(path.join(MEDIA_DIR, name), body);
   prune();
