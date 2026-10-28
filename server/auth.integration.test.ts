@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import http from 'node:http';
+import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
@@ -30,12 +31,32 @@ async function freePort() {
 const cookieOf = (res: Response, name: string) => res.headers.getSetCookie().map((c) => c.split(';')[0]).find((c) => c.startsWith(`${name}=`));
 
 test('guests, dev and Misskey logins decide who you are and what you may do', { timeout: 60_000 }, async (t) => {
-  // 偽の Misskey。許可済みのセッションだけ check に user を返す
-  const granted = new Set<string>();
-  const misskey = http.createServer((req, res) => {
-    const m = /^\/api\/miauth\/([^/]+)\/check$/.exec(req.url ?? '');
+  // 偽の Misskey（OAuth 2.0）。approve() が許可画面での「許可」に当たり、認可コードを返す（本物では許可したブラウザへのリダイレクトにだけ載る）
+  const codes = new Map<string, { challenge: string; clientId: string; redirectUri: string }>();
+  const approve = (authorizeUrl: string) => {
+    const q = new URL(authorizeUrl).searchParams;
+    assert.deepEqual([q.get('response_type'), q.get('scope'), q.get('code_challenge_method')], ['code', 'read:account', 'S256']);
+    const code = randomUUID();
+    codes.set(code, { challenge: q.get('code_challenge')!, clientId: q.get('client_id')!, redirectUri: q.get('redirect_uri')! });
+    return { code, state: q.get('state')! };
+  };
+  const misskey = http.createServer(async (req, res) => {
+    let body = '';
+    for await (const c of req) body += c;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify(m && granted.has(m[1]) ? { ok: true, token: 'secret', user: { id: 'mk-1', username: 'alice', name: 'Alice M' } } : { ok: false }));
+    if (req.url === '/oauth/token') {
+      const f = new URLSearchParams(body);
+      const grant = codes.get(f.get('code') ?? '');
+      codes.delete(f.get('code') ?? '');
+      const ok = grant && f.get('grant_type') === 'authorization_code' && f.get('client_id') === grant.clientId && f.get('redirect_uri') === grant.redirectUri
+        && createHash('sha256').update(f.get('code_verifier') ?? '').digest('base64url') === grant.challenge;
+      res.statusCode = ok ? 200 : 400;
+      res.end(JSON.stringify(ok ? { access_token: 'token-alice', token_type: 'bearer', scope: 'read:account' } : { error: 'invalid_grant' }));
+      return;
+    }
+    if (req.url === '/api/i' && req.headers.authorization === 'Bearer token-alice') { res.end(JSON.stringify({ id: 'mk-1', username: 'alice', name: 'Alice M' })); return; }
+    res.statusCode = 401;
+    res.end('{}');
   });
   const misskeyPort = await freePort();
   await new Promise<void>((resolve) => misskey.listen(misskeyPort, '127.0.0.1', resolve));
@@ -131,37 +152,38 @@ test('guests, dev and Misskey logins decide who you are and what you may do', { 
   assert.equal((await post('/auth/name', { name: 'Samuel' }, devCookie)).status, 200);
   await until(() => usersOf(guest.users()).find((u) => u.id === devAccount.id && u.name === 'Samuel'));
 
-  const confirm = (session: string, code: string, cookie?: string) => fetch(`${base}/auth/miauth/confirm`, {
+  const confirm = (session: string, code: string, cookie?: string) => fetch(`${base}/auth/misskey/confirm`, {
     method: 'POST', redirect: 'manual', body: new URLSearchParams({ session, code }).toString(),
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: base, ...(cookie ? { Cookie: cookie } : {}) },
   });
-  const pollStatus = async (cookie: string) => (await (await post('/auth/miauth/poll', {}, cookie)).json() as { status: string }).status;
+  const pollStatus = async (cookie: string) => (await (await post('/auth/misskey/poll', {}, cookie)).json() as { status: string }).status;
   const startLogin = async () => {
-    const res = await post('/auth/miauth/start', {});
+    const res = await post('/auth/misskey/start', {});
     const started = await res.json() as { url: string; code: string };
-    return { pending: cookieOf(res, 'tonarium_login')!, url: started.url, code: started.code, session: new URL(started.url).pathname.split('/').pop()! };
+    return { pending: cookieOf(res, 'tonarium_login')!, url: started.url, code: started.code, session: new URL(started.url).searchParams.get('state')! };
   };
-  const callback = (session: string, cookie?: string) => fetch(`${base}/auth/miauth/callback?session=${session}`, { redirect: 'manual', headers: cookie ? { Cookie: cookie } : {} });
+  const callback = (query: Record<string, string>, cookie?: string) => fetch(`${base}/auth/misskey/callback?${new URLSearchParams(query)}`, { redirect: 'manual', headers: cookie ? { Cookie: cookie } : {} });
 
   // Misskey（同じブラウザ）: 許可して戻ってきたブラウザが始めた端末なら、そのまま入る
-  const first = await startLogin();
-  assert.ok(first.url.startsWith(`http://127.0.0.1:${misskeyPort}/miauth/`));
-  assert.equal(new URL(first.url).searchParams.get('callback'), `${base}/auth/miauth/callback`);
-  // 許可の前に戻ってくることは正しい流れでは無い。先回りされたログインは取り消す
-  assert.equal((await callback(first.session, first.pending)).status, 400);
-  assert.equal(await pollStatus(first.pending), 'expired');
   const own = await startLogin();
-  granted.add(own.session);
-  const back = await callback(own.session, own.pending);
+  const authorize = new URL(own.url);
+  assert.equal(`${authorize.origin}${authorize.pathname}`, `http://127.0.0.1:${misskeyPort}/oauth/authorize`);
+  assert.equal(authorize.searchParams.get('client_id'), `${base}/`);
+  assert.equal(authorize.searchParams.get('redirect_uri'), `${base}/auth/misskey/callback`);
+  const back = await callback(approve(own.url), own.pending);
   assert.equal(back.status, 302);
   const mkCookie = cookieOf(back, 'tonarium_session')!;
   const me = await (await fetch(`${base}/auth/me`, { headers: { Cookie: mkCookie } })).json() as { account: { kind: string; username: string; name: string } };
   assert.deepEqual([me.account.kind, me.account.username, me.account.name], ['misskey', 'alice', 'Alice M']);
 
-  // 他人に許可 URL を送っても、始めた側は入れない。確認コードは、Misskey から最初に戻ってきたブラウザでしか受けない
+  // 拒否されたら、そのログインは取り消す
+  const denied = await startLogin();
+  assert.equal((await callback({ state: denied.session, error: 'access_denied' }, denied.pending)).status, 400);
+  assert.equal(await pollStatus(denied.pending), 'expired');
+
+  // 他人に許可 URL を送っても、始めた側は入れない。認可コードは許可したブラウザにしか届かず、確認コードはそのブラウザでしか受けない
   const attack = await startLogin();
-  granted.add(attack.session);
-  const victim = await callback(attack.session);
+  const victim = await callback(approve(attack.url));
   assert.equal(victim.status, 200, 'the approving browser only gets the code confirmation page');
   assert.match(await victim.text(), /@alice/);
   assert.equal(cookieOf(victim, 'tonarium_session'), undefined);
@@ -170,27 +192,30 @@ test('guests, dev and Misskey logins decide who you are and what you may do', { 
   assert.equal((await confirm(attack.session, attack.code)).status, 400, 'the starter cannot confirm with its own code');
   assert.equal((await confirm(attack.session, attack.code, attack.pending)).status, 400);
   assert.equal(await pollStatus(attack.pending), 'pending', 'the starter still has no session');
-  assert.equal((await callback(attack.session, attack.pending)).status, 400, 'a later callback from the starter is refused');
+  assert.equal((await callback({ state: attack.session, code: 'guessed' }, attack.pending)).status, 400, 'a later callback from the starter is refused');
   assert.equal(await pollStatus(attack.pending), 'pending');
-  assert.equal((await callback(attack.session, victimMark)).status, 200, 'the approving browser can reopen its page');
+  assert.equal((await callback({ state: attack.session }, victimMark)).status, 200, 'the approving browser can reopen its page');
   // 許可したブラウザでも、コードを何度も間違えると取り消す
   for (let i = 0; i < 4; i++) assert.equal((await confirm(attack.session, 'AAAA-AAAA', victimMark)).status, 400);
   assert.equal(await pollStatus(attack.pending), 'pending');
   assert.equal((await confirm(attack.session, 'AAAA-AAAA', victimMark)).status, 400);
   assert.equal(await pollStatus(attack.pending), 'expired', 'too many wrong codes cancel the sign-in');
+  // 始めた側が認可コードを持たずに先回りしても入れず、そのログインは消える
+  const race = await startLogin();
+  assert.equal((await callback({ state: race.session, code: 'not-issued' }, race.pending)).status, 400);
+  assert.equal(await pollStatus(race.pending), 'expired');
   // 確認はほかのサイトからは送れない
-  assert.equal((await fetch(`${base}/auth/miauth/confirm`, { method: 'POST', body: 'session=x&code=y', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: 'https://evil.example' } })).status, 403);
+  assert.equal((await fetch(`${base}/auth/misskey/confirm`, { method: 'POST', body: 'session=x&code=y', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: 'https://evil.example' } })).status, 403);
 
   // Misskey（Electron）: 許可したブラウザで始めた画面のコードを入れると、待っている端末が poll で受け取る。同じ Misskey の人は同じアカウント
   const app = await startLogin();
   assert.match(app.code, /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
   assert.equal(await pollStatus(app.pending), 'pending');
-  granted.add(app.session);
-  const browser = await callback(app.session);
+  const browser = await callback(approve(app.url));
   assert.equal(browser.status, 200);
   assert.equal(await pollStatus(app.pending), 'pending');
   assert.equal((await confirm(app.session, app.code.toLowerCase().replace('-', ' '), cookieOf(browser, 'tonarium_confirm'))).status, 200, 'case and separators do not matter');
-  const done = await post('/auth/miauth/poll', {}, app.pending);
+  const done = await post('/auth/misskey/poll', {}, app.pending);
   const polled = await done.json() as { status: string; account: { username: string } };
   assert.equal(polled.status, 'done');
   assert.ok(cookieOf(done, 'tonarium_session'));
