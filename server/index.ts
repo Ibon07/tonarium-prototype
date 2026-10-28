@@ -68,10 +68,12 @@ const CLIENT_VERSION = (() => {
   try { return createHash('sha1').update(fs.readFileSync(path.join(DIST, 'index.html'))).digest('hex').slice(0, 12); } catch { return null; }
 })();
 const DATA_DIR = process.env.DATA_DIR ?? path.join(ROOT, 'data');
+// 名前だけでログイン扱いになる入口。設定を書き間違えても本番で開かないよう、明示の指定と本番でないことの両方を求める
+const DEV_LOGIN = process.env.AUTH_DEV_LOGIN === '1' && process.env.NODE_ENV !== 'production';
+if (process.env.AUTH_DEV_LOGIN === '1' && !DEV_LOGIN) console.warn('NODE_ENV=production なので AUTH_DEV_LOGIN を無視します');
 const auth = new Auth({
   misskeyOrigin: (process.env.MISSKEY_URL || 'https://misskey.resonite.love').replace(/\/$/, ''),
-  // 名前だけでログイン扱いになる入口。npm run dev と、サーバーを立てるテストだけで開く
-  devLogin: DEV || process.env.AUTH_DEV_LOGIN === '1',
+  devLogin: DEV_LOGIN,
   onRenamed: (account) => {
     const u = users.get(account.id);
     if (!u) return;

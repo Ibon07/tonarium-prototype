@@ -49,7 +49,7 @@ npm run dev
 作業ブランチは `develop` から切って `develop` 宛てに PR を出す。`main` へはリリース担当（Tonarium Agent）が15分ごとに `develop` をまとめて反映する（差分がなければ何もしない）。`main` と `develop` 宛ての全 PR はファイル種別による除外なしで GitHub Actions の Web checks を実行する。Electron checks と Nightly configuration checks は、どの宛て先の PR でも、`main`・`develop` への push でも動く（対象のファイルが変わったときだけ）。Electron の nightly ビルド・配布（`electron/` と配布処理が変わったときだけ）と、共有アセット・共有システムの投稿の検査と配布の準備は `main` だけ。`develop` 宛てでは変更履歴に触れていないこと、`main` 宛てでは既存履歴の保持と形式、型チェック、ビルド、クライアント・同期テストを確認する。手動実行では対象コミットの親を比較元にする。Discord のフィードバックから作った PR も同じチェックを通してからマージする。
 大きな作業（何本もの PR に分けるもの）は、`develop` から `feature/<名前>` を切ってそこ宛てに PR を集め、そろったら `feature/<名前>` から `develop` へ 1 本で出す。`develop` に入ったものはそのまま `main` に反映されるため、途中の状態を `develop` に入れない。`feature/*` 宛ての PR でも Web checks が動く（`develop` 宛てと同じく、変更履歴には触れない）。
 
-http://localhost:5173 を開く。`npm run dev` では `?as=b` のように付けると、その名前の開発用アカウント（ログイン扱い）でそのタブだけ入れる（同じブラウザでも別人になる。[docs/login.md](docs/login.md)）。
+http://localhost:5173 を開く。`.env` に `AUTH_DEV_LOGIN=1` があれば（`.env.example` に入っている）、`?as=b` のように付けると、その名前の開発用アカウント（ログイン扱い）でそのタブだけ入れる（同じブラウザでも別人になる。[docs/login.md](docs/login.md)）。
 動作確認で作ったセッション・グループ・イベントを消したいときは `data/home.json` を消してサーバーを再起動する。
 
 別のワークツリーと同時に動かすときは、`.env` の `SERVER_PORT` と `CLIENT_PORT` をずらし（例: 3011 と 5183）、`LIVEKIT_ROOM_PREFIX` も変える（同じ LiveKit を共有するので、部屋が混ざらないように）。DB とストレージも共有するので、`DATABASE_URL` は別の DB（例: `.../tonarium_isolated`。`npm run services` が最初から作る。ほかの名前は `docker compose -f docker-compose.dev.yml exec postgres createdb -U tonarium <名前>` で作る）にし、`S3_PREFIX` も変える。`.claude/launch.json` の `dev-isolated` はそう設定してある。

@@ -38,6 +38,6 @@
 
 ## 開発とテスト
 
-- `npm run dev`（`--dev`）とテストのサーバー（`AUTH_DEV_LOGIN=1`）では、名前だけでログイン扱いのアカウントを作る `POST /auth/dev` が開く。本番では開かない
-- 開発中は URL に `?as=b` を付けると、その名前の開発用アカウントでそのタブだけ入る。同じブラウザの Cookie は全タブで共有されるので、`?as=` のタブはセッションを `sessionStorage` に持ち、fetch は `X-Tonarium-Session` ヘッダー、WebSocket は `?session=` で送る（`--dev` のときだけサーバーが読む）
+- 環境変数 `AUTH_DEV_LOGIN=1` があり、かつ `NODE_ENV` が `production` でないときだけ、名前だけでログイン扱いのアカウントを作る `POST /auth/dev` が開く（`--dev` だけでは開かない）。本番のイメージは `NODE_ENV=production` なので、書き間違えても開かない（起動時に警告を出す）。手元は `.env` に書く（`.env.example` に入っている）。サーバーを立てるテストは `server/test-db.ts` が付ける
+- 開発中は URL に `?as=b` を付けると、その名前の開発用アカウントでそのタブだけ入る。同じブラウザの Cookie は全タブで共有されるので、`?as=` のタブはセッションを `sessionStorage` に持ち、fetch は `X-Tonarium-Session` ヘッダー、WebSocket は `?session=` で送る（開発用ログインが開いているときだけサーバーが読む）
 - サーバーのテストは `server/test-auth.ts` の `devLogin(base, 名前)` で入り、返った Cookie を WebSocket と fetch に付ける。ログインそのものは `server/auth.integration.test.ts` が偽の Misskey を立てて確かめる（`npm run test:integration`）
