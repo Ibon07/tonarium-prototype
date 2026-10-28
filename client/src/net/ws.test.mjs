@@ -76,7 +76,7 @@ test('full session recovery clears pending system inputs and restores the matchi
 });
 
 test('live room chat reception shows popups only for new eligible messages', () => {
-  Object.assign(state, { selfId: 'self', blocked: ['Blocked'], chats: {}, arrivals: {},
+  Object.assign(state, { selfId: 'self', blocked: ['blocked'], chats: {}, arrivals: {},
     popupPausedUntil: 0, folded: { right: true } });
   const receive = (id, from = 'other', fromName = 'Other', sid = 'existing') =>
     onMessage({ t: 'chat', sid, m: { id, from, fromName, at: Date.now(), text: 'hello', scope: 'all' } });
@@ -99,13 +99,13 @@ test('live room chat reception shows popups only for new eligible messages', () 
 });
 
 test('DM reception targets its conversation and ignores updates and self messages', () => {
-  Object.assign(state, { selfName: 'Self', blocked: [], inbox: {}, arrivals: {},
+  Object.assign(state, { selfId: 'self-id', blocked: [], inbox: {}, arrivals: {},
     popupPausedUntil: 0, folded: { right: true } });
-  const receive = (id, from = 'Other') => onMessage({ t: 'msg', conv: 'dm:Other\u0000Self', m: { id, from, at: Date.now(), text: 'hello' } });
+  const receive = (id, from = 'other-id') => onMessage({ t: 'msg', conv: 'dm:other-id:self-id', m: { id, from, at: Date.now(), text: 'hello' } });
   receive('first');
-  assert.equal(state.arrivals.chat.conversation, 'dm:Other\u0000Self');
+  assert.equal(state.arrivals.chat.conversation, 'dm:other-id:self-id');
   state.arrivals = {};
-  receive('first'); receive('self', 'Self');
+  receive('first'); receive('self', 'self-id');
   assert.deepEqual(state.arrivals, {});
 });
 

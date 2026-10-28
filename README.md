@@ -8,7 +8,7 @@
 - `client/` Vite + React + TypeScript。3D は React Three Fiber。状態は zustand
   - `client/src/world/` ワールド画面（左のプレイヤー・アイテム、上の顔、右の通知・ログ、下のドック、背面のウィンドウ）
   - `client/src/home/` ホーム画面（セッション外。タイムライン・セッション・フレンド・イベント・グループ・ワールド・アイテムの一覧と作成）
-- `server/` Node + ws + kokosync。オンラインのユーザーと、セッションごとの状態（チャット・アイテム・アバター位置）を保持する。セッション内のデータ同期は kokosync、フレンド・DM・ホームは従来の WebSocket（[docs/sync.md](docs/sync.md)）。LiveKit の通話トークンも発行。画面から作ったセッション・グループ・イベントは `data/home.json`、フォローは `data/follows.json`、タイムラインのポストは `data/timeline.json` に保存
+- `server/` Node + ws + kokosync。オンラインのユーザーと、セッションごとの状態（チャット・アイテム・アバター位置）を保持する。セッション内のデータ同期は kokosync、フレンド・DM・ホームは従来の WebSocket（[docs/sync.md](docs/sync.md)）。LiveKit の通話トークンも発行。画面から作ったセッション・グループ・イベント・フォロー・DM・ステータス・自己紹介は PostgreSQL、タイムラインのポストは `data/timeline.json` に保存
 - `shared/protocol.ts` アプリのメッセージ型、`shared/session-wire.ts` MessagePack と同期パケット、`shared/session-position.ts` 位置配送、`shared/session-events.ts` P2Pでの本文配送とサーバー確定後の適用、`shared/places.ts` 位置と距離（クライアントとサーバーで共用）
 - `sessions.json` 最初からあるセッションの構成（各セッションが最初に読み込むワールド＝ 3D 空間も指定）。ホームの「セッションを作る」で増やしたものは `data/home.json`
 - `shared/worlds.ts` ワールドの種類（ホール・カフェ・ゲーム・宵闇サバイバーズ・街・ガーデン・AD 研究所）と家具の当たり判定。見た目は `client/src/view3d/worlds3d.tsx`。街の配置と電車・エレベーターは `shared/city.ts`。AD 研究所の配置は `shared/antimatterLayout.ts`、進行は `client/src/ad/`（engine そのまま＋ zustand スライス）
@@ -50,7 +50,7 @@ npm run dev
 大きな作業（何本もの PR に分けるもの）は、`develop` から `feature/<名前>` を切ってそこ宛てに PR を集め、そろったら `feature/<名前>` から `develop` へ 1 本で出す。`develop` に入ったものはそのまま `main` に反映されるため、途中の状態を `develop` に入れない。`feature/*` 宛ての PR でも Web checks が動く（`develop` 宛てと同じく、変更履歴には触れない）。
 
 http://localhost:5173 を開く。`.env` に `AUTH_DEV_LOGIN=1` があれば（`.env.example` に入っている）、`?as=b` のように付けると、その名前の開発用アカウント（ログイン扱い）でそのタブだけ入れる（同じブラウザでも別人になる。[docs/login.md](docs/login.md)）。
-動作確認で作ったセッション・グループ・イベントを消したいときは `data/home.json` を消してサーバーを再起動する。
+動作確認で作ったセッション・グループ・イベントなどを消したいときは、サーバーを止めて開発用の DB を作り直す（[docs/storage.md](docs/storage.md)）。
 
 別のワークツリーと同時に動かすときは、`.env` の `SERVER_PORT` と `CLIENT_PORT` をずらし（例: 3011 と 5183）、`LIVEKIT_ROOM_PREFIX` も変える（同じ LiveKit を共有するので、部屋が混ざらないように）。DB とストレージも共有するので、`DATABASE_URL` は別の DB（例: `.../tonarium_isolated`。`npm run services` が最初から作る。ほかの名前は `docker compose -f docker-compose.dev.yml exec postgres createdb -U tonarium <名前>` で作る）にし、`S3_PREFIX` も変える。`.claude/launch.json` の `dev-isolated` はそう設定してある。
 
