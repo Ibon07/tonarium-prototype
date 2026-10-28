@@ -8,7 +8,7 @@ import { canAcquireJob, fantasyBuildings } from '../shared/fantasy-town.ts';
 import { fantasyNpcMentorSkills, fantasyApprenticeshipError } from '../shared/fantasy-apprenticeship.ts';
 import { fantasyConversationPlan, fantasyGmTokenEstimate, fantasyQueryNames } from '../shared/fantasy-gm-context.ts';
 import { localInferenceFetch } from './local-inference.ts';
-import { resolveLocalInferenceUrl } from './local-inference-config.ts';
+import { resolveLocalInferenceModel, resolveLocalInferenceUrl } from './local-inference-config.ts';
 import { readDialogueResponse } from './dialogue-stream.ts';
 import { fantasyDialogueJob } from '../shared/fantasy-gm.ts';
 import { fantasyStoryReveals } from '../shared/fantasy-second-content.ts';
@@ -296,7 +296,7 @@ export class NpcChat {
 
   constructor(options: NpcOptions = {}) {
     this.endpoint = npcEndpoint(options.url ?? resolveLocalInferenceUrl());
-    this.model = options.model ?? process.env.NPC_LLM_MODEL ?? 'qwen3-1.7b';
+    this.model = options.model ?? resolveLocalInferenceModel(process.env, options.url);
     this.fetch = options.fetch ?? localInferenceFetch;
     this.timeoutMs = options.timeoutMs ?? 45_000;
     this.now = options.now ?? Date.now;

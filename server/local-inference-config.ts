@@ -11,3 +11,11 @@ export function resolveLocalInferenceUrl(env: NodeJS.ProcessEnv = process.env): 
   } catch { /* 不正な設定も既存の接続先検証へ渡す。 */ }
   return configured;
 }
+
+export function resolveLocalInferenceModel(env: NodeJS.ProcessEnv = process.env, url = resolveLocalInferenceUrl(env)): string {
+  const configured = env.NPC_LLM_MODEL;
+  const bundledUrl = env.NPC_LLM_BUNDLED_URL?.trim();
+  const bundledModel = env.NPC_LLM_BUNDLED_MODEL?.trim();
+  if (bundledUrl && bundledModel && url === bundledUrl && (!configured?.trim() || configured === 'qwen3-1.7b')) return bundledModel;
+  return configured ?? 'qwen3-4b';
+}

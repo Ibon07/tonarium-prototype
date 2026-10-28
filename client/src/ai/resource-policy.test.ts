@@ -219,6 +219,22 @@ test('unknown or declined consent performs no worker creation or loading and cle
   }
 });
 
+test('prior smaller-model consent never downloads 4B or shares work without a renewed choice', async () => {
+  for (const model of ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-1.7B-q4f16_1-MLC']) {
+    const f = fixture(JSON.stringify({ version: 2, model, enabled: true, shareIdle: true, allowRemote: true }));
+    await flush();
+    assert.equal(f.controller.getSnapshot().consent, 'unknown');
+    assert.equal(f.controller.getSnapshot().cooperationConsent, 'unknown');
+    assert.equal(f.controller.getSnapshot().desired, false);
+    assert.equal(f.workers.length, 0);
+    assert.equal(f.sent.some(message => message.t === 'aiSupport' && message.ready), false);
+    f.controller.setCooperation(false, false, true); await flush();
+    assert.equal(f.workers.length, 1);
+    assert.equal(JSON.parse(f.stored!).model, 'Qwen3-4B-q4f16_1-MLC');
+    f.controller.setWorldActive(false); await flush();
+  }
+});
+
 test('a previously consenting player loads immediately on first connection without an artificial cooldown', async () => {
   const f = fixture(JSON.stringify({ version: 1, model: BROWSER_AI_MODEL, enabled: true }));
   f.controller.setTransport(message => f.sent.push(message), false); f.controller.initialize(); await flush();

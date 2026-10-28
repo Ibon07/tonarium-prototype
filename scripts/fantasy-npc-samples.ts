@@ -26,7 +26,7 @@ const cases: { npcId: string; questions: Record<NpcLocale, string> }[] = [
 type Request = (payload: Record<string, unknown>) => Promise<unknown>;
 export interface NpcSample {
   npcId: string; name: string; locale: NpcLocale; question: string; answer: string;
-  model: string; source: string; temperature: number; maxTokens: number;
+  model: string; source: string; temperature: number; maxTokens: number; durationMs: number;
 }
 
 export interface NpcTranslationSample {
@@ -80,7 +80,7 @@ export async function sampleNpcTranslations(samples: readonly NpcSample[], reque
 
 export async function sampleNpcDialogue(request: Request, model: string, log: (line: string) => void = console.log, options: { translationProbes?: boolean } = {}): Promise<NpcSample[]> {
   const samples: NpcSample[] = [];
-  log('NPC samples use synthetic dialogue only. Review meaning, grammar and persona manually; transport success is not a quality verdict. CPU Q8 output does not establish browser Q4 quality.');
+  log('NPC samples use synthetic dialogue only. Review meaning, grammar and persona manually; transport success is not a quality verdict. CPU GGUF output does not establish browser MLC quality.');
   for (const { npcId, questions } of cases) for (const locale of ['ko', 'en', 'ja'] as const) {
     let generation: Record<string, unknown> | undefined;
     const chat = new NpcChat({
@@ -93,6 +93,7 @@ export async function sampleNpcDialogue(request: Request, model: string, log: (l
       }) as typeof fetch,
       onError: (error) => log(`NPC_SAMPLE_ERROR ${npcId}/${locale}: ${String(error).slice(0, 240)}`),
     });
+    const started = performance.now();
     const reply = await chat.chat(`synthetic-sample-${npcId}-${locale}`, {
       requestId: `sample-${npcId}-${locale}`, npcId, locale, text: questions[locale],
     });
@@ -100,12 +101,12 @@ export async function sampleNpcDialogue(request: Request, model: string, log: (l
     const sample: NpcSample = {
       npcId, name: NPC_PUBLIC.find(npc => npc.id === npcId)!.name[locale], locale,
       question: questions[locale], answer: reply.text, model: reply.model, source: reply.source,
-      temperature: generation.temperature as number, maxTokens: generation.max_tokens as number,
+      temperature: generation.temperature as number, maxTokens: generation.max_tokens as number, durationMs: Math.round(performance.now() - started),
     };
     samples.push(sample);
     log(`NPC_SAMPLE ${JSON.stringify(sample)}`);
   }
-  if (options.translationProbes !== false) {
+  if (options.translationProbes === true) {
     log('Experimental pivot probes answer each original Korean question through NpcChat with the requested output locale set to English, then translate that draft into Korean. This is not a deployed two-pass pipeline.');
     await sampleNpcTranslations(samples, request, model, log);
   }
@@ -119,8 +120,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   process.once('SIGINT', cancel);
   process.once('SIGTERM', cancel);
   runSmoke({
-    signal: controller.signal, stateFile: process.env.FANTASY_AI_SMOKE_STATE_FILE,
-    onReady: ({ request, model }: { request: Request; model: string }) => sampleNpcDialogue(request, model),
+    signal: controller.signal, stateFile: process.env.FANTASY_AI_SMOKE_STATE_FILE, recordMemory: true,
+    onReady: ({ request, model }: { request: Request; model: string }) => sampleNpcDialogue(request, model, console.log, { translationProbes: process.env.FANTASY_AI_TRANSLATION_PROBES === '1' }),
   }).catch((error: Error) => {
     console.error(error.message);
     process.exitCode = 1;

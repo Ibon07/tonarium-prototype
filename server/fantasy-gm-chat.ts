@@ -6,7 +6,7 @@ import { canInspectFood } from '../shared/fantasy-life.ts';
 import type { NpcLocale } from '../shared/npc.ts';
 import { npcEndpoint } from './npc.ts';
 import { localInferenceFetch } from './local-inference.ts';
-import { resolveLocalInferenceUrl } from './local-inference-config.ts';
+import { resolveLocalInferenceModel, resolveLocalInferenceUrl } from './local-inference-config.ts';
 import { BROWSER_AI_MODEL, type BrowserAiGenerate, type BrowserAiMessage } from '../shared/ai-support.ts';
 import { browserAiText } from './browser-ai.ts';
 import { browserAiPeerRequest } from './browser-ai-peer-context.ts';
@@ -48,7 +48,7 @@ export class FantasyGmChat {
 
   constructor(options: Options = {}) {
     this.endpoint = npcEndpoint(options.url ?? resolveLocalInferenceUrl());
-    this.model = options.model ?? process.env.NPC_LLM_MODEL ?? 'qwen3-1.7b';
+    this.model = options.model ?? resolveLocalInferenceModel(process.env, options.url);
     this.fetch = options.fetch ?? localInferenceFetch;
     this.now = options.now ?? Date.now;
     this.timeoutMs = options.timeoutMs ?? 45_000;

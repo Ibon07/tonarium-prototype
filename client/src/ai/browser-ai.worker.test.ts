@@ -1,18 +1,51 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BrowserAiRuntime, browserAiWorkerError, type BrowserAiEngine } from './browser-ai.worker.ts';
-import { BROWSER_AI_CONTEXT, BROWSER_AI_MODEL, BROWSER_AI_MODEL_URL, browserAiAppConfig, browserAiPlainText, validBrowserAiJob } from './model.ts';
+import { BROWSER_AI_CONTEXT, BROWSER_AI_MODEL, BROWSER_AI_MODEL_URL, browserAiAppConfig, browserAiGpuCompatible, browserAiPlainText, validBrowserAiJob } from './model.ts';
 import type { BrowserAiJob } from '../../../shared/ai-support.ts';
 
 const job = (): BrowserAiJob => ({ leaseId: 'lease-1', epoch: 'epoch-1', requestId: 'request-1', kind: 'gm', expiresAt: Date.now() + 30000, messages: [{ role: 'system', content: 'Authorized server facts only.' }, { role: 'user', content: 'Hello.' }], maxTokens: 160, temperature: .7 });
-test('the installed official catalog selects only pinned 1.7B four-bit weights with a real 4096 context override', async () => {
+test('the installed official catalog selects only pinned 4B four-bit weights with a real 4096 context override', async () => {
   const { prebuiltAppConfig } = await import('@mlc-ai/web-llm');
   const config = browserAiAppConfig(prebuiltAppConfig);
   assert.equal(config.model_list.length, 1); assert.equal(config.model_list[0].model_id, BROWSER_AI_MODEL);
-  assert.equal(config.model_list[0].model, BROWSER_AI_MODEL_URL); assert.ok(BROWSER_AI_MODEL.includes('1.7B-q4f16_1'));
+  assert.equal(config.model_list[0].model, BROWSER_AI_MODEL_URL); assert.equal(BROWSER_AI_MODEL, 'Qwen3-4B-q4f16_1-MLC');
+  assert.ok(BROWSER_AI_MODEL_URL.includes('a5c9fab855e3ccbdfed2e7e69683d75f30332161'));
   assert.equal(config.model_list[0].overrides!.context_window_size, BROWSER_AI_CONTEXT); assert.equal(config.cacheBackend, 'cache');
   assert.equal(Object.hasOwn(config.model_list[0].overrides!, 'prefill_chunk_size'), false);
   assert.throws(() => browserAiAppConfig({ model_list: [] }));
+});
+
+test('4B GPU preflight rejects missing shader support or undersized buffer limits before engine creation', () => {
+  const valid = { features: new Set(['shader-f16']), limits: { maxBufferSize: 2 ** 30, maxStorageBufferBindingSize: 2 ** 30 } };
+  assert.equal(browserAiGpuCompatible(valid), true);
+  assert.equal(browserAiGpuCompatible(null), false);
+  assert.equal(browserAiGpuCompatible({ ...valid, features: new Set() }), false);
+  for (const limit of ['maxBufferSize', 'maxStorageBufferBindingSize']) {
+    assert.equal(browserAiGpuCompatible({ ...valid, limits: { ...valid.limits, [limit]: 2 ** 30 - 1 } }), false);
+  }
+  assert.equal(browserAiGpuCompatible({ features: valid.features }), false);
+});
+
+test('an insufficient GPU fails the default load before any model request or ready state', async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const fetch = globalThis.fetch;
+  let adapters = 0, downloads = 0;
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { gpu: { requestAdapter: async () => {
+    adapters++;
+    return { features: new Set(['shader-f16']), limits: { maxBufferSize: 2 ** 30, maxStorageBufferBindingSize: 2 ** 27 } };
+  } } } });
+  globalThis.fetch = (async () => { downloads++; throw new Error('Model downloads must not start'); }) as typeof fetch;
+  try {
+    const runtime = new BrowserAiRuntime();
+    await assert.rejects(runtime.load(), /WebGPU shader-f16 and 1 GiB buffer limits/);
+    assert.equal(runtime.loaded, false);
+    assert.equal(adapters, 1); assert.equal(downloads, 0);
+  } finally {
+    globalThis.fetch = fetch;
+    if (original) Object.defineProperty(globalThis, 'navigator', original);
+    else Reflect.deleteProperty(globalThis, 'navigator');
+  }
 });
 
 test('runtime loads once, cleans disk artifacts after load and resets conversation before each plain-text generation', async () => {

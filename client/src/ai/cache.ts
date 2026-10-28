@@ -1,4 +1,4 @@
-import { BROWSER_AI_MODEL_LIB } from './model.ts';
+import { BROWSER_AI_MODEL, BROWSER_AI_MODEL_LIB } from './model.ts';
 
 export const BROWSER_AI_CACHE_MARKER = 'tonarium.browser-ai.cache-dirty.v1';
 const SCOPES = new Set(['webllm/model', 'webllm/config', 'webllm/wasm']);
@@ -17,9 +17,10 @@ export function clearBrowserAiCacheMarker(env = environment()): void { try { env
 export function isBrowserAiCacheUrl(raw: string): boolean {
   try {
     const url = new URL(raw);
-    const models = ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-1.7B-q4f16_1-MLC'];
+    const models = ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-1.7B-q4f16_1-MLC', BROWSER_AI_MODEL];
+    const library = new URL(BROWSER_AI_MODEL_LIB);
     return url.origin === 'https://huggingface.co' && models.some(model => ['resolve', 'raw'].some(mode => url.pathname.startsWith(`/mlc-ai/${model}/${mode}/`)))
-      || url.origin === new URL(BROWSER_AI_MODEL_LIB).origin && [new URL(BROWSER_AI_MODEL_LIB).pathname, new URL(BROWSER_AI_MODEL_LIB).pathname.replace('Qwen3-1.7B', 'Qwen3-0.6B')].includes(url.pathname);
+      || url.origin === library.origin && models.some(model => url.pathname === library.pathname.replace(BROWSER_AI_MODEL.replace('-MLC', ''), model.replace('-MLC', '')));
   } catch { return false; }
 }
 

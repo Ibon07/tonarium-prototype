@@ -15,7 +15,7 @@ test('NPC samples exercise actual live generation for three distinct speakers an
   const samples = await sampleNpcDialogue(async payload => {
     requests.push(payload);
     return response(`Bounded synthetic response ${requests.length} for testing the sampling transport.`);
-  }, model, line => logs.push(line));
+  }, model, line => logs.push(line), { translationProbes: true });
   assert.equal(requests.length, 15);
   assert.equal(samples.length, 9);
   assert.deepEqual([...new Set(samples.map(sample => sample.npcId))], ['oldwatch-orran', 'rin', 'borin']);
@@ -31,6 +31,7 @@ test('NPC samples exercise actual live generation for three distinct speakers an
     assert.deepEqual(requests[index].chat_template_kwargs, { enable_thinking: false });
     assert.ok(sample.maxTokens <= 256);
     assert.ok(sample.temperature >= 0 && sample.temperature <= 2);
+    assert.ok(Number.isFinite(sample.durationMs) && sample.durationMs >= 0);
   }
   assert.equal(JSON.stringify(NPC_PUBLIC), before);
   assert.equal(logs.filter(line => line.startsWith('NPC_SAMPLE ')).length, 9);
@@ -67,7 +68,7 @@ test('NPC samples exercise actual live generation for three distinct speakers an
     assert.equal(translation.experimental, true);
     assert.equal(translation.originalKoQuestion, samples.find(sample => sample.npcId === translation.npcId && sample.locale === 'ko')!.question);
   }
-  assert.match(logs[0], /CPU Q8.*browser Q4/);
+  assert.match(logs[0], /CPU GGUF.*browser MLC/);
 });
 
 test('translation comparison is optional and cannot turn an invalid translation into a sample', async () => {

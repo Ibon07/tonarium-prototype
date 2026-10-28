@@ -6,7 +6,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const model = 'qwen3-1.7b';
+const model = 'qwen3-4b';
 const services = ['fantasy-ai-model', 'fantasy-ai'];
 const prompts = [
   { language: 'ko', content: '한국어로 짧은 인사 한 문장을 말해 주세요.' },
@@ -103,7 +103,7 @@ export async function cleanupSmokeProject({
 
 export async function runSmoke({
   run = runCommand, log = console.log, now = Date.now, sleep: pause = sleep,
-  composeFile = resolve(root, 'docker-compose.yml'), startupTimeoutMs = 12 * 60_000, signal, stateFile, onReady,
+  composeFile = resolve(root, 'docker-compose.yml'), startupTimeoutMs = 12 * 60_000, signal, stateFile, onReady, recordMemory = false,
 } = {}) {
   if (!Number.isFinite(startupTimeoutMs) || startupTimeoutMs <= 0) throw new Error('A positive startup timeout is required.');
   const projectName = `tonarium-fantasy-ai-smoke-${randomUUID().replaceAll('-', '')}`;
@@ -156,6 +156,16 @@ export async function runSmoke({
       log(`${language}: HTTP 200, expected model alias, and nonempty spoken content passed.`);
     }
     if (onReady) await onReady({ request: (payload) => curl('/v1/chat/completions', { input: JSON.stringify(payload) }), model });
+    if (recordMemory) {
+      try {
+        const { stdout } = await run('docker', [...compose, 'exec', '-T', 'fantasy-ai', 'cat', '/sys/fs/cgroup/memory.peak'], { timeoutMs: 10_000, signal });
+        const peak = stdout.trim();
+        if (!/^[1-9]\d{0,15}$/.test(peak) || !Number.isSafeInteger(Number(peak))) throw new Error('cgroup v2 memory.peak was not a positive safe integer.');
+        log(`AI_CGROUP_PEAK_BYTES ${peak}`);
+      } catch (error) {
+        log(`AI_CGROUP_PEAK_BYTES unavailable: ${String(error?.message ?? error).slice(0, 240)}`);
+      }
+    }
   } catch (error) {
     failure = error;
     if (!signal?.aborted) {

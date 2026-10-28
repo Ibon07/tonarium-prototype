@@ -17,9 +17,10 @@ services:
       - FANTASY_TRUST_PROXY=${FANTASY_TRUST_PROXY:-0}
       - FANTASY_TRUSTED_PROXY_IPS=${FANTASY_TRUSTED_PROXY_IPS:-}
       - NPC_LLM_URL=${NPC_LLM_URL:-http://fantasy-ai:8080/v1}
-      - NPC_LLM_MODEL=${NPC_LLM_MODEL:-qwen3-1.7b}
+      - NPC_LLM_MODEL=${NPC_LLM_MODEL:-qwen3-4b}
       # 旧開発用ループバック設定も、同梱推論サービスへ移行する。
       - NPC_LLM_BUNDLED_URL=http://fantasy-ai:8080/v1
+      - NPC_LLM_BUNDLED_MODEL=qwen3-4b
       # - SESSIONS_FILE=/config/sessions.json
     expose:
       - "3001"
@@ -40,7 +41,7 @@ services:
     restart: "on-failure:3"
     environment:
       - MODEL_DIRECTORY=/models
-      - NPC_AI_MIN_AVAILABLE_MB=${NPC_AI_MIN_AVAILABLE_MB:-2304}
+      - NPC_AI_MIN_AVAILABLE_MB=${NPC_AI_MIN_AVAILABLE_MB:-4608}
     volumes:
       - fantasy-ai-models:/models
     mem_limit: 256m
@@ -54,9 +55,9 @@ services:
         condition: service_completed_successfully
     command:
       - --model
-      - /models/Qwen3-1.7B-Q8_0.gguf
+      - /models/Qwen3-4B-Q4_K_M.gguf
       - --alias
-      - qwen3-1.7b
+      - qwen3-4b
       - --host
       - 0.0.0.0
       - --port
@@ -84,7 +85,7 @@ services:
       - "8080"
     volumes:
       - fantasy-ai-models:/models:ro
-    mem_limit: ${NPC_AI_MEMORY_LIMIT:-3g}
+    mem_limit: ${NPC_AI_MEMORY_LIMIT:-5g}
     cpus: ${NPC_AI_CPU_LIMIT:-2.0}
     user: "1000:1000"
     read_only: true

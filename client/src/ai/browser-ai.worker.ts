@@ -1,5 +1,5 @@
 import type { BrowserAiJob, BrowserAiMessage } from '../../../shared/ai-support.ts';
-import { BROWSER_AI_MODEL, BROWSER_AI_CONTEXT, BROWSER_AI_MAX_TEXT, BROWSER_AI_MAX_JOB_MS, browserAiAppConfig, browserAiPlainText, validBrowserAiJob } from './model.ts';
+import { BROWSER_AI_MODEL, BROWSER_AI_CONTEXT, BROWSER_AI_MAX_TEXT, BROWSER_AI_MAX_JOB_MS, browserAiAppConfig, browserAiGpuCompatible, browserAiPlainText, validBrowserAiJob, type BrowserAiGpuAdapter } from './model.ts';
 import { cleanupBrowserAiCache } from './cache.ts';
 
 export type BrowserAiWorkerRequest = { id: string; type: 'load' | 'interrupt' | 'dispose' } | { id: string; type: 'generate'; job: BrowserAiJob };
@@ -25,9 +25,9 @@ export function browserAiWorkerError(error: unknown): 'gpu' | 'error' | 'cancell
 }
 
 async function createEngine(progress: (value: number) => void): Promise<BrowserAiEngine> {
-  const gpu = (globalThis.navigator as Navigator & { gpu?: { requestAdapter(options: { powerPreference: string }): Promise<{ features: { has(feature: string): boolean } } | null> } }).gpu;
+  const gpu = (globalThis.navigator as Navigator & { gpu?: { requestAdapter(options: { powerPreference: string }): Promise<BrowserAiGpuAdapter | null> } }).gpu;
   const adapter = await gpu?.requestAdapter({ powerPreference: 'high-performance' });
-  if (!adapter?.features.has('shader-f16')) throw new Error('WebGPU shader-f16 is unavailable');
+  if (!browserAiGpuCompatible(adapter)) throw new Error('WebGPU shader-f16 and 1 GiB buffer limits are required for device AI');
   const webllm = await import('@mlc-ai/web-llm');
   // prefill_chunk_size は公開 ChatOptions ではなく WASM metadata に固定されている。
   const engine = await webllm.CreateMLCEngine(BROWSER_AI_MODEL, { appConfig: browserAiAppConfig(webllm.prebuiltAppConfig), initProgressCallback: report => progress(report.progress), logLevel: 'WARN' }, { context_window_size: BROWSER_AI_CONTEXT, temperature: 0.7 });
