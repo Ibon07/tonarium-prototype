@@ -37,9 +37,23 @@ export interface NpcTranslationSample {
 export async function sampleNpcTranslations(samples: readonly NpcSample[], request: Request, model: string, log: (line: string) => void = console.log): Promise<NpcTranslationSample[]> {
   const translations: NpcTranslationSample[] = [];
   for (const { npcId } of cases) {
-    const english = samples.find(sample => sample.npcId === npcId && sample.locale === 'en');
     const korean = samples.find(sample => sample.npcId === npcId && sample.locale === 'ko');
-    if (!english || !korean) throw new Error(`Missing paired English/Korean sample for ${npcId}.`);
+    if (!korean) throw new Error(`Missing Korean sample for ${npcId}.`);
+    const chat = new NpcChat({
+      url: 'http://127.0.0.1:8080/v1', model, timeoutMs: 90_000,
+      fetch: (async (_url, init) => {
+        const response = await request(JSON.parse(String(init?.body)));
+        if (!response || typeof response !== 'object' || !('model' in response) || response.model !== model) throw new Error('Pivot draft returned an unexpected model.');
+        return new Response(JSON.stringify(response), { headers: { 'Content-Type': 'application/json' } });
+      }) as typeof fetch,
+      onError: (error) => log(`NPC_SAMPLE_ERROR ${npcId}/pivot: ${String(error).slice(0, 240)}`),
+    });
+    const draft = await chat.chat(`synthetic-pivot-${npcId}`, {
+      requestId: `pivot-${npcId}`, npcId, locale: 'en', text: korean.question,
+    });
+    if (draft.error || draft.source !== 'local' || draft.model !== model || !draft.text.trim()) throw new Error(`Pivot draft ${npcId} did not produce live spoken content with the expected model (${draft.error ?? draft.source}).`);
+    const englishSource = draft.text.slice(0, 1200);
+    log(`NPC_PIVOT_DRAFT_SAMPLE ${JSON.stringify({ npcId, originalKoQuestion: korean.question, englishDraft: englishSource, source: draft.source, model: draft.model, requestedLocale: 'en', experimental: true })}`);
     const tone = fantasyNpcTone(npcId);
     const register = ['trade', 'scholar', 'priest'].includes(tone) ? 'polite Korean (해요체)' : tone === 'leader' ? 'formal familiar Korean (하게체)' : 'informal Korean (반말)';
     const response = await request({
@@ -47,7 +61,7 @@ export async function sampleNpcTranslations(samples: readonly NpcSample[], reque
       chat_template_kwargs: { enable_thinking: false },
       messages: [
         { role: 'system', content: `Translate the supplied English dialogue into natural ${register}. Preserve its meaning, add nothing, and output only the Korean translation.` },
-        { role: 'user', content: english.answer.slice(0, 1200) },
+        { role: 'user', content: englishSource },
       ],
     });
     const completion = response as { model?: unknown; choices?: { message?: { role?: unknown; content?: unknown } }[] } | null;
@@ -55,7 +69,7 @@ export async function sampleNpcTranslations(samples: readonly NpcSample[], reque
     const translated = typeof message?.content === 'string' ? message.content.replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, '').replace(/<\/?think\b[^>]*>/gi, '').trim().slice(0, 1200) : '';
     if (completion?.model !== model || message?.role !== 'assistant' || !translated) throw new Error(`Translation probe ${npcId} did not produce spoken content with the expected model.`);
     const sample: NpcTranslationSample = {
-      npcId, originalKoQuestion: korean.question, englishSource: english.answer.slice(0, 1200), translatedAnswer: translated,
+      npcId, originalKoQuestion: korean.question, englishSource, translatedAnswer: translated,
       model, temperature: 0.2, maxTokens: 160, experimental: true,
     };
     translations.push(sample);
@@ -92,7 +106,7 @@ export async function sampleNpcDialogue(request: Request, model: string, log: (l
     log(`NPC_SAMPLE ${JSON.stringify(sample)}`);
   }
   if (options.translationProbes !== false) {
-    log('Experimental translation probes reuse the three English samples. These are separate translation requests, not the production NpcChat route or evidence of a deployed two-pass pipeline.');
+    log('Experimental pivot probes answer each original Korean question through NpcChat with the requested output locale set to English, then translate that draft into Korean. This is not a deployed two-pass pipeline.');
     await sampleNpcTranslations(samples, request, model, log);
   }
   log(`Collected ${samples.length} live NPC samples for human review; no automatic language-quality claim was made.`);
