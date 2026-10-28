@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NpcChat } from '../server/npc.ts';
 import { NPC_PUBLIC, type NpcLocale } from '../shared/npc.ts';
+import { fantasyNpcTone } from '../shared/fantasy-dialogue-voice.ts';
 import { runSmoke } from './fantasy-ai-smoke.mjs';
 
 const cases: { npcId: string; questions: Record<NpcLocale, string> }[] = [
@@ -28,7 +29,42 @@ export interface NpcSample {
   model: string; source: string; temperature: number; maxTokens: number;
 }
 
-export async function sampleNpcDialogue(request: Request, model: string, log: (line: string) => void = console.log): Promise<NpcSample[]> {
+export interface NpcTranslationSample {
+  npcId: string; originalKoQuestion: string; englishSource: string; translatedAnswer: string;
+  model: string; temperature: number; maxTokens: number; experimental: true;
+}
+
+export async function sampleNpcTranslations(samples: readonly NpcSample[], request: Request, model: string, log: (line: string) => void = console.log): Promise<NpcTranslationSample[]> {
+  const translations: NpcTranslationSample[] = [];
+  for (const { npcId } of cases) {
+    const english = samples.find(sample => sample.npcId === npcId && sample.locale === 'en');
+    const korean = samples.find(sample => sample.npcId === npcId && sample.locale === 'ko');
+    if (!english || !korean) throw new Error(`Missing paired English/Korean sample for ${npcId}.`);
+    const tone = fantasyNpcTone(npcId);
+    const register = ['trade', 'scholar', 'priest'].includes(tone) ? 'polite Korean (해요체)' : tone === 'leader' ? 'formal familiar Korean (하게체)' : 'informal Korean (반말)';
+    const response = await request({
+      model, stream: false, temperature: 0.2, max_tokens: 160,
+      chat_template_kwargs: { enable_thinking: false },
+      messages: [
+        { role: 'system', content: `Translate the supplied English dialogue into natural ${register}. Preserve its meaning, add nothing, and output only the Korean translation.` },
+        { role: 'user', content: english.answer.slice(0, 1200) },
+      ],
+    });
+    const completion = response as { model?: unknown; choices?: { message?: { role?: unknown; content?: unknown } }[] } | null;
+    const message = completion?.choices?.[0]?.message;
+    const translated = typeof message?.content === 'string' ? message.content.replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, '').replace(/<\/?think\b[^>]*>/gi, '').trim().slice(0, 1200) : '';
+    if (completion?.model !== model || message?.role !== 'assistant' || !translated) throw new Error(`Translation probe ${npcId} did not produce spoken content with the expected model.`);
+    const sample: NpcTranslationSample = {
+      npcId, originalKoQuestion: korean.question, englishSource: english.answer.slice(0, 1200), translatedAnswer: translated,
+      model, temperature: 0.2, maxTokens: 160, experimental: true,
+    };
+    translations.push(sample);
+    log(`NPC_TRANSLATION_SAMPLE ${JSON.stringify(sample)}`);
+  }
+  return translations;
+}
+
+export async function sampleNpcDialogue(request: Request, model: string, log: (line: string) => void = console.log, options: { translationProbes?: boolean } = {}): Promise<NpcSample[]> {
   const samples: NpcSample[] = [];
   log('NPC samples use synthetic dialogue only. Review meaning, grammar and persona manually; transport success is not a quality verdict. CPU Q8 output does not establish browser Q4 quality.');
   for (const { npcId, questions } of cases) for (const locale of ['ko', 'en', 'ja'] as const) {
@@ -54,6 +90,10 @@ export async function sampleNpcDialogue(request: Request, model: string, log: (l
     };
     samples.push(sample);
     log(`NPC_SAMPLE ${JSON.stringify(sample)}`);
+  }
+  if (options.translationProbes !== false) {
+    log('Experimental translation probes reuse the three English samples. These are separate translation requests, not the production NpcChat route or evidence of a deployed two-pass pipeline.');
+    await sampleNpcTranslations(samples, request, model, log);
   }
   log(`Collected ${samples.length} live NPC samples for human review; no automatic language-quality claim was made.`);
   return samples;

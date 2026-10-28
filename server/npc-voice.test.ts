@@ -61,13 +61,13 @@ test('ordinary greetings already sound different for hosts, smiths, scholars, le
   assert.equal(calls, 0);
 });
 
-test('casual NPC prompts keep their compact context budget across all residents and three languages', () => {
+test('casual NPC prompts including a spoken example stay bounded across all residents and three languages', () => {
   const oversized: { id: string; locale: NpcLocale; estimate: number }[] = [];
   for (const npc of NPC_PUBLIC) for (const locale of locales) {
     assert.equal(fantasyConversationPlan(query[locale]).casual, true);
     const prompt = npcSystemPrompt(locale, npc.id, 'stranger', {}, query[locale]);
     const estimate = fantasyGmTokenEstimate(prompt) + fantasyGmTokenEstimate(query[locale]) + 16;
-    if (estimate >= 650) oversized.push({ id: npc.id, locale, estimate });
+    if (estimate >= 850) oversized.push({ id: npc.id, locale, estimate });
   }
   assert.equal(oversized.length, 0, `Oversized casual prompts: ${JSON.stringify(oversized.sort((a, b) => b.estimate - a.estimate).slice(0, 8))}`);
 });
