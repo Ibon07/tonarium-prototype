@@ -33,6 +33,8 @@ export const loginPending = pgTable('login_pending', {
   codeAttempts: integer('code_attempts').notNull().default(0),
   /** Misskey で許可された人。確認が済むまでは accountId に結び付けない */
   misskeyUser: jsonb('misskey_user').$type<{ id: string; username: string; name: string | null }>(),
+  /** Misskey から最初に戻ってきたブラウザに渡した確認用 Cookie のハッシュ。確認コードはこのブラウザからしか受けない */
+  callbackHash: text('callback_hash'),
   accountId: uuid('account_id').references(() => accounts.id, { onDelete: 'cascade' }),
   expiresAt: at('expires_at').notNull(),
 });

@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type http from 'node:http';
-import { and, eq, lt } from 'drizzle-orm';
+import { and, eq, isNull, lt } from 'drizzle-orm';
 import { db } from './db/index.ts';
 import { accounts, authSessions, loginPending } from './db/schema.ts';
 
@@ -9,6 +9,8 @@ export interface Account { id: string; kind: AccountKind; username: string | nul
 
 const SESSION_COOKIE = 'tonarium_session';
 const PENDING_COOKIE = 'tonarium_login';
+/** Misskey から最初に戻ってきたブラウザの印。確認コードはこのブラウザからしか受けない */
+const CONFIRM_COOKIE = 'tonarium_confirm';
 const DAY = 86_400_000;
 const SESSION_TTL: Record<AccountKind, number> = { misskey: 90 * DAY, dev: 90 * DAY, guest: 365 * DAY };
 const PENDING_TTL = 10 * 60_000;
@@ -100,6 +102,8 @@ export interface AuthOptions {
   devLogin: boolean;
   /** 表示名が変わったら、つないでいる画面へ知らせる */
   onRenamed: (account: Account) => void;
+  /** ゲストの作成数を数える接続元。前段のプロキシを信頼する設定（FANTASY_TRUSTED_PROXY_IPS）に合わせる */
+  clientAddress?: (req: http.IncomingMessage) => string;
 }
 
 async function checkMiAuth(origin: string, session: string): Promise<MiAuthUser | null> {
@@ -252,20 +256,39 @@ export class Auth {
           return true;
         }
         case 'GET /auth/miauth/callback': {
+          // MiAuth のセッション ID は始めた人も知っている（許可 URL に入っている）。だれが開いたかではなく、
+          // Misskey の許可のすぐ後に最初に戻ってきたブラウザだけを、許可した本人として扱う
           const session = url.searchParams.get('session') ?? '';
           const pending = await this.pendingBySession(session);
           if (!pending) { this.page(res, 400, 'ログインの手続きが見つからないか、期限が切れました。もう一度お試しください。', 'The sign-in request was not found or has expired. Please try again.', '로그인 요청을 찾을 수 없거나 만료되었습니다. 다시 시도해 주세요.'); return true; }
-          if (pending.accountId) { this.page(res, 200, 'ログインしました。Tonarium のアプリに戻ってください。', 'Signed in. Please return to the Tonarium app.', '로그인했습니다. Tonarium 앱으로 돌아가 주세요.'); return true; }
+          const cookies = parseCookies(req.headers.cookie);
+          if (pending.callbackHash) {
+            // 開き直し（同じブラウザ）だけ受ける。ほかのブラウザがあとから開いても何もしない
+            const mine = cookies[CONFIRM_COOKIE] && hash(cookies[CONFIRM_COOKIE]) === pending.callbackHash;
+            if (mine && pending.accountId) { this.page(res, 200, 'ログインしました。Tonarium のアプリに戻ってください。', 'Signed in. Please return to the Tonarium app.', '로그인했습니다. Tonarium 앱으로 돌아가 주세요.'); return true; }
+            if (mine && pending.misskeyUser) { this.confirmPage(res, 200, session, pending.misskeyUser); return true; }
+            this.page(res, 400, 'このログインはほかのブラウザで進んでいます。Tonarium からやり直してください。', 'This sign-in is in progress in another browser. Please start again from Tonarium.', '이 로그인은 다른 브라우저에서 진행 중입니다. Tonarium에서 다시 시작해 주세요.');
+            return true;
+          }
           const user = await this.approvedUser(pending);
-          if (!user) { this.page(res, 400, 'Misskey で許可されませんでした。もう一度お試しください。', 'Misskey did not grant access. Please try again.', 'Misskey에서 허용되지 않았습니다. 다시 시도해 주세요.'); return true; }
-          // ログインを始めたブラウザ（待ち合わせの Cookie がある）なら、そのまま入れる
-          const poll = parseCookies(req.headers.cookie)[PENDING_COOKIE];
+          if (!user) {
+            // 正しい流れでは許可の前に戻ってこない。先回りして開かれたログインは取り消す
+            await db().delete(loginPending).where(eq(loginPending.session, session));
+            this.page(res, 400, 'Misskey で許可されませんでした。Tonarium からやり直してください。', 'Misskey did not grant access. Please start again from Tonarium.', 'Misskey에서 허용되지 않았습니다. Tonarium에서 다시 시작해 주세요.');
+            return true;
+          }
+          const mark = newToken();
+          const [claimed] = await db().update(loginPending).set({ callbackHash: hash(mark) })
+            .where(and(eq(loginPending.session, session), isNull(loginPending.callbackHash))).returning({ session: loginPending.session });
+          if (!claimed) { this.page(res, 400, 'このログインはほかのブラウザで進んでいます。Tonarium からやり直してください。', 'This sign-in is in progress in another browser. Please start again from Tonarium.', '이 로그인은 다른 브라우저에서 진행 중입니다. Tonarium에서 다시 시작해 주세요.'); return true; }
+          // ログインを始めたブラウザ（待ち合わせの Cookie がある）で許可したなら、そのまま入れる
+          const poll = cookies[PENDING_COOKIE];
           if (poll && hash(poll) === pending.pollHash) {
             await this.finishInBrowser(req, res, session, await this.bindAccount(session, user));
             return true;
           }
-          // 別のブラウザ（Electron から始めた、または他人から送られた URL を開いた）。始めた画面のコードが入るまで結び付けない
-          this.confirmPage(res, 200, session, user);
+          // 別のブラウザ（Electron から始めた、または他人から送られた URL を開いた）。始めた画面のコードが、このブラウザで入るまで結び付けない
+          this.confirmPage(res, 200, session, user, false, [cookie(req, CONFIRM_COOKIE, mark, PENDING_TTL)]);
           return true;
         }
         case 'POST /auth/miauth/confirm': {
@@ -273,7 +296,9 @@ export class Auth {
           const session = form.get('session') ?? '';
           const pending = await this.pendingBySession(session);
           const user = pending?.misskeyUser;
-          if (!pending || !user || pending.accountId) { this.page(res, 400, 'ログインの手続きが見つからないか、期限が切れました。もう一度お試しください。', 'The sign-in request was not found or has expired. Please try again.', '로그인 요청을 찾을 수 없거나 만료되었습니다. 다시 시도해 주세요.'); return true; }
+          const mark = parseCookies(req.headers.cookie)[CONFIRM_COOKIE];
+          // Misskey から戻ってきたブラウザだけが確認できる。始めた側がコードを知っていても、ここは通れない
+          if (!pending || !user || pending.accountId || !pending.callbackHash || !mark || hash(mark) !== pending.callbackHash) { this.page(res, 400, 'ログインの手続きが見つからないか、期限が切れました。もう一度お試しください。', 'The sign-in request was not found or has expired. Please try again.', '로그인 요청을 찾을 수 없거나 만료되었습니다. 다시 시도해 주세요.'); return true; }
           if (hash(normalizeCode(form.get('code') ?? '')) !== pending.codeHash) {
             const attempts = pending.codeAttempts + 1;
             if (attempts >= CODE_ATTEMPTS) {
@@ -286,7 +311,7 @@ export class Auth {
             return true;
           }
           await this.bindAccount(session, user);
-          this.page(res, 200, 'ログインしました。Tonarium のアプリに戻ってください。', 'Signed in. Please return to the Tonarium app.', '로그인했습니다. Tonarium 앱으로 돌아가 주세요.');
+          this.page(res, 200, 'ログインしました。Tonarium のアプリに戻ってください。', 'Signed in. Please return to the Tonarium app.', '로그인했습니다. Tonarium 앱으로 돌아가 주세요.', '', [cookie(req, CONFIRM_COOKIE, '', 0)]);
           return true;
         }
         case 'POST /auth/miauth/poll': {
@@ -326,8 +351,7 @@ export class Auth {
   }
 
   private allowGuest(req: http.IncomingMessage) {
-    // 前段（Coolify）を通ると接続元は前段になるので、付けてくれる X-Forwarded-For の先頭を使う
-    const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim();
+    const ip = this.o.clientAddress?.(req) ?? req.socket.remoteAddress ?? '';
     const now = Date.now();
     const recent = (this.guestsBy.get(ip) ?? []).filter((t) => now - t < GUEST_RATE.windowMs);
     if (recent.length >= GUEST_RATE.max) return false;
@@ -348,8 +372,9 @@ export class Auth {
   }
 
   /** Misskey から戻ってきたときの小さな案内ページ。画面の言語が分からないので 3 言語とも出す */
-  private page(res: http.ServerResponse, status: number, ja: string, en: string, ko: string, form = '') {
+  private page(res: http.ServerResponse, status: number, ja: string, en: string, ko: string, form = '', cookies: string[] = []) {
     res.statusCode = status;
+    if (cookies.length) res.setHeader('Set-Cookie', cookies);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     // 確認ページをほかのサイトに埋め込ませない（押させる操作をだまし取らせない）
@@ -361,13 +386,13 @@ export class Auth {
   }
 
   /** 別のブラウザで許可したとき。だれのアカウントで入るかを見せ、始めた画面に出ているコードを入れてもらう */
-  private confirmPage(res: http.ServerResponse, status: number, session: string, user: MiAuthUser, wrong = false) {
+  private confirmPage(res: http.ServerResponse, status: number, session: string, user: MiAuthUser, wrong = false, cookies: string[] = []) {
     const who = `${user.name ? `${user.name} ` : ''}@${user.username}`;
     const form = `<form method="post" action="/auth/miauth/confirm"><input type="hidden" name="session" value="${esc(session)}">
 <p><input name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="XXXX-XXXX" required autofocus aria-label="code"></p>
 ${wrong ? '<p class="warn">コードが違います / The code is wrong / 코드가 다릅니다</p>' : ''}
 <p class="warn">自分で Tonarium からログインを始めたときに表示されたコードだけを入力してください。他人から伝えられたコードは入力しないでください。<br>Only enter a code that your own Tonarium screen showed when you started signing in. Never enter a code someone else gave you.<br>직접 Tonarium에서 로그인을 시작했을 때 표시된 코드만 입력하세요. 다른 사람이 알려 준 코드는 입력하지 마세요.</p>
 <p><button>OK</button></p></form>`;
-    this.page(res, status, `${who} として Tonarium にログインします。Tonarium の画面に表示されているコードを入力してください。`, `You are signing in to Tonarium as ${who}. Enter the code shown on your Tonarium screen.`, `${who}(으)로 Tonarium에 로그인합니다. Tonarium 화면에 표시된 코드를 입력하세요.`, form);
+    this.page(res, status, `${who} として Tonarium にログインします。Tonarium の画面に表示されているコードを入力してください。`, `You are signing in to Tonarium as ${who}. Enter the code shown on your Tonarium screen.`, `${who}(으)로 Tonarium에 로그인합니다. Tonarium 화면에 표시된 코드를 입력하세요.`, form, cookies);
   }
 }

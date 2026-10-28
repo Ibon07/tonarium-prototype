@@ -131,58 +131,66 @@ test('guests, dev and Misskey logins decide who you are and what you may do', { 
   assert.equal((await post('/auth/name', { name: 'Samuel' }, devCookie)).status, 200);
   await until(() => usersOf(guest.users()).find((u) => u.id === devAccount.id && u.name === 'Samuel'));
 
-  // Misskey（同じブラウザ）: 始めた端末だけがコールバックでセッションを受け取る
-  const start = await post('/auth/miauth/start', {});
-  const pending = cookieOf(start, 'tonarium_login')!;
-  const { url } = await start.json() as { url: string };
-  const session = new URL(url).pathname.split('/').pop()!;
-  assert.ok(url.startsWith(`http://127.0.0.1:${misskeyPort}/miauth/`));
-  assert.equal(new URL(url).searchParams.get('callback'), `${base}/auth/miauth/callback`);
-  const denied = await fetch(`${base}/auth/miauth/callback?session=${session}`, { headers: { Cookie: pending }, redirect: 'manual' });
-  assert.equal(denied.status, 400);
-  granted.add(session);
-  const other = await fetch(`${base}/auth/miauth/callback?session=${session}`, { redirect: 'manual' });
-  assert.equal(other.status, 200, 'another browser only gets the code confirmation page');
-  assert.match(await other.text(), /@alice/);
-  assert.equal(cookieOf(other, 'tonarium_session'), undefined);
-  const back = await fetch(`${base}/auth/miauth/callback?session=${session}`, { headers: { Cookie: pending }, redirect: 'manual' });
+  const confirm = (session: string, code: string, cookie?: string) => fetch(`${base}/auth/miauth/confirm`, {
+    method: 'POST', redirect: 'manual', body: new URLSearchParams({ session, code }).toString(),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: base, ...(cookie ? { Cookie: cookie } : {}) },
+  });
+  const pollStatus = async (cookie: string) => (await (await post('/auth/miauth/poll', {}, cookie)).json() as { status: string }).status;
+  const startLogin = async () => {
+    const res = await post('/auth/miauth/start', {});
+    const started = await res.json() as { url: string; code: string };
+    return { pending: cookieOf(res, 'tonarium_login')!, url: started.url, code: started.code, session: new URL(started.url).pathname.split('/').pop()! };
+  };
+  const callback = (session: string, cookie?: string) => fetch(`${base}/auth/miauth/callback?session=${session}`, { redirect: 'manual', headers: cookie ? { Cookie: cookie } : {} });
+
+  // Misskey（同じブラウザ）: 許可して戻ってきたブラウザが始めた端末なら、そのまま入る
+  const first = await startLogin();
+  assert.ok(first.url.startsWith(`http://127.0.0.1:${misskeyPort}/miauth/`));
+  assert.equal(new URL(first.url).searchParams.get('callback'), `${base}/auth/miauth/callback`);
+  // 許可の前に戻ってくることは正しい流れでは無い。先回りされたログインは取り消す
+  assert.equal((await callback(first.session, first.pending)).status, 400);
+  assert.equal(await pollStatus(first.pending), 'expired');
+  const own = await startLogin();
+  granted.add(own.session);
+  const back = await callback(own.session, own.pending);
   assert.equal(back.status, 302);
   const mkCookie = cookieOf(back, 'tonarium_session')!;
   const me = await (await fetch(`${base}/auth/me`, { headers: { Cookie: mkCookie } })).json() as { account: { kind: string; username: string; name: string } };
   assert.deepEqual([me.account.kind, me.account.username, me.account.name], ['misskey', 'alice', 'Alice M']);
 
-  const confirm = (session: string, code: string) => fetch(`${base}/auth/miauth/confirm`, {
-    method: 'POST', redirect: 'manual', body: new URLSearchParams({ session, code }).toString(),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: base },
-  });
-  const pollStatus = async (cookie: string) => (await (await post('/auth/miauth/poll', {}, cookie)).json() as { status: string }).status;
-
-  // 他人が始めたログインの許可 URL を開かされても、始めた画面のコードを知らなければ他人に結び付かない（ログイン CSRF）
-  const attacker = await post('/auth/miauth/start', {});
-  const attackerPending = cookieOf(attacker, 'tonarium_login')!;
-  const attackSession = new URL((await attacker.json() as { url: string }).url).pathname.split('/').pop()!;
-  granted.add(attackSession);
-  assert.equal((await fetch(`${base}/auth/miauth/callback?session=${attackSession}`, { redirect: 'manual' })).status, 200);
-  assert.equal(await pollStatus(attackerPending), 'pending', 'approval alone never logs the starter in');
-  for (let i = 0; i < 4; i++) assert.equal((await confirm(attackSession, 'AAAA-AAAA')).status, 400);
-  assert.equal(await pollStatus(attackerPending), 'pending');
-  assert.equal((await confirm(attackSession, 'AAAA-AAAA')).status, 400);
-  assert.equal(await pollStatus(attackerPending), 'expired', 'too many wrong codes cancel the sign-in');
+  // 他人に許可 URL を送っても、始めた側は入れない。確認コードは、Misskey から最初に戻ってきたブラウザでしか受けない
+  const attack = await startLogin();
+  granted.add(attack.session);
+  const victim = await callback(attack.session);
+  assert.equal(victim.status, 200, 'the approving browser only gets the code confirmation page');
+  assert.match(await victim.text(), /@alice/);
+  assert.equal(cookieOf(victim, 'tonarium_session'), undefined);
+  const victimMark = cookieOf(victim, 'tonarium_confirm')!;
+  assert.ok(victimMark);
+  assert.equal((await confirm(attack.session, attack.code)).status, 400, 'the starter cannot confirm with its own code');
+  assert.equal((await confirm(attack.session, attack.code, attack.pending)).status, 400);
+  assert.equal(await pollStatus(attack.pending), 'pending', 'the starter still has no session');
+  assert.equal((await callback(attack.session, attack.pending)).status, 400, 'a later callback from the starter is refused');
+  assert.equal(await pollStatus(attack.pending), 'pending');
+  assert.equal((await callback(attack.session, victimMark)).status, 200, 'the approving browser can reopen its page');
+  // 許可したブラウザでも、コードを何度も間違えると取り消す
+  for (let i = 0; i < 4; i++) assert.equal((await confirm(attack.session, 'AAAA-AAAA', victimMark)).status, 400);
+  assert.equal(await pollStatus(attack.pending), 'pending');
+  assert.equal((await confirm(attack.session, 'AAAA-AAAA', victimMark)).status, 400);
+  assert.equal(await pollStatus(attack.pending), 'expired', 'too many wrong codes cancel the sign-in');
   // 確認はほかのサイトからは送れない
   assert.equal((await fetch(`${base}/auth/miauth/confirm`, { method: 'POST', body: 'session=x&code=y', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: 'https://evil.example' } })).status, 403);
 
   // Misskey（Electron）: 許可したブラウザで始めた画面のコードを入れると、待っている端末が poll で受け取る。同じ Misskey の人は同じアカウント
-  const start2 = await post('/auth/miauth/start', {});
-  const pending2 = cookieOf(start2, 'tonarium_login')!;
-  const started2 = await start2.json() as { url: string; code: string };
-  const session2 = new URL(started2.url).pathname.split('/').pop()!;
-  assert.match(started2.code, /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
-  assert.equal(await pollStatus(pending2), 'pending');
-  granted.add(session2);
-  assert.equal((await fetch(`${base}/auth/miauth/callback?session=${session2}`, { redirect: 'manual' })).status, 200);
-  assert.equal(await pollStatus(pending2), 'pending');
-  assert.equal((await confirm(session2, started2.code.toLowerCase().replace('-', ' '))).status, 200, 'case and separators do not matter');
-  const done = await post('/auth/miauth/poll', {}, pending2);
+  const app = await startLogin();
+  assert.match(app.code, /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+  assert.equal(await pollStatus(app.pending), 'pending');
+  granted.add(app.session);
+  const browser = await callback(app.session);
+  assert.equal(browser.status, 200);
+  assert.equal(await pollStatus(app.pending), 'pending');
+  assert.equal((await confirm(app.session, app.code.toLowerCase().replace('-', ' '), cookieOf(browser, 'tonarium_confirm'))).status, 200, 'case and separators do not matter');
+  const done = await post('/auth/miauth/poll', {}, app.pending);
   const polled = await done.json() as { status: string; account: { username: string } };
   assert.equal(polled.status, 'done');
   assert.ok(cookieOf(done, 'tonarium_session'));
@@ -195,6 +203,8 @@ test('guests, dev and Misskey logins decide who you are and what you may do', { 
   const statuses: number[] = [];
   for (let i = 0; i < 20; i++) statuses.push((await post('/auth/guest', { name: `g${i}` })).status);
   assert.deepEqual([statuses.slice(0, 19).every((x) => x === 200), statuses[19]], [true, 429]);
+  // 信頼するプロキシを通っていない X-Forwarded-For は見ない（書き換えて上限を避けられない）
+  assert.equal((await fetch(`${base}/auth/guest`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base, 'X-Forwarded-For': '203.0.113.9' }, body: JSON.stringify({ name: 'spoof' }) })).status, 429);
 
   // ログアウトすると、そのセッションではもう入れない
   await post('/auth/logout', {}, mkCookie);
