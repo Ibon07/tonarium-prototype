@@ -37,14 +37,7 @@ export class AdApiClient {
         signal: controller.signal,
       });
       const text = await res.text();
-      let data: Record<string, unknown> = {};
-      try {
-        const parsed = text ? JSON.parse(text) : {};
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid response');
-        data = parsed;
-      } catch {
-        if (res.ok) throw new Error('Invalid response');
-      }
+      const data = text ? JSON.parse(text) : {};
       if (!res.ok) {
         const err = new Error(typeof data.error === 'string' ? data.error : `HTTP ${res.status}`);
         (err as Error & { status?: number }).status = res.status;
