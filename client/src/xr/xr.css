@@ -10,6 +10,11 @@
 .xr-settings { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 8px 0; padding: 8px; }
 .xr-settings label:not(.volrow):not(.settings-row):not(.settings-select-row) { display: flex; align-items: center; gap: 8px; }
 .xr-source :is(.settings-row, .settings-select-row) { --accent: var(--paper); }
+.xr-settings .volrow { min-width: 0; }
+.xr-settings .vollabel { flex-wrap: wrap; gap: 4px 8px; }
+.xr-settings .vollabel > span { min-width: 0; overflow-wrap: anywhere; }
+.xr-settings .vollabel b { white-space: nowrap; margin-left: auto; }
+.xr-source .xr-settings { --ink2: #f4f1eb; --line: #899bb6; --accent: #fff3a6; }
 .xr-active .keyhelp { display: none; }
 .xr-active .xr-source {
   position: fixed !important;
