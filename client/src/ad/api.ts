@@ -27,10 +27,6 @@ export class AdApiClient {
     this.auth = auth;
   }
 
-  setAuth(auth: AuthProvider): void {
-    this.auth = auth;
-  }
-
   private async request(path: string, options: RequestInit = {}): Promise<{ res: Response; data: Record<string, unknown> }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
@@ -41,7 +37,14 @@ export class AdApiClient {
         signal: controller.signal,
       });
       const text = await res.text();
-      const data = text ? JSON.parse(text) : {};
+      let data: Record<string, unknown> = {};
+      try {
+        const parsed = text ? JSON.parse(text) : {};
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid response');
+        data = parsed;
+      } catch {
+        if (res.ok) throw new Error('Invalid response');
+      }
       if (!res.ok) {
         const err = new Error(typeof data.error === 'string' ? data.error : `HTTP ${res.status}`);
         (err as Error & { status?: number }).status = res.status;
@@ -53,22 +56,37 @@ export class AdApiClient {
     }
   }
 
-  async save(playerId: string, save: Record<string, unknown>): Promise<void> {
-    await this.request(`/api/save/${encodeURIComponent(playerId)}`, {
+  async save(playerId: string, save: Record<string, unknown>, revision: number): Promise<number> {
+    const { data } = await this.request(`/api/save/${encodeURIComponent(playerId)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ save, updatedAt: new Date().toISOString() }),
+      body: JSON.stringify({ save, revision }),
     });
+    if (!Number.isSafeInteger(data.revision) || Number(data.revision) < 1) throw new Error('Invalid revision');
+    return data.revision as number;
   }
 
-  async load(playerId: string): Promise<Record<string, unknown> | null> {
-    try {
-      const { data } = await this.request(`/api/save/${encodeURIComponent(playerId)}`);
-      return (data.save ?? null) as Record<string, unknown> | null;
-    } catch (err) {
-      if (err instanceof Error && (err as Error & { status?: number }).status === 404) return null;
-      throw err;
-    }
+  async load(playerId: string): Promise<{ save: Record<string, unknown> | null; revision: number }> {
+    const { data } = await this.request(`/api/save/${encodeURIComponent(playerId)}`);
+    if (!Number.isSafeInteger(data.revision) || Number(data.revision) < 0) throw new Error('Invalid revision');
+    return { save: (data.save ?? null) as Record<string, unknown> | null, revision: data.revision as number };
+  }
+
+  private async post(path: string, body: unknown) {
+    return (await this.request(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).data;
+  }
+  async create(): Promise<{ id: string; token: string }> {
+    return this.connection(await this.post('/api/ad/create', {}));
+  }
+  async exchange(code: string): Promise<{ id: string; token: string }> {
+    return this.connection(await this.post('/api/ad/exchange', { code }));
+  }
+  private connection(data: Record<string, unknown>): { id: string; token: string } {
+    if (!data || typeof data.id !== 'string' || !data.id || typeof data.token !== 'string' || !data.token) throw new Error('Invalid connection');
+    return { id: data.id, token: data.token };
+  }
+  async transfer(id: string): Promise<{ code: string; expiresAt: number }> {
+    return await this.post('/api/ad/transfer', { id }) as { code: string; expiresAt: number };
   }
 
   async leaderboard(): Promise<LeaderboardEntry[]> {

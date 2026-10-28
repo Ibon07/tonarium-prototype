@@ -59,7 +59,7 @@ DB のバックアップと戻し方:
 
 メモ:
 - HTTP・ホーム用 WebSocket（`/ws`）・同期シグナリング（`/sync/offer`）・同期用 WebSocket（`/sync/ws`）・LiveKit トークン（`/token`）は同じポート。HTTPS は Coolify（Traefik）が付ける。`/sync/ws` も WebSocket Upgrade を許可する
-- フォロー・作ったセッション・グループ・イベント・DM とチャンネルのメッセージ・既読・ステータス・自己紹介・タイムライン・アイテム・サバイバーズのプロフィール・AD のセーブとランキング・マーケットのいいね・通報は DB（`tonarium-db` ボリューム）に残る。アイコン・3D アバター・写真などの画像は R2 に置く（[storage.md](storage.md)）。`tonarium-data` ボリューム（`/app/data`）には、ファンタジー RPG のデータ・共有アセット・共有システム・翻訳のキャッシュが残る。セッション内のチャットはメモリ内だけなので、再デプロイ・再起動で消える。インスタンスは 1 つで動かすこと（複数にすると部屋が分かれる）
+- フォロー・作ったセッション・グループ・イベント・DM とチャンネルのメッセージ・既読・ステータス・自己紹介・タイムライン・アイテム・サバイバーズのプロフィール・マーケットのいいね・通報は DB（`tonarium-db` ボリューム）に残る。アイコン・3D アバター・写真などの画像は R2 に置く（[storage.md](storage.md)）。`tonarium-data` ボリューム（`/app/data`）には、AD のセーブとランキング（`ad-access.json`）・ファンタジー RPG のデータ・共有アセット・共有システム・翻訳のキャッシュが残る。セッション内のチャットはメモリ内だけなので、再デプロイ・再起動で消える。インスタンスは 1 つで動かすこと（複数にすると部屋が分かれる）
 - LiveKit の設定は `docker-compose.yml` の `LIVEKIT_CONFIG` にある。サーバーの外向きの IP は自動で調べる（`use_external_ip`）。社内ネットワークなど UDP が通らない人向けには TURN（既定 UDP 3478、`LIVEKIT_TURN_UDP_PORT` で変更可）も動く
 - Tonarium サーバーは `KOKOSYNC_URL` の HTTPS/WSS に外向き接続する。ブラウザの WebRTC は kokosync サーバーの公開 UDP ポートにも届く必要がある。UDP が通らなければ同一オリジンの WebSocket 経由に切り替わる
 - LiveKit Cloud に戻すときは、`livekit` サービスを消して `tonarium` の `LIVEKIT_URL` を Cloud の URL にする。データ同期には影響しない
