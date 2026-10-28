@@ -112,7 +112,7 @@ export async function savePeople(rawPeople: Record<string, PersonRec>, rawBios: 
 export async function saveFollows(edges: [string, string][]) {
   await db().transaction(async (tx) => {
     await tx.delete(follows);
-    if (edges.length) await tx.insert(follows).values(edges.map(([follower, followee]) => ({ follower, followee })));
+    if (edges.length) await tx.insert(follows).values(edges.map(([follower, followee]) => ({ follower, followee }))).onConflictDoNothing();
   });
 }
 

@@ -388,8 +388,15 @@ const saveInbox = debounced('inbox', async () => {
   const convs = [...dirtyConvs], readers = [...dirtyReads];
   dirtyConvs.clear();
   dirtyReads.clear();
-  if (convs.length) await saveConversations(inbox.convs, convs);
-  if (readers.length) await saveReads(inbox.reads, readers);
+  try {
+    if (convs.length) await saveConversations(inbox.convs, convs);
+    if (readers.length) await saveReads(inbox.reads, readers);
+  } catch (e) {
+    // 書き直しのときに同じ会話・人をもう一度書くため、印を戻す
+    for (const c of convs) dirtyConvs.add(c);
+    for (const r of readers) dirtyReads.add(r);
+    throw e;
+  }
 });
 
 /** セッションにだれかが入ってから全員が出るまで。終わったらまとめにする */
