@@ -17,7 +17,7 @@ export function clearBrowserAiCacheMarker(env = environment()): void { try { env
 export function isBrowserAiCacheUrl(raw: string): boolean {
   try {
     const url = new URL(raw);
-    const models = ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-1.7B-q4f16_1-MLC', BROWSER_AI_MODEL];
+    const models = ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3-1.7B-q4f16_1-MLC', 'Qwen3-4B-q4f16_1-MLC', BROWSER_AI_MODEL];
     const library = new URL(BROWSER_AI_MODEL_LIB);
     return url.origin === 'https://huggingface.co' && models.some(model => ['resolve', 'raw'].some(mode => url.pathname.startsWith(`/mlc-ai/${model}/${mode}/`)))
       || url.origin === library.origin && models.some(model => url.pathname === library.pathname.replace(BROWSER_AI_MODEL.replace('-MLC', ''), model.replace('-MLC', '')));

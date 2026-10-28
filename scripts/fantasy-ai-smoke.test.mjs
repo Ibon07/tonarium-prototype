@@ -8,7 +8,7 @@ import * as smoke from './fantasy-ai-smoke.mjs';
 const { runCommand, runSmoke } = smoke;
 
 const reply = (body, status = 200) => `${JSON.stringify(body)}\n${status}`;
-const completion = (content = 'Hello.', model = 'qwen3-4b') => ({
+const completion = (content = 'Hello.', model = 'qwen3-8b') => ({
   id: 'chatcmpl-smoke', object: 'chat.completion', created: 1, model,
   choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }],
   usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
@@ -34,7 +34,7 @@ function dockerFixture({ health = [reply({ status: 'ok' })], models, completions
     if (command !== 'exec') return { stdout: '' };
     const endpoint = args.at(-1);
     if (endpoint.endsWith('/health')) return { stdout: health[Math.min(healthIndex++, health.length - 1)] };
-    if (endpoint.endsWith('/v1/models')) return { stdout: models ?? reply({ object: 'list', data: [{ id: 'qwen3-4b', object: 'model', created: 1, owned_by: 'llamacpp' }] }) };
+    if (endpoint.endsWith('/v1/models')) return { stdout: models ?? reply({ object: 'list', data: [{ id: 'qwen3-8b', object: 'model', created: 1, owned_by: 'llamacpp' }] }) };
     return { stdout: completions?.[completionIndex++] ?? reply(completion()) };
   };
   return { calls, run };
@@ -50,7 +50,7 @@ test('smoke starts only isolated AI services and sends three bounded synthetic r
   assert.match(result.projectName, /^tonarium-fantasy-ai-smoke-[a-f0-9]{32}$/);
   assert.deepEqual(start.args.slice(5), ['up', '--detach', '--build', 'fantasy-ai-model', 'fantasy-ai']);
   assert.deepEqual(result.languages, ['ko', 'en', 'ja']);
-  assert.equal(result.model, 'qwen3-4b');
+  assert.equal(result.model, 'qwen3-8b');
   for (const call of fixture.calls) {
     assert.ok(call.options.timeoutMs > 0);
     assert.ok(!call.args.includes('tonarium'));
@@ -64,7 +64,7 @@ test('smoke starts only isolated AI services and sends three bounded synthetic r
     assert.ok(args.includes('@-'));
     assert.ok(args.includes('-T'));
     const body = JSON.parse(options.input);
-    assert.equal(body.model, 'qwen3-4b');
+    assert.equal(body.model, 'qwen3-8b');
     assert.equal(body.max_tokens, 32);
     assert.equal(body.stream, false);
     assert.equal(body.chat_template_kwargs.enable_thinking, false);
@@ -98,10 +98,10 @@ test('readiness retries a loading response but fails within the shared startup d
 
 test('optional NPC probes use the healthy isolated model before cleanup and preserve payloads', async () => {
   const fixture = dockerFixture();
-  const payload = { model: 'qwen3-4b', messages: [{ role: 'user', content: '한글 日本語 $() `literal`' }], temperature: 0.25, max_tokens: 128 };
+  const payload = { model: 'qwen3-8b', messages: [{ role: 'user', content: '한글 日本語 $() `literal`' }], temperature: 0.25, max_tokens: 128 };
   let probes = 0;
   await runSmoke({ run: fixture.run, log: quiet, onReady: async ({ request, model }) => {
-    assert.equal(model, 'qwen3-4b');
+    assert.equal(model, 'qwen3-8b');
     assert.equal(composeCommands(fixture.calls, 'rm').length, 0);
     const response = await request(payload);
     assert.equal(response.choices[0].message.content, 'Hello.');
@@ -156,7 +156,7 @@ test('invalid or unavailable cgroup diagnostics cannot fail inference or bypass 
       return fixture.run(file, args, options);
     };
     const result = await runSmoke({ run, recordMemory: true, log: line => logs.push(line) });
-    assert.equal(result.model, 'qwen3-4b');
+    assert.equal(result.model, 'qwen3-8b');
     assert.ok(logs.some(line => line.startsWith('AI_CGROUP_PEAK_BYTES unavailable:')));
     assert.equal(composeCommands(fixture.calls, 'rm').length, 1);
   }
@@ -170,7 +170,7 @@ test('invalid or unavailable cgroup diagnostics cannot fail inference or bypass 
 
 test('wrong model alias fails before generation and still removes only the smoke model volume', async () => {
   const fixture = dockerFixture({ models: reply({ object: 'list', data: [{ id: 'unexpected-model', object: 'model', created: 1, owned_by: 'llamacpp' }] }) });
-  await assert.rejects(runSmoke({ run: fixture.run, log: quiet }), /qwen3-4b/);
+  await assert.rejects(runSmoke({ run: fixture.run, log: quiet }), /qwen3-8b/);
   assert.equal(composeCommands(fixture.calls, 'exec').filter(({ args }) => args.at(-1).endsWith('/v1/chat/completions')).length, 0);
   assert.equal(composeCommands(fixture.calls, 'rm').length, 1);
   assert.equal(fixture.calls.filter(({ args }) => args[0] === 'volume' && args[1] === 'rm').length, 1);

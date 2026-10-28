@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const FANTASY_AI_MODEL = Object.freeze({
-  filename: 'Qwen3-4B-Q4_K_M.gguf',
-  url: 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf',
-  bytes: 2497280256,
-  sha256: '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5',
+  filename: 'Qwen3-8B-Q4_K_M.gguf',
+  url: 'https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/7c41481f57cb95916b40956ab2f0b139b296d974/Qwen3-8B-Q4_K_M.gguf',
+  bytes: 5027783488,
+  sha256: 'd98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785',
 });
 
 async function hasVerifiedModel(path, manifest, signal) {
@@ -74,7 +74,7 @@ export function parseAvailableMemoryMb(meminfo) {
 }
 
 export function parseMinimumAvailableMb(value) {
-  if (value === undefined) return 6144;
+  if (value === undefined) return 10240;
   const minimum = Number(value);
   if (!/^\d+$/.test(value) || !Number.isSafeInteger(minimum) || minimum < 256 || minimum > 65536) {
     throw new Error('NPC_AI_MIN_AVAILABLE_MB must be an integer from 256 to 65536');

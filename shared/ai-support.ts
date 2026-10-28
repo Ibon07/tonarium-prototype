@@ -1,4 +1,4 @@
-export const BROWSER_AI_MODEL = 'Qwen3-4B-q4f16_1-MLC';
+export const BROWSER_AI_MODEL = 'Qwen3-8B-q4f16_1-MLC';
 export interface BrowserAiCooperation { version: 2; shareIdle: boolean; allowRemote: boolean; idle: boolean }
 export interface BrowserAiMessage { role: 'system' | 'user' | 'assistant'; content: string }
 export interface BrowserAiGeneration {

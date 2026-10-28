@@ -7,7 +7,7 @@ test('startup cleanup works without consent, network, WebLLM import or an existi
   const model = `${BROWSER_AI_MODEL_URL}params_shard_0.bin`, config = `${BROWSER_AI_MODEL_URL}mlc-chat-config.json`;
   const old = 'https://huggingface.co/mlc-ai/Qwen3-0.6B-q4f16_1-MLC/resolve/main/tokenizer.json';
   const previous = 'https://huggingface.co/mlc-ai/Qwen3-1.7B-q4f16_1-MLC/resolve/main/params_shard_0.bin';
-  const foreign = 'https://huggingface.co/mlc-ai/Qwen3-8B-q4f16_1-MLC/resolve/main/params_shard_0.bin';
+  const foreign = 'https://huggingface.co/mlc-ai/Qwen3-14B-q4f16_1-MLC/resolve/main/params_shard_0.bin';
   const caches = new Map([['webllm/model', [model, old, previous, foreign]], ['webllm/config', [config]], ['webllm/wasm', [BROWSER_AI_MODEL_LIB]], ['unrelated-app', [model]]]);
   const removed: string[] = [];
   const env: BrowserAiCacheEnvironment = { caches: { keys: async () => [...caches.keys()], open: async name => ({ keys: async () => caches.get(name)!.map(url => ({ url })), delete: async request => { removed.push(request.url); caches.set(name, caches.get(name)!.filter(url => url !== request.url)); return true; } }) }, storage: { setItem() { throw new Error('consent not stored'); }, removeItem: key => { assert.equal(key, BROWSER_AI_CACHE_MARKER); } } };
@@ -17,13 +17,13 @@ test('startup cleanup works without consent, network, WebLLM import or an existi
   assert.deepEqual(caches.get('unrelated-app'), [model]); assert.deepEqual(caches.get('webllm/model'), [foreign]);
 });
 
-test('cleanup URL matching is restricted to three app-managed models and their exact versioned libraries', () => {
+test('cleanup URL matching is restricted to four app-managed models and their exact versioned libraries', () => {
   assert.ok(isBrowserAiCacheUrl(`${BROWSER_AI_MODEL_URL}tensor-cache.json`));
-  for (const size of ['0.6B', '1.7B', '4B']) {
+  for (const size of ['0.6B', '1.7B', '4B', '8B']) {
     assert.ok(isBrowserAiCacheUrl(`https://huggingface.co/mlc-ai/Qwen3-${size}-q4f16_1-MLC/resolve/main/tokenizer.json`));
     assert.ok(isBrowserAiCacheUrl(`https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_86/base/Qwen3-${size}-q4f16_1_cs1k-webgpu.wasm`));
   }
-  for (const url of ['https://evil.invalid/mlc-ai/Qwen3-1.7B-q4f16_1-MLC/resolve/main/a', `${BROWSER_AI_MODEL_URL}../../../../Other/resolve/main/a`, BROWSER_AI_MODEL_LIB.replace('v0_2_86', 'v0_1_0'), 'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_86/base/Qwen3-8B-q4f16_1_cs1k-webgpu.wasm', 'garbage']) assert.equal(isBrowserAiCacheUrl(url), false);
+  for (const url of ['https://evil.invalid/mlc-ai/Qwen3-1.7B-q4f16_1-MLC/resolve/main/a', `${BROWSER_AI_MODEL_URL}../../../../Other/resolve/main/a`, BROWSER_AI_MODEL_LIB.replace('v0_2_86', 'v0_1_0'), 'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_86/base/Qwen3-14B-q4f16_1_cs1k-webgpu.wasm', 'garbage']) assert.equal(isBrowserAiCacheUrl(url), false);
 });
 
 test('cache failure leaves dirty state for the next startup and temporary cleanup does not clear markers', async () => {

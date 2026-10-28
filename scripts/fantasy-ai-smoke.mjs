@@ -6,7 +6,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const model = 'qwen3-4b';
+const model = 'qwen3-8b';
 const services = ['fantasy-ai-model', 'fantasy-ai'];
 const prompts = [
   { language: 'ko', content: '한국어로 짧은 인사 한 문장을 말해 주세요.' },

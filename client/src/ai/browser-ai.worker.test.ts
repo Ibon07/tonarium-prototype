@@ -5,18 +5,18 @@ import { BROWSER_AI_CONTEXT, BROWSER_AI_MODEL, BROWSER_AI_MODEL_URL, browserAiAp
 import type { BrowserAiJob } from '../../../shared/ai-support.ts';
 
 const job = (): BrowserAiJob => ({ leaseId: 'lease-1', epoch: 'epoch-1', requestId: 'request-1', kind: 'gm', expiresAt: Date.now() + 30000, messages: [{ role: 'system', content: 'Authorized server facts only.' }, { role: 'user', content: 'Hello.' }], maxTokens: 160, temperature: .7 });
-test('the installed official catalog selects only pinned 4B four-bit weights with a real 4096 context override', async () => {
+test('the installed official catalog selects only pinned 8B four-bit weights with a real 4096 context override', async () => {
   const { prebuiltAppConfig } = await import('@mlc-ai/web-llm');
   const config = browserAiAppConfig(prebuiltAppConfig);
   assert.equal(config.model_list.length, 1); assert.equal(config.model_list[0].model_id, BROWSER_AI_MODEL);
-  assert.equal(config.model_list[0].model, BROWSER_AI_MODEL_URL); assert.equal(BROWSER_AI_MODEL, 'Qwen3-4B-q4f16_1-MLC');
-  assert.ok(BROWSER_AI_MODEL_URL.includes('a5c9fab855e3ccbdfed2e7e69683d75f30332161'));
+  assert.equal(config.model_list[0].model, BROWSER_AI_MODEL_URL); assert.equal(BROWSER_AI_MODEL, 'Qwen3-8B-q4f16_1-MLC');
+  assert.ok(BROWSER_AI_MODEL_URL.includes('b3d55c289eae58f77095f5b68c895eeea358ee09'));
   assert.equal(config.model_list[0].overrides!.context_window_size, BROWSER_AI_CONTEXT); assert.equal(config.cacheBackend, 'cache');
   assert.equal(Object.hasOwn(config.model_list[0].overrides!, 'prefill_chunk_size'), false);
   assert.throws(() => browserAiAppConfig({ model_list: [] }));
 });
 
-test('4B GPU preflight rejects missing shader support or undersized buffer limits before engine creation', () => {
+test('8B GPU preflight rejects missing shader support or undersized buffer limits before engine creation', () => {
   const valid = { features: new Set(['shader-f16']), limits: { maxBufferSize: 2 ** 30, maxStorageBufferBindingSize: 2 ** 30 } };
   assert.equal(browserAiGpuCompatible(valid), true);
   assert.equal(browserAiGpuCompatible(null), false);

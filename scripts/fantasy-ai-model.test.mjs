@@ -207,7 +207,7 @@ test('parses Linux MemAvailable in KiB without confusing total or free memory', 
 });
 
 test('validates the operator memory threshold and applies the default', () => {
-  assert.equal(module.parseMinimumAvailableMb(undefined), 6144);
+  assert.equal(module.parseMinimumAvailableMb(undefined), 10240);
   assert.equal(module.parseMinimumAvailableMb('256'), 256);
   assert.equal(module.parseMinimumAvailableMb('65536'), 65536);
   for (const value of ['', '0', '255', '65537', '2304.5', 'NaN', '2e3']) {
@@ -219,9 +219,9 @@ test('stops CLI preparation when Linux available memory is below the operator th
   await assert.rejects(module.runModelPreparation({
     platform: 'linux',
     env: {},
-    readMeminfo: async () => 'MemTotal: 16777216 kB\nMemAvailable: 4718591 kB\n',
+    readMeminfo: async () => 'MemTotal: 16777216 kB\nMemAvailable: 10485759 kB\n',
     prepare: async () => { throw new Error('model preparation started despite low memory'); },
-  }), /available memory.*6144 MiB/i);
+  }), /available memory.*10240 MiB/i);
 });
 
 test('allows sufficient Linux memory and passes the fixed model manifest to preparation', async () => {
@@ -231,12 +231,12 @@ test('allows sufficient Linux memory and passes the fixed model manifest to prep
     readMeminfo: async () => 'MemAvailable: 524288 kB\n',
     prepare: async (options) => {
       assert.equal(options.directory, '/operator-models');
-      assert.equal(options.manifest.url, 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf');
-      assert.equal(options.manifest.filename, 'Qwen3-4B-Q4_K_M.gguf');
-      assert.equal(options.manifest.bytes, 2497280256);
-      assert.equal(options.manifest.sha256, '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5');
+      assert.equal(options.manifest.url, 'https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/7c41481f57cb95916b40956ab2f0b139b296d974/Qwen3-8B-Q4_K_M.gguf');
+      assert.equal(options.manifest.filename, 'Qwen3-8B-Q4_K_M.gguf');
+      assert.equal(options.manifest.bytes, 5027783488);
+      assert.equal(options.manifest.sha256, 'd98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785');
       assert.ok(options.signal instanceof AbortSignal);
-      return { path: '/operator-models/Qwen3-4B-Q4_K_M.gguf', reused: true };
+      return { path: '/operator-models/Qwen3-8B-Q4_K_M.gguf', reused: true };
     },
   });
   assert.equal(result.reused, true);
@@ -249,7 +249,7 @@ test('skips Linux memory reads on other hosts and uses the default model directo
     readMeminfo: async () => { throw new Error('Linux-only file was read'); },
     prepare: async (options) => {
       assert.equal(options.directory, '/models');
-      return { path: '/models/Qwen3-4B-Q4_K_M.gguf', reused: false };
+      return { path: '/models/Qwen3-8B-Q4_K_M.gguf', reused: false };
     },
   });
 });

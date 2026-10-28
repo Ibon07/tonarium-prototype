@@ -2,12 +2,12 @@ import type { AppConfig, ModelRecord } from '@mlc-ai/web-llm';
 import { BROWSER_AI_MODEL, type BrowserAiJob } from '../../../shared/ai-support.ts';
 
 export { BROWSER_AI_MODEL };
-export const BROWSER_AI_MODEL_REVISION = 'a5c9fab855e3ccbdfed2e7e69683d75f30332161';
+export const BROWSER_AI_MODEL_REVISION = 'b3d55c289eae58f77095f5b68c895eeea358ee09';
 export const BROWSER_AI_MODEL_REPOSITORY = `https://huggingface.co/mlc-ai/${BROWSER_AI_MODEL}`;
 export const BROWSER_AI_MODEL_URL = `${BROWSER_AI_MODEL_REPOSITORY}/resolve/${BROWSER_AI_MODEL_REVISION}/`;
-export const BROWSER_AI_MODEL_LIB = 'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_86/base/Qwen3-4B-q4f16_1_cs1k-webgpu.wasm';
-export const BROWSER_AI_DOWNLOAD_MB = 2280;
-export const BROWSER_AI_VRAM_ESTIMATE_MB = 3431.59;
+export const BROWSER_AI_MODEL_LIB = 'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_86/base/Qwen3-8B-q4f16_1_cs1k-webgpu.wasm';
+export const BROWSER_AI_DOWNLOAD_MB = 4624;
+export const BROWSER_AI_VRAM_ESTIMATE_MB = 5695.78;
 export const BROWSER_AI_CONTEXT = 4096;
 export const BROWSER_AI_MAX_TOKENS = 160;
 export const BROWSER_AI_MAX_TEXT = 2400;
@@ -19,7 +19,7 @@ export interface BrowserAiGpuAdapter {
   limits?: { maxBufferSize: number; maxStorageBufferBindingSize: number };
 }
 export function browserAiGpuCompatible(adapter: BrowserAiGpuAdapter | null | undefined): boolean {
-  // 0.2.86 は1GiBを要求できない端末では128MiBへ戻すが、4Bの埋め込みは約185MiBある。
+  // 0.2.86 は1GiBを要求できない端末では128MiBへ戻すが、8Bの埋め込みは約297MiBある。
   return !!adapter?.features.has('shader-f16') && (adapter.limits?.maxBufferSize ?? 0) >= 2 ** 30
     && (adapter.limits?.maxStorageBufferBindingSize ?? 0) >= 2 ** 30;
 }

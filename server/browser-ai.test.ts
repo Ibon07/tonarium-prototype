@@ -14,7 +14,7 @@ function fixture(options: ConstructorParameters<typeof BrowserAiBroker>[1] = {})
 
 test('readiness requires the exact supported model, epoch and message envelope', async () => {
   const { broker, sent } = fixture();
-  for (const value of [null, {}, { ...ready(), model: 'another-model' }, { ...ready(), model: 'Qwen3-1.7B-q4f16_1-MLC' }, { ...ready(), epoch: '' }, { ...ready(), epoch: '../user' }, { ...ready(), ready: 1 }, { ...ready(), user: 'other' }]) assert.equal(broker.setReady(value), false);
+  for (const value of [null, {}, { ...ready(), model: 'another-model' }, { ...ready(), model: 'Qwen3-1.7B-q4f16_1-MLC' }, { ...ready(), model: 'Qwen3-4B-q4f16_1-MLC' }, { ...ready(), epoch: '' }, { ...ready(), epoch: '../user' }, { ...ready(), ready: 1 }, { ...ready(), user: 'other' }]) assert.equal(broker.setReady(value), false);
   assert.equal(await broker.generate(request(), new AbortController().signal), undefined); assert.equal(sent.length, 0);
   assert.equal(broker.setReady(ready()), true); broker.close(); assert.equal(broker.setReady(ready('new')), false);
 });

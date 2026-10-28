@@ -46,11 +46,11 @@ test('bundled inference preserves custom and invalid configured URLs for endpoin
 });
 
 test('inference models default to the larger model and preserve settings outside the bundled backend', () => {
-  assert.equal(resolveLocalInferenceModel({}), 'qwen3-4b');
-  for (const model of ['qwen3-1.7b', 'operator-model', '', ' ']) {
+  assert.equal(resolveLocalInferenceModel({}), 'qwen3-8b');
+  for (const model of ['qwen3-1.7b', 'qwen3-4b', 'operator-model', '', ' ']) {
     for (const env of [
       { NPC_LLM_MODEL: model },
-      { NPC_LLM_MODEL: model, NPC_LLM_BUNDLED_MODEL: 'qwen3-4b' },
+      { NPC_LLM_MODEL: model, NPC_LLM_BUNDLED_MODEL: 'qwen3-8b' },
       { NPC_LLM_MODEL: model, NPC_LLM_BUNDLED_URL: bundledUrl },
       { NPC_LLM_MODEL: model, NPC_LLM_BUNDLED_URL: bundledUrl, NPC_LLM_BUNDLED_MODEL: ' ' },
     ]) assert.equal(resolveLocalInferenceModel(env), model);
@@ -58,17 +58,19 @@ test('inference models default to the larger model and preserve settings outside
 });
 
 test('bundled inference models replace stale defaults only for the selected bundled backend', () => {
-  const bundled = { NPC_LLM_BUNDLED_URL: bundledUrl, NPC_LLM_BUNDLED_MODEL: 'qwen3-4b' };
-  for (const model of [undefined, '', ' ', 'qwen3-1.7b']) {
+  const bundled = { NPC_LLM_BUNDLED_URL: bundledUrl, NPC_LLM_BUNDLED_MODEL: 'qwen3-8b' };
+  for (const model of [undefined, '', ' ', 'qwen3-1.7b', 'qwen3-4b']) {
     for (const url of [undefined, 'http://127.0.0.1:18081/v1', bundledUrl]) {
-      assert.equal(resolveLocalInferenceModel({ ...bundled, NPC_LLM_MODEL: model, NPC_LLM_URL: url }), 'qwen3-4b');
+      assert.equal(resolveLocalInferenceModel({ ...bundled, NPC_LLM_MODEL: model, NPC_LLM_URL: url }), 'qwen3-8b');
     }
   }
   assert.equal(resolveLocalInferenceModel({ ...bundled, NPC_LLM_BUNDLED_MODEL: 'bundled-new-model', NPC_LLM_MODEL: 'qwen3-1.7b' }), 'bundled-new-model');
   assert.equal(resolveLocalInferenceModel({ ...bundled, NPC_LLM_MODEL: 'operator-model' }), 'operator-model');
-  for (const url of ['http://192.168.1.3:9000/v1', 'http://custom-ai:8080/v1', 'http://localhost:18082/v1', 'http://localhost:18081/custom']) {
-    assert.equal(resolveLocalInferenceModel({ ...bundled, NPC_LLM_URL: url, NPC_LLM_MODEL: 'qwen3-1.7b' }), 'qwen3-1.7b', url);
-    assert.equal(resolveLocalInferenceModel({ ...bundled, NPC_LLM_MODEL: 'qwen3-1.7b' }, url), 'qwen3-1.7b', url);
+  for (const model of ['qwen3-1.7b', 'qwen3-4b']) {
+    for (const url of ['http://192.168.1.3:9000/v1', 'http://custom-ai:8080/v1', 'http://localhost:18082/v1', 'http://localhost:18081/custom']) {
+      assert.equal(resolveLocalInferenceModel({ ...bundled, NPC_LLM_URL: url, NPC_LLM_MODEL: model }), model, url);
+      assert.equal(resolveLocalInferenceModel({ ...bundled, NPC_LLM_MODEL: model }, url), model, url);
+    }
   }
 });
 
@@ -113,7 +115,7 @@ async function inferenceRequests(url?: string, error?: 'unavailable', model?: { 
 
 test('NPC and GM request the larger default model without environment configuration', async () => {
   await withEnvironment({}, async () => {
-    assert.deepEqual(await inferenceRequests(undefined, undefined, { expected: 'qwen3-4b' }), [
+    assert.deepEqual(await inferenceRequests(undefined, undefined, { expected: 'qwen3-8b' }), [
       'http://127.0.0.1:18081/v1/chat/completions',
       'http://127.0.0.1:18081/v1/chat/completions',
     ]);
@@ -121,8 +123,17 @@ test('NPC and GM request the larger default model without environment configurat
 });
 
 test('NPC and GM migrate a stale model name when the bundled backend is selected', async () => {
-  await withEnvironment({ NPC_LLM_URL: 'http://127.0.0.1:18081/v1', NPC_LLM_BUNDLED_URL: bundledUrl, NPC_LLM_MODEL: 'qwen3-1.7b', NPC_LLM_BUNDLED_MODEL: 'qwen3-4b' }, async () => {
-    assert.deepEqual(await inferenceRequests(undefined, undefined, { expected: 'qwen3-4b' }), [
+  await withEnvironment({ NPC_LLM_URL: 'http://127.0.0.1:18081/v1', NPC_LLM_BUNDLED_URL: bundledUrl, NPC_LLM_MODEL: 'qwen3-1.7b', NPC_LLM_BUNDLED_MODEL: 'qwen3-8b' }, async () => {
+    assert.deepEqual(await inferenceRequests(undefined, undefined, { expected: 'qwen3-8b' }), [
+      'http://fantasy-ai:8080/v1/chat/completions',
+      'http://fantasy-ai:8080/v1/chat/completions',
+    ]);
+  });
+});
+
+test('NPC and GM migrate the previous 4B default only for the bundled backend', async () => {
+  await withEnvironment({ NPC_LLM_URL: bundledUrl, NPC_LLM_BUNDLED_URL: bundledUrl, NPC_LLM_MODEL: 'qwen3-4b', NPC_LLM_BUNDLED_MODEL: 'qwen3-8b' }, async () => {
+    assert.deepEqual(await inferenceRequests(undefined, undefined, { expected: 'qwen3-8b' }), [
       'http://fantasy-ai:8080/v1/chat/completions',
       'http://fantasy-ai:8080/v1/chat/completions',
     ]);
@@ -130,35 +141,39 @@ test('NPC and GM migrate a stale model name when the bundled backend is selected
 });
 
 test('NPC and GM preserve a configured model without a bundled model marker', async () => {
-  await withEnvironment({ NPC_LLM_BUNDLED_URL: bundledUrl, NPC_LLM_MODEL: 'qwen3-1.7b' }, async () => {
-    await inferenceRequests(undefined, undefined, { expected: 'qwen3-1.7b' });
-  });
-  await withEnvironment({ NPC_LLM_MODEL: 'qwen3-1.7b', NPC_LLM_BUNDLED_MODEL: 'qwen3-4b' }, async () => {
-    await inferenceRequests(undefined, undefined, { expected: 'qwen3-1.7b' });
-  });
+  for (const model of ['qwen3-1.7b', 'qwen3-4b']) {
+    await withEnvironment({ NPC_LLM_BUNDLED_URL: bundledUrl, NPC_LLM_MODEL: model }, async () => {
+      await inferenceRequests(undefined, undefined, { expected: model });
+    });
+    await withEnvironment({ NPC_LLM_MODEL: model, NPC_LLM_BUNDLED_MODEL: 'qwen3-8b' }, async () => {
+      await inferenceRequests(undefined, undefined, { expected: model });
+    });
+  }
 });
 
 test('NPC and GM keep operator model names and explicit constructor models', async () => {
-  await withEnvironment({ NPC_LLM_BUNDLED_URL: bundledUrl, NPC_LLM_MODEL: 'operator-model', NPC_LLM_BUNDLED_MODEL: 'qwen3-4b' }, async () => {
+  await withEnvironment({ NPC_LLM_BUNDLED_URL: bundledUrl, NPC_LLM_MODEL: 'operator-model', NPC_LLM_BUNDLED_MODEL: 'qwen3-8b' }, async () => {
     await inferenceRequests(undefined, undefined, { expected: 'operator-model' });
-    await inferenceRequests(undefined, undefined, { expected: 'qwen3-1.7b', option: 'qwen3-1.7b' });
+    for (const model of ['qwen3-1.7b', 'qwen3-4b']) await inferenceRequests(undefined, undefined, { expected: model, option: model });
   });
 });
 
 test('NPC and GM preserve the legacy model for custom environment and constructor backends', async () => {
-  const env = { NPC_LLM_BUNDLED_URL: bundledUrl, NPC_LLM_MODEL: 'qwen3-1.7b', NPC_LLM_BUNDLED_MODEL: 'qwen3-4b' };
-  await withEnvironment({ ...env, NPC_LLM_URL: 'http://192.168.1.3:9000/custom' }, async () => {
-    assert.deepEqual(await inferenceRequests(undefined, undefined, { expected: 'qwen3-1.7b' }), [
-      'http://192.168.1.3:9000/custom/chat/completions',
-      'http://192.168.1.3:9000/custom/chat/completions',
-    ]);
-  });
-  await withEnvironment(env, async () => {
-    assert.deepEqual(await inferenceRequests('http://custom-ai:9000/v1', undefined, { expected: 'qwen3-1.7b' }), [
-      'http://custom-ai:9000/v1/chat/completions',
-      'http://custom-ai:9000/v1/chat/completions',
-    ]);
-  });
+  for (const model of ['qwen3-1.7b', 'qwen3-4b']) {
+    const env = { NPC_LLM_BUNDLED_URL: bundledUrl, NPC_LLM_MODEL: model, NPC_LLM_BUNDLED_MODEL: 'qwen3-8b' };
+    await withEnvironment({ ...env, NPC_LLM_URL: 'http://192.168.1.3:9000/custom' }, async () => {
+      assert.deepEqual(await inferenceRequests(undefined, undefined, { expected: model }), [
+        'http://192.168.1.3:9000/custom/chat/completions',
+        'http://192.168.1.3:9000/custom/chat/completions',
+      ]);
+    });
+    await withEnvironment(env, async () => {
+      assert.deepEqual(await inferenceRequests('http://custom-ai:9000/v1', undefined, { expected: model }), [
+        'http://custom-ai:9000/v1/chat/completions',
+        'http://custom-ai:9000/v1/chat/completions',
+      ]);
+    });
+  }
 });
 
 test('NPC and GM migrate the historical loopback environment to the bundled service', async () => {

@@ -16,6 +16,7 @@ export function resolveLocalInferenceModel(env: NodeJS.ProcessEnv = process.env,
   const configured = env.NPC_LLM_MODEL;
   const bundledUrl = env.NPC_LLM_BUNDLED_URL?.trim();
   const bundledModel = env.NPC_LLM_BUNDLED_MODEL?.trim();
-  if (bundledUrl && bundledModel && url === bundledUrl && (!configured?.trim() || configured === 'qwen3-1.7b')) return bundledModel;
-  return configured ?? 'qwen3-4b';
+  if (bundledUrl && bundledModel && url === bundledUrl
+    && (!configured?.trim() || configured === 'qwen3-1.7b' || configured === 'qwen3-4b')) return bundledModel;
+  return configured ?? 'qwen3-8b';
 }
