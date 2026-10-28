@@ -95,14 +95,10 @@ test('people, home and the rest of the data survive a server restart from the da
   await until(() => b.messages.some((m) => m.t === 'post' && m.p.id === post.id && m.p.reactions['👍']?.length));
   b.send({ t: 'marketLike', product: 'bike' });
   await until(() => b.last('marketLikes')?.liked.includes('bike'));
-  // AD は URL の playerId ではなくアカウントで持つ。ランキングの名前も送ったものではなく表示名
   const post2 = (url: string, body: unknown, headers: Record<string, string>) => fetch(`${base}${url}`, { method: 'POST', body: JSON.stringify(body), headers: { ...headers, 'Content-Type': 'application/json' } });
-  assert.equal((await post2('/api/save/whatever', { save: { antimatter: '42' } }, a.headers)).status, 200);
-  assert.equal((await post2('/api/leaderboard', { playerId: 'x', name: 'Fake', antimatterLog10: 5, infinities: 1, playTimeSec: 60 }, a.headers)).status, 200);
   assert.equal((await post2('/report', { target: b.id, reason: 'test' }, a.headers)).status, 200);
   const guest = await fetch(`${base}/auth/guest`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ name: 'Gus' }) });
   const guestHeaders = { Cookie: (guest.headers.get('set-cookie') ?? '').split(';')[0] };
-  assert.equal((await post2('/api/save/x', { save: { antimatter: '1' } }, guestHeaders)).status, 403, 'guests are not saved');
   // 画像はストレージ（S3 の設定が無いテストでは DATA_DIR/objects）に置き、URL は転送で読ませる
   const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -136,10 +132,6 @@ test('people, home and the rest of the data survive a server restart from the da
   const saved = b2.last('posts')!.list.find((p) => p.id === post.id);
   assert.deepEqual(saved?.reactions['👍'], [b.id]);
   assert.ok(b2.last('marketLikes')!.liked.includes('bike'));
-  assert.deepEqual((await (await fetch(`${base}/api/save/other-id`, { headers: a.headers })).json()), { save: { antimatter: '42' } });
-  assert.equal((await fetch(`${base}/api/save/other-id`, { headers: b.headers })).status, 404, 'each account has its own save');
-  const board = (await (await fetch(`${base}/api/leaderboard`, { headers: a.headers })).json()) as { entries: { name: string; antimatterLog10: number; self?: boolean }[] };
-  assert.deepEqual(board.entries, [{ name: 'Ann', antimatterLog10: 5, infinities: 1, playTimeSec: 60, self: true }]);
   const redirect = await fetch(`${base}/icon?id=${a.id}&v=${icon}`, { redirect: 'manual' });
   assert.equal(redirect.status, 302);
   assert.equal(redirect.headers.get('location'), `/objects/icons/${a.id}/${icon}.jpg`);
@@ -156,5 +148,5 @@ test('people, home and the rest of the data survive a server restart from the da
   // DB に移したデータは JSON に書かない
   const files = await readdir(data);
   assert.ok(!files.includes('media'), 'old local media is removed');
-  for (const f of ['home.json', 'people.json', 'messages.json', 'follows.json', 'timeline.json', 'items.json', 'market-likes.json', 'ad-saves.json', 'ad-leaderboard.json', 'reports.log']) assert.ok(!files.includes(f), f);
+  for (const f of ['home.json', 'people.json', 'messages.json', 'follows.json', 'timeline.json', 'items.json', 'market-likes.json', 'reports.log']) assert.ok(!files.includes(f), f);
 });

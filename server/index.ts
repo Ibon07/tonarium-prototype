@@ -1,3 +1,4 @@
+import { AdStore, AdStoreError } from './ad-store.ts';
 import { scheduleChessAiReply } from './chess-ai.ts';
 import 'dotenv/config';
 import { configuredTranslationModel, createTranslationHandler, createTranslator } from './translation.ts';
@@ -58,7 +59,7 @@ import { POST_RATE, Timeline, UPLOAD_RATE } from './timeline.ts';
 import { POST_IMAGE_MAX_BYTES, isImageId, type Post } from '../shared/timeline.ts';
 import { closeDb, db, openDb } from './db/index.ts';
 import { debounced, drain, enqueue } from './db/persist.ts';
-import { listAppData, putAppData, getAppData } from './db/app-data.ts';
+import { listAppData, putAppData } from './db/app-data.ts';
 import { addMarketLike, addReport, loadContent, savePosts, saveItems as writeItems } from './db/content-store.ts';
 import { loadPeopleAndHome, saveConversations, saveFollows as writeFollows, saveHome as writeHome, savePeople as writePeople, saveReads, type PersonRec } from './db/home-store.ts';
 import { accounts } from './db/schema.ts';
@@ -201,7 +202,7 @@ function archiveNameKeyedData() {
   const mark = path.join(DATA_DIR, '.ids-v1');
   if (fs.existsSync(mark)) return;
   const names = ['home.json', 'people.json', 'messages.json', 'follows.json', 'friends.json', 'timeline.json', 'items.json', 'survivors.json',
-    'market-likes.json', 'ad-saves.json', 'ad-leaderboard.json', 'reports.log', 'icons', 'avatars', 'profiles', 'group-images', 'timeline-images'];
+    'market-likes.json', 'reports.log', 'icons', 'avatars', 'profiles', 'group-images', 'timeline-images'];
   const found = names.filter((n) => fs.existsSync(path.join(DATA_DIR, n)));
   if (found.length) {
     const dir = path.join(DATA_DIR, `archive-${new Date().toISOString().replace(/[:.]/g, '-')}`);
@@ -239,8 +240,12 @@ const guestIds = new Set<string>();
 // 1 人分ずつの印は付けず、変わったら全員分を 1 回で書く（人数ぶんの行しかない）
 const saveSurvivorProfiles = debounced('survivors', () => putAppData('survivors.profile',
   Object.entries(survivorProfiles).filter(([id]) => !guestIds.has(id)).map(([id, data]) => ({ key: id, accountId: id, data }))));
-/** AD のセーブとランキングはアカウントごとに 1 つ（app_data の ad.save・ad.leaderboard。キーはアカウント ID） */
-interface AdScore { antimatterLog10: number; infinities: number; playTimeSec: number }
+/** AD のセーブとランキングは AdStore（DATA_DIR/ad-access.json）。端末ごとのトークンと引き継ぎコードで、ログインのアカウントには結び付けない */
+interface AdLeaderboardEntry { playerId: string; name: string; antimatterLog10: number; infinities: number; playTimeSec: number }
+function legacyAdScores(): AdLeaderboardEntry[] {
+  try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'ad-leaderboard.json'), 'utf-8')) as AdLeaderboardEntry[]; } catch { return []; }
+}
+const adStore = new AdStore(path.join(DATA_DIR, 'ad-access.json'), Date.now, legacyAdScores());
 function survivorCount(value: unknown, max: number) {
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.min(max, Math.max(0, Math.floor(value)))
@@ -2629,63 +2634,46 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     res.end();
     return;
   }
-  // AD の保存・ランキング。URL や本文の playerId は使わず、ログインのアカウントごとに 1 つ持つ。ゲストは残さない
-  if (/^\/api\/save\/[^/]+$/.test(url.pathname)) {
+  if (url.pathname.startsWith('/api/save/') || url.pathname === '/api/leaderboard' || url.pathname.startsWith('/api/ad/')) {
     res.setHeader('Content-Type', 'application/json');
-    const account = await who();
-    if (!account) { deny(401); return; }
-    if (req.method === 'GET') {
-      const rec = account.kind === 'guest' ? undefined : await getAppData<{ save: unknown }>('ad.save', account.id);
-      if (!rec) { res.statusCode = 404; res.end(JSON.stringify({ error: 'not found' })); return; }
-      res.end(JSON.stringify({ save: rec.save }));
-      return;
+    res.setHeader('Cache-Control', 'no-store');
+    const token = typeof req.headers.authorization === 'string' ? req.headers.authorization.replace(/^Bearer /, '') : '';
+    const peer = req.socket.remoteAddress ?? 'unknown';
+    try {
+      const match = /^\/api\/save\/([^/]+)$/.exec(url.pathname);
+      const id = match ? decodeURIComponent(match[1]) : '';
+      const post = req.method === 'POST';
+      let body: Record<string, unknown> = {};
+      if (post) {
+        const raw = await readBody(req, 1_000_000);
+        if (!raw) throw new AdStoreError(413);
+        try { body = JSON.parse(raw.toString('utf8')); } catch { throw new AdStoreError(400); }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) throw new AdStoreError(400);
+      }
+      let result: unknown;
+      if (url.pathname === '/api/ad/create' && post) {
+        adStore.limit(`create:${peer}`, 10);
+        result = adStore.create();
+      } else if (url.pathname === '/api/ad/exchange' && post) {
+        result = adStore.exchange(body.code, peer);
+      } else if (url.pathname === '/api/ad/transfer' && post) {
+        result = adStore.issue(String(body.id ?? ''), token);
+      } else if (match && req.method === 'GET') {
+        result = adStore.load(id, token);
+      } else if (match && post) {
+        result = adStore.save(id, token, body.revision, body.save);
+      } else if (url.pathname === '/api/leaderboard' && req.method === 'GET') {
+        result = { entries: adStore.leaderboard(token) };
+      } else if (url.pathname === '/api/leaderboard' && post) {
+        adStore.submit(token, body);
+        result = { ok: true };
+      } else throw new AdStoreError(405);
+      res.end(JSON.stringify(result));
+    } catch (error) {
+      res.statusCode = error instanceof AdStoreError ? error.status : 500;
+      res.end(JSON.stringify({ error: `AD request failed (${res.statusCode})` }));
     }
-    if (req.method === 'POST') {
-      if (account.kind === 'guest') { deny(403); return; }
-      const body = await readBody(req, 1_000_000);
-      if (!body) { res.statusCode = 413; res.end(); return; }
-      let parsed: { save?: unknown; updatedAt?: unknown } | null = null;
-      try { parsed = JSON.parse(body.toString('utf-8')) as { save?: unknown; updatedAt?: unknown }; } catch { res.statusCode = 400; res.end(); return; }
-      if (!parsed || typeof parsed.save !== 'object' || parsed.save === null || Array.isArray(parsed.save)) { res.statusCode = 400; res.end(); return; }
-      const data = { save: parsed.save, updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString() };
-      try { await putAppData('ad.save', [{ key: account.id, accountId: account.id, data }]); } catch { res.statusCode = 500; res.end(); return; }
-      res.end(JSON.stringify({ ok: true }));
-      return;
-    }
-    res.statusCode = 405; res.end(); return;
-  }
-  if (url.pathname === '/api/leaderboard') {
-    res.setHeader('Content-Type', 'application/json');
-    if (req.method === 'GET') {
-      // 名前は送られたものではなく名簿の表示名。アカウント ID は返さず、自分の行にだけ self を付ける
-      const self = (await who())?.id;
-      const rows = await listAppData<AdScore>('ad.leaderboard');
-      const entries = rows
-        .sort((a, b) => b.data.antimatterLog10 - a.data.antimatterLog10 || b.data.infinities - a.data.infinities)
-        .slice(0, 50)
-        .map((r) => ({ name: directory.get(r.key)?.name ?? '', ...r.data, ...(r.key === self ? { self: true } : {}) }));
-      res.end(JSON.stringify({ entries }));
-      return;
-    }
-    if (req.method === 'POST') {
-      const account = await who();
-      if (!account) { deny(401); return; }
-      if (account.kind === 'guest') { deny(403); return; }
-      const body = await readBody(req, 20_000);
-      if (!body) { res.statusCode = 413; res.end(); return; }
-      let e: Partial<AdScore> | null = null;
-      try { e = JSON.parse(body.toString('utf-8')) as Partial<AdScore>; } catch { res.statusCode = 400; res.end(); return; }
-      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : null);
-      const antimatterLog10 = num(e?.antimatterLog10);
-      const infinities = num(e?.infinities);
-      const playTimeSec = num(e?.playTimeSec);
-      if (antimatterLog10 === null || infinities === null || playTimeSec === null) { res.statusCode = 400; res.end(); return; }
-      const data: AdScore = { antimatterLog10, infinities, playTimeSec };
-      try { await putAppData('ad.leaderboard', [{ key: account.id, accountId: account.id, data }]); } catch { res.statusCode = 500; res.end(); return; }
-      res.end(JSON.stringify({ ok: true }));
-      return;
-    }
-    res.statusCode = 405; res.end(); return;
+    return;
   }
   if (url.pathname === '/healthz') {
     res.setHeader('Content-Type', 'text/plain');
