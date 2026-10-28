@@ -22,7 +22,7 @@ export const authSessions = pgTable('auth_sessions', {
 }, (t) => [index('auth_sessions_account_idx').on(t.accountId)]);
 
 /**
- * MiAuth の途中。ログインを始めた端末だけが結果を受け取れるよう、ポーリング用の秘密をハッシュで持つ。
+ * Misskey でのログイン（OAuth 2.0）の途中。session は OAuth の state。ログインを始めた端末だけが結果を受け取れるよう、ポーリング用の秘密をハッシュで持つ。
  * 別のブラウザで許可したときは、始めた画面に出した確認コードが入力されるまでアカウントを結び付けない
  */
 export const loginPending = pgTable('login_pending', {
@@ -35,6 +35,8 @@ export const loginPending = pgTable('login_pending', {
   misskeyUser: jsonb('misskey_user').$type<{ id: string; username: string; name: string | null }>(),
   /** Misskey から最初に戻ってきたブラウザに渡した確認用 Cookie のハッシュ。確認コードはこのブラウザからしか受けない */
   callbackHash: text('callback_hash'),
+  /** PKCE の code_verifier。認可コードをトークンに替えるときにだけ使う（数分で消える途中の手続きなので平文で持つ） */
+  verifier: text('verifier').notNull().default(''),
   accountId: uuid('account_id').references(() => accounts.id, { onDelete: 'cascade' }),
   expiresAt: at('expires_at').notNull(),
 });

@@ -93,7 +93,7 @@ function json(res: http.ServerResponse, status: number, body: unknown, cookies: 
   res.end(JSON.stringify(body));
 }
 
-interface MiAuthUser { id: string; username: string; name: string | null }
+interface MisskeyUser { id: string; username: string; name: string | null }
 
 export interface AuthOptions {
   /** ログインに使う Misskey のオリジン（例: https://misskey.resonite.love）。テストでは手元の偽物を指す */
@@ -106,12 +106,24 @@ export interface AuthOptions {
   clientAddress?: (req: http.IncomingMessage) => string;
 }
 
-async function checkMiAuth(origin: string, session: string): Promise<MiAuthUser | null> {
-  const res = await fetch(`${origin}/api/miauth/${encodeURIComponent(session)}/check`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(10_000) });
+/** OAuth の client_id（アプリのトップページ。Misskey が読みに来て、redirect_uri の link を確かめる）と戻り先 */
+const oauthClient = (origin: string) => ({ clientId: `${origin}/`, redirectUri: `${origin}/auth/misskey/callback` });
+const pkceChallenge = (verifier: string) => createHash('sha256').update(verifier).digest('base64url');
+
+/** 認可コードをトークンに替えて、許可した人を確かめる。トークンは本人確認にだけ使い、すぐ捨てる */
+async function exchangeCode(misskey: string, origin: string, code: string, verifier: string): Promise<MisskeyUser | null> {
+  const { clientId, redirectUri } = oauthClient(origin);
+  const token = await fetch(`${misskey}/oauth/token`, {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: AbortSignal.timeout(10_000),
+    body: new URLSearchParams({ grant_type: 'authorization_code', code, client_id: clientId, redirect_uri: redirectUri, code_verifier: verifier }),
+  });
+  if (!token.ok) return null;
+  const accessToken = (await token.json() as { access_token?: unknown }).access_token;
+  if (typeof accessToken !== 'string') return null;
+  const res = await fetch(`${misskey}/api/i`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: '{}', signal: AbortSignal.timeout(10_000) });
   if (!res.ok) return null;
-  const body = await res.json() as { ok?: boolean; user?: { id?: unknown; username?: unknown; name?: unknown } };
-  const u = body.user;
-  if (!body.ok || !u || typeof u.id !== 'string' || typeof u.username !== 'string') return null;
+  const u = await res.json() as { id?: unknown; username?: unknown; name?: unknown };
+  if (typeof u.id !== 'string' || typeof u.username !== 'string') return null;
   return { id: u.id, username: u.username, name: typeof u.name === 'string' ? u.name : null };
 }
 
@@ -119,7 +131,8 @@ const toAccount = (r: typeof accounts.$inferSelect): Account => ({ id: r.id, kin
 
 /**
  * ログインとゲスト。Cookie（HttpOnly）のセッションで本人を決める。
- * Misskey のトークンは本人確認のあと捨て、Misskey の API は呼ばない
+ * Misskey へのログインは OAuth 2.0（認可コード＋PKCE）。許可の結果（認可コード）は許可したブラウザへのリダイレクトにしか載らないので、
+ * 始めた人が横から取ることはできない（MiAuth はセッション ID だけで結果が取れた）。トークンは本人確認のあと捨てる
  */
 export class Auth {
   readonly misskeyHost: string;
@@ -175,16 +188,8 @@ export class Auth {
     return { token, cookie: cookie(req, SESSION_COOKIE, token, COOKIE_MAX_AGE) };
   }
 
-  /** Misskey で許可した人。一度確かめたら覚えておき、Misskey へは何度も問い合わせない */
-  private async approvedUser(pending: typeof loginPending.$inferSelect): Promise<MiAuthUser | null> {
-    if (pending.misskeyUser) return pending.misskeyUser;
-    const user = await checkMiAuth(this.o.misskeyOrigin, pending.session);
-    if (user) await db().update(loginPending).set({ misskeyUser: user }).where(eq(loginPending.session, pending.session));
-    return user;
-  }
-
   /** 許可した人をアカウントに結び付ける。表示名は初回だけ Misskey の名前にし、その後は Tonarium で変えたものを残す */
-  private async bindAccount(session: string, user: MiAuthUser): Promise<Account> {
+  private async bindAccount(session: string, user: MisskeyUser): Promise<Account> {
     const [row] = await db().insert(accounts)
       .values({ kind: 'misskey', misskeyId: user.id, username: user.username, displayName: normalizeName(user.name || user.username) })
       .onConflictDoUpdate({ target: accounts.misskeyId, set: { username: user.username } })
@@ -244,35 +249,35 @@ export class Auth {
           json(res, 200, { account, session: s.token });
           return true;
         }
-        case 'POST /auth/miauth/start': {
+        case 'POST /auth/misskey/start': {
           const session = randomUUID();
           const poll = newToken();
+          const verifier = newToken();
           // 確認コードは始めた画面にだけ返す。別のブラウザで許可したときに、始めた本人だと確かめるため
           const code = newCode();
-          await db().insert(loginPending).values({ session, pollHash: hash(poll), codeHash: hash(normalizeCode(code)), expiresAt: new Date(Date.now() + PENDING_TTL) });
-          const origin = requestOrigin(req);
-          const q = new URLSearchParams({ name: 'Tonarium', icon: `${origin}/brand/mark.png`, callback: `${origin}/auth/miauth/callback` });
-          json(res, 200, { url: `${this.o.misskeyOrigin}/miauth/${session}?${q}`, code }, [cookie(req, PENDING_COOKIE, poll, PENDING_TTL)]);
+          await db().insert(loginPending).values({ session, pollHash: hash(poll), codeHash: hash(normalizeCode(code)), verifier, expiresAt: new Date(Date.now() + PENDING_TTL) });
+          const { clientId, redirectUri } = oauthClient(requestOrigin(req));
+          const q = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: redirectUri, scope: 'read:account', state: session, code_challenge: pkceChallenge(verifier), code_challenge_method: 'S256' });
+          json(res, 200, { url: `${this.o.misskeyOrigin}/oauth/authorize?${q}`, code }, [cookie(req, PENDING_COOKIE, poll, PENDING_TTL)]);
           return true;
         }
-        case 'GET /auth/miauth/callback': {
-          // MiAuth のセッション ID は始めた人も知っている（許可 URL に入っている）。だれが開いたかではなく、
-          // Misskey の許可のすぐ後に最初に戻ってきたブラウザだけを、許可した本人として扱う
-          const session = url.searchParams.get('session') ?? '';
+        case 'GET /auth/misskey/callback': {
+          const session = url.searchParams.get('state') ?? '';
           const pending = await this.pendingBySession(session);
           if (!pending) { this.page(res, 400, 'ログインの手続きが見つからないか、期限が切れました。もう一度お試しください。', 'The sign-in request was not found or has expired. Please try again.', '로그인 요청을 찾을 수 없거나 만료되었습니다. 다시 시도해 주세요.'); return true; }
           const cookies = parseCookies(req.headers.cookie);
           if (pending.callbackHash) {
-            // 開き直し（同じブラウザ）だけ受ける。ほかのブラウザがあとから開いても何もしない
+            // 開き直し（同じブラウザ）だけ受ける。認可コードは一度しか使えない
             const mine = cookies[CONFIRM_COOKIE] && hash(cookies[CONFIRM_COOKIE]) === pending.callbackHash;
             if (mine && pending.accountId) { this.page(res, 200, 'ログインしました。Tonarium のアプリに戻ってください。', 'Signed in. Please return to the Tonarium app.', '로그인했습니다. Tonarium 앱으로 돌아가 주세요.'); return true; }
             if (mine && pending.misskeyUser) { this.confirmPage(res, 200, session, pending.misskeyUser); return true; }
             this.page(res, 400, 'このログインはほかのブラウザで進んでいます。Tonarium からやり直してください。', 'This sign-in is in progress in another browser. Please start again from Tonarium.', '이 로그인은 다른 브라우저에서 진행 중입니다. Tonarium에서 다시 시작해 주세요.');
             return true;
           }
-          const user = await this.approvedUser(pending);
-          if (!user) {
-            // 正しい流れでは許可の前に戻ってこない。先回りして開かれたログインは取り消す
+          const code = url.searchParams.get('code');
+          const iss = url.searchParams.get('iss');
+          // 拒否された・別のサーバーからの応答（iss が違う）は、そのログインを取り消す
+          if (!code || (iss !== null && iss !== this.o.misskeyOrigin)) {
             await db().delete(loginPending).where(eq(loginPending.session, session));
             this.page(res, 400, 'Misskey で許可されませんでした。Tonarium からやり直してください。', 'Misskey did not grant access. Please start again from Tonarium.', 'Misskey에서 허용되지 않았습니다. Tonarium에서 다시 시작해 주세요.');
             return true;
@@ -281,6 +286,12 @@ export class Auth {
           const [claimed] = await db().update(loginPending).set({ callbackHash: hash(mark) })
             .where(and(eq(loginPending.session, session), isNull(loginPending.callbackHash))).returning({ session: loginPending.session });
           if (!claimed) { this.page(res, 400, 'このログインはほかのブラウザで進んでいます。Tonarium からやり直してください。', 'This sign-in is in progress in another browser. Please start again from Tonarium.', '이 로그인은 다른 브라우저에서 진행 중입니다. Tonarium에서 다시 시작해 주세요.'); return true; }
+          const user = await exchangeCode(this.o.misskeyOrigin, requestOrigin(req), code, pending.verifier);
+          if (!user) {
+            await db().delete(loginPending).where(eq(loginPending.session, session));
+            this.page(res, 400, 'Misskey で許可されませんでした。Tonarium からやり直してください。', 'Misskey did not grant access. Please start again from Tonarium.', 'Misskey에서 허용되지 않았습니다. Tonarium에서 다시 시작해 주세요.');
+            return true;
+          }
           // ログインを始めたブラウザ（待ち合わせの Cookie がある）で許可したなら、そのまま入れる
           const poll = cookies[PENDING_COOKIE];
           if (poll && hash(poll) === pending.pollHash) {
@@ -288,10 +299,11 @@ export class Auth {
             return true;
           }
           // 別のブラウザ（Electron から始めた、または他人から送られた URL を開いた）。始めた画面のコードが、このブラウザで入るまで結び付けない
+          await db().update(loginPending).set({ misskeyUser: user }).where(eq(loginPending.session, session));
           this.confirmPage(res, 200, session, user, false, [cookie(req, CONFIRM_COOKIE, mark, PENDING_TTL)]);
           return true;
         }
-        case 'POST /auth/miauth/confirm': {
+        case 'POST /auth/misskey/confirm': {
           const form = new URLSearchParams((await readText(req)) ?? '');
           const session = form.get('session') ?? '';
           const pending = await this.pendingBySession(session);
@@ -314,7 +326,7 @@ export class Auth {
           this.page(res, 200, 'ログインしました。Tonarium のアプリに戻ってください。', 'Signed in. Please return to the Tonarium app.', '로그인했습니다. Tonarium 앱으로 돌아가 주세요.', '', [cookie(req, CONFIRM_COOKIE, '', 0)]);
           return true;
         }
-        case 'POST /auth/miauth/poll': {
+        case 'POST /auth/misskey/poll': {
           const poll = parseCookies(req.headers.cookie)[PENDING_COOKIE];
           const pending = poll ? (await db().select().from(loginPending).where(eq(loginPending.pollHash, hash(poll))).limit(1))[0] : undefined;
           if (!pending || pending.expiresAt.getTime() <= Date.now()) { json(res, 200, { status: 'expired' }, [cookie(req, PENDING_COOKIE, '', 0)]); return true; }
@@ -386,9 +398,9 @@ export class Auth {
   }
 
   /** 別のブラウザで許可したとき。だれのアカウントで入るかを見せ、始めた画面に出ているコードを入れてもらう */
-  private confirmPage(res: http.ServerResponse, status: number, session: string, user: MiAuthUser, wrong = false, cookies: string[] = []) {
+  private confirmPage(res: http.ServerResponse, status: number, session: string, user: MisskeyUser, wrong = false, cookies: string[] = []) {
     const who = `${user.name ? `${user.name} ` : ''}@${user.username}`;
-    const form = `<form method="post" action="/auth/miauth/confirm"><input type="hidden" name="session" value="${esc(session)}">
+    const form = `<form method="post" action="/auth/misskey/confirm"><input type="hidden" name="session" value="${esc(session)}">
 <p><input name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="XXXX-XXXX" required autofocus aria-label="code"></p>
 ${wrong ? '<p class="warn">コードが違います / The code is wrong / 코드가 다릅니다</p>' : ''}
 <p class="warn">自分で Tonarium からログインを始めたときに表示されたコードだけを入力してください。他人から伝えられたコードは入力しないでください。<br>Only enter a code that your own Tonarium screen showed when you started signing in. Never enter a code someone else gave you.<br>직접 Tonarium에서 로그인을 시작했을 때 표시된 코드만 입력하세요. 다른 사람이 알려 준 코드는 입력하지 마세요.</p>

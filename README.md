@@ -112,7 +112,7 @@ DB のテーブルを変えるときは `server/db/schema.ts` を直して `npm 
 - アイテム（付箋・ハンマー・チェス・サイコロ・キャンバス・お絵描き伝言・カメラ・鏡・ジャンプ台・2048・AD ポータル・バイク）と画像・YouTube の共有 → [docs/items.md](docs/items.md)。バイクの未完了項目は [検証記録](docs/bike-verification.md)、効果音の出典と取得状況は [素材記録](docs/assets.md)
 - 外から試す（cloudflared）・Coolify へのデプロイ → [docs/deploy.md](docs/deploy.md)
 - 保存の仕組み（PostgreSQL・S3 互換ストレージ・マイグレーション・テスト用 DB）→ [docs/storage.md](docs/storage.md)
-- ログインとゲスト（Misskey の MiAuth、Electron でのログイン、ゲストにできること、開発用の `?as=`）→ [docs/login.md](docs/login.md)
+- ログインとゲスト（Misskey の OAuth 2.0、Electron でのログイン、ゲストにできること、開発用の `?as=`）→ [docs/login.md](docs/login.md)
 - 同期の仕組み（kokosync、位置・チャット・キャンバス・サイコロのP2P配送、初回同期、大きいデータ、通信状態）→ [docs/sync.md](docs/sync.md)
 - セッション同期を汎用P2P通信へ広げる設計方針と段階的な実装 → [docs/peer-sync-plan.md](docs/peer-sync-plan.md)
 - 実装の設計 → [docs/architecture.md](docs/architecture.md)

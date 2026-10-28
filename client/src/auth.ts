@@ -77,14 +77,14 @@ export async function loginGuest(name: string) {
  * ブラウザでは移るだけなので null を返す
  */
 export async function startMisskeyLogin(onWaiting: (code: string) => void): Promise<Account | null> {
-  const { url, code } = await post<{ url: string; code: string }>('/auth/miauth/start');
+  const { url, code } = await post<{ url: string; code: string }>('/auth/misskey/start');
   if (!isElectron()) { location.assign(url); return null; }
   window.open(url);
   // 許可したブラウザでこのコードを入れてもらい、始めた本人だと確かめる（他人の許可で入れないように）
   onWaiting(code);
   for (;;) {
     await new Promise((r) => setTimeout(r, 2000));
-    const r = await post<{ status: 'pending' | 'done' | 'expired'; account?: Account }>('/auth/miauth/poll');
+    const r = await post<{ status: 'pending' | 'done' | 'expired'; account?: Account }>('/auth/misskey/poll');
     if (r.status === 'done' && r.account) return r.account;
     if (r.status === 'expired') throw new Error('login expired');
   }
