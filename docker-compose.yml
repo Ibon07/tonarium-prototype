@@ -15,7 +15,7 @@ services:
       - SERVER_PORT=3001
       # パスワードは URL にそのまま入れるので、記号を含まないもの（例: openssl rand -hex 24）にする
       - DATABASE_URL=postgres://tonarium:${POSTGRES_PASSWORD}@postgres:5432/tonarium
-      # 画像・動画の置き場（Cloudflare R2）。docs/deploy.md を参照。
+      # 画像の置き場（Cloudflare R2）。docs/deploy.md を参照。
       # 既定値は compose の ${:-} ではなくアプリ側で決める（Coolify では既定値付きの変数が空のまま渡ることがあったため）
       - S3_ENDPOINT=${S3_ENDPOINT}
       - S3_REGION=${S3_REGION}

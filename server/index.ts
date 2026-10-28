@@ -37,7 +37,9 @@ import { EMOTES, isEmoteId } from '../shared/emotes.ts';
 import { DICE_MAX, ROLL_MS, isDieSides, type DiceRoll } from '../shared/dice.ts';
 import type { PeerOperation } from '../shared/session-events.ts';
 import { getOgp } from './ogp.ts';
-import { MEDIA_DIR, mediaExists, pipeFile, saveMedia, serveMedia } from './media.ts';
+import { IMAGE_TYPES, MEDIA_NAME_RE, MEDIA_TOTAL_MAX, pipeFile, saveMedia } from './media.ts';
+import { FileStorage, openStorage } from './storage.ts';
+import { addMediaFile, loadAccountImages, loadMediaFiles, removeMediaFiles, saveAccountImages, type AccountImages } from './db/image-store.ts';
 import { SharedService } from './shared-service.ts';
 import { sharedSolids } from '../shared/shared-presentation.ts';
 import { SystemService } from './system-service.ts';
@@ -104,10 +106,6 @@ try {
     console.error('Content translation registration failed; original text remains available.');
   });
 } catch { console.error('Content translation registration failed; original text remains available.'); }
-const ICON_DIR = path.join(DATA_DIR, 'icons');
-const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
-const TIMELINE_IMAGE_DIR = path.join(DATA_DIR, 'timeline-images');
-const GROUP_IMAGE_DIR = path.join(DATA_DIR, 'group-images');
 /** 2 人以上がこの時間以上いたセッションだけ、グループのチャンネルにまとめを残す */
 const RECAP_MIN_MS = Number(process.env.RECAP_MIN_MINUTES ?? 10) * 60_000;
 /** ユーザー由来のキー（ID・名前）を入れるレコードは prototype を持たせない。__proto__ 等も通常のキーとして扱い、Object.prototype を汚染させない */
@@ -138,7 +136,13 @@ function archiveNameKeyedData() {
   fs.writeFileSync(mark, '');
 }
 archiveNameKeyedData();
-for (const d of [ICON_DIR, AVATAR_DIR, MEDIA_DIR, GROUP_IMAGE_DIR]) fs.mkdirSync(d, { recursive: true });
+/** 画像はストレージに置く。ディスクに置いていた頃の画像と動画は引き継がずに消す */
+function removeLocalMedia() {
+  const found = ['media', 'icons', 'avatars', 'group-images', 'timeline-images'].filter((n) => fs.existsSync(path.join(DATA_DIR, n)));
+  for (const n of found) fs.rmSync(path.join(DATA_DIR, n), { recursive: true, force: true });
+  if (found.length) console.log(`ストレージへ移る前の画像を消しました: ${found.join(' ')}`);
+}
+removeLocalMedia();
 
 // 人とホームのデータは DB にある。起動時に全部読んでメモリに持ち、以後はメモリ側が正で、変わったら DB へ書く
 try { await openDb(); }
@@ -148,6 +152,7 @@ catch (e) {
   console.error('DB に接続できませんでした:', err.cause?.message ?? err.message);
   process.exit(1);
 }
+const storage = await openStorage(DATA_DIR);
 const loaded = await loadPeopleAndHome();
 const content = await loadContent();
 const marketLikes = new MarketLikes(content.likes);
@@ -225,20 +230,54 @@ function survivorProfile(id: string): SurvivorProfile {
   return p;
 }
 
-// アイコン・アバター・自己紹介はアカウント ID ごとのファイル。URL から来た ID が形を外れていたらハッシュにして、フォルダの外を指させない
-const idKey = (id: string) => (/^[0-9a-f-]{36}$/.test(id) ? id : createHash('sha1').update(id).digest('hex'));
-const iconFile = (id: string) => path.join(ICON_DIR, `${idKey(id)}.jpg`);
-const avatarImageFile = (id: string) => path.join(AVATAR_DIR, `${idKey(id)}.img`);
-const avatarParamsFile = (id: string) => path.join(AVATAR_DIR, `${idKey(id)}.json`);
+/** アイコンとアバター。画像はストレージの icons/<ID>/<版>.jpg・avatars/<ID>/<版>.<拡張子>、キーと調整値は DB */
+const accountImages = await loadAccountImages();
+const NO_IMAGES: AccountImages = { icon: null, avatarImage: null, avatarParams: null, avatarVersion: null };
+const imagesOf = (id: string) => accountImages.get(id) ?? NO_IMAGES;
+const newVersion = () => randomUUID().slice(0, 8);
+const removeObject = (key: string) => storage.delete(key).catch((e) => { console.error(`ストレージのオブジェクトを消せませんでした (${key}):`, e); });
+/** 差し替えた後で、使わなくなった古いオブジェクトを消す（DB に書けてから消す） */
+function setImages(id: string, patch: Partial<AccountImages>) {
+  const before = imagesOf(id);
+  const next = { ...before, ...patch };
+  accountImages.set(id, next);
+  const stale = [before.icon, before.avatarImage].filter((k): k is string => !!k && k !== next.icon && k !== next.avatarImage);
+  enqueue('accountImages', async () => {
+    await saveAccountImages(id, next);
+    for (const k of stale) await removeObject(k);
+  });
+}
+/** 添付画像（古い順）。合計が上限を超えたら古いものから、DB の記録とストレージのオブジェクトを消す */
+const mediaFiles = await loadMediaFiles();
+let mediaTotal = mediaFiles.reduce((n, f) => n + f.size, 0);
+function addMedia(name: string, size: number) {
+  mediaFiles.push({ name, size });
+  mediaTotal += size;
+  const gone: string[] = [];
+  while (mediaTotal > MEDIA_TOTAL_MAX && mediaFiles.length > 1) {
+    const f = mediaFiles.shift()!;
+    mediaTotal -= f.size;
+    gone.push(f.name);
+  }
+  enqueue('media', async () => {
+    await addMediaFile(name, size);
+    await removeMediaFiles(gone);
+    for (const n of gone) await removeObject(`media/${n}`);
+  });
+}
+/** 画像の中身はストレージから直接読ませる。版付きの URL は中身が変わらないので、転送ごと長くキャッシュさせる */
+function redirectToObject(res: http.ServerResponse, key: string, immutable: boolean) {
+  res.statusCode = 302;
+  res.setHeader('Location', storage.url(key));
+  res.setHeader('Cache-Control', immutable ? 'public, max-age=31536000, immutable' : 'no-cache');
+  res.end();
+}
 /** 自己紹介（アカウント ID ごと）。ステータスと一緒に profiles 表へ書く */
 const bios = loaded.bios;
 const bioOf = (id: string) => bios.get(id) ?? '';
-const mtime = (file: string) => { try { return Math.floor(fs.statSync(file).mtimeMs); } catch { return 0; } };
-const iconVersion = (id: string) => { const v = mtime(iconFile(id)); return v ? String(v) : null; };
-function avatarVersion(id: string) {
-  const v = Math.max(mtime(avatarImageFile(id)), mtime(avatarParamsFile(id)));
-  return v ? String(v) : null;
-}
+/** キー icons/<ID>/<版>.jpg の版 */
+const iconVersion = (id: string) => imagesOf(id).icon?.split('/')[2]?.split('.')[0] ?? null;
+const avatarVersion = (id: string) => imagesOf(id).avatarVersion;
 const isJpeg = (b: Buffer) => b[0] === 0xff && b[1] === 0xd8;
 const ICON_MAX_BYTES = 300_000;
 const isPng = (b: Buffer) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
@@ -271,12 +310,7 @@ for (const g of home.groups) {
   g.editors = [...new Set((g.editors ?? []).filter((n) => n !== g.owner && g.members.includes(n)))];
 }
 const canEditGroup = (g: Group, id: string) => g.owner === id || !!g.editors?.includes(id);
-const groupImageFile = (g: Group, ext = 'jpg') => path.join(GROUP_IMAGE_DIR, `${g.id}.${ext}`);
-function deleteGroupImages(g: Group, keep?: string) {
-  for (const ext of ['jpg', 'jpeg', 'png', 'webp']) {
-    if (ext !== keep) fs.rmSync(groupImageFile(g, ext), { force: true });
-  }
-}
+const groupImageKey = (g: Group, v: number) => `groups/${g.id}/${v}.jpg`;
 for (const ev of home.events) { ev.maybe ??= []; ev.declined ??= []; }
 guild.sessions.push(...home.sessions);
 /** 開始から 30 日以上過ぎたイベントは残さない。当日のものや開始時刻が読めないものは消さない */
@@ -510,7 +544,8 @@ const saveTimeline = debounced('timeline', async () => {
   try { await savePosts(timeline.posts, ids); }
   catch (e) { for (const id of ids) dirtyPosts.add(id); throw e; }
 });
-const timeline = new Timeline(content.posts, TIMELINE_IMAGE_DIR, (id) => { if (id) dirtyPosts.add(id); saveTimeline(); });
+const timelineImageKey = (id: string) => `timeline/${id}.jpg`;
+const timeline = new Timeline(content.posts, (id) => { void removeObject(timelineImageKey(id)); }, (id) => { if (id) dirtyPosts.add(id); saveTimeline(); });
 timeline.sweepImages();
 setInterval(() => {
   const gone = timeline.prune();
@@ -570,7 +605,7 @@ function finishVisit(sid: string) {
 const MAX_IMAGES = 40;
 
 function chatMedia(m: ChatMedia | undefined): ChatMedia | undefined {
-  if (!m || typeof m.url !== 'string' || !MEDIA_URL_RE.test(m.url) || !mediaExists(m.url)) return undefined;
+  if (!m || typeof m.url !== 'string' || !MEDIA_URL_RE.test(m.url)) return undefined;
   const size = (n: number) => Math.max(1, Math.min(10000, Math.round(Number(n) || 1)));
   return { kind: 'image', url: m.url, w: size(m.w), h: size(m.h) };
 }
@@ -1285,7 +1320,6 @@ function handleSession(me: Participant, sid: string, msg: RoomClientMsg, peerPos
       if (!Object.hasOwn(ITEM_INFO, msg.kind)) return;
       if (ONLY_3D[msg.kind] && me.mode !== '3d') return;
       if (msg.kind === 'mirror' && !canAddMirror(sessItems.values())) return;
-      if (msg.media && 'url' in msg.media && !mediaExists(msg.media.url)) return;
       let at = placeIn(sid, msg.x, msg.z, 0.4);
       // 2D は細かい位置を選べないので、出す瞬間だけ空いている場所へずらす
       if (me.mode === '2d') {
@@ -1707,7 +1741,7 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
       const g = home.groups.find((x) => x.id === msg.id && x.owner === me.id);
       if (!g) return true;
       home.groups.splice(home.groups.indexOf(g), 1);
-      deleteGroupImages(g);
+      if (g.imageVersion) void removeObject(groupImageKey(g, g.imageVersion));
       // グループ限定だったセッションは作った人だけに残す
       for (const d of home.sessions) if (d.group === g.id) { d.visibility = 'invite'; d.group = undefined; }
       for (const ev of home.events) if (ev.group === g.id) ev.group = null;
@@ -1829,7 +1863,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     if (!body) { res.statusCode = 413; res.end(); return; }
     if (!isJpeg(body)) { res.statusCode = 400; res.end(); return; }
     const id = timeline.newImageId();
-    fs.writeFileSync(timeline.imageFile(id), body);
+    try { await storage.put(timelineImageKey(id), body, 'image/jpeg'); } catch (e) { console.error('タイムラインの画像を保存できませんでした:', e); res.statusCode = 500; res.end(); return; }
     timeline.registerUpload(id, uploader);
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ id }));
@@ -1838,10 +1872,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   if (url.pathname.startsWith('/timeline-image/')) {
     const id = url.pathname.slice('/timeline-image/'.length);
     if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
-    if (!isImageId(id) || !fs.existsSync(timeline.imageFile(id))) { res.statusCode = 404; res.end(); return; }
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    pipeFile(res, timeline.imageFile(id));
+    if (!isImageId(id)) { res.statusCode = 404; res.end(); return; }
+    redirectToObject(res, timelineImageKey(id), true);
     return;
   }
   if (url.pathname.startsWith('/group-image/')) {
@@ -1852,22 +1884,22 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       if (!g || !canEditGroup(g, editor)) { res.statusCode = 204; res.end(); return; }
       const body = await readBody(req, ICON_MAX_BYTES);
       if (!body || !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
-      // 読み込み中の脱退・権限変更・削除も反映する。
-      if (!home.groups.includes(g) || !canEditGroup(g, editor)) { res.statusCode = 204; res.end(); return; }
-      fs.writeFileSync(groupImageFile(g), body);
-      deleteGroupImages(g, 'jpg');
-      g.imageVersion = (g.imageVersion ?? 0) + 1;
+      const before = g.imageVersion ?? 0;
+      const v = before + 1;
+      try { await storage.put(groupImageKey(g, v), body, 'image/jpeg'); } catch (e) { console.error('グループの画像を保存できませんでした:', e); res.statusCode = 500; res.end(); return; }
+      // 読み込み中・書き込み中の脱退・権限変更・削除と、ほかの人の差し替えも反映する
+      if (!home.groups.includes(g) || !canEditGroup(g, editor) || (g.imageVersion ?? 0) !== before) { void removeObject(groupImageKey(g, v)); res.statusCode = 204; res.end(); return; }
+      g.imageVersion = v;
       saveHome();
       broadcastGroups();
+      if (before) void removeObject(groupImageKey(g, before));
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ imageVersion: g.imageVersion }));
       return;
     }
     if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
-    if (!g || !fs.existsSync(groupImageFile(g))) { res.statusCode = 404; res.end(); return; }
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', url.searchParams.get('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
-    pipeFile(res, groupImageFile(g));
+    if (!g?.imageVersion) { res.statusCode = 404; res.end(); return; }
+    redirectToObject(res, groupImageKey(g, g.imageVersion), !!url.searchParams.get('v'));
     return;
   }
   if (url.pathname === '/icon') {
@@ -1877,16 +1909,15 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       if (!account) { deny(401); return; }
       const body = await readBody(req, ICON_MAX_BYTES);
       if (!body || !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
-      fs.writeFileSync(iconFile(account.id), body);
+      const key = `icons/${account.id}/${newVersion()}.jpg`;
+      try { await storage.put(key, body, 'image/jpeg'); } catch (e) { console.error('アイコンを保存できませんでした:', e); res.statusCode = 500; res.end(); return; }
+      setImages(account.id, { icon: key });
       res.end(JSON.stringify({ icon: iconVersion(account.id) }));
       return;
     }
-    const file = iconFile(url.searchParams.get('id') ?? '');
-    if (!fs.existsSync(file)) { res.statusCode = 404; res.end(); return; }
-    res.setHeader('Content-Type', 'image/jpeg');
-    // URL に版を付けて取得するので長期キャッシュしてよい
-    res.setHeader('Cache-Control', url.searchParams.get('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
-    pipeFile(res, file);
+    const key = imagesOf(url.searchParams.get('id') ?? '').icon;
+    if (!key) { res.statusCode = 404; res.end(); return; }
+    redirectToObject(res, key, !!url.searchParams.get('v'));
     return;
   }
   if (url.pathname === '/avatar' || url.pathname === '/avatar/params') {
@@ -1895,26 +1926,34 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     if (req.method === 'POST' && !account) { deny(401); return; }
     const id = account?.id ?? url.searchParams.get('id') ?? '';
     const isParams = url.pathname === '/avatar/params';
-    const file = isParams ? avatarParamsFile(id) : avatarImageFile(id);
     if (req.method === 'POST') {
       const body = await readBody(req, isParams ? 20_000 : 6_000_000);
       if (!body) { res.statusCode = 413; res.end(); return; }
       if (isParams) {
         let params;
         try { params = sanitizeParams(JSON.parse(body.toString('utf-8'))); } catch { res.statusCode = 400; res.end(); return; }
-        fs.writeFileSync(file, JSON.stringify(params));
+        setImages(id, { avatarParams: params, avatarVersion: newVersion() });
       } else {
         if (!isPng(body) && !isJpeg(body)) { res.statusCode = 400; res.end(); return; }
-        fs.writeFileSync(file, body);
+        const v = newVersion();
+        const key = `avatars/${id}/${v}.${isPng(body) ? 'png' : 'jpg'}`;
+        try { await storage.put(key, body, isPng(body) ? 'image/png' : 'image/jpeg'); } catch (e) { console.error('アバターを保存できませんでした:', e); res.statusCode = 500; res.end(); return; }
+        setImages(id, { avatarImage: key, avatarVersion: v });
       }
       res.end(JSON.stringify({ avatar: avatarVersion(id) }));
       return;
     }
-    if (!fs.existsSync(file)) { res.statusCode = 404; res.end(); return; }
-    const head = fs.readFileSync(file).subarray(0, 4);
-    res.setHeader('Content-Type', isParams ? 'application/json' : isPng(head) ? 'image/png' : 'image/jpeg');
-    res.setHeader('Cache-Control', url.searchParams.get('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
-    pipeFile(res, file);
+    const rec = imagesOf(id);
+    const immutable = !!url.searchParams.get('v');
+    if (isParams) {
+      if (rec.avatarParams === null) { res.statusCode = 404; res.end(); return; }
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Cache-Control', immutable ? 'public, max-age=31536000, immutable' : 'no-cache');
+      res.end(JSON.stringify(rec.avatarParams));
+      return;
+    }
+    if (!rec.avatarImage) { res.statusCode = 404; res.end(); return; }
+    redirectToObject(res, rec.avatarImage, immutable);
     return;
   }
   if (url.pathname === '/profile') {
@@ -1937,13 +1976,28 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   if (url.pathname === '/media' && req.method === 'POST') {
     if (!await who()) { deny(401); return; }
     res.setHeader('Content-Type', 'application/json');
-    const r = await saveMedia(req);
-    if ('error' in r) res.statusCode = r.status;
-    res.end(JSON.stringify(r));
+    let r: Awaited<ReturnType<typeof saveMedia>>;
+    try { r = await saveMedia(req, storage); } catch (e) { console.error('画像を保存できませんでした:', e); res.statusCode = 500; res.end(); return; }
+    if ('error' in r) { res.statusCode = r.status; res.end(JSON.stringify(r)); return; }
+    addMedia(r.name, r.size);
+    res.end(JSON.stringify({ url: r.url }));
     return;
   }
   if (url.pathname.startsWith('/media/')) {
-    serveMedia(req, res, url.pathname);
+    const name = url.pathname.slice('/media/'.length);
+    if (!MEDIA_NAME_RE.test(name)) { res.statusCode = 404; res.end(); return; }
+    redirectToObject(res, `media/${name}`, true);
+    return;
+  }
+  // S3 を設定していないとき（テストなど）は、ストレージのファイルをここから配る
+  if (url.pathname.startsWith('/objects/') && storage instanceof FileStorage) {
+    let file: string;
+    try { file = storage.file(url.pathname.slice('/objects/'.length)); } catch { res.statusCode = 404; res.end(); return; }
+    const type = IMAGE_TYPES[path.extname(file).slice(1)];
+    if (!type || !fs.existsSync(file)) { res.statusCode = 404; res.end(); return; }
+    res.setHeader('Content-Type', type);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    pipeFile(res, file);
     return;
   }
   if (url.pathname === '/ogp') {

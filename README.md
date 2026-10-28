@@ -91,7 +91,7 @@ DB のテーブルを変えるときは `server/db/schema.ts` を直して `npm 
 - 2D の画面（距離ごとのプレイヤー・アイテムのリスト、顔、通知・チャット、ウィンドウ、試験中のマップ、スマホ・PWA）→ [docs/screens.md](docs/screens.md)
 - 3D 空間（FPS 風の操作、ワールドの切り替え、ガーデン、街（マンション・電車・エレベーター）、お絵描きアバター、配信ディスプレイ）→ [docs/3d.md](docs/3d.md)
 - 距離で変わる声、ブロードキャストモード、ついていく → [docs/audio.md](docs/audio.md)
-- アイテム（付箋・ハンマー・チェス・サイコロ・キャンバス・お絵描き伝言・カメラ・鏡・ジャンプ台・2048・AD ポータル・バイク）と画像・動画・YouTube の共有 → [docs/items.md](docs/items.md)。バイクの未完了項目は [検証記録](docs/bike-verification.md)、効果音の出典と取得状況は [素材記録](docs/assets.md)
+- アイテム（付箋・ハンマー・チェス・サイコロ・キャンバス・お絵描き伝言・カメラ・鏡・ジャンプ台・2048・AD ポータル・バイク）と画像・YouTube の共有 → [docs/items.md](docs/items.md)。バイクの未完了項目は [検証記録](docs/bike-verification.md)、効果音の出典と取得状況は [素材記録](docs/assets.md)
 - 外から試す（cloudflared）・Coolify へのデプロイ → [docs/deploy.md](docs/deploy.md)
 - 保存の仕組み（PostgreSQL・S3 互換ストレージ・マイグレーション・テスト用 DB）→ [docs/storage.md](docs/storage.md)
 - ログインとゲスト（Misskey の MiAuth、Electron でのログイン、ゲストにできること、開発用の `?as=`）→ [docs/login.md](docs/login.md)

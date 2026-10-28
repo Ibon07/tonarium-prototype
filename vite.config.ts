@@ -47,6 +47,7 @@ export default defineConfig(({ mode }) => {
         '/system-originals': `http://${api}`,
         '/shared-originals': `http://${api}`,
         '/media': `http://${api}`,
+        '/objects': `http://${api}`,
         '/ws': { target: `ws://${api}`, ws: true },
       },
     },

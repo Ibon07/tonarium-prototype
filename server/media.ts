@@ -1,17 +1,13 @@
 import http from 'node:http';
 import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const MEDIA_DIR = path.join(process.env.DATA_DIR ?? path.join(ROOT, 'data'), 'media');
+import type { ObjectStorage } from './storage.ts';
 
 const IMAGE_MAX = 10 * 1024 * 1024;
-/** 小さな VPS なので、合計がこれを超えたら古いものから消す */
-const TOTAL_MAX = 1024 * 1024 * 1024;
+/** 添付画像の合計の上限。超えたら古いものから消す（MEDIA_TOTAL_MAX_BYTES はテスト用） */
+export const MEDIA_TOTAL_MAX = Number(process.env.MEDIA_TOTAL_MAX_BYTES) || 1024 * 1024 * 1024;
 
-const TYPES: Record<string, string> = {
+export const IMAGE_TYPES: Record<string, string> = {
   jpg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
 };
 
@@ -24,23 +20,10 @@ function sniff(b: Buffer): string | null {
   return null;
 }
 
-const fileOf = (url: string) => path.join(MEDIA_DIR, path.basename(url));
-export const mediaExists = (url: string) => fs.existsSync(fileOf(url));
+/** /media/<名前> の名前。ストレージのキーは media/<名前> */
+export const MEDIA_NAME_RE = /^[0-9a-f-]{36}\.(jpg|png|gif|webp)$/;
 
-function prune() {
-  const files = fs.readdirSync(MEDIA_DIR).map((f) => {
-    const st = fs.statSync(path.join(MEDIA_DIR, f));
-    return { f, size: st.size, at: st.mtimeMs };
-  }).sort((a, b) => a.at - b.at);
-  let total = files.reduce((n, x) => n + x.size, 0);
-  for (const x of files) {
-    if (total <= TOTAL_MAX) break;
-    fs.rmSync(path.join(MEDIA_DIR, x.f), { force: true });
-    total -= x.size;
-  }
-}
-
-export async function saveMedia(req: http.IncomingMessage): Promise<{ url: string } | { error: string; status: number }> {
+export async function saveMedia(req: http.IncomingMessage, storage: ObjectStorage): Promise<{ url: string; name: string; size: number } | { error: string; status: number }> {
   const declared = Number(req.headers['content-length'] ?? 0);
   if (declared > IMAGE_MAX) return { error: '画像は 10MB までです', status: 413 };
   const chunks: Buffer[] = [];
@@ -54,9 +37,8 @@ export async function saveMedia(req: http.IncomingMessage): Promise<{ url: strin
   const ext = sniff(body);
   if (!ext) return { error: '画像（JPEG/PNG/GIF/WebP）だけ送れます', status: 415 };
   const name = `${randomUUID()}.${ext}`;
-  fs.writeFileSync(path.join(MEDIA_DIR, name), body);
-  prune();
-  return { url: `/media/${name}` };
+  await storage.put(`media/${name}`, body, IMAGE_TYPES[ext]);
+  return { url: `/media/${name}`, name, size: body.length };
 }
 
 /** ファイル配信のストリームエラーの受け皿。存在確認後にファイルが消える競合などで
@@ -70,36 +52,4 @@ export function pipeFile(res: http.ServerResponse, file: string, range?: { start
     if (!res.headersSent) { res.statusCode = 500; res.end(); } else res.destroy();
   });
   rs.pipe(res);
-}
-
-/** 動画のシークに Range が要る */
-export function serveMedia(req: http.IncomingMessage, res: http.ServerResponse, pathname: string) {
-  const name = path.basename(pathname);
-  const ext = name.split('.').pop() ?? '';
-  const file = path.join(MEDIA_DIR, name);
-  if (!/^[0-9a-f-]{36}\.\w+$/.test(name) || !Object.hasOwn(TYPES, ext) || !fs.existsSync(file)) { res.statusCode = 404; res.end(); return; }
-  const total = fs.statSync(file).size;
-  res.setHeader('Content-Type', TYPES[ext]);
-  res.setHeader('Accept-Ranges', 'bytes');
-  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-  const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
-  if (!m || (!m[1] && !m[2])) {
-    res.setHeader('Content-Length', total);
-    pipeFile(res, file);
-    return;
-  }
-  let start = m[1] ? Number(m[1]) : Math.max(0, total - Number(m[2]));
-  let end = m[1] && m[2] ? Number(m[2]) : total - 1;
-  end = Math.min(end, total - 1);
-  if (start > end || start >= total) {
-    res.statusCode = 416;
-    res.setHeader('Content-Range', `bytes */${total}`);
-    res.end();
-    return;
-  }
-  start = Math.max(0, start);
-  res.statusCode = 206;
-  res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
-  res.setHeader('Content-Length', end - start + 1);
-  pipeFile(res, file, { start, end });
 }

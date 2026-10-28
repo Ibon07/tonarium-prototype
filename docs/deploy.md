@@ -34,7 +34,7 @@ cloudflared 以外（ngrok など）を使う場合は、`.env` の `ALLOWED_HOS
    - `KOKOSYNC_URL`: データ同期先（既定は `https://45.77.130.146`）
    - `KOKOSYNC_USERNAME` / `KOKOSYNC_PASSWORD`: 同梱のプロトタイプ用認証情報を上書きする場合に設定する。両方とも空なら既定の接続先に限り同梱の値を使う
    - `POSTGRES_PASSWORD`: DB のパスワード。`DATABASE_URL` にそのまま入るので記号を含まないもの（例: `openssl rand -hex 24` の結果）
-   - `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_PUBLIC_URL`: 画像・動画の置き場（Cloudflare R2）。下の「R2 の準備」を参照。`S3_REGION` は既定の `auto` のまま
+   - `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_PUBLIC_URL`: 画像の置き場（Cloudflare R2）。下の「R2 の準備」を参照。`S3_REGION` は既定の `auto` のまま
    - `BACKUP_S3_BUCKET`: DB のバックアップを送るバケット（公開しない）。空ならバックアップは止まったままになる
    - `MISSKEY_URL`: 任意。ログインに使う Misskey（既定は `https://misskey.resonite.love`）。MiAuth の戻り先はアプリのドメインの `/auth/miauth/callback` になる（[login.md](login.md)）
 5. ドメインを設定する
@@ -43,10 +43,11 @@ cloudflared 以外（ngrok など）を使う場合は、`.env` の `ALLOWED_HOS
 6. デプロイ。`/healthz` がヘルスチェックに使われる。通話に入れないときは、ドックの上に出る理由と `livekit` サービスのログを見る
 
 R2 の準備（Cloudflare のダッシュボード）:
-1. バケットを 2 つ作る。画像・動画用（例: `tonarium`）と、DB のバックアップ用（例: `tonarium-backup`）
-2. 画像・動画用のバケットに公開用のカスタムドメイン（例: `media.example.com`）を付ける。これを `S3_PUBLIC_URL`（`https://media.example.com`）にする。バックアップ用のバケットは公開しない
-3. 「R2 API トークン」で、2 つのバケットにオブジェクトの読み書きができるトークンを作る。アクセスキー ID とシークレットを `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY`、エンドポイント（`https://<アカウント ID>.r2.cloudflarestorage.com`）を `S3_ENDPOINT` にする
-4. バックアップ用のバケットにライフサイクルルールを付け、`db/` の下を 14 日などで消す（`db-backup` は送るだけで古いものを消さない）
+1. バケットを 2 つ作る。画像用（例: `tonarium`）と、DB のバックアップ用（例: `tonarium-backup`）
+2. 画像用のバケットに公開用のカスタムドメイン（例: `media.example.com`）を付ける。これを `S3_PUBLIC_URL`（`https://media.example.com`）にする。バックアップ用のバケットは公開しない
+3. 画像用のバケットの CORS で、アプリのオリジン（例: `https://tonarium.example.com`）からの `GET` と `HEAD` を許す。3D の板・アバター・GIF はブラウザが CORS 付きで読むので、無いと表示されない（`<img>` の表示は通る）
+4. 「R2 API トークン」で、2 つのバケットにオブジェクトの読み書きができるトークンを作る。アクセスキー ID とシークレットを `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY`、エンドポイント（`https://<アカウント ID>.r2.cloudflarestorage.com`）を `S3_ENDPOINT` にする
+5. バックアップ用のバケットにライフサイクルルールを付け、`db/` の下を 14 日などで消す（`db-backup` は送るだけで古いものを消さない）
 
 DB のバックアップと戻し方:
 - `db-backup` は起動時と、その後 1 日ごと（`BACKUP_INTERVAL_SECONDS`）に `pg_dump -Fc` を `s3://<BACKUP_S3_BUCKET>/db/tonarium-<日時>.dump` へ送る。結果は `db-backup` のログに `backup:` / `backup failed:` と出る
@@ -58,8 +59,7 @@ DB のバックアップと戻し方:
 
 メモ:
 - HTTP・ホーム用 WebSocket（`/ws`）・同期シグナリング（`/sync/offer`）・同期用 WebSocket（`/sync/ws`）・LiveKit トークン（`/token`）は同じポート。HTTPS は Coolify（Traefik）が付ける。`/sync/ws` も WebSocket Upgrade を許可する
-- DB は `tonarium-db` ボリュームに残る。いまの DB はログイン用の表だけで、ほかのデータはまだ下の `data/` にある（[storage.md](storage.md)）
-- フォロー・作ったセッション・グループ・イベント・DM とチャンネルのメッセージ・既読・ステータス・自己紹介・タイムライン・アイテム・サバイバーズのプロフィール・AD のセーブとランキング・マーケットのいいね・通報は DB（`tonarium-db` ボリューム）に残る。アイコン・3D アバター・写真などの画像は `tonarium-data` ボリューム（`/app/data`）に保存されるので再デプロイしても残る。セッション内のチャットはメモリ内だけなので、再デプロイ・再起動で消える。インスタンスは 1 つで動かすこと（複数にすると部屋が分かれる）
+- フォロー・作ったセッション・グループ・イベント・DM とチャンネルのメッセージ・既読・ステータス・自己紹介・タイムライン・アイテム・サバイバーズのプロフィール・AD のセーブとランキング・マーケットのいいね・通報は DB（`tonarium-db` ボリューム）に残る。アイコン・3D アバター・写真などの画像は R2 に置く（[storage.md](storage.md)）。`tonarium-data` ボリューム（`/app/data`）には、共有アセット・共有システム・翻訳のキャッシュが残る。セッション内のチャットはメモリ内だけなので、再デプロイ・再起動で消える。インスタンスは 1 つで動かすこと（複数にすると部屋が分かれる）
 - LiveKit の設定は `docker-compose.yml` の `LIVEKIT_CONFIG` にある。サーバーの外向きの IP は自動で調べる（`use_external_ip`）。社内ネットワークなど UDP が通らない人向けには TURN（既定 UDP 3478、`LIVEKIT_TURN_UDP_PORT` で変更可）も動く
 - Tonarium サーバーは `KOKOSYNC_URL` の HTTPS/WSS に外向き接続する。ブラウザの WebRTC は kokosync サーバーの公開 UDP ポートにも届く必要がある。UDP が通らなければ同一オリジンの WebSocket 経由に切り替わる
 - LiveKit Cloud に戻すときは、`livekit` サービスを消して `tonarium` の `LIVEKIT_URL` を Cloud の URL にする。データ同期には影響しない

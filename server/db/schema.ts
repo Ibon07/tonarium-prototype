@@ -158,3 +158,23 @@ export const appData = pgTable('app_data', {
   data: jsonb('data').notNull(),
   updatedAt: at('updated_at').notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.scope, t.key] })]);
+
+/**
+ * アカウントのアイコンとアバター（ゲストも持てる）。画像の中身はストレージにあり、ここにはそのキーを持つ。
+ * キーは差し替えるたびに新しくし、古いキーのオブジェクトは消す
+ */
+export const accountImages = pgTable('account_images', {
+  accountId: uuid('account_id').primaryKey().references(() => accounts.id, { onDelete: 'cascade' }),
+  icon: text('icon'),
+  avatarImage: text('avatar_image'),
+  avatarParams: jsonb('avatar_params'),
+  /** 画像か調整値のどちらかが変わると新しくなる。画面はこれで読み直す */
+  avatarVersion: text('avatar_version'),
+});
+
+/** ストレージの media/ に置いた添付画像。合計の大きさを見て、上限を超えたら古いものから消すために持つ */
+export const mediaFiles = pgTable('media_files', {
+  name: text('name').primaryKey(),
+  size: integer('size').notNull(),
+  at: at('at').notNull().defaultNow(),
+});

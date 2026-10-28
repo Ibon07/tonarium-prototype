@@ -54,8 +54,13 @@ const OEKAKI_SITE = 'https://oekaki-avatar.anthrotech.dev/';
 export function ProfileDialog({ name, onClose }: { name: string; onClose: () => void }) {
   const n = name.trim();
   const id = useStore((s) => s.selfId);
-  const [icon, setIcon] = useState<string | null>(null);
-  const [avatar, setAvatar] = useState<string | null>(null);
+  // 今の版は名簿（ゲストはオンラインの一覧）から引く。変えた直後は返ってきた版を使う
+  const iconV = useStore((s) => (s.users.find((u) => u.id === s.selfId) ?? s.directory[s.selfId])?.icon ?? null);
+  const avatarV = useStore((s) => (s.users.find((u) => u.id === s.selfId) ?? s.directory[s.selfId])?.avatar ?? null);
+  const [changedIcon, setIcon] = useState<string | null>(null);
+  const [changedAvatar, setAvatar] = useState<string | null>(null);
+  const icon = changedIcon ?? (iconV ? iconUrl(id, iconV) : null);
+  const avatar = changedAvatar ?? avatarV;
   const [message, setMessage] = useState<string | UiMessage>('');
   const [bio, setBio] = useUpdateDraft<string | null>(`profile.bio.${id}`, null);
   const loadScale = useStore((s) => s.loadScale);
@@ -66,10 +71,6 @@ export function ProfileDialog({ name, onClose }: { name: string; onClose: () => 
   useEffect(() => {
     let alive = true;
     void fetch(`/profile?id=${encodeURIComponent(id)}`).then((r) => r.json()).then((p: { bio: string }) => { if (alive) setBio(current => current ?? p.bio); });
-    void fetch(iconUrl(id)).then((r) => { if (alive && r.ok) setIcon(iconUrl(id)); });
-    void fetch(`/avatar?id=${encodeURIComponent(id)}&t=${Date.now()}`).then((r) => {
-      if (alive && r.ok) setAvatar(String(Date.now()));
-    });
     return () => { alive = false; };
   }, [id]);
   const saveBio = async () => {
