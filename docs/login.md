@@ -34,10 +34,10 @@
 - ゲストで入り直すと、同じ端末（Cookie）のゲストなら同じアカウントのまま名前だけ変わる。ログアウトするとその端末のゲストには戻れない。ゲストを作れるのは 1 つの接続元（`X-Forwarded-For` の先頭）から 10 分に 20 人まで（超えると 429）
 - `/auth/*` の POST は同じオリジンからの fetch だけ受ける（Origin を見る）。他サイトからログインさせたり、名前を変えさせたりできない
 - WebSocket（`/ws`）はつなぐ時点でセッションから本人を決める。`hello` は互換性の版だけを送り、セッションが無ければそこで断る（版が古い画面には先に `incompatible` を返して再読み込みを促す）。ログインの導入で `COMPAT_VERSION` を 7 に上げた。ほかのタブでログアウトした・期限が切れたなどで 4401 で断られた画面は、再接続せずに読み込み直して入口に戻る
-- HTTP の書き込み（アイコン・アバター・自己紹介・写真・グループ画像・メディア・通報）と翻訳・OGP・LiveKit のトークンは、セッションの本人で受ける。URL の `?name=` は読むとき（だれのアイコンか）にだけ使う
+- HTTP の書き込み（アイコン・アバター・自己紹介・写真・グループ画像・メディア・通報）と翻訳・OGP・LiveKit のトークンは、セッションの本人で受ける。URL の `?id=` は読むとき（だれのアイコンか）にだけ使う
 
 ## 開発とテスト
 
-- `npm run dev`（`--dev`）とテストのサーバー（`AUTH_DEV_LOGIN=1`）では、名前だけでログイン扱いのアカウントを作る `POST /auth/dev` が開く。本番では開かない
-- 開発中は URL に `?as=b` を付けると、その名前の開発用アカウントでそのタブだけ入る。同じブラウザの Cookie は全タブで共有されるので、`?as=` のタブはセッションを `sessionStorage` に持ち、fetch は `X-Tonarium-Session` ヘッダー、WebSocket は `?session=` で送る（`--dev` のときだけサーバーが読む）
+- 環境変数 `AUTH_DEV_LOGIN=1` があり、かつ `NODE_ENV` が `production` でないときだけ、名前だけでログイン扱いのアカウントを作る `POST /auth/dev` が開く（`--dev` だけでは開かない）。本番のイメージは `NODE_ENV=production` なので、書き間違えても開かない（起動時に警告を出す）。手元は `.env` に書く（`.env.example` に入っている）。サーバーを立てるテストは `server/test-db.ts` が付ける
+- 開発中は URL に `?as=b` を付けると、その名前の開発用アカウントでそのタブだけ入る。同じブラウザの Cookie は全タブで共有されるので、`?as=` のタブはセッションを `sessionStorage` に持ち、fetch は `X-Tonarium-Session` ヘッダー、WebSocket は `?session=` で送る（開発用ログインが開いているときだけサーバーが読む）
 - サーバーのテストは `server/test-auth.ts` の `devLogin(base, 名前)` で入り、返った Cookie を WebSocket と fetch に付ける。ログインそのものは `server/auth.integration.test.ts` が偽の Misskey を立てて確かめる（`npm run test:integration`）
