@@ -95,7 +95,7 @@ export interface Recap {
 }
 
 /**
- * DM とグループのチャンネルのメッセージ。会話のキーは dm:<アカウント ID>\0<アカウント ID>（並び替え）か ch:<グループ ID>:<チャンネル ID>。
+ * DM とグループのチャンネルのメッセージ。会話のキーは dm:<アカウント ID>:<アカウント ID>（並び替え。DB の文字列に NUL を入れられないので : で区切る。ID は UUID なので : を含まない）か ch:<グループ ID>:<チャンネル ID>。
  * from は送った人のアカウント ID で、空ならシステムの投稿（まとめ）
  */
 export interface Message {
@@ -112,10 +112,10 @@ export interface Message {
   /** 共有したアイテム（セッションに置いてあるもの） */
   item?: { session: string; id: string; kind: ItemKind; summary: string };
 }
-export const dmKey = (a: string, b: string) => `dm:${[a, b].sort().join('\u0000')}`;
+export const dmKey = (a: string, b: string) => `dm:${[a, b].sort().join(':')}`;
 export const channelKey = (group: string, channel: string) => `ch:${group}:${channel}`;
 /** dm のキーから相手のアカウント ID を取り出す */
-export const dmPeer = (conv: string, self: string) => conv.slice(3).split('\u0000').find((n) => n !== self) ?? self;
+export const dmPeer = (conv: string, self: string) => conv.slice(3).split(':').find((n) => n !== self) ?? self;
 
 /** セッション（通話・配信・アイテムを持ち、ワールド＝ 3D 空間を 1 つ読み込む） */
 export interface SessionDef {

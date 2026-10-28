@@ -101,9 +101,9 @@ test('live room chat reception shows popups only for new eligible messages', () 
 test('DM reception targets its conversation and ignores updates and self messages', () => {
   Object.assign(state, { selfId: 'self-id', blocked: [], inbox: {}, arrivals: {},
     popupPausedUntil: 0, folded: { right: true } });
-  const receive = (id, from = 'other-id') => onMessage({ t: 'msg', conv: 'dm:other-id\u0000self-id', m: { id, from, at: Date.now(), text: 'hello' } });
+  const receive = (id, from = 'other-id') => onMessage({ t: 'msg', conv: 'dm:other-id:self-id', m: { id, from, at: Date.now(), text: 'hello' } });
   receive('first');
-  assert.equal(state.arrivals.chat.conversation, 'dm:other-id\u0000self-id');
+  assert.equal(state.arrivals.chat.conversation, 'dm:other-id:self-id');
   state.arrivals = {};
   receive('first'); receive('self', 'self-id');
   assert.deepEqual(state.arrivals, {});

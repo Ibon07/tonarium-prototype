@@ -55,6 +55,8 @@ import { Follows } from './follows.ts';
 import { POST_RATE, Timeline, UPLOAD_RATE } from './timeline.ts';
 import { POST_IMAGE_MAX_BYTES, isImageId, type Post } from '../shared/timeline.ts';
 import { closeDb, db, openDb } from './db/index.ts';
+import { debounced, drain } from './db/persist.ts';
+import { loadPeopleAndHome, saveConversations, saveFollows as writeFollows, saveHome as writeHome, savePeople as writePeople, saveReads, type PersonRec } from './db/home-store.ts';
 import { accounts } from './db/schema.ts';
 import { ne } from 'drizzle-orm';
 import { Auth, normalizeName, requestOrigin, type Account } from './auth.ts';
@@ -100,15 +102,10 @@ try {
 } catch { console.error('Content translation registration failed; original text remains available.'); }
 const ICON_DIR = path.join(DATA_DIR, 'icons');
 const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
-const PROFILE_DIR = path.join(DATA_DIR, 'profiles');
-const FOLLOWS_FILE = path.join(DATA_DIR, 'follows.json');
 const TIMELINE_FILE = path.join(DATA_DIR, 'timeline.json');
 const TIMELINE_IMAGE_DIR = path.join(DATA_DIR, 'timeline-images');
-const HOME_FILE = path.join(DATA_DIR, 'home.json');
 const GROUP_IMAGE_DIR = path.join(DATA_DIR, 'group-images');
 const REPORTS_FILE = path.join(DATA_DIR, 'reports.log');
-const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
-const PEOPLE_FILE = path.join(DATA_DIR, 'people.json');
 const ITEMS_FILE = path.join(DATA_DIR, 'items.json');
 const SURVIVORS_FILE = path.join(DATA_DIR, 'survivors.json');
 const AD_SAVES_FILE = path.join(DATA_DIR, 'ad-saves.json');
@@ -150,7 +147,17 @@ function archiveNameKeyedData() {
   fs.writeFileSync(mark, '');
 }
 archiveNameKeyedData();
-for (const d of [ICON_DIR, AVATAR_DIR, PROFILE_DIR, MEDIA_DIR, GROUP_IMAGE_DIR]) fs.mkdirSync(d, { recursive: true });
+for (const d of [ICON_DIR, AVATAR_DIR, MEDIA_DIR, GROUP_IMAGE_DIR]) fs.mkdirSync(d, { recursive: true });
+
+// 人とホームのデータは DB にある。起動時に全部読んでメモリに持ち、以後はメモリ側が正で、変わったら DB へ書く
+try { await openDb(); }
+catch (e) {
+  // Drizzle は失敗したクエリで包むので、接続や認証の失敗は cause の方にある
+  const err = e as Error & { cause?: Error };
+  console.error('DB に接続できませんでした:', err.cause?.message ?? err.message);
+  process.exit(1);
+}
+const loaded = await loadPeopleAndHome();
 const MARKET_LIKES_FILE = path.join(DATA_DIR, 'market-likes.json');
 const marketLikes = new MarketLikes(readJson<unknown>(MARKET_LIKES_FILE, {}));
 const saveMarketLikes = later(() => fs.writeFileSync(MARKET_LIKES_FILE, JSON.stringify(marketLikes.serialize())));
@@ -241,21 +248,9 @@ const idKey = (id: string) => (/^[0-9a-f-]{36}$/.test(id) ? id : createHash('sha
 const iconFile = (id: string) => path.join(ICON_DIR, `${idKey(id)}.jpg`);
 const avatarImageFile = (id: string) => path.join(AVATAR_DIR, `${idKey(id)}.img`);
 const avatarParamsFile = (id: string) => path.join(AVATAR_DIR, `${idKey(id)}.json`);
-const profileFile = (id: string) => path.join(PROFILE_DIR, `${idKey(id)}.json`);
-// mtime とサイズが変わっていなければ前回の読み結果を使い、変わったら読み直す（サーバー経由・外部どちらの変更も検出できる）
-const bioCache = new Map<string, { mtimeMs: number; size: number; bio: string }>();
-function bioOf(id: string) {
-  const file = profileFile(id);
-  let stat: fs.Stats | undefined;
-  try { stat = fs.statSync(file); } catch { stat = undefined; }
-  if (!stat) { bioCache.delete(file); return ''; }
-  const cached = bioCache.get(file);
-  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.bio;
-  let bio = '';
-  try { bio = String((JSON.parse(fs.readFileSync(file, 'utf-8')) as { bio?: unknown }).bio ?? ''); } catch { /* 壊れたプロフィールは従来どおり空として扱う */ }
-  bioCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, bio });
-  return bio;
-}
+/** 自己紹介（アカウント ID ごと）。ステータスと一緒に profiles 表へ書く */
+const bios = loaded.bios;
+const bioOf = (id: string) => bios.get(id) ?? '';
 const mtime = (file: string) => { try { return Math.floor(fs.statSync(file).mtimeMs); } catch { return 0; } };
 const iconVersion = (id: string) => { const v = mtime(iconFile(id)); return v ? String(v) : null; };
 function avatarVersion(id: string) {
@@ -285,7 +280,7 @@ const emptySessionTimers = new Map<string, ReturnType<typeof setTimeout>>();
 // 画面から作ったセッション・グループ・イベント。sessions.json のセッションの後ろに並べる
 // renamed は sessions.json のセッションを画面から改名したときの名前（sessions.json は書き換えない）
 const home: { sessions: SessionDef[]; groups: Group[]; events: EventDef[]; renamed: Record<string, string> } = { sessions: [], groups: [], events: [], renamed: {} };
-try { Object.assign(home, JSON.parse(fs.readFileSync(HOME_FILE, 'utf-8'))); } catch { /* まだ無い */ }
+Object.assign(home, loaded.home);
 home.renamed = nullRecord(home.renamed);
 for (const d of guild.sessions) d.name = home.renamed[d.id] ?? d.name;
 const defaultChannels = () => [{ id: 'general', name: '雑談' }];
@@ -308,8 +303,8 @@ function pruneOldEvents() {
 }
 const eventsBeforePrune = home.events.length;
 pruneOldEvents();
-// home はメモリ側が正で、ファイルへの書き込みは savePeople などと同じく遅らせてまとめる
-const saveHome = later(() => fs.writeFileSync(HOME_FILE, JSON.stringify(home)));
+// 続けて変わってもまとめて 1 回だけ DB へ書く
+const saveHome = debounced('home', () => writeHome(home));
 if (home.events.length !== eventsBeforePrune) saveHome();
 // 常駐中に 30 日を跨いだイベントも残り続けないよう、起動時・作成時だけでなく日次でも剪定する
 setInterval(() => {
@@ -321,8 +316,8 @@ const sessionIds = new Set(guild.sessions.map((w) => w.id));
 const shortId = () => randomUUID().slice(0, 8);
 
 // フォローはアカウント ID の組で保存する。お互いにフォローしているとフレンド
-const follows = new Follows(readJson<[string, string][]>(FOLLOWS_FILE, []));
-const saveFollows = later(() => fs.writeFileSync(FOLLOWS_FILE, JSON.stringify(follows.edges())));
+const follows = new Follows(loaded.follows);
+const saveFollows = debounced('follows', () => writeFollows(follows.edges()));
 const friendsOf = (id: string) => follows.friendsOf(id);
 /** 付け外しを繰り返しても、同じ人からのフォロー通知はこの間に 1 回だけ */
 const FOLLOW_NOTICE_MS = 60 * 60 * 1000;
@@ -378,34 +373,31 @@ function flushItems() {
 }
 setInterval(saveItems, 5000);
 
-interface PersonRec { status: StatusKind; statusText: string; recent: string[]; lastSeen: number | null; watchers: string[] }
-const people = nullRecord(readJson<Record<string, PersonRec>>(PEOPLE_FILE, {}));
-const savePeople = later(() => fs.writeFileSync(PEOPLE_FILE, JSON.stringify(people)));
+const people: Record<string, PersonRec> = loaded.people;
+const savePeople = debounced('people', () => writePeople(people, bios));
 function personRec(id: string) {
   return (people[id] ??= { status: 'online', statusText: '', recent: [], lastSeen: null, watchers: [] });
 }
 
 /** convs は会話ごとのメッセージ、reads は アカウント ID → 会話 → 読んだ時刻 */
-const inboxRaw = readJson<{ convs: Record<string, Message[]>; reads: Record<string, Record<string, number>> }>(MESSAGES_FILE, { convs: {}, reads: {} });
-const inbox = {
-  convs: nullRecord(inboxRaw.convs ?? {}),
-  reads: nullRecord(Object.fromEntries(Object.entries(inboxRaw.reads ?? {}).map(([id, r]) => [id, nullRecord(r)]))),
-};
-/** 保存のたびに受信箱全体を文字列化しないよう、会話ごと・名前ごとの JSON を覚えておき、変わった分だけ作り直す。
- * 中身を書き換える場所（pushMessage / 送信時の既読 / 既読 / RSVP）では、対応するキャッシュを必ず捨てること。
- * 組み立て結果は JSON.stringify(inbox) とバイト単位で一致する（キー順・キーと値の文字列化は同じ規則） */
-const inboxPartJson = { convs: new Map<string, string>(), reads: new Map<string, string>() };
-function inboxJson() {
-  const part = (cache: Map<string, string>, key: string, value: unknown) => {
-    let s = cache.get(key);
-    if (s === undefined) { s = JSON.stringify(value) as string; cache.set(key, s); }
-    return `${JSON.stringify(key)}:${s}`;
-  };
-  const convs = Object.keys(inbox.convs).map((k) => part(inboxPartJson.convs, k, inbox.convs[k])).join(',');
-  const reads = Object.keys(inbox.reads).map((k) => part(inboxPartJson.reads, k, inbox.reads[k])).join(',');
-  return `{"convs":{${convs}},"reads":{${reads}}}`;
-}
-const saveInbox = later(() => fs.writeFileSync(MESSAGES_FILE, inboxJson()));
+const inbox = { convs: loaded.convs, reads: loaded.reads };
+/** 変わった会話と、既読が変わった人。保存のときはその分だけ書く（中身を書き換えたら必ず印を付けること） */
+const dirtyConvs = new Set<string>();
+const dirtyReads = new Set<string>();
+const saveInbox = debounced('inbox', async () => {
+  const convs = [...dirtyConvs], readers = [...dirtyReads];
+  dirtyConvs.clear();
+  dirtyReads.clear();
+  try {
+    if (convs.length) await saveConversations(inbox.convs, convs);
+    if (readers.length) await saveReads(inbox.reads, readers);
+  } catch (e) {
+    // 書き直しのときに同じ会話・人をもう一度書くため、印を戻す
+    for (const c of convs) dirtyConvs.add(c);
+    for (const r of readers) dirtyReads.add(r);
+    throw e;
+  }
+});
 
 /** セッションにだれかが入ってから全員が出るまで。終わったらまとめにする */
 const visits = new Map<string, { from: number; people: Map<string, string>; log: Recap['log'] }>();
@@ -469,7 +461,7 @@ function sendDirectory(id: string, account?: Pick<Account, 'id' | 'name' | 'user
 /** 会話に入っている人のアカウント ID。会話として成り立たなければ null */
 function convMembers(conv: string): string[] | null {
   if (conv.startsWith('dm:')) {
-    const pair = conv.slice(3).split('\u0000');
+    const pair = conv.slice(3).split(':');
     return pair.length === 2 && follows.isFriend(pair[0], pair[1]) ? pair : null;
   }
   const m = /^ch:([^:]+):([^:]+)$/.exec(conv);
@@ -480,7 +472,7 @@ function pushMessage(conv: string, m: Message) {
   const list = (inbox.convs[conv] ??= []);
   list.push(m);
   if (list.length > 300) list.shift();
-  inboxPartJson.convs.delete(conv);
+  dirtyConvs.add(conv);
   saveInbox();
   sendTo(convMembers(conv) ?? [], { t: 'msg', conv, m });
 }
@@ -1656,7 +1648,7 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
       });
       // 送った会話は読んだことにする
       (inbox.reads[me.id] ??= newRecord())[msg.conv] = Date.now();
-      inboxPartJson.reads.delete(me.id);
+      dirtyReads.add(me.id);
       return true;
     }
     case 'read': {
@@ -1665,7 +1657,7 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
       const at = Math.min(Date.now(), Number(msg.at) || 0);
       if (at <= (reads[msg.conv] ?? 0)) return true;
       reads[msg.conv] = at;
-      inboxPartJson.reads.delete(me.id);
+      dirtyReads.add(me.id);
       saveInbox();
       sendTo([me.id], { t: 'read', conv: msg.conv, at });
       return true;
@@ -1689,7 +1681,7 @@ function handleHome(me: User, msg: ClientMsg, ws: WebSocket): boolean {
         plan.event = ev.id;
       }
       if (ev) { ev.attendees = who('yes'); ev.maybe = who('maybe'); ev.declined = who('no'); saveHome(); broadcastEvents(); }
-      inboxPartJson.convs.delete(msg.conv);
+      dirtyConvs.add(msg.conv);
       saveInbox();
       sendTo(convMembers(msg.conv) ?? [], { t: 'msg', conv: msg.conv, m });
       return true;
@@ -1947,7 +1939,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       const body = await readBody(req, 10_000);
       let bio = '';
       try { bio = String((JSON.parse(body?.toString('utf-8') ?? '') as { bio?: unknown }).bio ?? '').slice(0, 300); } catch { res.statusCode = 400; res.end(); return; }
-      fs.writeFileSync(profileFile(account.id), JSON.stringify({ bio }));
+      bios.set(account.id, bio);
+      savePeople();
       res.end(JSON.stringify({ bio }));
       return;
     }
@@ -2197,18 +2190,11 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => {
   saveTimeline.flush();
   savePeople.flush();
   saveInbox.flush();
-  Promise.allSettled([shutdownRooms(), closeDb()]).finally(() => process.exit(0));
+  // 積んだ DB への書き込みを流し切ってから閉じる
+  Promise.allSettled([shutdownRooms(), drain().then(closeDb)]).finally(() => process.exit(0));
 });
 
-try {
-  await openDb();
-  await loadDirectory();
-} catch (e) {
-  // Drizzle は失敗したクエリで包むので、接続や認証の失敗は cause の方にある
-  const err = e as Error & { cause?: Error };
-  console.error('DB に接続できませんでした:', err.cause?.message ?? err.message);
-  process.exit(1);
-}
+await loadDirectory();
 
 server.listen(PORT, () => {
   console.log(`server on http://localhost:${PORT}`);

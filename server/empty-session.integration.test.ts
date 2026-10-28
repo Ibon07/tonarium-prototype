@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { markIdData, seedDevAccounts, testServerEnv } from './test-db.ts';
+import { markIdData, readHomeData, seedDevAccounts, seedHomeData, testServerEnv } from './test-db.ts';
 import { devLogin } from './test-auth.ts';
 import { pathToFileURL } from 'node:url';
 import { WebSocket } from 'ws';
@@ -32,7 +32,7 @@ test('empty user sessions expire; joins, fixed sessions and manual deletion keep
   const manual = { ...restored, id: 'manual', name: 'Manual' };
   const events = [restored, manual].map((s) => ({ id: s.id, title: s.name, at: Date.now(), group: null, session: s.id, owner: ids.owner, attendees: [], maybe: [], declined: [] }));
   await writeFile(path.join(data, 'sessions.json'), JSON.stringify({ name: 'Test', sessions: [fixed] }));
-  await writeFile(path.join(data, 'home.json'), JSON.stringify({ sessions: [restored, manual], groups: [], events, renamed: {} }));
+  await seedHomeData(dbEnv, { home: { sessions: [restored, manual] as SessionDef[], events } });
   await writeFile(path.join(data, 'items.json'), JSON.stringify(Object.fromEntries([restored, manual].map((s) => [s.id, [{ id: 'canvas', kind: 'canvas', x: 0, z: 0, ry: 0, strokes: [] }]]))));
   // 本番の TTL は変えず、子プロセス内の空セッション用タイマーだけ短縮する。
   const preload = path.join(data, 'short-ttl.mjs');
@@ -125,14 +125,14 @@ test('empty user sessions expire; joins, fixed sessions and manual deletion keep
   owner.ws.close();
   await until(() => !has(observer, disconnected));
   assert.ok(has(observer, 'fixed'), 'sessions.json sessions never expire');
-  // サーバーは JSON をその場で上書きするので、書いている途中に読むと空や途切れた中身になる。そのときは読み直す
+  // アイテムはまだ JSON をその場で上書きするので、書いている途中に読むと空や途切れた中身になる。そのときは読み直す
   const readSaved = async (file: string) => {
     try { return JSON.parse(await readFile(path.join(data, file), 'utf8')); } catch { return null; }
   };
   await until(async () => {
-    const saved = await readSaved('home.json');
+    const saved = await readHomeData(dbEnv);
     const items = await readSaved('items.json');
-    return !!saved && !!items && saved.sessions.length === 0 && saved.events.every((e: EventDef) => e.session === null) && !items.restored && !items.manual;
+    return !!items && saved.sessions.length === 0 && saved.events.every((e) => e.sessionId === null) && !items.restored && !items.manual;
   });
   assert.equal(deletions.length, 4);
   assert.ok(deletions.every((line) => line.includes('empty for 5min')));

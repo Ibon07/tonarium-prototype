@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { markIdData, seedDevAccounts, testServerEnv } from './test-db.ts';
+import { markIdData, readHomeData, seedDevAccounts, seedHomeData, testServerEnv } from './test-db.ts';
 import { devLogin } from './test-auth.ts';
 import { WebSocket } from 'ws';
 import { COMPAT_VERSION, type Group } from '../shared/protocol.ts';
@@ -33,7 +33,7 @@ test('group permissions, uploads, legacy data, broadcasts and persistence', { ti
   const ids = await seedDevAccounts(dbEnv, ['Owner', 'Editor', 'Member', 'Outsider']);
   await markIdData(data);
   const legacy: Group = { id: 'legacy', name: 'Legacy', color: '#123456', owner: ids.Owner, members: [ids.Owner, ids.Editor, ids.Member], channels: [{ id: 'general', name: '雑談' }] };
-  await writeFile(path.join(data, 'home.json'), JSON.stringify({ sessions: [], groups: [legacy], events: [], renamed: {} }));
+  await seedHomeData(dbEnv, { home: { groups: [legacy] } });
   await writeFile(path.join(data, 'sessions.json'), JSON.stringify({ name: 'Test', sessions: [] }));
   let child: ChildProcess | undefined;
   const sockets: WebSocket[] = [];
@@ -107,8 +107,7 @@ test('group permissions, uploads, legacy data, broadcasts and persistence', { ti
   assert.equal((await upload('Owner')).status, 200);
   assert.deepEqual(await readdir(path.join(data, 'group-images')), ['legacy.jpg']);
   await delay(1000);
-  const saved = JSON.parse(await readFile(path.join(data, 'home.json'), 'utf8'));
-  assert.equal(saved.groups[0].imageVersion, 2);
+  assert.equal((await readHomeData(dbEnv)).groups[0].imageVersion, 2);
   await stop();
   await start();
   const restored = await peer('Owner');
