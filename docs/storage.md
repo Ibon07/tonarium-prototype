@@ -18,6 +18,9 @@
 
 ## DB に入っているもの
 
+ファンタジー RPG のデータ（`fantasy*.json`）は、まだ `DATA_DIR` の JSON のまま（[fantasy-accounts.md](fantasy-accounts.md)）。
+
+
 | 表 | 中身 |
 |---|---|
 | `accounts`・`auth_sessions`・`login_pending` | ログイン（[login.md](login.md)） |
