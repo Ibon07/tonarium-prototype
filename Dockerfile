@@ -19,6 +19,7 @@ COPY vendor ./vendor
 COPY server ./server
 COPY drizzle ./drizzle
 COPY scripts/fantasy-backup.ts scripts/fantasy-account-admin.ts scripts/fantasy-diagnostics.ts ./scripts/
+COPY scripts/check-kokoa-ai.ts ./scripts/check-kokoa-ai.ts
 COPY scripts/systems.ts ./scripts/systems.ts
 COPY scripts/content-translations.ts ./scripts/content-translations.ts
 COPY --from=build /app/system-bundle ./system-bundle
