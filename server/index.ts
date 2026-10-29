@@ -2595,6 +2595,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       const body = await readBody(req, 10_000);
       let parsed: { bio?: unknown; bot?: unknown };
       try { parsed = JSON.parse(body?.toString('utf-8') ?? '') as { bio?: unknown; bot?: unknown }; } catch { res.statusCode = 400; res.end(); return; }
+      if (typeof parsed !== 'object' || parsed === null) { res.statusCode = 400; res.end(); return; }
       // 自己紹介はログインした人だけ（ゲストが残せるのはアイコンとアバター）。
       // ボット申告だけは、ボット用に作られたゲストでも名乗れるようゲストにも開く
       if ('bio' in parsed) {
