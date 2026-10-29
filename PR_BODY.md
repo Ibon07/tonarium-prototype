@@ -1,3 +1,39 @@
+## 再検証と公開作業への引き継ぎ（2026-10-30）
+
+指定された元worktreeとブランチ `agent/task-1565293913512874065-1793266290196` を確認しました。HEADは `bef3bea534eddcae9252a3bf38b78d38603e3ce7`、親は `e1f3d4dc0de7ef6b98bb5057650c53d5403cb292` で、22ファイルの実装を保持しています。開始時の追跡済み・ステージ済み差分と未追跡ファイルの出力はありませんでした。ただし共通Git ignoreの読み取りに権限警告があるため、通常環境でも最終確認してください。
+
+PM指定の `import { recentlyHit } from '../items/effects.ts';` は保存済みコミットの `View3D.tsx` に存在し、被弾表示から参照されています。コードの追加修正は不要でした。今回の追記はこのPR本文案のみです。
+
+### 検証本体は成功、通常のnpm実行は環境エラー
+
+`npm run typecheck` と `npm run check:completion` はVoltaのディレクトリ作成権限エラーで検証開始前に失敗しました。型チェックやコードの失敗とは区別し、必須npmコマンドの成功とは報告しません。後者の終了コードは7です。
+
+既存Node.js 24.19.0のディレクトリをPATHの先頭に置き、次を再実行しました。すべて終了コード0です。
+
+- 型検査: `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json`
+- ビルド: `node node_modules/vite/bin/vite.js build`。大きなchunkとlivekitのimport混在の警告は残っています。
+- テスト: `node node_modules/tsx/dist/cli.mjs --test <package.jsonの各対象ファイル>`。`test:client` 105件（mapProjection・mapSettingsを含む）、`test:i18n` 21件、`test:sync` 20件、`test:movement` 23件、`test:avatar` 3件、`test:camera` 17件が成功。合計189件、失敗・スキップ0です。
+- 履歴確認: `node scripts/check-changelog.mjs --base e1f3d4d`
+- 翻訳確認: `node node_modules/tsx/dist/cli.mjs scripts/content-translations.ts validate`。38文書が成功。
+- 差分確認: `git diff --check`。親コミットからの差分にも `changelog/`・`shared/changelog.ts` の変更はありません。
+- ブラウザ: `node scripts/verify-map-browser.mjs` でfixtureを起動し、`node scripts/test-map-browser.mjs <既存Playwrightのmodule URL> <既存Chromeのパス>` が成功。デスクトップ／タッチ、右・中ドラッグ、キャンセル、capture喪失、視点変更後の床クリック、ズーム／リセット、受信状態の人物・名前・位置・向き更新、退出、ワールド切替と既存3Dマップ描画を確認しました。
+
+テスト・ビルド・ブラウザの今回のログは `.local/verification/2026-10-30-*.log` に保存しました。fixtureの参加者更新は実サーバーを通していません。実ワールドの複数クライアント同期、実機スマホ、アバター設定変更の実画面確認は未確認のままです。三言語の操作説明と `docs/screens.md`、設定未保存時の2D既定値、共通人物コンポーネントの参照は静的にも確認しました。
+
+### 403の原因は未確定、送信を再試行しない
+
+送信先は `github.com/katteni-kaihatu/tonarium-prototype`、対象ブランチは上記の作業ブランチです。Git設定には `manager` credential helperとスコープ付きの認証関連設定があります。helperの設定だけでは、pushで実際に選ばれる認証主体は確定しません。
+
+`gh auth status`、`gh api user --jq .login`、`gh api repos/katteni-kaihatu/tonarium-prototype --jq '{full_name,permissions}'` を実行しましたが、CLI設定ファイルへのローカルアクセス拒否で失敗し、GitHubからのHTTP応答は観測できませんでした。Gitの認証経路とCLI/APIの認証主体が同じとは扱いません。認証情報・設定内容・API失敗の生出力は記載していません。
+
+元案件の403の実行記録を今回確認できていないため、失敗した操作・時刻・サーバーの応答理由は未確認です。現在のGit認証主体、CLI/APIの主体、書き込み権限、認証の対象範囲、組織承認、ブランチ制約も未確認です。権限不足などは仮説であり、原因とは断定しません。
+
+実行環境の管理担当は、通常環境で元案件の実行記録を調べ、失敗操作・送信先・対象ブランチ・時刻・応答理由を照合してください。そのうえでGitが選ぶアカウントとCLI/APIのアカウント、対象リポジトリへの書き込み権限と認証範囲を確認します。主体が違う場合は正しいアカウントで再認証し、書き込み権限不足ならリポジトリ管理者へ必要権限を、組織承認不足なら組織管理者へ承認を依頼してください。ブランチ制約に抵触する場合は通常の許可された手順を使い、制約は緩めません。
+
+Git push・PR作成・リリースは実行していません。既存PRの現在の状態も照会できていません。権限復旧後、オーケストレータが最新developとの差分・競合、必須npmコマンドと実ワールドの再検証を確認し、通常の送信・PR手順へ戻してください。
+
+以下は前回保存時の記録です。
+
 ## 利用者向けの変更
 
 - 2Dマップの床・家具・目印の平面表示に、右ドラッグでの回転・俯角変更を追加します。中ドラッグで平行移動、ホイールでズーム、Spaceで視点を戻せます。
