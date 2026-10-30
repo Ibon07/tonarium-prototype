@@ -20,11 +20,11 @@ let moves: { x: number; z: number }[] = [];
 useStore.subscribe((state, previous) => {
   if (state.walk?.to && state.walk.to !== previous.walk?.to) moves.push({ ...state.walk.to });
 });
-const events: { type: string; id: number; target: string }[] = [];
-for (const type of ['pointerdown', 'gotpointercapture', 'lostpointercapture', 'pointercancel']) {
+const events: { type: string; id: number; target: string; button: number; buttons: number }[] = [];
+for (const type of ['pointerdown', 'pointermove', 'pointerup', 'gotpointercapture', 'lostpointercapture', 'pointercancel']) {
   document.addEventListener(type, event => {
     const e = event as PointerEvent;
-    events.push({ type, id: e.pointerId, target: (e.target as Element).tagName });
+    events.push({ type, id: e.pointerId, target: (e.target as Element).tagName, button: e.button, buttons: e.buttons });
   }, true);
 }
 Object.assign(window, { mapTest: {

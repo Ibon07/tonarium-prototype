@@ -1,3 +1,60 @@
+## 設計レビュー対応の実測（2026-10-30、HEAD d8c9f55）
+
+複数ボタン操作で床への移動が誤発火する問題を修正しました。直接実行した型検査・関連テスト190件・ビルドとブラウザ回帰テストは成功しました。ただし、npm の起動と最新 develop の取得に失敗しており、公開前の必須確認は未完了です。
+
+### 利用者向けの変更
+
+- 2D マップで左ボタンを押したまま右ボタンを押し、右・左の順に離しても移動しなくなります。すべて離した後の通常クリックでは移動できます。
+
+### 変更と引き継ぎ
+
+- `MapTap` が `buttons` を監視し、追加ボタンを検出した操作の取消状態を保持します。複数ボタンを含む押下や、押下中の追加 pointerdown も取り消します。床の投影と既存の移動経路は維持しました。
+- 単体テストと、実ブラウザで「左押下→右押下→右解放→左解放」を送る回帰テストを追加しました。後者では追加ボタンの押下・解放が pointermove として届いたことと、次のクリックで移動できることも検証します。`docs/screens.md` を更新しました。
+- PM 指定の `View3D.tsx` の `recentlyHit` import と被弾表示の呼び出しは開始時から存在しました。両方を維持し、表示を削除して型検査を通す変更はしていません。
+- 指定 worktree・ブランチ `agent/task-1565293913512874065-1793266290196` を維持しています。開始時の HEAD は `d8c9f554836076509e7a022271c1d70734368684`、履歴に `bef3bea`・`b99deda` があり、`bef3bea..HEAD` は PR 本文のみの変更でした。開始時の未コミット変更は `PR_BODY.md` のみで、その内容をこの節より下に保持しました。
+- 通常の status はグローバル ignore のアクセス拒否警告が出ました。`git -c core.excludesFile= status --short --untracked-files=all` では警告なく確認でき、開始時に未追跡ファイルの出力はありませんでした。グローバル ignore の内容は未確認です。reset・clean・コミット・強制 push は実行していません。
+
+### 今回実行した検証
+
+対象は上記 HEAD と今回の作業ツリー差分です。ローカルの比較元は `e1f3d4dc0de7ef6b98bb5057650c53d5403cb292`（origin/develop）で、リモート最新 SHA ではありません。
+
+| 検証 | 今回の結果 |
+| --- | --- |
+| `npm run typecheck` | 終了コード7。Volta の保存先を作成できず、型検査の起動前に停止 |
+| `npm run check:completion` | 終了コード7。同じ Volta の権限エラーで停止 |
+| 既存 Node.js v24.19.0 で `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json` | 終了コード0。被弾表示を維持した状態で成功 |
+| 型検査成功後、package.json の test:client・movement・camera・avatar・sync・i18n を既存 tsx で直接実行 | 順に106・23・17・3・20・21件、計190件成功。失敗・スキップ0。mapProjection・mapSettingsを含む |
+| `node node_modules/vite/bin/vite.js build` | 終了コード0。chunk サイズと LiveKit の import 混在の警告あり |
+| `node scripts/verify-map-browser.mjs` と `node scripts/test-map-browser.mjs <既存Playwrightのmodule URL> <既存Chrome>` | 終了コード0。複数ボタン取消、通常クリック復帰、回転・平行移動・ズーム・リセット、capture喪失・取消、モバイル相当のタップ、投入した参加者状態の更新・退出、ワールド切替、Map3D描画を確認 |
+| `node scripts/check-changelog.mjs --base e1f3d4d` | 終了コード0。履歴の変更なし |
+| `node node_modules/tsx/dist/cli.mjs scripts/content-translations.ts validate` | 終了コード0。38文書を確認 |
+| `git diff --check` | 終了コード0 |
+
+今回のログは `.local/verification/review-*.log` に保存しました。過去の成功記録は今回の結果に含めていません。npm 復旧用アーカイブの取得も接続エラーで失敗しました。プロジェクトの依存関係は追加していません。直接実行の成功だけで必須完了チェックを達成したとは扱いません。
+
+### 公開前に残る確認
+
+- 解決後の origin の取得先・送信先が指定リポジトリ `katteni-kaihatu/tonarium-prototype` と一致することは確認しました。`git fetch origin develop` は終了コード255、`git ls-remote origin refs/heads/develop` は終了コード128（接続先へアクセスできないエラー）でした。最新 SHA の確定・統合・再検証は未実施です。認証原因や403と断定できる証拠はありません。
+- gh と Git の実際の認証主体、credential helper と認証の優先関係、書き込み権限、ブランチ制約は未確認です。今回の明示指示に従い、push・PR 作成／更新・リリースは実行していません。
+- 通常画面での「なし／2D／3D」の設定保存・再読込、実サーバーを通す複数クライアント同期、既存3Dの着席・追従・三人称・XR、スマホでのパネル操作は今回未確認です。fixture の成功をこれらの成功として扱いません。
+- 管理環境で npm を復旧して必須コマンドを再実行し、最新 develop への統合と通常画面の確認が必要です。その後、送信が許可された担当が認証・権限・ブランチ制約を確認して公開操作を行い、実結果をオーケストレータへ渡してください。案件状態とマージ可否の確定はオーケストレータへ引き継ぎます。
+
+以下は引き継いだ過去の記録です。「今回」という表現も当時の実行を指します。
+
+---
+## PM再作業指示の今回の実測（2026-10-30、HEAD d8c9f55）
+
+- 元worktreeとブランチ `agent/task-1565293913512874065-1793266290196` を維持しました。HEADは `d8c9f554836076509e7a022271c1d70734368684`、履歴に `bef3bea`・`b99deda` を確認し、`bef3bea..HEAD` の変更は `PR_BODY.md` のみでした。開始時の未コミット差分・未追跡ファイルの出力はありませんでした。
+- 通常の `git status --short --untracked-files=all` は共通ignoreのアクセス拒否警告が出ました。`git -c core.excludesFile= status --short --untracked-files=all` でも出力はありませんでした。共通ignoreを含む通常環境での確認には制限が残ります。reset・clean・コミットは実行していません。
+- `client/src/view3d/View3D.tsx:11` の指定の `import { recentlyHit } from '../items/effects.ts';` はHEADと作業ツリーの両方に既に存在し、96行目の被弾表示から呼ばれていました。重複追加せず維持しました。ソースコードの変更は不要でした。
+- 今回の `npm run typecheck`、`npm run check:completion`、`npm run test:client`、`npm run build` はすべて終了コード1でした。いずれもVoltaが `C:\Users\neo\AppData\Local\Volta` を作成できず、検証本体の起動前に停止しました。型検査成功後のテスト・ビルド確認というPMの条件は未達です。
+- この環境で実行可能な代替Node.jsを確認できませんでした。下記の過去の直接実行・テスト・ブラウザ確認の成功記録は、今回の実測として扱いません。実行環境を復旧した管理環境で型検査、マップ関連テスト、ビルド、必須完了チェックの再実行が必要です。
+- ローカル `origin/develop` は `e1f3d4dc0de7ef6b98bb5057650c53d5403cb292` です。今回fetch・統合・認証確認・ブラウザ確認は実施せず、リモートの最新性と書き込み権限は未確認です。指示どおりpush・PR操作・リリースは実行していません。
+- `git diff --check` は成功しました。`changelog/`・`shared/changelog.ts` は変更していません。今回の変更はこの検証記録のみです。必須チェックが未達のため、完了扱いにはせずオーケストレータへ引き継ぎます。
+
+今回の利用者向けの追加変更: なし。保存済みのマップ改善と被弾表示を保持しました。
+
+---
 ## PM再作業指示の今回の検証（2026-10-30）
 
 - 引き継いだ未コミット変更は `PR_BODY.md` のみです。ステージ済み差分と未追跡ファイルの出力はありませんでした。ただし共通ignoreのアクセス警告が残るため、通常管理環境での再確認は必要です。既存の作業と検証資料を保持しています。

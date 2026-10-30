@@ -15,22 +15,26 @@ export function floorAt(camera: THREE.Camera, x: number, y: number, width: numbe
   return ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
 }
 
-export interface MapPointer { pointerId: number; button: number; clientX: number; clientY: number }
+export interface MapPointer { pointerId: number; button: number; buttons: number; clientX: number; clientY: number }
 export class MapTap {
-  private down: (MapPointer & { moved: boolean }) | null = null;
+  private down: (MapPointer & { moved: boolean; cancelled: boolean }) | null = null;
   start(e: MapPointer) {
-    if (this.down) { this.cancel(); return; }
-    this.down = { pointerId: e.pointerId, button: e.button, clientX: e.clientX, clientY: e.clientY, moved: false };
+    if (this.down) { this.down.cancelled = true; return; }
+    this.down = { pointerId: e.pointerId, button: e.button, buttons: e.buttons, clientX: e.clientX, clientY: e.clientY,
+      moved: false, cancelled: e.button !== 0 || e.buttons !== 1 };
   }
   move(e: MapPointer) {
     const d = this.down;
-    if (d && e.pointerId === d.pointerId && Math.hypot(e.clientX - d.clientX, e.clientY - d.clientY) > 6) d.moved = true;
+    if (!d || e.pointerId !== d.pointerId) return;
+    // マウスの追加ボタンは pointerdown ではなく pointermove で届く。
+    if (e.buttons > 1) d.cancelled = true;
+    if (Math.hypot(e.clientX - d.clientX, e.clientY - d.clientY) > 6) d.moved = true;
   }
   end(e: MapPointer) {
     this.move(e);
     const d = this.down;
     this.cancel();
-    return !!d && d.pointerId === e.pointerId && d.button === 0 && e.button === 0 && !d.moved;
+    return !!d && d.pointerId === e.pointerId && d.button === 0 && e.button === 0 && e.buttons === 0 && !d.moved && !d.cancelled;
   }
   cancel() { this.down = null; }
 }

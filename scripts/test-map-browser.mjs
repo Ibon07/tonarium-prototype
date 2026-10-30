@@ -48,6 +48,20 @@ try {
       assert.equal(state.moves.length, 1, 'tap after native cancellation must walk');
       await input.detach();
     } else {
+      await reset();
+      await page.mouse.move(x, y);
+      await page.mouse.down({ button: 'left' });
+      await page.mouse.down({ button: 'right' });
+      await page.mouse.move(x + 1, y + 1);
+      await page.mouse.up({ button: 'right' });
+      await page.mouse.up({ button: 'left' });
+      const chord = await snapshot();
+      assert.equal(chord.events.filter(e => e.type === 'pointerdown').length, 1, 'additional mouse button must not emit another pointerdown');
+      assert.ok(chord.events.some(e => e.type === 'pointermove' && e.button === 2 && e.buttons === 3), 'right press must arrive as pointermove with both buttons');
+      assert.ok(chord.events.some(e => e.type === 'pointermove' && e.button === 2 && e.buttons === 1), 'right release must arrive as pointermove with only left held');
+      assert.equal(chord.moves.length, 0, 'left down / right down / right up / left up must not walk');
+      await page.mouse.click(x, y);
+      assert.equal((await snapshot()).moves.length, 1, 'fresh click after all buttons are released must walk');
       for (const button of ['right', 'middle']) {
         await reset();
         const before = await page.locator('.mapfloor').getAttribute('style');
@@ -148,7 +162,7 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log('PASS: Map2D controls, cancellation, capture loss, rotated floor click, zoom/reset, mobile tap, received participant updates, world switch and Map3D rendering');
+  console.log('PASS: Map2D controls, multi-button cancellation, capture loss, rotated floor click, zoom/reset, mobile tap, received participant updates, world switch and Map3D rendering');
 } finally {
   await browser.close();
 }

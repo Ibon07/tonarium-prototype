@@ -41,19 +41,32 @@ test('床面との交点がないときは移動先を返さない', () => {
   assert.equal(floorAt(camera, 0, 0, 0, 100), null);
 });
 
-const pointer = (button = 0, x = 10, y = 10, id = 1) => ({ pointerId: id, button, clientX: x, clientY: y });
+const pointer = (button = 0, x = 10, y = 10, id = 1, buttons = button === 0 ? 1 : button === 1 ? 4 : 2) => ({ pointerId: id, button, buttons, clientX: x, clientY: y });
+const release = (...args: Parameters<typeof pointer>) => ({ ...pointer(...args), buttons: 0 });
+
+test('追加ボタンが pointermove で届いた操作は全ボタン解放まで取り消す', () => {
+  for (const buttons of [3, 5, 7]) {
+    const tap = new MapTap();
+    tap.start(pointer());
+    tap.move(pointer(2, 11, 10, 1, buttons));
+    tap.move(pointer(2, 11, 10, 1, 1));
+    assert.equal(tap.end(release(0, 11, 10)), false);
+    tap.start(pointer());
+    assert.equal(tap.end(release()), true);
+  }
+});
 
 test('左クリックとタップだけを移動として確定する', () => {
   const tap = new MapTap();
   tap.start(pointer());
-  assert.equal(tap.end(pointer(0, 12, 12)), true);
-  assert.equal(tap.end(pointer()), false);
+  assert.equal(tap.end(release(0, 12, 12)), true);
+  assert.equal(tap.end(release()), false);
   for (const button of [1, 2]) {
     tap.start(pointer(button));
     tap.move(pointer(button, 40, 80));
-    assert.equal(tap.end(pointer(button, 40, 80)), false);
+    assert.equal(tap.end(release(button, 40, 80)), false);
     tap.start(pointer(button));
-    assert.equal(tap.end(pointer(button)), false);
+    assert.equal(tap.end(release(button)), false);
   }
 });
 
@@ -61,7 +74,7 @@ test('ドラッグ後に押下位置へ戻っても移動しない', () => {
   const tap = new MapTap();
   tap.start(pointer());
   tap.move(pointer(0, 50, 50));
-  assert.equal(tap.end(pointer()), false);
+  assert.equal(tap.end(release()), false);
 });
 
 test('キャンセル・capture 喪失・別 pointer・別ボタンでは移動しない', () => {
@@ -69,13 +82,13 @@ test('キャンセル・capture 喪失・別 pointer・別ボタンでは移動�
   for (let i = 0; i < 2; i++) {
     tap.start(pointer());
     tap.cancel();
-    assert.equal(tap.end(pointer()), false);
+    assert.equal(tap.end(release()), false);
   }
   tap.start(pointer());
-  assert.equal(tap.end(pointer(0, 10, 10, 2)), false);
+  assert.equal(tap.end(release(0, 10, 10, 2)), false);
   tap.start(pointer());
-  assert.equal(tap.end(pointer(2)), false);
+  assert.equal(tap.end(release(2)), false);
   tap.start(pointer());
   tap.start(pointer(0, 10, 10, 2));
-  assert.equal(tap.end(pointer()), false);
+  assert.equal(tap.end(release()), false);
 });
