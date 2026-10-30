@@ -1,4 +1,29 @@
-## 再検証と公開作業への引き継ぎ（2026-10-30）
+## PM再作業指示の今回の検証（2026-10-30）
+
+- 引き継いだ未コミット変更は `PR_BODY.md` のみです。ステージ済み差分と未追跡ファイルの出力はありませんでした。ただし共通ignoreのアクセス警告が残るため、通常管理環境での再確認は必要です。既存の作業と検証資料を保持しています。
+- `client/src/view3d/View3D.tsx` の11行目に指定の `import { recentlyHit } from '../items/effects.ts';` があり、96行目の被弾表示も呼び出しています。HEADにも存在するため、重複追加せず維持しました。ソースコードの追加変更はありません。
+- 検証対象は `b99dedab2c20cc88214bac2cdb4f6e1c36bc54d5` と引き継いだPR本文差分です。ローカル `origin/develop` は `e1f3d4dc0de7ef6b98bb5057650c53d5403cb292` で、最新性は未確認です。
+- `npm run typecheck` と `npm run check:completion` は、今回もVoltaのディレクトリ作成権限エラーで起動前に終了コード1でした。通常環境の必須完了チェックは未達です。
+- 既存Node.js 24.19.0による `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json` は終了コード0でした。その成功後に、package.jsonの `test:client`・`test:i18n`・`test:sync`・`test:movement`・`test:avatar`・`test:camera` の対象を `node node_modules/tsx/dist/cli.mjs --test <対象ファイル>` で実行しました。順に105・21・20・23・3・17件、計189件成功、失敗・スキップ0です。mapProjection・mapSettingsを含みます。
+- 型検査成功後の `node node_modules/vite/bin/vite.js build` は終了コード0です。大きいchunkとLiveKitのimport混在の警告は残ります。`node scripts/check-changelog.mjs --base e1f3d4d`、`node node_modules/tsx/dist/cli.mjs scripts/content-translations.ts validate`（38文書）、`git diff --check` も成功しました。型検査・テスト・ビルドの今回のログは `.local/verification/pm-final-*.log` に保存しています。
+- 認証復旧、push結果、最新developの確定、実アプリでの設定三択の再読み込み・パネル操作・街の電車とアイテム目印・複数クライアント同期は今回未確認です。fixtureによる代替確認も今回行っていません。管理担当によるghとGitそれぞれの認証主体・送信先・書き込み権限の確認と復旧後、オーケストレータによる最新developでの検証およびpush結果の確定が必要です。
+- `changelog/`・`shared/changelog.ts` は変更していません。Git push・PR作成／更新・リリースは実行していません。
+
+今回の利用者向けの追加変更: なし。既存のマップ改善と被弾表示を保持しました。
+
+## PM再作業指示の再確認（2026-10-30、HEAD b99deda）
+
+- 元worktreeとブランチ `agent/task-1565293913512874065-1793266290196` を維持し、`bef3bea`・`b99deda` を確認しました。開始時のステージ済み・未ステージ差分、未追跡ファイルの出力はありません。共通ignoreの読み取り権限警告は残るため、通常管理環境での確認が必要です。reset・clean・ZIPの復元・コミットは行っていません。
+- PM指定の `import { recentlyHit } from '../items/effects.ts';` と被弾表示での呼び出しはHEADに存在しました。コード変更は不要で、被弾表示を維持しています。今回の追跡対象の変更はこの検証記録のみです。
+- 今回実測した `npm run typecheck` と `npm run check:completion` は、Voltaのディレクトリ作成権限エラーで起動前に終了コード1でした。必須完了チェックは未達です。
+- 既存Node.js 24.19.0で `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json` を直接実行し、終了コード0を確認しました。その後、package.jsonにある `test:client`・`test:i18n`・`test:sync`・`test:movement`・`test:avatar`・`test:camera` の各対象を `node node_modules/tsx/dist/cli.mjs --test` から実行し、順に105・21・20・23・3・17件、計189件成功、失敗・スキップ0でした。mapProjection・mapSettingsも含まれます。
+- `node node_modules/vite/bin/vite.js build` は終了コード0です。大きいchunkとLiveKitの動的／静的import混在の警告があります。`node scripts/check-changelog.mjs --base e1f3d4d` と `node node_modules/tsx/dist/cli.mjs scripts/content-translations.ts validate` も成功し、38文書を確認しました。テスト・ビルドのログは既存資料を上書きせず `.local/verification/pm-recheck-*.log` に保存しています。
+- 検証対象は `b99deda`、ローカルの `origin/develop` は `e1f3d4d` です。最新developの確定、認証復旧、実アプリ・ブラウザでの再検証は今回実施していません。下記の過去のブラウザ記録を今回の実測とは扱いません。通常環境での必須npmコマンドの実行と、最新developに対する検証をオーケストレータへ引き継ぎます。
+- `changelog/`・`shared/changelog.ts` は変更していません。Git push・PR作成／更新・リリースは実行していません。
+
+今回の再確認による利用者向けの追加変更: なし。保存済みのマップ改善と被弾表示を保持しています。
+
+## 再検証と公開作業への引き継ぎ（2026-10-30、前回保存時の記録）
 
 指定された元worktreeとブランチ `agent/task-1565293913512874065-1793266290196` を確認しました。HEADは `bef3bea534eddcae9252a3bf38b78d38603e3ce7`、親は `e1f3d4dc0de7ef6b98bb5057650c53d5403cb292` で、22ファイルの実装を保持しています。開始時の追跡済み・ステージ済み差分と未追跡ファイルの出力はありませんでした。ただし共通Git ignoreの読み取りに権限警告があるため、通常環境でも最終確認してください。
 
