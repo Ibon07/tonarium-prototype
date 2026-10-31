@@ -15,7 +15,7 @@
 - [x] Remove client registration/login/recovery/account settings and old account-state gate; retain language choice, character creation and account-switch clearing. Three-language UI.
 - [x] Update test fixtures and add focused auth/privacy/reset regressions; independent review of server/client and destructive scope.
 - [x] Brief fresh validation: completion gate and selected auth/reset/frontier/naval/UI tests. Real PostgreSQL integration locally if available; otherwise use CI and disclose limitations.
-- [ ] Commit, push feature branch, create detailed develop PR; retain workspace and excluded scratch files.
+- [x] Commit, push feature branch, create detailed develop PR; retain workspace and excluded scratch files.
 
 ## Ownership
 
@@ -32,4 +32,4 @@ Browser-supplied hello IDs or obsolete world tickets never choose the owner. Sam
 - Client: 102/102; fantasy UI: 47/47.
 - Actual PostgreSQL platform-auth integration: 16/16; independent auth/reset review: 30/30.
 - Adapted generic gameplay fixtures: 135 unique cases passed across the original run and a full NPC rerun; the original run had one 10-second startup deadline failure, fixed by a 20-second readiness deadline. NPC rerun: 38/38.
-- No production data reset or deployment performed in this session. Publishing is the remaining step.
+- No production data reset or deployment performed in this session. Published as ready-for-review PR #391: https://github.com/katteni-kaihatu/tonarium-prototype/pull/391. No merge or deployment performed.
