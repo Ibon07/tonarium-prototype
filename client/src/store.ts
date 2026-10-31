@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import type { FantasyRealmState } from '../../shared/fantasy-realm.ts';
 import type { UiMessage } from './i18n/index.ts';
 import type { MovementMode } from './view3d/movement.ts';
-import type { AvatarState, ChatMessage, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, SessionInfo, User } from '../../shared/protocol.ts';
+import type { AvatarState, ChatMessage, DirectoryEntry, EventDef, Group, GuildConfig, Message, Mode, Participant, Person, Presence, SessionInfo, User } from '../../shared/protocol.ts';
 import { SPAWN } from '../../shared/protocol.ts';
 import type { Item } from '../../shared/items.ts';
 import { WORLDS } from './i18n/static.ts';
@@ -47,6 +47,10 @@ interface State extends AdSlice {
   adSpaceTarget: AdPanelTarget | null;
   selfId: string;
   selfName: string;
+  /** ログインしていない（端末ごとのゲスト） */
+  selfGuest: boolean;
+  /** Misskey のユーザー名。ゲストと開発用は null */
+  selfUsername: string | null;
   joined: boolean;
   wsConnected: boolean;
   wsReady: boolean;
@@ -77,15 +81,17 @@ interface State extends AdSlice {
   /** group ページで開いているグループと、グループごとに開いているチャンネル */
   homeGroup: string | null;
   homeChannel: Record<string, string>;
-  /** フレンドページで DM を開いている相手の名前 */
+  /** フレンドページで DM を開いている相手のアカウント ID */
   dmWith: string | null;
 
   /** DM とチャンネルのメッセージ（会話のキー → 古い順） */
   inbox: Record<string, Message[]>;
   /** 会話のキー → 読んだ時刻 */
   reads: Record<string, number>;
-  /** フレンドとグループの仲間（オフラインの人のステータスもここから） */
+  /** フレンドとグループの仲間（オフラインの人のステータスもここから）。アカウント ID ごと */
   people: Record<string, Person>;
+  /** ログインした人の名簿（アカウント ID → 名前・アイコン）。オフラインの人の名前はここから引く */
+  directory: Record<string, DirectoryEntry>;
   /** 来たら知らせる をつけている相手 */
   watching: string[];
   recentStatus: string[];
@@ -130,9 +136,9 @@ interface State extends AdSlice {
   volumes: Record<string, number>;
   /** 全体の音量（0〜1、手元に保存）。voice は人の声、fx はサウンドボードや効果音、media は動画・YouTube・画面共有の音 */
   audioVol: { voice: number; fx: number; media: number };
-  /** 人ごとの声の音量（0〜2、名前ごとに手元に保存）。無ければ等倍 */
+  /** 人ごとの声の音量（0〜2、アカウント ID ごとに手元に保存）。無ければ等倍 */
   peerVolume: Record<string, number>;
-  /** 自分だけミュートしている人の名前（手元に保存） */
+  /** 自分だけミュートしている人のアカウント ID（手元に保存） */
   peerMuted: string[];
   /** セッション中にホームを重ねて開いている */
   hubOpen: boolean;
@@ -214,6 +220,7 @@ interface State extends AdSlice {
   attention: Record<string, number>;
   popupPausedUntil: number;
   chatNotificationSound: boolean;
+  adBgmEnabled: boolean;
   arrivals: Partial<Record<ArrivalKind, Arrival>>;
   phoneLayout: boolean;
   rightView: 'log' | 'msg';
@@ -229,7 +236,7 @@ interface State extends AdSlice {
   followers: string[];
   /** フレンドのフレンド（自分とフレンドは除く） */
   fof: string[];
-  /** 名前単位。手元だけに保存する */
+  /** アカウント ID。手元だけに保存する */
   blocked: string[];
   /** 3D で「そばにいく」したとき Player が拾う */
   teleport: AvatarState | null;
@@ -291,6 +298,8 @@ export const useStore = create<State>((set, get) => ({
   ...createAdSlice((p) => set(p as Partial<State>), () => get() as unknown as AdSlice),
   selfId: '',
   selfName: '',
+  selfGuest: false,
+  selfUsername: null,
   joined: false,
   wsConnected: false,
   wsReady: false,
@@ -316,6 +325,7 @@ export const useStore = create<State>((set, get) => ({
   inbox: {},
   reads: {},
   people: {},
+  directory: {},
   watching: [],
   recentStatus: [],
   lastSeen: undefined,
@@ -385,6 +395,7 @@ export const useStore = create<State>((set, get) => ({
   attention: {},
   ...initialArrivalState(),
   chatNotificationSound: load('tonarium.chatNotificationSound', true),
+  adBgmEnabled: load<unknown>('tonarium.adBgmEnabled', true) !== false,
   phoneLayout: false,
   rightView: 'log',
   rightConversation: null,
@@ -393,7 +404,7 @@ export const useStore = create<State>((set, get) => ({
   switching: null,
   loadScale: load('tonarium.loadScale', 1),
   lightweight: load('tonarium.lightweight', false),
-  mapMode: load('tonarium.mapMode', 'none'),
+  mapMode: load('tonarium.mapMode', '2d'),
   voiceHeat: load('tonarium.voiceHeat', true),
   walk: null,
   volumes: {},
@@ -402,8 +413,8 @@ export const useStore = create<State>((set, get) => ({
     fx: savedAudioVol.fx ?? 0.05,
     media: savedAudioVol.media ?? 0.05,
   },
-  peerVolume: load('tonarium.peerVolume', {}),
-  peerMuted: load('tonarium.peerMuted', []),
+  peerVolume: load('tonarium.peerVolumeById', {}),
+  peerMuted: load('tonarium.peerMutedIds', []),
   hubOpen: false,
   phoneTab: 'screen',
   friendsTab: 'all',
@@ -421,7 +432,7 @@ export const useStore = create<State>((set, get) => ({
   following: [],
   followers: [],
   fof: [],
-  blocked: load('tonarium.blocked', []),
+  blocked: load('tonarium.blockedIds', []),
   teleport: null,
   hits: {},
   pokes: {},
@@ -459,6 +470,11 @@ export interface ItemUi { sel?: number; chessRevision?: number; promotionTo?: nu
 export const set = useStore.setState;
 export const get = useStore.getState;
 
+export function setAdBgmEnabled(enabled: boolean) {
+  save('tonarium.adBgmEnabled', enabled);
+  set({ adBgmEnabled: enabled });
+}
+
 export function recompute() {
   const s = get();
   const next = deriveSession(s, s);
@@ -476,9 +492,10 @@ export function dropSession(sid: string | null) {
   });
 }
 
-export function nameOf(id: string | null) {
+/** アカウント ID から表示名。オンラインの人、次に名簿（オフラインのログインした人）から引く */
+export function nameOf(id: string | null, s: Pick<State, 'users' | 'directory'> = get()) {
   if (!id) return '';
-  return get().users.find((p) => p.id === id)?.name ?? t('ui74');
+  return s.users.find((p) => p.id === id)?.name ?? s.directory[id]?.name ?? t('ui74');
 }
 
 export function sessionOf(id: string | null) {
@@ -512,7 +529,7 @@ export function showToast(text: string | UiMessage) {
 }
 
 /** 自分以外の人が送った、読んでいないメッセージの数 */
-export function unreadOf(s: { inbox: Record<string, Message[]>; reads: Record<string, number>; selfName: string }, conv: string) {
+export function unreadOf(s: { inbox: Record<string, Message[]>; reads: Record<string, number>; selfId: string }, conv: string) {
   const read = s.reads[conv] ?? 0;
-  return (s.inbox[conv] ?? []).filter((m) => m.at > read && m.from !== s.selfName).length;
+  return (s.inbox[conv] ?? []).filter((m) => m.at > read && m.from !== s.selfId).length;
 }

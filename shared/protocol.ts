@@ -36,7 +36,7 @@ export type Mode = '2d' | '3d';
  * 約束事を壊す変更（メッセージの追加・意味の変更など）を入れたら +1 する。
  * hello で申告が無い・一致しないクライアントはサーバーが接続を断ち、画面は全面で更新を促す（docs/sync.md）
  */
-export const COMPAT_VERSION = 16;
+export const COMPAT_VERSION = 17;
 
 /** セッションを見られる人。省略時は public */
 export type Visibility = 'public' | 'friends' | 'groupPlus' | 'group' | 'invite';
@@ -61,13 +61,25 @@ export const STATUS_INFO: Record<StatusKind, { name: string; desc: string; color
 export const STATUS_KINDS = Object.keys(STATUS_INFO) as StatusKind[];
 export const STATUS_TEXT_MAX = 32;
 
-/** オフラインでも見える人の情報（フレンドとグループの仲間の分だけ届く） */
+/** オフラインでも見える人の情報（フレンドとグループの仲間の分だけ届く）。名前やアイコンは名簿（DirectoryEntry）から引く */
 export interface Person {
-  name: string;
+  id: string;
   status: StatusKind;
   statusText: string;
   /** 最後にいなくなった時刻。オンライン中や不明なら null */
   lastSeen: number | null;
+}
+
+/** ログインした人（ゲスト以外）の名前とアイコン。オフラインの人もアカウント ID からここで引く */
+export interface DirectoryEntry {
+  id: string;
+  name: string;
+  /** Misskey のユーザー名。開発用は null */
+  username: string | null;
+  /** アイコンの版。null ならアイコンなし */
+  icon: string | null;
+  /** 3D アバターの版。null ならサンプル */
+  avatar: string | null;
 }
 
 export interface Channel { id: string; name: string }
@@ -79,6 +91,7 @@ export const PLAN_QUORUM = 3;
 export interface Plan {
   at: number;
   session: string | null;
+  /** 答えた人のアカウント ID ごと */
   answers: Record<string, Rsvp>;
   /** イベントになったらその ID */
   event: string | null;
@@ -91,21 +104,22 @@ export interface Recap {
   sessionName: string;
   from: number;
   to: number;
-  people: string[];
+  /** いた人。ゲストは名簿に無いので、そのときの名前も残す */
+  people: { id: string; name: string }[];
   items: RecapItem[];
-  log: { name: string; text: string; at: number }[];
+  /** 話した人はアカウント ID（ゲストは名簿に無いので、そのときの名前も残す） */
+  log: { id: string; name: string; text: string; at: number }[];
 }
 
 /**
- * DM とグループのチャンネルのメッセージ。会話のキーは dm:<名前>\0<名前>（名前順）か ch:<グループ ID>:<チャンネル ID>。
- * from は名前で、空ならシステムの投稿（まとめ）
+ * DM とグループのチャンネルのメッセージ。会話のキーは dm:<アカウント ID>:<アカウント ID>（並び替え。DB の文字列に NUL を入れられないので : で区切る。ID は UUID なので : を含まない）か ch:<グループ ID>:<チャンネル ID>。
+ * from は送った人のアカウント ID で、空ならシステムの投稿（まとめ）
  */
 export interface Message {
   id: string;
   from: string;
   at: number;
   text: string;
-  voice?: { url: string; sec: number };
   media?: ChatMedia;
   plan?: Plan;
   recap?: Recap;
@@ -114,10 +128,10 @@ export interface Message {
   /** 共有したアイテム（セッションに置いてあるもの） */
   item?: { session: string; id: string; kind: ItemKind; summary: string };
 }
-export const dmKey = (a: string, b: string) => `dm:${[a, b].sort().join('\u0000')}`;
+export const dmKey = (a: string, b: string) => `dm:${[a, b].sort().join(':')}`;
 export const channelKey = (group: string, channel: string) => `ch:${group}:${channel}`;
-/** dm のキーから相手の名前を取り出す */
-export const dmPeer = (conv: string, self: string) => conv.slice(3).split('\u0000').find((n) => n !== self) ?? self;
+/** dm のキーから相手のアカウント ID を取り出す */
+export const dmPeer = (conv: string, self: string) => conv.slice(3).split(':').find((n) => n !== self) ?? self;
 
 /** セッション（通話・配信・アイテムを持ち、ワールド＝ 3D 空間を 1 つ読み込む） */
 export interface SessionDef {
@@ -127,11 +141,11 @@ export interface SessionDef {
   /** 最初に読み込むワールド。省略時は room */
   world?: WorldKind;
   visibility?: Visibility;
-  /** 作った人の名前。sessions.json のものは無い */
+  /** 作った人のアカウント ID。sessions.json のものは無い */
   owner?: string;
   /** visibility が group のときのグループ ID */
   group?: string;
-  /** 誘われた人の名前 */
+  /** 誘われた人のアカウント ID */
   invited?: string[];
 }
 export interface GuildConfig {
@@ -143,10 +157,10 @@ export interface Group {
   id: string;
   name: string;
   color: string;
+  /** 人はすべてアカウント ID */
   owner: string;
   imageVersion?: number;
   editors?: string[];
-  /** メンバーの名前 */
   members: string[];
   /** 先頭が既定のチャンネル（セッションのまとめもここに残る） */
   channels: Channel[];
@@ -160,8 +174,8 @@ export interface EventDef {
   group: string | null;
   /** 会場のセッション */
   session: string | null;
+  /** 人はすべてアカウント ID */
   owner: string;
-  /** 「来る」と答えた人の名前 */
   attendees: string[];
   maybe: string[];
   declined: string[];
@@ -181,6 +195,12 @@ export interface User {
   bio: string;
   status: StatusKind;
   statusText: string;
+  /** ログインしていない人（端末ごとのゲスト） */
+  guest: boolean;
+  /** Misskey のユーザー名（@ の後ろ）。ゲストと開発用は null */
+  username: string | null;
+  /** 本人が「ボットです」と申告している（AI エージェント等）。名前の横に印を付ける */
+  bot: boolean;
 }
 
 /** セッションの中だけで使う、その人の状態。LiveKit の部屋でそのセッションの人にだけ配る */
@@ -217,6 +237,8 @@ export interface ChatMessage {
   /** null はシステムメッセージ（ログのイベント） */
   from: string | null;
   fromName: string;
+  /** 発言時にボット申告をしていた（履歴に残っても印が消えないよう、発言へ写す） */
+  fromBot?: boolean;
   text: string;
   /** data URL（写真・キャンバスの保存など） */
   image?: string;
@@ -233,7 +255,7 @@ export interface ChatMessage {
   hammer?: { from: string; to: string; count: number; lastHitAt: number };
 }
 
-export interface ChatMedia { kind: 'image' | 'video'; url: string; w: number; h: number }
+export interface ChatMedia { kind: 'image'; url: string; w: number; h: number }
 
 export const LEAN_ANGLE = Math.PI / 18;
 
@@ -323,14 +345,15 @@ export type HomeClientMsg =
   | ({ t: 'communityContribute' } & FantasyCommunityRequest)
   | { t: 'thumbnailUpload'; sid: string; thumbnail: string }
   | { t: 'marketLike'; product: string }
-  | { t: 'hello'; id: string; name: string; compat?: number }
+  /** 本人はサーバーが Cookie のセッションで決める */
+  | { t: 'hello'; compat?: number }
   | { t: 'join'; sid: string; requestId?: string }
   | { t: 'leave'; requestId?: string }
   | { t: 'prepareSync'; requestId: string; peerPositions?: boolean; peerDelivery?: boolean }
   /** /icon・/avatar・/profile へ保存した後に、同じ名前のオンラインの人へ反映させる */
   | { t: 'profileUpdated' }
   /** name をフォローする（on: false で外す）。お互いにフォローするとフレンド */
-  | { t: 'followUser'; name: string; on: boolean }
+  | { t: 'followUser'; to: string; on: boolean }
   /** withPlace ならサーバーがいまのセッションと 2D/3D を場所として付ける */
   | { t: 'postCreate'; text: string; withPlace: boolean; image?: string; attach?: PostAttach; quote?: string; replyTo?: string }
   | { t: 'postDelete'; id: string }
@@ -346,13 +369,13 @@ export type HomeClientMsg =
   | { t: 'eventCreate'; title: string; at: number; group: string | null; session: string | null }
   | { t: 'eventAttend'; id: string; answer: Rsvp | null }
   | { t: 'channelCreate'; group: string; name: string }
-  | { t: 'msg'; conv: string; text: string; voice?: { url: string; sec: number }; media?: ChatMedia; plan?: { at: number; session: string | null }; invite?: string; item?: { session: string; id: string } }
+  | { t: 'msg'; conv: string; text: string; media?: ChatMedia; plan?: { at: number; session: string | null }; invite?: string; item?: { session: string; id: string } }
   /** at までを読んだ */
   | { t: 'read'; conv: string; at: number }
   | { t: 'rsvp'; conv: string; id: string; answer: Rsvp | null }
   | { t: 'setStatus'; status: StatusKind; text: string }
   /** 来たら知らせる */
-  | { t: 'watch'; name: string; on: boolean }
+  | { t: 'watch'; to: string; on: boolean }
   /** 声かけての人に「行ってもいい？」と聞く。to はユーザー ID */
   | { t: 'askJoin'; to: string }
   | { t: 'eventDelete'; id: string }
@@ -435,6 +458,8 @@ export type HomeServerMsg =
   | { t: 'marketLikes'; counts: Record<string, number>; liked: string[] }
   /** 互換性バージョンが合わず接続を断るときに、切断の直前に送る */
   | { t: 'incompatible'; compat: number }
+  /** ゲストが、ログインした人だけの操作をしようとした */
+  | { t: 'loginRequired' }
   | { t: 'syncConfig'; requestId: string; config: SyncConfig }
   | { t: 'syncError'; requestId: string; error: string }
   | { t: 'syncReset'; sid: string }
@@ -442,7 +467,7 @@ export type HomeServerMsg =
   | { t: 'users'; list: User[] }
   | { t: 'sessionInfo'; sessions: Record<string, SessionInfo> }
   | { t: 'followed'; from: string; fromName: string }
-  | { t: 'friends'; names: string[] }
+  | { t: 'friends'; ids: string[] }
   /** fof はフレンドのフレンド（自分とフレンドは除く） */
   | { t: 'follows'; following: string[]; followers: string[]; fof: string[] }
   | { t: 'posts'; list: Post[] }
@@ -459,7 +484,9 @@ export type HomeServerMsg =
   | { t: 'msg'; conv: string; m: Message }
   | { t: 'read'; conv: string; at: number }
   | { t: 'people'; list: Person[] }
-  | { t: 'watching'; names: string[]; recentStatus: string[] }
+  /** ログインした人の名簿（hello で全員分、変わったら 1 人分） */
+  | { t: 'directory'; list: DirectoryEntry[]; full: boolean }
+  | { t: 'watching'; ids: string[]; recentStatus: string[] }
   | { t: 'survivorProfile'; profile: SurvivorProfile }
   | { t: 'fantasyProfile'; profile: FantasyProfile; error?: string }
   | { t: 'fantasyRealmState'; state: FantasyRealmState | null; error?: string }

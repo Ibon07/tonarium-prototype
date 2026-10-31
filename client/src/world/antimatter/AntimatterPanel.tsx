@@ -10,27 +10,27 @@ import { ProfilePanel } from './ProfilePanel.tsx';
 import { ProgressPicker, ProgressSummary } from './ProgressPicker.tsx';
 import { LayerTabs } from './LayerTabs.tsx';
 import './antimatter-panel.css';
-import { LabBanner } from './LabArt.tsx';
 import { emitAdFeedback } from '../../ad/feedback.ts';
 import { AdPurchaseParticles } from './AdPurchaseParticles.tsx';
-import { t, useLanguage } from '../../i18n/index.ts';
+import { AdBgmToggle } from '../../ad/AdBgmToggle.tsx';
+import { t, useLanguage, msg, systemText, type UiMessage } from '../../i18n/index.ts';
 
 type TabId = 'dimensions' | 'actions' | 'stats' | 'profiles' | 'layers';
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'dimensions', label: '次元' },
-  { id: 'actions', label: 'Boost / 銀河 / Sacrifice / Crunch' },
-  { id: 'stats', label: '統計・実績・ランキング' },
+  { id: 'dimensions', label: 'adLabText4' },
+  { id: 'actions', label: 'adLabText5' },
+  { id: 'stats', label: 'adLabText6' },
   { id: 'profiles', label: 'adSaveTab' },
-  { id: 'layers', label: 'レイヤー' },
+  { id: 'layers', label: 'adLabText7' },
 ];
 
 export function AntimatterPanel({ ad }: AntimatterPanelProps) {
   useLanguage();
   const root = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<TabId>('dimensions');
-  const [notice, setNotice] = useState<string | null>(null);
-  const showNotice = (msg: string) => setNotice(msg);
+  const [notice, setNotice] = useState<UiMessage | null>(null);
+  const showNotice = (message: UiMessage) => setNotice(message);
 
   useEffect(() => {
     if (!notice) return;
@@ -39,56 +39,63 @@ export function AntimatterPanel({ ad }: AntimatterPanelProps) {
   }, [notice]);
 
   const { game, derived } = ad;
+  const activeTab = tab === 'layers' && !(game.infinities > 0) ? 'dimensions' : tab;
+  if (activeTab !== tab) setTab(activeTab);
   const offline = ad.offlineNotice;
   const offlineGained = offline && (offline.antimatterGained.mantissa ?? 0) !== 0 && offline.elapsedMs >= 5000;
 
   return (
-    <div ref={root} className="ad-lab-panel" style={s.root} role="region" aria-label="AD 研究所" tabIndex={0}>
-      <div data-ad-core><LabBanner kind="reactor" eyebrow="ANTIMATTER LAB" title="回せ、次元リアクター！" description="次元を買って反物質を増産。10個ごとに倍率アップ、Boost で次の次元へ！" /></div>
-      <div style={s.header}>
-        <span className="ad-resource-label">ANTIMATTER / 反物質</span>
-        <span className="ad-resource-value" style={s.big}>{formatNumber(game.antimatter)}</span>
-        <span style={s.muted}>{formatNumber(derived.antimatterPerSecond)} /秒</span>
-        <span style={s.muted}>IP: {formatNumber(game.infinityPoints)}</span>
-        <span style={s.muted}>Boost: {game.dimensionalBoosts} · 銀河: {game.galaxies}</span>
-        <span style={{ flex: 1 }} />
-        {ad.activeProfile && <span style={s.muted}>{ad.activeProfile.name}</span>}
+    <div ref={root} className="ad-lab-panel" style={s.root} role="region" aria-label={t('mergeAdLab')} tabIndex={0}>
+      <div className="ad-header" style={s.header}>
+        <div className="ad-resource" data-ad-core>
+          <span className="ad-resource-label">{t('adLabText1')}</span>
+          <span className="ad-resource-value ad-number" style={s.big}>{formatNumber(game.antimatter)}</span>
+          <span className="ad-number" style={s.muted}>{t('adPerSecond', formatNumber(derived.antimatterPerSecond))}</span>
+        </div>
+        <div className="ad-header-progress">
+          <span className="ad-number">IP: {formatNumber(game.infinityPoints)}</span>
+          <span>{t('adLabText2', game.dimensionalBoosts, game.galaxies)}</span>
+        </div>
+        <div className="ad-header-profile">
+          {ad.activeProfile && <span style={s.muted}>{ad.activeProfile.name}</span>}
+          <AdBgmToggle />
+        </div>
       </div>
-      <div style={s.tabs} aria-label="研究メニュー">
-        {TABS.map((item) => (
-          <button key={item.id} aria-pressed={item.id === tab} style={item.id === tab ? s.tabActive : s.tab} onClick={() => {
-            if (item.id === tab) return;
+      <div style={s.tabs} aria-label={t('adLabText10')}>
+        {TABS.filter(item => item.id !== 'layers' || game.infinities > 0).map((item) => (
+          <button key={item.id} aria-pressed={item.id === activeTab} style={item.id === activeTab ? s.tabActive : s.tab} onClick={() => {
+            if (item.id === activeTab) return;
             setTab(item.id);
             emitAdFeedback({ kind: 'navigate' });
-          }}>{item.id === 'profiles' ? t('adSaveTab') : item.label}</button>
+          }}>{t(item.label)}</button>
         ))}
       </div>
-      {notice && <div style={s.notice}>{notice}</div>}
-      {ad.serverStatus && <div role="status" style={s.notice}>{ad.serverStatus}</div>}
+      {notice && <div style={s.notice}>{systemText(notice)}</div>}
+      {ad.serverStatus && <div role="status" style={s.notice}>{systemText(ad.serverStatus)}</div>}
       {ad.migration && <div style={s.notice}><h3>{t('adUseProgress')}</h3><ProgressPicker ad={ad} migration notice={showNotice} /></div>}
       {!ad.migration && ad.syncState === 'choice' && <div style={s.row}>
         {(['local', 'remote'] as const).map(source => <div key={source}>
           {ad.syncSources && <ProgressSummary save={ad.syncSources[source]} />}
           <button style={s.btn} onClick={() => {
-            try { ad.chooseSave(source); } catch { showNotice(t('adProfileFailed')); }
+            try { ad.chooseSave(source); } catch { showNotice(msg('adProfileFailed')); }
           }}>{t(source === 'local' ? 'adChooseLocal' : 'adChooseRemote')}</button>
         </div>)}
       </div>}
-      {tab === 'dimensions' && <DimensionList ad={ad} />}
-      {tab === 'actions' && <ActionBar ad={ad} notice={showNotice} />}
-      {tab === 'stats' && <StatsPanel ad={ad} notice={showNotice} />}
-      {tab === 'profiles' && <ProfilePanel ad={ad} notice={showNotice} />}
-      {tab === 'layers' && <LayerTabs ad={ad} />}
+      {activeTab === 'dimensions' && <DimensionList ad={ad} />}
+      {activeTab === 'actions' && <ActionBar ad={ad} notice={showNotice} />}
+      {activeTab === 'stats' && <StatsPanel ad={ad} notice={showNotice} />}
+      {activeTab === 'profiles' && <ProfilePanel ad={ad} notice={showNotice} />}
+      {activeTab === 'layers' && <LayerTabs ad={ad} />}
       <AdPurchaseParticles root={root} />
       {offlineGained && createPortal(
-        <div style={s.modal} data-xr-surface="ad-offline" data-xr-layout="dialog" data-xr-min-width="512" data-xr-title="ADオフライン報酬" onClick={() => ad.dismissOffline()}>
+        <div style={s.modal} data-xr-surface="ad-offline" data-xr-layout="dialog" data-xr-min-width="512" data-xr-title={t('adLabText11')} onClick={() => ad.dismissOffline()}>
           <div style={s.modalBox} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: 0 }}>おかえりなさい</h3>
+            <h3 style={{ margin: 0 }}>{t('adLabText3')}</h3>
             <p style={{ margin: 0 }}>
-              {formatDurationMs(offline.simulatedMs)} の離席中に、反物質が {formatNumber(offline.antimatterGained)} 増えました！（現在 {formatNumber(game.antimatter)}）
-              {offline.simulatedMs < offline.elapsedMs ? ' ※オフライン進行は最大8時間まで計算されます。' : ''}
+              {t('adOfflineGained', formatDurationMs(offline.simulatedMs), formatNumber(offline.antimatterGained), formatNumber(game.antimatter))}
+              {offline.simulatedMs < offline.elapsedMs ? t('adLabText12') : ''}
             </p>
-            <button style={s.btn} onClick={() => ad.dismissOffline()}>閉じる</button>
+            <button style={s.btn} onClick={() => ad.dismissOffline()}>{t('tlCloseDetail')}</button>
           </div>
         </div>,
         document.body,

@@ -1,9 +1,10 @@
+import { t } from '../../i18n/core.ts';
 import type { CSSProperties } from 'react';
 import { formatNumber as formatNumberLocal } from './format.ts';
 // 共通部品はインライン、反応・アニメーションは名前空間付き CSS で定義する。
 export const s: Record<string, CSSProperties> = {
-  root: { display: 'flex', flexDirection: 'column', gap: 10, width: '100%', height: '100%', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', scrollbarGutter: 'stable', boxSizing: 'border-box', padding: 10, borderRadius: 10, background: '#10122c', color: '#f2eef5', fontSize: 13, lineHeight: 1.5, textAlign: 'left' },
-  header: { display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'baseline', padding: '8px 10px', borderRadius: 10, background: 'linear-gradient(120deg, rgba(91,45,174,.6), rgba(11,91,122,.4))', border: '1px solid rgba(128,208,255,.4)' },
+  root: { display: 'flex', flexDirection: 'column', gap: 10, width: '100%', height: '100%', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', scrollbarGutter: 'stable', boxSizing: 'border-box', padding: 10, borderRadius: 10, background: '#10122c', color: '#f2eef5', fontSize: 13, lineHeight: 1.5, fontVariantNumeric: 'tabular-nums', textAlign: 'left' },
+  header: { display: 'grid', gap: 10, alignItems: 'start', padding: '8px 10px', borderRadius: 10, background: 'linear-gradient(120deg, rgba(91,45,174,.6), rgba(11,91,122,.4))', border: '1px solid rgba(128,208,255,.4)' },
   big: { fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums' },
   muted: { color: 'rgba(242,238,245,0.65)', fontSize: 12 },
   tabs: { display: 'flex', flexWrap: 'wrap', gap: 6 },
@@ -21,7 +22,7 @@ export const s: Record<string, CSSProperties> = {
   notice: { padding: '8px 10px', borderRadius: 10, background: 'rgba(255,211,109,0.16)', color: '#ffe9b0' },
   modal: { position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', padding: 16 },
   modalBox: { maxWidth: 480, width: '100%', borderRadius: 14, background: '#10122c', color: '#f2eef5', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 12 },
+  table: { width: '100%', tableLayout: 'fixed', overflowWrap: 'anywhere', borderCollapse: 'collapse', fontSize: 12 },
   num: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
   sectionTitle: { fontSize: 14, fontWeight: 700, margin: '4px 0 0' },
 };
@@ -29,17 +30,17 @@ export const s: Record<string, CSSProperties> = {
 export const TIER_EN = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
 
 export const ACHIEVEMENT_DEFS = [
-  { id: 'first-dimension', name: 'はじめの一歩', desc: '第1次元を初めて購入する' },
-  { id: 'eighth-dimension', name: '第8次元到達', desc: '第8次元を初めて購入する' },
-  { id: 'antimatter-1e100', name: '反物質 1e100', desc: '反物質を 1e100 以上にする' },
-  { id: 'first-boost', name: '初めての Dimension Boost', desc: 'Dimension Boost を初めて行う' },
-  { id: 'first-galaxy', name: '初めての銀河', desc: 'Antimatter Galaxy を初めて作る' },
-  { id: 'first-sacrifice', name: '初めての Sacrifice', desc: 'Sacrifice を初めて行う' },
-  { id: 'first-infinity', name: '初めての Infinity', desc: 'Big Crunch を初めて行い、Infinity に到達する' },
+  { id: 'first-dimension', get name() { return t('adLabText133'); }, get desc() { return t('adLabText134'); } },
+  { id: 'eighth-dimension', get name() { return t('adLabText135'); }, get desc() { return t('adLabText136'); } },
+  { id: 'antimatter-1e100', get name() { return t('adLabText137'); }, get desc() { return t('adLabText138'); } },
+  { id: 'first-boost', get name() { return t('adLabText139'); }, get desc() { return t('adLabText140'); } },
+  { id: 'first-galaxy', get name() { return t('adLabText141'); }, get desc() { return t('adLabText142'); } },
+  { id: 'first-sacrifice', get name() { return t('adLabText143'); }, get desc() { return t('adLabText144'); } },
+  { id: 'first-infinity', get name() { return t('adLabText145'); }, get desc() { return t('adLabText146'); } },
 ] as const;
 
 // app.js の dimensionMultiplierText と同じ表示規則。生産計算には使わない。
-export function dimensionMultiplierText(tier: number, bought: number, boosts: number, sacrificeBoost: import('./types.ts').BigNum): string {
+export function dimensionMultiplierText(tier: number, bought: number, boosts: number, sacrificeBoost: import('./types.ts').BigNum, includeSacrifice = true): string {
   const logMult = (Math.floor(bought / 10) + Math.max(boosts - (tier - 1), 0)) * Math.log10(2);
   let text: string;
   if (logMult < 15) {
@@ -48,6 +49,6 @@ export function dimensionMultiplierText(tier: number, bought: number, boosts: nu
     const exponent = Math.floor(logMult);
     text = `×${(10 ** (logMult - exponent)).toFixed(2)}e${exponent}`;
   }
-  if (tier === 8) text += ` × Sacrifice ${formatNumberLocal(sacrificeBoost)}`;
+  if (tier === 8 && includeSacrifice) text += ` × Sacrifice ${formatNumberLocal(sacrificeBoost)}`;
   return text;
 }

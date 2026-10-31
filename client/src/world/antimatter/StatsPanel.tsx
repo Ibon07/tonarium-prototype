@@ -1,13 +1,12 @@
 import { Fragment, useId, useState } from 'react';
 import { Icon } from '../Icon.tsx';
 import { groupLeaderboard } from './leaderboard.ts';
-import { t, useLanguage } from '../../i18n/index.ts';
+import { t, useLanguage, msg, type UiMessage } from '../../i18n/index.ts';
 import type { AntimatterSlice } from './types.ts';
 import { formatDuration, formatFromLog10, formatNumber } from './format.ts';
 import { ACHIEVEMENT_DEFS, s } from './styles.ts';
-import { LabBanner } from './LabArt.tsx';
 
-export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: string) => void }) {
+export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (message: UiMessage) => void }) {
   useLanguage();
   const { game } = ad;
   const [expandedNames, setExpandedNames] = useState<Set<string>>(() => new Set());
@@ -22,31 +21,31 @@ export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: 
   const playTimeSec = Math.max(0, Math.floor((Date.now() - (game.createdAt || Date.now())) / 1000));
   const defs: { id: string; name: string; desc: string }[] = [...ACHIEVEMENT_DEFS];
   for (const id of game.achievements) {
-    if (!defs.some((d) => d.id === id)) defs.push({ id, name: id, desc: '解除済みの実績' });
+    if (!defs.some((d) => d.id === id)) defs.push({ id, name: id, desc: t('adLabText57') });
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <LabBanner kind="trophy" eyebrow="YOUR LAB RECORD" title="研究成果、積み上がってる！" description={`実績 ${owned.size} 個を解除。次元を育てて、次の記録に挑もう。`} />
+      <h2 style={s.sectionTitle}>{t('adLabText58')} <span style={s.muted}>{t('adLabText59', owned.size)}</span></h2>
       <div>
-        <h3 style={s.sectionTitle}>統計</h3>
+        <h3 style={s.sectionTitle}>{t('adLabText43')}</h3>
         <div style={s.row}>
-          <span>累計反物質: {formatNumber(game.totalAntimatter)}</span>
-          <span>プレイ時間: {formatDuration(playTimeSec)}</span>
-          <span>Boost: {game.dimensionalBoosts} 回</span>
-          <span>銀河: {game.galaxies} 個</span>
-          <span>Infinity: {game.infinities} 回</span>
+          <span>{t('adLabText44', formatNumber(game.totalAntimatter))}</span>
+          <span>{t('adLabText45', formatDuration(playTimeSec))}</span>
+          <span>{t('adLabText46', game.dimensionalBoosts)}</span>
+          <span>{t('adLabText47', game.galaxies)}</span>
+          <span>{t('adLabText48', game.infinities)}</span>
           <span>IP: {formatNumber(game.infinityPoints)}</span>
-          <span>Tickspeed 購入: {game.tickspeedBought} 回</span>
-          <span>Sacrifice 倍率: ×{formatNumber(game.sacrificeBoost)}</span>
+          <span>{t('adLabText49', game.tickspeedBought)}</span>
+          <span>{t('adLabText50', formatNumber(game.sacrificeBoost))}</span>
         </div>
       </div>
       <div>
-        <h3 style={s.sectionTitle}>実績 <span style={s.muted}>（{owned.size}/{defs.length} 解除）</span></h3>
+        <h3 style={s.sectionTitle}>{t('ui819')}<span style={s.muted}>{t('adLabText51', owned.size, defs.length)}</span></h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {defs.map((d) => (
             <div key={d.id} style={{ ...s.row, opacity: owned.has(d.id) ? 1 : 0.65, borderRadius: 10, padding: '10px 12px', background: owned.has(d.id) ? 'linear-gradient(110deg, #234143, #302744)' : '#182238', border: `1px solid ${owned.has(d.id) ? '#78edd95c' : '#66729333'}` }}>
-              <span>{owned.has(d.id) ? '🏆' : '🔒'} <b>{d.name}</b></span>
+              <span><Icon name={owned.has(d.id) ? 'check' : 'lock'} size={16} /> <span style={s.muted}>{t(owned.has(d.id) ? 'adAchieved' : 'adNotAchieved')}</span> <b>{d.name}</b></span>
               <span style={s.muted}>{d.desc}</span>
             </div>
           ))}
@@ -59,7 +58,7 @@ export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: 
         ) : (
           <div className="ad-ranking-scroll" role="region" aria-label={t('adRankingScroll')} tabIndex={0}>
             <table style={s.table} className="ad-ranking-table">
-              <thead><tr><th scope="col" style={s.num}>{t('adRankingRank')}</th><th scope="col">{t('adLabText54')}</th><th scope="col" style={s.num}>{t('adLabText55')}</th><th scope="col" style={s.num}>{t('adRankingInfinity')}</th><th scope="col" style={s.num}>{t('adLabText56')}</th></tr></thead>
+              <thead><tr><th scope="col" style={s.num}>{t('adRankingRank')}</th><th scope="col">{t('adLabText54')}</th><th scope="col" style={s.num}>{t('adLabText55')}</th><th scope="col" style={s.num}>{t('adRankingBoost')}</th><th scope="col" style={s.num}>{t('adRankingInfinity')}</th><th scope="col" style={s.num}>{t('adLabText56')}</th></tr></thead>
               {groups.map(({ rank, representative: e, records, hasSelfInRecords }, index) => {
                 const expanded = expandedNames.has(e.name);
                 const recordsId = `${rankingId}-records-${index}`;
@@ -80,6 +79,7 @@ export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: 
                         </div>}
                       </th>
                       <td style={s.num}>{formatFromLog10(e.antimatterLog10)}</td>
+                      <td style={s.num}>{e.dimensionalBoosts === undefined ? t('adRankingUnavailable') : e.dimensionalBoosts}</td>
                       <td style={s.num}>{e.infinities}</td>
                       <td style={s.num}>{formatDuration(e.playTimeSec)}</td>
                     </tr>
@@ -89,6 +89,7 @@ export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: 
                       <td />
                       <th scope="row" className="ad-ranking-name"><span>{record.name}</span>{record.self && <span className="ad-ranking-badge"><Icon name="user" size={14} />{t('adRankingSelf')}</span>}</th>
                       <td style={s.num}>{formatFromLog10(record.antimatterLog10)}</td>
+                      <td style={s.num}>{record.dimensionalBoosts === undefined ? t('adRankingUnavailable') : record.dimensionalBoosts}</td>
                       <td style={s.num}>{record.infinities}</td>
                       <td style={s.num}>{formatDuration(record.playTimeSec)}</td>
                     </tr>)}
@@ -100,7 +101,7 @@ export function StatsPanel({ ad, notice }: { ad: AntimatterSlice; notice: (msg: 
         )}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
           <span style={s.muted}>{t('adRankingAuto', ad.activeProfile?.name ?? '')}</span>
-          <button type="button" style={s.btn} onClick={() => { void ad.refreshLeaderboard().catch(() => notice(t('adRankingFailed'))); }}>{t('adRankingRefresh')}</button>
+          <button type="button" style={s.btn} onClick={() => { void ad.refreshLeaderboard().catch(() => notice(msg('adRankingFailed'))); }}>{t('adRankingRefresh')}</button>
         </div>
       </div>
     </div>

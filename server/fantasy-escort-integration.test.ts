@@ -188,4 +188,3 @@ test('effective mana growth during escort combat keeps the wagon snapshot and sa
   const f = fixture(t, { a: p }); accept(f); const initial = start(f); const hp = initial.escort!.wagon.stats.hp; const final = win(f, initial, true);
   assert.equal(final.escort!.wagon.stats.hp, hp); assert.ok(f.store.profile('a').character!.mana!.stage >= 2); f.restart(); assert.ok(validFantasyCombatState(f.store.combat('a', 'same')));
 });
-
