@@ -1,4 +1,4 @@
-import { fantasyHasJob, fantasyLifeJob } from './fantasy-careers.ts';
+import { fantasyHasJob } from './fantasy-careers.ts';
 import type { FantasyAction, FantasyCharacter, FantasyProfile, FantasyResult } from './fantasy.ts';
 import type { NpcLocale } from './npc.ts';
 import { FANTASY_ITEMS } from './fantasy-data.ts';

@@ -1,5 +1,5 @@
 import { advanceFantasyBusinesses } from './fantasy-business.ts';
-import type { FantasyCharacter, FantasyProfile, FantasyResult, FantasyStats } from './fantasy.ts';
+import type { FantasyProfile, FantasyResult, FantasyStats } from './fantasy.ts';
 import { FANTASY_ITEMS } from './fantasy-data.ts';
 import { fantasyReputation } from './fantasy-reputation.ts';
 import { fantasyFurnitureFatigueBonus } from './fantasy-furniture.ts';
@@ -49,7 +49,6 @@ const who = (p: FantasyProfile, user: string): Party => ({ user, generation: p.g
 const matches = (party: Party | null | undefined, user: string, p: FantasyProfile | undefined) => !!party && !!p?.character && !p.death && party.user === user && party.generation === (p.generation ?? 1);
 const alive = (p: FantasyProfile | undefined) => !!p?.character && !p.death && p.character.hp > 0;
 const quiet = (p: FantasyProfile | undefined) => alive(p) && !p!.activity && !p!.combatId && !p!.event;
-const deed = (ledger: FantasyPropertyLedger, plot: string) => ledger.plots[plot];
 export const FANTASY_PROPERTY_BLUEPRINTS: Record<'farmland' | 'commercial' | 'residence', FantasyPropertyBlueprint[]> = {
   farmland: ['irrigation', 'greenhouse', 'granary'], commercial: ['workshop', 'shopfront', 'storehouse'], residence: ['hearth', 'bedroom', 'garden'],
 };

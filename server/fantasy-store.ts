@@ -77,7 +77,7 @@ import { validFantasyVoyageDecisions } from '../shared/fantasy-voyage-decisions.
 import { advanceFantasyCombat, createFantasyCombat, addFantasyCombatParticipant, submitFantasyCombatOrder, validFantasyCombatState, type FantasyCombatState, type FantasyCombatOrder, type FantasyCombatResult } from '../shared/fantasy-combat.ts';
 import { fantasyCombatPlayer, fantasyCombatSupplies, fantasyCombatProfessionUsesCombat, fantasyCombatApplyCompanions } from './fantasy-combat-adapter.ts';
 import { fantasyCombatStartError, fantasyCombatStartPlan, fantasyCombatWarningError, validFantasyCombatProgress, fantasyCombatChallengeIsCrime, grantFantasyFrontierHuntLoot } from '../shared/fantasy-combat-challenges.ts';
-import { fantasyCombatEnemy, FANTASY_APEX_PROVOCATIONS } from '../shared/fantasy-combat-catalog.ts';
+import { fantasyCombatEnemy } from '../shared/fantasy-combat-catalog.ts';
 import { fantasyRescueTown, recordFantasyDeath } from '../shared/fantasy-mortality.ts';
 import { fantasyCompanionRescue } from '../shared/fantasy-specializations.ts';
 import { reconcileFoodLots } from '../shared/fantasy-life.ts';

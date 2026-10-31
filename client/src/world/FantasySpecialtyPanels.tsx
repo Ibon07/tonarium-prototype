@@ -4,22 +4,16 @@ import { fantasyHasWorkerCompany, fantasyIsWorkerCompanion, fantasyWorkerCompani
 import {fantasyCompanionAvailable} from '../../../shared/fantasy-summon-paths.ts';
 import {FantasyAlchemySynthesis} from './FantasyAlchemySynthesis.tsx';
 import { fantasyAlchemyFormulaKnown, fantasyAlchemyUnidentifiedFormulaName } from '../../../shared/fantasy-alchemy-discovery.ts';
-import { fantasyMagicKnowledge } from '../../../shared/fantasy-magic-discovery.ts';
 import {FantasyRunicCircle} from './FantasyRunicCircle.tsx';
 import { ReasonButton } from './FantasyActionButton.tsx';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { FantasyAction, FantasyCharacter } from '../../../shared/fantasy.ts';
 import { FANTASY_ITEMS } from '../../../shared/fantasy-data.ts';
-import { fantasyStats } from '../../../shared/fantasy-engine.ts';
 import { fantasyBuildings } from '../../../shared/fantasy-town.ts';
-import {
-  FANTASY_ALCHEMY_FORMULAS, FANTASY_COMPANIONS, FANTASY_MAGIC_COMBINATIONS, FANTASY_MAGIC_ELEMENTS, FANTASY_MAGIC_FORMS,
-  fantasyCompanionBonus, fantasyActiveCompanions, fantasyCompanyCapacity, fantasySpellCapacity, fantasyCanPrepareMagic, type FantasyCompanyKind,
-} from '../../../shared/fantasy-specializations.ts';
+import { FANTASY_ALCHEMY_FORMULAS, FANTASY_COMPANIONS, fantasyCompanionBonus, fantasyActiveCompanions, fantasyCompanyCapacity, type FantasyCompanyKind } from '../../../shared/fantasy-specializations.ts';
 import { useLocale } from '../locale.ts';
 import { useStore } from '../store.ts';
 import { realDuration } from './FantasyActivity.tsx';
-import { statLabels } from './fantasy-copy.ts';
 
 type Props = { c: FantasyCharacter; onAction: (action: FantasyAction) => void; blocked: boolean };
 const kindFor = (job: string): FantasyCompanyKind | undefined => job === 'leader' ? 'troop' : job === 'crimeboss' ? 'syndicate' : job === 'summoner' ? 'summons' : undefined;
@@ -84,40 +78,6 @@ export function FantasyCompanyPanel({ c, onAction, blocked }: Props) {
   </section>;
 }
 
-function MagicSlot({ c, onAction, blocked, slot }: Props & { slot: number }) {
-  const [locale] = useLocale(); const connected = useStore(s => s.wsConnected);
-  const saved = c.specialization?.spells?.find(spell => spell.slot === slot);
-  const knowledge = fantasyMagicKnowledge(c);
-  const elements = FANTASY_MAGIC_ELEMENTS.filter(value => knowledge.elements.includes(value.id as typeof knowledge.elements[number]) && (c.job === 'mage' || ['tide', 'light'].includes(value.id)));
-  const forms = FANTASY_MAGIC_FORMS.filter(value => knowledge.forms.includes(value.id as typeof knowledge.forms[number]) && (c.job === 'mage' || ['veil', 'mend'].includes(value.id)));
-  const [element, setElement] = useState<string>(saved?.element ?? elements[0]?.id ?? '');
-  const [form, setForm] = useState<string>(saved?.form ?? forms[0]?.id ?? '');
-  const elementKey = elements.map(value => value.id).join(','), formKey = forms.map(value => value.id).join(',');
-  useEffect(() => { setElement(saved && elements.some(value => value.id === saved.element) ? saved.element : elements[0]?.id ?? ''); setForm(saved && forms.some(value => value.id === saved.form) ? saved.form : forms[0]?.id ?? ''); }, [saved?.element, saved?.form, elementKey, formKey]);
-  const selected = FANTASY_MAGIC_COMBINATIONS.find(combo => combo.element === element && combo.form === form);
-  const prepared = saved && fantasyCanPrepareMagic(c, saved.element, saved.form, slot) && FANTASY_MAGIC_COMBINATIONS.find(combo => combo.element === saved.element && combo.form === saved.form);
-  const t = {
-    ko: { slot: '저장 칸', element: '원소', form: '형태', prepare: '합성하여 저장', cast: '발동', empty: '저장한 마법이 없습니다.', invalid: '등록된 조합이 아닙니다.', heal: 'HP 회복', guard: '다음 피해 감소', check: '다음 판정', strain: '마나 부하가 높습니다. 쉬어야 합니다.' },
-    en: { slot: 'Slot', element: 'Element', form: 'Form', prepare: 'Prepare and save', cast: 'Cast', empty: 'No spell saved.', invalid: 'This combination is not registered.', heal: 'Restore HP', guard: 'Reduce next damage', check: 'Next check', strain: 'Mana strain is high. Rest first.' },
-    ja: { slot: '保存枠', element: '元素', form: '形', prepare: '合成して保存', cast: '使う', empty: '魔法は未保存です。', invalid: '登録されていない組合せです。', heal: 'HP回復', guard: '次の被害を軽減', check: '次の判定', strain: 'マナの負荷が高いので休息が必要です。' },
-  }[locale];
-  const effect = (combo: typeof FANTASY_MAGIC_COMBINATIONS[number]) => combo.effect === 'heal' ? `${t.heal} ${combo.power}` : combo.effect === 'guard' ? `${t.guard} ${combo.power}` : `${t.check} ${combo.stat ? statLabels[locale][combo.stat] : ''} +${combo.power}`;
-  const highStrain = (c.mana?.strain ?? 0) >= 80;
-  return <article className="fr-card">
-    <h3>{t.slot} {slot}</h3>
-    <div className="fr-action-grid">
-      <label>{t.element} <select value={element} onChange={event => setElement(event.target.value)} disabled={blocked}><option value="" disabled>—</option>{elements.map(value => <option key={value.id} value={value.id}>{value.names[locale]}</option>)}</select></label>
-      <label>{t.form} <select value={form} onChange={event => setForm(event.target.value)} disabled={blocked}><option value="" disabled>—</option>{forms.map(value => <option key={value.id} value={value.id}>{value.names[locale]}</option>)}</select></label>
-    </div>
-    <p className="fr-muted">{selected ? `${selected.names[locale]} · MP${selected.mp} · ${effect(selected)}` : t.invalid}</p>
-    <ReasonButton type="button" className="fr-btn" disabled={blocked || !connected || !selected || !fantasyCanPrepareMagic(c, element, form, slot) || saved?.element === element && saved?.form === form} reason={blocked||!connected?undefined:!selected?t.invalid:{ko:'이미 같은 마법이 저장되어 있습니다.',en:'This spell is already saved.',ja:'同じ魔法をすでに保存しています。'}[locale]} onClick={() => onAction({ type: 'magicPrepare', slot, element, form })}>{t.prepare} · {realDuration(1, locale)}</ReasonButton>
-    <div className="fr-service-row"><span>{prepared ? prepared.names[locale] : t.empty}{prepared && <small>MP{prepared.mp} · {effect(prepared)}</small>}</span>
-      {prepared && <ReasonButton type="button" className="fr-btn primary" disabled={blocked || !connected || highStrain || c.mp < prepared.mp || (prepared.effect === 'heal' ? c.hp >= fantasyStats(c).hp : !!c.buff)} reason={blocked||!connected?undefined:highStrain?t.strain:c.mp<prepared.mp?{ko:'MP가 부족합니다.',en:'Not enough MP.',ja:'MPが足りません。'}[locale]:prepared.effect==='heal'?{ko:'HP가 이미 가득 찼습니다.',en:'HP is already full.',ja:'HPはすでに満タンです。'}[locale]:{ko:'현재 강화 효과를 먼저 사용해야 합니다.',en:'Use the current temporary effect first.',ja:'先に現在の強化効果を使ってください。'}[locale]} onClick={() => onAction({ type: 'magicCast', slot })}>{t.cast}</ReasonButton>}
-    </div>
-    {highStrain && <p className="fr-muted">{t.strain}</p>}
-    {prepared && !highStrain && (c.mp < prepared.mp ? <p className="fr-muted">{{ ko: 'MP가 부족합니다.', en: 'Not enough MP.', ja: 'MPが足りません。' }[locale]}</p> : prepared.effect === 'heal' && c.hp >= fantasyStats(c).hp ? <p className="fr-muted">{{ ko: 'HP가 가득 차 있습니다.', en: 'HP is already full.', ja: 'HPは満タンです。' }[locale]}</p> : prepared.effect !== 'heal' && c.buff ? <p className="fr-muted">{{ ko: '현재 일시 강화를 먼저 사용해야 합니다.', en: 'Use your current temporary buff first.', ja: '先に現在の一時強化を使ってください。' }[locale]}</p> : null)}
-  </article>;
-}
 
 export function FantasyMagicPanel(props: Props) {
   return <FantasyRunicCircle {...props}/>;

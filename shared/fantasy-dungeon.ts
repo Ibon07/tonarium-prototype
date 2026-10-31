@@ -1,6 +1,6 @@
 import { FANTASY_FRONTIER_LAND } from './fantasy-frontier-data.ts';
 import { FANTASY_LOCATIONS } from './fantasy-data.ts';
-import type { FantasyAction, FantasyCharacter, FantasyProfile, FantasyQuest, FantasyResult, FantasyStat } from './fantasy.ts';
+import type { FantasyCharacter, FantasyProfile, FantasyQuest, FantasyResult, FantasyStat } from './fantasy.ts';
 import type { NpcLocale } from './npc.ts';
 import { FANTASY_DUNGEONS, type FantasyDungeonRoom } from './fantasy-dungeon-catalog.ts';
 import { fantasyWorldCheck, fantasyWorldDamage, fantasyStats } from './fantasy-engine.ts';

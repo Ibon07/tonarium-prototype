@@ -2,7 +2,7 @@ import type { FantasyCombatFighter, FantasyCombatLog, FantasyCombatSkill, Fantas
 import { fantasyCombatEnemy } from './fantasy-combat-catalog.ts';
 import { fantasyEnemyAttackById, fantasyEnemyAttackForRound, fantasyEnemyAttacks, fantasyEnemyChargeTiles, type FantasyEnemyAttack, type FantasyEnemyCharge } from './fantasy-enemy-attacks.ts';
 import { fantasyCombatAttackTiles } from './fantasy-attack-shapes.ts';
-import { fantasyCombatDistance, fantasyCombatLineOfSight, fantasyCombatMoveRange, fantasyCombatPath, fantasyCombatTileKey, fantasyCombatValidTile, type FantasyCombatTile } from './fantasy-combat-tactics.ts';
+import { fantasyCombatLineOfSight, fantasyCombatMoveRange, fantasyCombatPath, fantasyCombatTileKey, fantasyCombatValidTile, type FantasyCombatTile } from './fantasy-combat-tactics.ts';
 
 const words=(ko:string,en:string,ja:string):FantasyCombatText=>({ko,en,ja});
 const alive=(actor:FantasyCombatFighter)=>actor.hp>0&&!actor.fled;

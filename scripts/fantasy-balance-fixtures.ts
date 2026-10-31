@@ -1,18 +1,14 @@
 import { fantasyOffhandEquipError } from '../shared/fantasy-equipment-slots.ts';
-import { fantasyCombatPlayer } from '../server/fantasy-combat-adapter.ts';
 import { applyFantasyAction, fantasyStats, newFantasyProfile } from '../shared/fantasy-engine.ts';
-import { FANTASY_ITEMS, FANTASY_JOBS, FANTASY_RACES, FANTASY_LOCATIONS, FANTASY_RECIPES } from '../shared/fantasy-data.ts';
+import { FANTASY_ITEMS, FANTASY_JOBS, FANTASY_LOCATIONS, FANTASY_RECIPES } from '../shared/fantasy-data.ts';
 import { createFantasyGear, fantasyCraftInputs, fantasyEquipGear } from '../shared/fantasy-equipment.ts';
 import { fantasyCanCraft } from '../shared/fantasy-town.ts';
 import { fantasyCompileCircle, grantFantasyCircleBasics } from '../shared/fantasy-magic-circle.ts';
 import { fantasyCompanyCapacity, fantasySpellCapacity, type FantasyCompanyKind } from '../shared/fantasy-specializations.ts';
 import { fantasyJobMagicAttackRatio, fantasyJobHealingBonus } from '../shared/fantasy-job-balance.ts';
-import { fantasyAdventurerGrade, fantasyCombatPower, type FantasyAdventurerGrade } from '../shared/fantasy-adventurer.ts';
+import { type FantasyAdventurerGrade } from '../shared/fantasy-adventurer.ts';
 import { FANTASY_COMBAT_ENEMIES, type FantasyCombatEnemyTemplate } from '../shared/fantasy-combat-catalog.ts';
-import { FANTASY_MONSTER_BALANCE_VERSION, fantasyMonsterGradePowerReference, fantasyMonsterSoloWinTarget } from '../shared/fantasy-monster-balance.ts';
-import { fantasyMonsterBenchmarkStats } from '../shared/fantasy-monster-benchmark-fixture.ts';
-import { createFantasyCombat, fantasyCombatAttackError, fantasyCombatHitChance, fantasyCombatOrderError, fantasyCombatRageMultiplier, submitFantasyCombatOrder,
-  validFantasyCombatState, type FantasyCombatFighter, type FantasyCombatSkill, type FantasyCombatOptions, type FantasyCombatOrder, type FantasyCombatUnitOrder, type FantasyCombatPlayer, type FantasyCombatState } from '../shared/fantasy-combat.ts';
+import { createFantasyCombat, fantasyCombatAttackError, fantasyCombatHitChance, fantasyCombatOrderError, fantasyCombatRageMultiplier, submitFantasyCombatOrder, type FantasyCombatFighter, type FantasyCombatSkill, type FantasyCombatOptions, type FantasyCombatOrder, type FantasyCombatUnitOrder, type FantasyCombatPlayer, type FantasyCombatState } from '../shared/fantasy-combat.ts';
 import { fantasyCombatSituationalBonus } from '../shared/fantasy-situational.ts';
 import { fantasyEnemyAttackById } from '../shared/fantasy-enemy-attacks.ts';
 import { fantasyEnemyAttackChoice } from '../shared/fantasy-enemy-combat.ts';

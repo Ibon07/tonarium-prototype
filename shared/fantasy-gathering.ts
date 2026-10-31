@@ -1,5 +1,5 @@
 import { FANTASY_FRONTIER_BASE, FANTASY_FRONTIER_FORAGE_ITEMS, FANTASY_FRONTIER_ENCOUNTERS } from './fantasy-frontier-data.ts';
-import { fantasyHasJob, fantasyLifeJob } from './fantasy-careers.ts';
+import { fantasyHasJob } from './fantasy-careers.ts';
 import type { FantasyCharacter, FantasyStat } from './fantasy.ts';
 import { FANTASY_ITEMS, FANTASY_LOCATIONS } from './fantasy-data.ts';
 import { fantasyBuildings, FANTASY_SETTLEMENTS } from './fantasy-town.ts';

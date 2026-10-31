@@ -26,7 +26,7 @@ import { fantasyCombatHuntOptions, fantasyCombatHumanOptions, fantasyCombatStart
 import { fantasyMainStage } from '../../../shared/fantasy-main-trials.ts';
 import { fantasyStoryCombatRequirement } from '../../../shared/fantasy-combat-stories.ts';
 import { fantasyHostileEncounter } from '../../../shared/fantasy-encounters.ts';
-import { get, set, useStore } from '../store.ts';
+import { set, useStore } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { useLocale } from '../locale.ts';
 import type { NpcLocale } from '../../../shared/npc.ts';

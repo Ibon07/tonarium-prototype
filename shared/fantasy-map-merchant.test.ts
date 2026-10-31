@@ -50,12 +50,11 @@ test('standard rare market maps use their daily stock rule and cannot be purchas
  assert.deepEqual(denied.ledger,buy.ledger);assert.deepEqual(denied.profiles,buy.profiles);
 });
 import { NPC_PUBLIC } from './npc.ts';
-import { npcPortraitUrl } from './npc-portraits.ts';
 import { npcIllustrationUrl } from './npc-portrait-illustrations.ts';
 test('the traveling cartographer has a distinct localized profile and an individual raster portrait',()=>{
  const npc=NPC_PUBLIC.find(npc=>npc.id==='wandering-cartographer');assert.ok(npc);
  assert.equal(npc.travelOnly,true);for(const locale of ['ko','en','ja'] as const){assert.ok(npc.name[locale]);assert.ok(npc.role[locale]);assert.ok(npc.personality[locale]);assert.ok(npc.speech[locale]);assert.ok(npc.knownTopics[locale].length);}
- assert.equal(npcPortraitUrl(npc.id),npcIllustrationUrl(npc.id));assert.match(npcPortraitUrl(npc.id)!,/\.webp$/);
+ assert.equal(npcIllustrationUrl(npc.id),`/fantasy/npc-illustrations/${npc.id}.webp`);
 });
 import { fantasyMapMerchantHit,FANTASY_MAP_MERCHANT_EVENT } from './fantasy-map-merchant.ts';
 import type { FantasyActivity } from './fantasy.ts';

@@ -5,7 +5,7 @@ import { fantasyCombatFieldDescription } from '../../../shared/fantasy-combat-fi
 import type { FantasyCombatFighter, FantasyCombatSkill, FantasyCombatState } from '../../../shared/fantasy-combat.ts';
 import { fantasyCombatSkillMovePath, fantasyCombatSkillMoveRange } from '../../../shared/fantasy-combat-movement.ts';
 import { fantasyCombatMoveAttempt, type FantasyCombatMoveAttempt } from '../../../shared/fantasy-combat-move-attempt.ts';
-import { fantasyCombatActors, fantasyCombatDistance, fantasyCombatMoveRange, fantasyCombatPath, fantasyCombatTileKey, type FantasyCombatTile } from '../../../shared/fantasy-combat-tactics.ts';
+import { fantasyCombatActors, fantasyCombatMoveRange, fantasyCombatPath, fantasyCombatTileKey, type FantasyCombatTile } from '../../../shared/fantasy-combat-tactics.ts';
 import { fantasyObstacleKind, fantasyObstacleName } from '../../../shared/fantasy-obstacles.ts';
 import type { NpcLocale } from '../../../shared/npc.ts';
 import type { CSSProperties } from 'react';

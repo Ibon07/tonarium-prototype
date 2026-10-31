@@ -16,7 +16,7 @@ import { fantasyCombatActors, fantasyCombatBarricadeField, fantasyCombatRangedTi
 import { fantasyObstacleKind, type FantasyObstacleDamage, type FantasyObstacleBody } from './fantasy-obstacles.ts';
 import { fantasyCombatSituationalBonus } from './fantasy-situational.ts';
 import { FANTASY_JOB_PATH_PLANS } from './fantasy-job-path-catalog.ts';
-import { createFantasyEscortBattle, fantasyEscortAtExit, fantasyEscortCanCommand, fantasyEscortHasCommander, fantasyEscortOrderError, fantasyEscortReady, isFantasyEscortBattleOrder, validFantasyEscortBattle, type FantasyEscortBattle, type FantasyEscortBattleInput, type FantasyEscortBattleOrder } from './fantasy-escort-battle.ts';
+import { createFantasyEscortBattle, fantasyEscortAtExit, fantasyEscortHasCommander, fantasyEscortOrderError, fantasyEscortReady, isFantasyEscortBattleOrder, validFantasyEscortBattle, type FantasyEscortBattle, type FantasyEscortBattleInput, type FantasyEscortBattleOrder } from './fantasy-escort-battle.ts';
 
 export type FantasyCombatText = Record<NpcLocale, string>;
 export type FantasyCombatPosition = 'front' | 'rear';

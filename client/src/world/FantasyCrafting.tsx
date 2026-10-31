@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import type { FantasyAction, FantasyCharacter, FantasyRecipe } from '../../../shared/fantasy.ts';
 import { FANTASY_ITEMS, FANTASY_JOBS, FANTASY_RECIPES } from '../../../shared/fantasy-data.ts';
 import { fantasyCraftInputs } from '../../../shared/fantasy-equipment.ts';
-import { FANTASY_MAPS, fantasyBuildings, fantasyCanCraft, fantasyCraftFacility, type FantasyBuildingId } from '../../../shared/fantasy-town.ts';
+import { fantasyBuildings, fantasyCanCraft, fantasyCraftFacility, type FantasyBuildingId } from '../../../shared/fantasy-town.ts';
 import { fantasyProfessionGrade } from '../../../shared/fantasy-progression.ts';
 import { FANTASY_JOB_GRADES } from '../../../shared/fantasy-skill-expansion.ts';
 import { useLocale } from '../locale.ts';

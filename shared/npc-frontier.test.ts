@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { NPC_FRONTIER_PUBLIC } from './npc-frontier.ts';
 import { FANTASY_FRONTIER_BASE } from './fantasy-frontier-data.ts';
-import { npcPortraitUrl } from './npc-portraits.ts';
 import { npcIllustrationUrl } from './npc-portrait-illustrations.ts';
 
 test('the single dock quartermaster offers finite expedition provisions without lodging or training', () => {
@@ -20,7 +19,7 @@ test('the single dock quartermaster offers finite expedition provisions without 
 });
 
 test('the quartermaster has an individual local raster portrait', () => {
-  const npc = NPC_FRONTIER_PUBLIC[0], url = npcPortraitUrl(npc.id);
-  assert.equal(url,npcIllustrationUrl(npc.id));assert.match(url!,/\.webp$/);
+  const npc = NPC_FRONTIER_PUBLIC[0], url = npcIllustrationUrl(npc.id);
+  assert.equal(url,`/fantasy/npc-illustrations/${npc.id}.webp`);
   assert.ok(fs.existsSync(new URL(`../client/public${url}`, import.meta.url)));
 });

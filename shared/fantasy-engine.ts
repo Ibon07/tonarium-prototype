@@ -36,7 +36,7 @@ import {
   FANTASY_QUESTS, FANTASY_RACES, FANTASY_RECIPES, FANTASY_ROUTES,
 } from './fantasy-data.ts';
 import { boundedNeed, fantasyNeedPenalty, FANTASY_DINING, FANTASY_LODGINGS, foodDetails, foodMeta, reconcileFoodLots, fantasyHasSpoiledIngredients } from './fantasy-life.ts';
-import { FANTASY_MAPS, FANTASY_SETTLEMENTS, canAcquireJob, canBuyItem, canSellItem, fantasyBuildingStock, fantasyBuildings, fantasyCanCraft, fantasyCraftFacility, fantasyFrontierLocations, fantasyKnownLocations } from './fantasy-town.ts';
+import { FANTASY_MAPS, FANTASY_SETTLEMENTS, canAcquireJob, canBuyItem, fantasyBuildingStock, fantasyBuildings, fantasyCanCraft, fantasyCraftFacility, fantasyFrontierLocations, fantasyKnownLocations } from './fantasy-town.ts';
 import { fantasyEventEligible, fantasyQuestEligible } from './fantasy-access.ts';
 import { FANTASY_CONTEXT_NAMES, fantasyContextBonus } from './fantasy-physiology.ts';
 import { FANTASY_STARTING_GOLD, FANTASY_STARTING_INVENTORY, fantasyStartingInventory } from './fantasy-starting-kit.ts';

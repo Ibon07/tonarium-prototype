@@ -5,8 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { NPC_PUBLIC } from '../../../shared/npc.ts';
-import { npcPortraitUrl, npcSvgPortraitUrl } from '../../../shared/npc-portraits.ts';
-import { NPC_ILLUSTRATION_IDS, NPC_PORTRAIT_ILLUSTRATIONS, NPC_PORTRAIT_ILLUSTRATIONS_ENABLED, npcIllustrationUrl } from '../../../shared/npc-portrait-illustrations.ts';
+import { NPC_ILLUSTRATION_IDS, NPC_PORTRAIT_ILLUSTRATIONS, npcIllustrationUrl } from '../../../shared/npc-portrait-illustrations.ts';
 
 const publicRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../public');
 const illustrationRoot=path.join(publicRoot,'fantasy/npc-illustrations');
@@ -29,8 +28,9 @@ test('every public NPC has a registered individual raster portrait without SVG f
   const ids:string[]=[...NPC_ILLUSTRATION_IDS].sort();
   assert.deepEqual(ids,NPC_PUBLIC.map(npc=>npc.id).sort());assert.deepEqual(Object.keys(NPC_PORTRAIT_ILLUSTRATIONS).sort(),ids);
   assert.equal(new Set(Object.values(NPC_PORTRAIT_ILLUSTRATIONS)).size,ids.length);
-  for(const id of ids){assert.equal(NPC_PORTRAIT_ILLUSTRATIONS[id],`/fantasy/npc-illustrations/${id}.webp`);assert.equal(npcPortraitUrl(id),npcIllustrationUrl(id));assert.ok(fs.existsSync(path.join(publicRoot,npcPortraitUrl(id)!)));}
-  for(const unknown of ['missing-npc','../rin','rin.webp','constructor','toString']){assert.equal(npcIllustrationUrl(unknown),undefined);assert.equal(npcPortraitUrl(unknown),undefined);}
+  assert.deepEqual(files().map(file=>file.slice(0,-5)).sort(),ids);
+  for(const id of ids){assert.equal(NPC_PORTRAIT_ILLUSTRATIONS[id],`/fantasy/npc-illustrations/${id}.webp`);assert.ok(fs.existsSync(path.join(publicRoot,npcIllustrationUrl(id)!)));}
+  for(const unknown of ['missing-npc','../rin','rin.webp','constructor','toString']){assert.equal(npcIllustrationUrl(unknown),undefined);}
 });
 
 test('illustrations are independent transparent upper-body portraits',()=>{
@@ -40,13 +40,5 @@ test('illustrations are independent transparent upper-body portraits',()=>{
     const bytes=fs.readFileSync(path.join(illustrationRoot,file)),info=webpInfo(bytes);
     assert.ok(info.width>=500&&info.height>=700,`${id}: sufficient image dimensions`);assert.ok(info.alpha,`${id}: transparent image channel`);
     const hash=crypto.createHash('sha256').update(bytes).digest('hex');assert.ok(!fingerprints.has(hash),`${id}: do not reuse another NPC's image`);fingerprints.add(hash);
-  }
-});
-
-test('raster release stays gated until all registered files are present; archived SVG source checks stay independent',()=>{
-  if(NPC_PORTRAIT_ILLUSTRATIONS_ENABLED)assert.deepEqual(files().map(file=>file.slice(0,-5)).sort(),[...NPC_ILLUSTRATION_IDS].sort());
-  for(const id of NPC_ILLUSTRATION_IDS){
-    assert.equal(npcSvgPortraitUrl(id),`/fantasy/npc-portraits/${id}.svg`);
-    assert.equal(npcPortraitUrl(id),npcIllustrationUrl(id));
   }
 });

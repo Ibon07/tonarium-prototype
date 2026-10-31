@@ -1,8 +1,7 @@
 import { fantasyHasJob } from './fantasy-careers.ts';
 import { FANTASY_BAD_COOKING_SENSE } from './fantasy-freeform-cooking-catalog.ts';
-import { FANTASY_LODGINGS, FANTASY_DINING } from './fantasy-lodging-catalog.ts';
 export { FANTASY_LODGINGS, FANTASY_DINING } from './fantasy-lodging-catalog.ts';
-import type { FantasyCharacter, FantasyFoodLot } from './fantasy.ts';
+import type { FantasyCharacter } from './fantasy.ts';
 import { FANTASY_ITEMS, FANTASY_JOBS } from './fantasy-data.ts';
 import { fantasyFoodLotAge } from './fantasy-food-preservation.ts';
 

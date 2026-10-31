@@ -1,4 +1,4 @@
-import { fantasyHasJob, fantasyLifeJob } from './fantasy-careers.ts';
+import { fantasyLifeJob } from './fantasy-careers.ts';
 import { FANTASY_IMPROVISED_RECIPE, fantasyIsCookingIngredient, fantasyBadCookingChoices, fantasyImprovisedCookingPlan } from './fantasy-freeform-cooking.ts';
 import { fantasyDungeonCampError } from './fantasy-dungeon.ts';
 import type { FantasyAction, FantasyCharacter, FantasyFoodLot } from './fantasy.ts';

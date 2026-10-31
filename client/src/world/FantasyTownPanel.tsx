@@ -4,12 +4,11 @@ import { fantasyFacilityOpen, fantasyFacilityClosedText, fantasyTempleTreatment 
 import { fantasyStats } from '../../../shared/fantasy-engine.ts';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { FantasyAction, FantasyCharacter } from '../../../shared/fantasy.ts';
-import { FANTASY_ITEMS, FANTASY_JOBS, FANTASY_RECIPES, FANTASY_QUESTS } from '../../../shared/fantasy-data.ts';
-import { FANTASY_MAPS, canSellItem, fantasyBuildings, fantasyBuildingStock, fantasyTempleLibraryHoldings, fantasyLibraryHoldings, fantasyCraftFacility, fantasyCanCraft } from '../../../shared/fantasy-town.ts';
+import { FANTASY_JOBS, FANTASY_QUESTS } from '../../../shared/fantasy-data.ts';
+import { fantasyBuildings, fantasyBuildingStock, fantasyTempleLibraryHoldings, fantasyLibraryHoldings } from '../../../shared/fantasy-town.ts';
 import { fantasyPrice, fantasyReputation } from '../../../shared/fantasy-reputation.ts';
 import { FANTASY_DINING, FANTASY_LODGINGS } from '../../../shared/fantasy-life.ts';
 import { FANTASY_LIBRARY_BOOKS } from '../../../shared/fantasy-library.ts';
-import { FANTASY_TERMS } from '../../../shared/fantasy-lore.ts';
 import { NPC_PUBLIC, type NpcId } from '../../../shared/npc.ts';
 import { useLocale } from '../locale.ts';
 import { FantasyQuestBoard } from './FantasyQuestBoard.tsx';
@@ -25,10 +24,8 @@ import { FantasyTownPlayers } from './FantasyTownPlayers.tsx';
 import { useStore } from '../store.ts';
 import { ReasonButton } from './FantasyActionButton.tsx';
 import { FantasyFiniteShop } from './FantasyFiniteShop.tsx';
-import { FantasyShopStock } from './FantasyShopStock.tsx';
 import { FantasyEscortPanel } from './FantasyEscortPanel.tsx';
 import { actionHelp } from './fantasy-action-help.ts';
-import { FantasySaleList } from './FantasySaleList.tsx';
 import { FantasyCareerPanel } from './FantasyCareerPanel.tsx';
 import { fantasyPrayerStatus, fantasyPrayerDisabledReason } from '../../../shared/fantasy-prayer.ts';
 import { FantasyUnderworldPanel } from './FantasyUnderworldPanel.tsx';
@@ -56,7 +53,6 @@ export function FantasyTownPanel({c,onAction,onTalk,blocked}:{c:FantasyCharacter
   const buildings=fantasyBuildings(c);
   const building=buildings.find((b)=>b.id===selected);
   const t={ko:{title:'마을',back:'돌아가기',none:'들어갈 건물이 없습니다.',buy:'구매',sell:'판매',stock:'물건',belongings:'팔 물건',room:'객실',stay:'묵기',food:'식사',eat:'먹기',cook:'제작',jobs:'직업',change:'배우기',work:'일하기',talk:'대화',books:'소장 도서',empty:'소장한 책이 없습니다.',materials:'재료'},en:{title:'Settlement',back:'Back',none:'There are no buildings to enter.',buy:'Buy',sell:'Sell',stock:'Goods',belongings:'Sell belongings',room:'Rooms',stay:'Stay',food:'Meals',eat:'Eat',cook:'Craft',jobs:'Professions',change:'Learn',work:'Work',talk:'Talk',books:'Collection',empty:'No books are held here.',materials:'Materials'},ja:{title:'町',back:'戻る',none:'入れる建物はありません。',buy:'買う',sell:'売る',stock:'品物',belongings:'売る持ち物',room:'客室',stay:'泊まる',food:'食事',eat:'食べる',cook:'制作',jobs:'職業',change:'学ぶ',work:'働く',talk:'話す',books:'蔵書',empty:'蔵書はありません。',materials:'材料'}}[locale];
-  const name=(id:string)=>FANTASY_ITEMS.find((item)=>item.id===id)?.names?.[locale]??FANTASY_TERMS.find((term)=>term.id===id)?.names[locale]??FANTASY_MAPS.find((m)=>m.item===id)?.name[locale]??FANTASY_ITEMS.find((i)=>i.id===id)?.name??id;
   const button=(label:ReactNode,action:FantasyAction,disabled=false,reason?:string)=>{const why=reason??actionHelp(present,action,locale);return <ReasonButton type="button" className="fr-btn" disabled={blocked||disabled||!!why} reason={blocked?undefined:why} onClick={()=>onAction(action)}>{label}</ReasonButton>;};
   const residentButton=(id:NpcId)=>{const npc=NPC_PUBLIC.find(entry=>entry.id===id),criminal=fantasyCriminalContact(id),requests=criminal||requesters.has(id);return npc&&<div className="fr-form-row" key={id}><ReasonButton type="button" className="fr-npc-visit" disabled={blocked||c.hp<=0} onClick={()=>onTalk(id)}><span>{npc.name[locale]}<small>{npc.role[locale]} · {presence(id)}</small></span>{t.talk} ↗</ReasonButton>{requests&&<ReasonButton type="button" className="fr-text-button" disabled={blocked||c.hp<=0} onClick={()=>setSelected(`npc:${id}`)}>{criminal?{ko:'의뢰와 신뢰',en:'Requests & trust',ja:'依頼と信用'}[locale]:{ko:'부탁 살펴보기',en:'See requests',ja:'頼みを聞く'}[locale]}</ReasonButton>}</div>;};
   const standing=fantasyReputation(c);
@@ -69,7 +65,6 @@ export function FantasyTownPanel({c,onAction,onTalk,blocked}:{c:FantasyCharacter
   const stock=fantasyBuildingStock(c,building.id);
   const holding=fantasyLibraryHoldings(c);
   const book=FANTASY_LIBRARY_BOOKS.find((b)=>b.id===bookId&&holding.includes(b.id));
-  const recipes=FANTASY_RECIPES.filter(r=>r.job===c.job&&fantasyCraftFacility(r.job)===building.id);
   const priestTeacher=building.id==='temple'?NPC_PUBLIC.find(npc=>building.npcIds.includes(npc.id)&&npc.trainableJobs?.includes('priest')):undefined;
   const prayer=fantasyPrayerStatus(c,hour);
   return <><button className="fr-text-button" onClick={()=>{setSelected(null);setBookId(null);}}>← {t.title}</button><h2>{building.name[locale]}</h2>

@@ -1,4 +1,3 @@
-export const NPC_PORTRAIT_ILLUSTRATIONS_ENABLED: boolean = true;
 export const NPC_ILLUSTRATION_STYLE = 'anime-waist-up-v3';
 export const NPC_ILLUSTRATION_IDS = [
   'rin',
@@ -168,6 +167,6 @@ export const NPC_PORTRAIT_ILLUSTRATIONS: Readonly<Record<string, string>> = Obje
 ));
 
 export function npcIllustrationUrl(id: string): string | undefined {
-  return NPC_PORTRAIT_ILLUSTRATIONS_ENABLED && Object.hasOwn(NPC_PORTRAIT_ILLUSTRATIONS, id)
+  return Object.hasOwn(NPC_PORTRAIT_ILLUSTRATIONS, id)
     ? NPC_PORTRAIT_ILLUSTRATIONS[id] : undefined;
 }

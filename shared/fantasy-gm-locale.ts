@@ -1,8 +1,8 @@
-import type { FantasyCharacter, FantasyProfile, FantasySkill, FantasyStat } from './fantasy.ts';
+import type { FantasyProfile, FantasySkill, FantasyStat } from './fantasy.ts';
 import { fantasyHasJob, fantasyLifeJob } from './fantasy-careers.ts';
 import { FANTASY_WORLD_TIME_RATE } from './fantasy.ts';
 import type { FantasyGmReply, FantasyGmSourceReply } from './fantasy-gm.ts';
-import { FANTASY_EVENTS, FANTASY_ITEMS, FANTASY_JOBS, FANTASY_LOCATIONS, FANTASY_QUESTS, FANTASY_RECIPES } from './fantasy-data.ts';
+import { FANTASY_EVENTS, FANTASY_JOBS, FANTASY_LOCATIONS, FANTASY_QUESTS, FANTASY_RECIPES } from './fantasy-data.ts';
 import { fantasySkills, fantasyStats, fantasyTransports } from './fantasy-engine.ts';
 import { FANTASY_DINING, FANTASY_LODGINGS } from './fantasy-life.ts';
 import { FANTASY_MAPS, canAcquireJob, fantasyBuildings, fantasyCanCraft, fantasyCraftFacility, fantasyFrontierLocations, fantasyKnownLocations } from './fantasy-town.ts';
@@ -241,7 +241,6 @@ export function fantasyGmLocalized(profile: FantasyProfile, source: FantasyGmSou
     return { text, suggestions };
   }
   const location = FANTASY_LOCATIONS.find(value => value.id === c.location);
-  const currentJob = FANTASY_JOBS.find(value => value.id === c.job);
   const lifeJob = fantasyLifeJob(c);
   const careerNames = lifeJob && lifeJob !== c.job ? `${job(c.job)} · ${say('생활 직업', 'life career')} ${job(lifeJob)}` : job(c.job);
   switch (source.topic) {

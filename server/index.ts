@@ -4,7 +4,6 @@ import { FantasyNamedCommissions } from './fantasy-named-commissions.ts';
 import { fantasyRegisteredGuildGrade } from '../shared/fantasy-guild-progression.ts';
 import { FANTASY_MAP_MERCHANT_EVENT, FANTASY_MAP_MERCHANT_NPC, fantasyMapMerchantDaylight } from '../shared/fantasy-map-merchant.ts';
 import { FANTASY_MAPS } from '../shared/fantasy-town.ts';
-import { isFantasyDungeonAction } from '../shared/fantasy-dungeon.ts';
 import { fantasyFacilityOpen, fantasyFacilityClosedText } from '../shared/fantasy-facility-hours.ts';
 import { AdStore, AdStoreError } from './ad-store.ts';
 import { fantasyTownPresence, type FantasyTownCandidate } from '../shared/fantasy-town-presence.ts';
