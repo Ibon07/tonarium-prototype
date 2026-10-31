@@ -33,3 +33,5 @@ Browser-supplied hello IDs or obsolete world tickets never choose the owner. Sam
 - Actual PostgreSQL platform-auth integration: 16/16; independent auth/reset review: 30/30.
 - Adapted generic gameplay fixtures: 135 unique cases passed across the original run and a full NPC rerun; the original run had one 10-second startup deadline failure, fixed by a 20-second readiness deadline. NPC rerun: 38/38.
 - No production data reset or deployment performed in this session. Published as ready-for-review PR #391: https://github.com/katteni-kaihatu/tonarium-prototype/pull/391. No merge or deployment performed.
+
+- PR CI found one missed Kokoa HTTPS test fixture; reproduced and fixed its current-data marker and entry assertions without weakening production checks. Kokoa16/16, NPC163/163, GM chat21/21 passed; final typecheck passed.
