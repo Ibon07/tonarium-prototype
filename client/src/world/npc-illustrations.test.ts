@@ -25,13 +25,11 @@ function webpInfo(buffer:Buffer){
   return {width,height,alpha};
 }
 
-test('illustration catalog preserves released portraits while new expedition characters use individual SVG portraits',()=>{
+test('every public NPC has a registered individual raster portrait without SVG fallback',()=>{
   const ids:string[]=[...NPC_ILLUSTRATION_IDS].sort();
-  const fallback=NPC_PUBLIC.filter(npc=>!ids.includes(npc.id)).map(npc=>npc.id);
-  assert.equal(NPC_PUBLIC.length,160);assert.equal(ids.length,137);assert.ok(ids.every(id=>NPC_PUBLIC.some(npc=>npc.id===id)));assert.deepEqual(Object.keys(NPC_PORTRAIT_ILLUSTRATIONS).sort(),ids);
-  for(const id of fallback){assert.ok(NPC_PUBLIC.some(npc=>npc.id===id));assert.equal(npcIllustrationUrl(id),undefined);assert.equal(npcPortraitUrl(id),npcSvgPortraitUrl(id));assert.ok(fs.existsSync(path.join(publicRoot,npcSvgPortraitUrl(id)!)));}
+  assert.deepEqual(ids,NPC_PUBLIC.map(npc=>npc.id).sort());assert.deepEqual(Object.keys(NPC_PORTRAIT_ILLUSTRATIONS).sort(),ids);
   assert.equal(new Set(Object.values(NPC_PORTRAIT_ILLUSTRATIONS)).size,ids.length);
-  for(const id of ids)assert.equal(NPC_PORTRAIT_ILLUSTRATIONS[id],`/fantasy/npc-illustrations/${id}.webp`);
+  for(const id of ids){assert.equal(NPC_PORTRAIT_ILLUSTRATIONS[id],`/fantasy/npc-illustrations/${id}.webp`);assert.equal(npcPortraitUrl(id),npcIllustrationUrl(id));assert.ok(fs.existsSync(path.join(publicRoot,npcPortraitUrl(id)!)));}
   for(const unknown of ['missing-npc','../rin','rin.webp','constructor','toString']){assert.equal(npcIllustrationUrl(unknown),undefined);assert.equal(npcPortraitUrl(unknown),undefined);}
 });
 
@@ -45,10 +43,10 @@ test('illustrations are independent transparent upper-body portraits',()=>{
   }
 });
 
-test('raster release stays gated until all registered files are present; SVG source checks remain independent',()=>{
+test('raster release stays gated until all registered files are present; archived SVG source checks stay independent',()=>{
   if(NPC_PORTRAIT_ILLUSTRATIONS_ENABLED)assert.deepEqual(files().map(file=>file.slice(0,-5)).sort(),[...NPC_ILLUSTRATION_IDS].sort());
   for(const id of NPC_ILLUSTRATION_IDS){
     assert.equal(npcSvgPortraitUrl(id),`/fantasy/npc-portraits/${id}.svg`);
-    assert.equal(npcPortraitUrl(id),NPC_PORTRAIT_ILLUSTRATIONS_ENABLED?NPC_PORTRAIT_ILLUSTRATIONS[id]:npcSvgPortraitUrl(id));
+    assert.equal(npcPortraitUrl(id),npcIllustrationUrl(id));
   }
 });

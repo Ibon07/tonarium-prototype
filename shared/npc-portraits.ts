@@ -178,5 +178,6 @@ export function npcSvgPortraitUrl(id: string): string | undefined {
   return Object.hasOwn(NPC_PORTRAIT_DESIGNS,id) ? `/fantasy/npc-portraits/${id}.svg` : undefined;
 }
 export function npcPortraitUrl(id: string): string | undefined {
-  return npcIllustrationUrl(id) ?? npcSvgPortraitUrl(id);
+  // 画像不足は頭文字で示し、旧SVGには戻さない。
+  return npcIllustrationUrl(id);
 }

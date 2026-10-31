@@ -35,3 +35,5 @@ Browser-supplied hello IDs or obsolete world tickets never choose the owner. Sam
 - No production data reset or deployment performed in this session. Published as ready-for-review PR #391: https://github.com/katteni-kaihatu/tonarium-prototype/pull/391. No merge or deployment performed.
 
 - PR CI found one missed Kokoa HTTPS test fixture; reproduced and fixed its current-data marker and entry assertions without weakening production checks. Kokoa16/16, NPC163/163, GM chat21/21 passed; final typecheck passed.
+
+- Follow-up user instruction: PR #391 is now Draft and must remain Draft after updates. Added23 individually generated, style-corrected raster NPC portraits, preserved the original137, removed runtime SVG fallback; portrait22/22, client102/102, fantasy UI47/47 and completion gate passed. No merge/deployment.
