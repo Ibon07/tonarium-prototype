@@ -16,7 +16,7 @@ import { FantasyCampOptions } from './FantasyCampOptions.tsx';
 import { FantasyGuildRendezvous } from './FantasyGuildRendezvous.tsx';
 import { useLocale } from '../locale.ts';
 import { useStore } from '../store.ts';
-import { combatError } from './FantasyCombatPanel.tsx';
+import { combatError } from './fantasy-combat-error.ts';
 
 type Locale = 'ko' | 'en' | 'ja';
 type Props = { c: FantasyCharacter; onAction: (action: FantasyAction) => void; blocked: boolean };

@@ -4,7 +4,7 @@ import { FANTASY_MAP_MERCHANT_NPC } from '../../../shared/fantasy-map-merchant.t
 import { useLocale } from '../locale.ts';
 import { useStore } from '../store.ts';
 import { send } from '../net/ws.ts';
-import { requestFantasyRealm } from './FantasyRealmMenu.tsx';
+import { requestFantasyRealm } from './fantasy-realm-transport.ts';
 import { ReasonButton } from './FantasyActionButton.tsx';
 
 export function FantasyMapMerchant({onTalk}:{onTalk:()=>void}) {

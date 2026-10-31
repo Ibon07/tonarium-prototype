@@ -142,6 +142,7 @@ DB のテーブルを変えるときは `server/db/schema.ts` を直して `npm 
 
 - ファンタジーワールド専用の言語選択と廃止したブラウザAIの整理: [docs/browser-ai-support.md](docs/browser-ai-support.md)
 - NPC別の上半身イラストと制作記録: [docs/npc-portraits.md](docs/npc-portraits.md)
+- RPGの遅延読み込み・処理時間と計測方法: [docs/fantasy-performance.md](docs/fantasy-performance.md)
 
 
 - 사제의 신전 전용 성직 등급·길드 등록 제외 및 기관 혜택 → [성직 등급](docs/fantasy-clergy-ranks-and-benefits-2026-10-30.md).

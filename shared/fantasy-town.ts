@@ -155,19 +155,22 @@ export function fantasyBuildingStock(character: Pick<FantasyCharacter, 'location
   if (!fantasyBuildings(character).some(building => building.id === buildingId)) return [];
   if (character.location === FANTASY_FRONTIER_BASE) return buildingId === 'market' ? Object.keys(FANTASY_FRONTIER_SUPPLIES) : [];
   const maps = FANTASY_MAPS.filter(map => !map.legacy && (!map.soldAt || map.soldAt.includes(character.location))).map(map => map.item);
-  const ordinary = FANTASY_ITEMS.filter(item => !item.craftOnly&&item.category!=='black-market-map'&&!item.id.startsWith('arcane-bag-')&&item.id!=='preserve-magic-bag'&&!['artifact', 'relic', 'elixir', 'magic-tool'].includes(item.category ?? '') && (item.tier ?? 1) <= 2);
+  const ordinary = () => FANTASY_ITEMS.filter(item => !item.craftOnly&&item.category!=='black-market-map'&&!item.id.startsWith('arcane-bag-')&&item.id!=='preserve-magic-bag'&&!['artifact', 'relic', 'elixir', 'magic-tool'].includes(item.category ?? '') && (item.tier ?? 1) <= 2);
   const categories = (...ids: string[]) => FANTASY_ITEMS.filter(item => ids.includes(item.category ?? '') && item.category !== 'artifact').map(item => item.id);
-  const stock: Partial<Record<FantasyBuildingId, string[]>> = {
-    market: [...ordinary.map(item => item.id),...FANTASY_ITEMS.filter(item=>item.id.startsWith('canvas-bag-')).map(item=>item.id), ...maps], shipyard: [...maps.filter(item=>!FANTASY_MAPS.find(map=>map.item===item)?.rare), ...categories('ship-material')],
-    alchemist: [...categories('herb', 'potion', 'crystal'), ...(character.location === 'mooncity' ? categories('elixir') : [])],
-    blacksmith: categories('ore', 'ingot', 'weapon', 'armor', 'accessory', 'gem'),
-    tower: [...categories('magic-tool', 'crystal'), ...FANTASY_ITEMS.filter(item => item.wear&&(item.tier??1)>=3||item.id.startsWith('arcane-bag-')||item.id==='preserve-magic-bag'||item.id.startsWith('mp-potion-') || ['mana-staff', 'sacred-book'].includes(item.id)).map(item => item.id)],
-    inn: ['meal', 'bread', 'jerky'], restaurant: ['meal', 'bread', 'jerky', ...categories('food')],
-    guild: ['potion','jerky','wood','lantern','bedroll','fur-bedroll','camp-tarp','camp-stakes',...FANTASY_GUILD_CAMP_SUPPLIES,...FANTASY_ITEMS.filter(item=>item.category==='potion').map(item=>item.id)],
-    archaeology: [],
+  const stock: Partial<Record<FantasyBuildingId, () => string[]>> = {
+    market: () => [...ordinary().map(item => item.id),...FANTASY_ITEMS.filter(item=>item.id.startsWith('canvas-bag-')).map(item=>item.id), ...maps], shipyard: () => [...maps.filter(item=>!FANTASY_MAPS.find(map=>map.item===item)?.rare), ...categories('ship-material')],
+    alchemist: () => [...categories('herb', 'potion', 'crystal'), ...(character.location === 'mooncity' ? categories('elixir') : [])],
+    blacksmith: () => categories('ore', 'ingot', 'weapon', 'armor', 'accessory', 'gem'),
+    tower: () => [...categories('magic-tool', 'crystal'), ...FANTASY_ITEMS.filter(item => item.wear&&(item.tier??1)>=3||item.id.startsWith('arcane-bag-')||item.id==='preserve-magic-bag'||item.id.startsWith('mp-potion-') || ['mana-staff', 'sacred-book'].includes(item.id)).map(item => item.id)],
+    inn: () => ['meal', 'bread', 'jerky'], restaurant: () => ['meal', 'bread', 'jerky', ...categories('food')],
+    guild: () => ['potion','jerky','wood','lantern','bedroll','fur-bedroll','camp-tarp','camp-stakes',...FANTASY_GUILD_CAMP_SUPPLIES,...FANTASY_ITEMS.filter(item=>item.category==='potion').map(item=>item.id)],
+    archaeology: () => [],
   };
   const apexOnly = new Set(['elder-dragon-scale', 'ancient-frostheart', 'ancient-storm-sinew', 'void-chimera-prism', 'ember-oath-blade', 'tempest-longbow', 'frostheart-staff', 'dragon-scale-lamellar', 'void-woven-robe', 'oathscale-bulwark']);
-  return [...new Set(stock[buildingId] ?? [])].filter(id => !apexOnly.has(id) && FANTASY_ITEMS.find(item => item.id === id)?.category !== 'black-market-map' && (FANTASY_ITEMS.some(item => item.id === id) || FANTASY_MAPS.some(map => map.item === id)));
+  const items = new Map<string, typeof FANTASY_ITEMS[number]>();
+  for (const item of FANTASY_ITEMS) if (!items.has(item.id)) items.set(item.id, item);
+  const mapIds = new Set(FANTASY_MAPS.map(map => map.item));
+  return [...new Set(stock[buildingId]?.() ?? [])].filter(id => !apexOnly.has(id) && items.get(id)?.category !== 'black-market-map' && (items.has(id) || mapIds.has(id)));
 }
 
 export function canBuyItem(character: Pick<FantasyCharacter, 'location'>, item: string): boolean {

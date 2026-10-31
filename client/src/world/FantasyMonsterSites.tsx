@@ -8,7 +8,7 @@ import { fantasyOnRoad } from '../../../shared/fantasy-travel.ts';
 import { useLocale } from '../locale.ts';
 import { set, useStore } from '../store.ts';
 import { ReasonButton } from './FantasyActionButton.tsx';
-import { combatError } from './FantasyCombatPanel.tsx';
+import { combatError } from './fantasy-combat-error.ts';
 import { requestFantasyCombat } from './fantasy-combat-transport.ts';
 import { requestFantasyParty } from './fantasy-party-transport.ts';
 

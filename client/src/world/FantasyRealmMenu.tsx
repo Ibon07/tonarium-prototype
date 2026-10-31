@@ -1,15 +1,12 @@
+import { requestFantasyRealm } from './fantasy-realm-transport.ts';
 import { useEffect } from 'react';
 import type { FantasyProfile } from '../../../shared/fantasy.ts';
-import type { FantasyRealmCommand } from '../../../shared/fantasy-realm.ts';
-import { get, set, useStore } from '../store.ts';
+import { set, useStore } from '../store.ts';
 import { send } from '../net/ws.ts';
 import { FantasyEconomyPanel } from './FantasyEconomyPanel.tsx';
 import { FantasyCivicPanel } from './FantasyCivicPanel.tsx';
 import { FantasyBlackMarketPanel } from './FantasyBlackMarketPanel.tsx';
-export function requestFantasyRealm(command: FantasyRealmCommand) {
-  if (!get().wsConnected || get().fantasyRealmPending) return;
-  set({ fantasyRealmPending: true, fantasyRealmError: null }); send({ t: 'fantasyRealmRequest', ...command });
-}
+
 export function FantasyRealmMenu({ profile, domain }: { profile: FantasyProfile; domain: 'economy' | 'civic' | 'blackMarket' }) {
   const state = useStore(s => s.fantasyRealm), pending = useStore(s => s.fantasyRealmPending), error = useStore(s => s.fantasyRealmError);
   const connected = useStore(s => s.wsConnected), session = useStore(s => s.session);

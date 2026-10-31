@@ -256,5 +256,8 @@
   "server/fantasy-platform-auth.test.ts",
   "server/client-address.test.ts",
   "shared/fantasy-gm-growth.test.ts",
-  "server/fantasy-gm-growth-routing.test.ts"
+  "server/fantasy-gm-growth-routing.test.ts",
+  "shared/fantasy-economy-freshness.test.ts",
+  "client/src/world/fantasy-deferred-panel.test.tsx",
+  "scripts/benchmark-fantasy-performance.test.ts"
 ]
