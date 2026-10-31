@@ -38,4 +38,4 @@
 
 ## PR
 
-[PR #391](https://github.com/katteni-kaihatu/tonarium-prototype/pull/391)을develop대상으로 열었다. 드래프트가 아니며, 병합·배포는 실행하지 않았다. 검증용 임시PostgreSQL도 종료했다.
+[PR #391](https://github.com/katteni-kaihatu/tonarium-prototype/pull/391)을 develop 대상으로 열었다. 드래프트가 아니며, 병합·배포는 실행하지 않았다. 검증용 임시 PostgreSQL도 종료했다.
