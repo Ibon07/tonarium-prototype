@@ -1,3 +1,4 @@
+import { markFantasyPlatformDataCurrent } from './fantasy-platform-reset.ts';
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -147,7 +148,8 @@ test('real WebSocket party requests enforce session boundaries, individual conse
   fs.writeFileSync(path.join(directory,'fantasy.json'),JSON.stringify(profiles));fs.writeFileSync(path.join(directory,'fantasy-clock.json'),JSON.stringify({version:1,hour:8,wallTime:Date.now()+3600000}));
   const sessions=path.join(directory,'sessions.json');fs.writeFileSync(sessions,JSON.stringify({name:'Party integration',sessions:[{id:'one',name:'One',world:'fantasy'},{id:'two',name:'Two',world:'fantasy'}]}));
   const listener=net.createServer();await new Promise<void>(resolve=>listener.listen(0,'127.0.0.1',resolve));const port=(listener.address() as net.AddressInfo).port;await new Promise<void>(resolve=>listener.close(()=>resolve()));
-  const child=spawn(process.execPath,['--import','tsx','server/index.ts','--dev'],{env:{...process.env, ...(await testServerEnv(t)), TONARIUM_TEST_HELLO_ID: '1',NODE_ENV:'test',FANTASY_ACCOUNT_TEST_BYPASS:'1',SERVER_PORT:String(port),DATA_DIR:directory,SESSIONS_FILE:sessions,LIVEKIT_URL:'',LIVEKIT_API_KEY:'',LIVEKIT_API_SECRET:'',KOKOAAI_APIKEY: ''},stdio:['ignore','pipe','pipe']});
+  markFantasyPlatformDataCurrent(directory);
+  const child=spawn(process.execPath,['--import','tsx','server/index.ts','--dev'],{env:{...process.env, ...(await testServerEnv(t)), TONARIUM_TEST_HELLO_ID: '1',NODE_ENV:'test',SERVER_PORT:String(port),DATA_DIR:directory,SESSIONS_FILE:sessions,LIVEKIT_URL:'',LIVEKIT_API_KEY:'',LIVEKIT_API_SECRET:'',KOKOAAI_APIKEY: ''},stdio:['ignore','pipe','pipe']});
   let output='';child.stdout.on('data',data=>{output+=String(data);});child.stderr.on('data',data=>{output+=String(data);});const sockets:WebSocket[]=[];
   t.after(async()=>{for(const socket of sockets)socket.terminate();child.kill();if(child.exitCode===null&&!child.signalCode)await new Promise<void>(resolve=>{const timer=setTimeout(()=>{child.kill('SIGKILL');resolve();},3000);child.once('exit',()=>{clearTimeout(timer);resolve();});});assert.equal(path.dirname(path.resolve(directory)),path.resolve(os.tmpdir()));assert.ok(path.basename(directory).startsWith('fantasy-party-ws-'));fs.rmSync(directory,{recursive:true,force:true});});
   async function until<T>(read:()=>T|undefined):Promise<T>{const deadline=Date.now()+12000;while(Date.now()<deadline){const value=read();if(value!==undefined)return value;if(child.exitCode!==null)throw Error(output);await new Promise(resolve=>setTimeout(resolve,15));}throw Error(`Party WS timeout: ${output}`);}
@@ -156,7 +158,7 @@ test('real WebSocket party requests enforce session boundaries, individual conse
     while(!ws&&Date.now()<deadline){const attempt=new WebSocket(`ws://127.0.0.1:${port}/ws`);const opened=await new Promise<boolean>(resolve=>{attempt.once('open',()=>resolve(true));attempt.once('error',()=>resolve(false));});if(opened)ws=attempt;else{attempt.terminate();await new Promise(resolve=>setTimeout(resolve,25));}}
     assert.ok(ws,`Test server did not accept WebSocket connections before the startup deadline. ${output}`);sockets.push(ws);ws.on('error',()=>{});
     const messages:({t:string;state?:FantasyPartyState&{players?:{id:string;name:string}[]};profile?:FantasyProfile;error?:string})[]=[];ws.on('message',raw=>{messages.push(JSON.parse(String(raw)));});
-    const send=(message:unknown)=>ws!.send(JSON.stringify(message));send({t:'hello',compat: COMPAT_VERSION,id,name:`Public-${id}`});await until(()=>messages.find(message=>message.t==='fantasyPartyState'));const joinedAt=messages.length;send({t:'join',sid:session});send({t:'fantasyPartyRequest',command:{type:'sync'}});await until(()=>messages.slice(joinedAt).find(message=>message.t==='fantasyPartyState'&&!message.error));
+    const send=(message:unknown)=>ws!.send(JSON.stringify(message));send({t:'hello',compat: COMPAT_VERSION,id,name:`Public-${id}`});await until(()=>messages.find(message=>message.t==='snapshot'));const joinedAt=messages.length;send({t:'join',sid:session});send({t:'fantasyPartyRequest',command:{type:'sync'}});await until(()=>messages.slice(joinedAt).find(message=>message.t==='fantasyPartyState'&&!message.error));
     return{messages,send,state:(predicate:(state:FantasyPartyState)=>boolean)=>until(()=>[...messages].reverse().find(message=>message.t==='fantasyPartyState'&&message.state&&predicate(message.state))?.state),error:(error:string,start=0)=>until(()=>messages.slice(start).find(message=>message.t==='fantasyPartyState'&&message.error===error))};
   }
   const a=await client('alice','one'),b=await client('bob','one'),c=await client('carol','two');

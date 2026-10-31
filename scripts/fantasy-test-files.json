@@ -137,12 +137,10 @@
   "shared/fantasy-summon-paths.test.ts",
   "shared/fantasy-world-utilities.test.ts",
   "server/fantasy-account-ws.test.ts",
-  "server/fantasy-accounts.test.ts",
   "server/fantasy-backups.test.ts",
   "server/fantasy-diagnostics.test.ts",
   "server/fantasy-dialogue-observer.test.ts",
   "server/fantasy-furniture-store.test.ts",
-  "server/fantasy-legacy-owner.test.ts",
   "server/fantasy-play-observer.test.ts",
   "server/fantasy-production-integration.test.ts",
   "server/fantasy-property-bag-guards.test.ts",
@@ -253,5 +251,10 @@
   "shared/fantasy-naval-catalog.test.ts",
   "shared/fantasy-naval.test.ts",
   "server/fantasy-naval-store.test.ts",
-  "server/fantasy-naval-review.test.ts"
+  "server/fantasy-naval-review.test.ts",
+  "server/fantasy-platform-reset.test.ts",
+  "server/fantasy-platform-auth.test.ts",
+  "server/client-address.test.ts",
+  "shared/fantasy-gm-growth.test.ts",
+  "server/fantasy-gm-growth-routing.test.ts"
 ]

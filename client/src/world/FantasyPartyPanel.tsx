@@ -13,7 +13,7 @@ export function FantasyPartyPanel({ profile }: { profile: FantasyProfile }) {
   const [locale] = useLocale(), state = useStore(s => s.fantasyParty), error = useStore(s => s.fantasyPartyError);
   const pending = useStore(s => s.fantasyPartyPending), connected = useStore(s => s.wsConnected), selfId = useStore(s => s.selfId);
   const actionPending = useStore(s => s.fantasyPending || s.fantasyCombatPending);
-  const session = useStore(s => s.session), users = useStore(s => s.users), account = useStore(s=>s.fantasyAccount), c = profile.character;
+  const session = useStore(s => s.session), users = useStore(s => s.users), c = profile.character;
   const say = (ko: string, en: string, ja: string) => ({ ko, en, ja })[locale];
   useEffect(() => {
     if (!connected) return;
@@ -75,7 +75,7 @@ export function FantasyPartyPanel({ profile }: { profile: FantasyProfile }) {
         </li>;
       })}</ul>
       {self?.isLeader && members.length > 1 && <details className="fr-party-manage"><summary>{say('파티장 넘기기 · 내보내기', 'Hand over lead · Remove member', 'リーダー交代・追放')}</summary><ul>{members.filter(member => !member.isLeader).map(member => <li key={member.id}><b>{member.name}</b><ReasonButton className="fr-btn" disabled={pending || actionPending || !connected} reason={reason} onClick={() => command({ type: 'transferLeader', target: member.id })}>{say('파티장 넘기기', 'Make leader', 'リーダーにする')}</ReasonButton><ReasonButton className="fr-btn" disabled={pending || actionPending || !connected} reason={reason} onClick={() => command({ type: 'kick', target: member.id })}>{say('내보내기', 'Remove', '追放')}</ReasonButton></li>)}</ul></details>}
-      {self?.isLeader && members.length < FANTASY_PARTY_MAX_MEMBERS && <details><summary>{say('동료 초대', 'Invite travelers', '仲間を招待')}</summary>{users.filter(user => (!account||user.id.startsWith('fantasy:'))&&user.session === session && user.id !== selfId && !members.some(member => member.id === user.id)).map(user => <ReasonButton key={user.id} className="fr-btn" disabled={pending || actionPending || !connected} reason={reason} onClick={() => command({ type: 'invite', target: user.id })}>{user.name} +</ReasonButton>)}</details>}
+      {self?.isLeader && members.length < FANTASY_PARTY_MAX_MEMBERS && <details><summary>{say('동료 초대', 'Invite travelers', '仲間を招待')}</summary>{users.filter(user => user.session === session && user.id !== selfId && !members.some(member => member.id === user.id)).map(user => <ReasonButton key={user.id} className="fr-btn" disabled={pending || actionPending || !connected} reason={reason} onClick={() => command({ type: 'invite', target: user.id })}>{user.name} +</ReasonButton>)}</details>}
       <FantasyPartyExtras profile={profile} state={state} selfId={selfId} blocked={pending || actionPending || !connected} command={command}/>
       <ReasonButton className="fr-btn" disabled={pending || actionPending || !connected} reason={reason} onClick={() => command({ type: 'leave' })}>{say('파티 나가기', 'Leave party', 'パーティーを抜ける')}</ReasonButton>
       <p className="fr-muted">{say('조사 방법과 전투는 의뢰에서, 이동 제안은 지도에서 정하세요. 함정과 부상은 각자 판정합니다.', 'Choose investigations and battles in Quests, and propose travel on the map. Traps and injuries are resolved individually.', '調査と戦闘は依頼で、移動の提案は地図で選びます。罠と負傷は個別に判定します。')}</p>

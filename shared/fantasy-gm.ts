@@ -29,6 +29,7 @@ import { FANTASY_FINAL_ISLE_ID } from './fantasy-isle-access.ts';
 import { fantasyVoyageClueReply } from './fantasy-voyage-knowledge.ts';
 import { fantasyVoyageChoiceReply } from './fantasy-voyage-decisions.ts';
 import { fantasyPrivateCareerQuestion, fantasyPrivateCareerReply } from './fantasy-career-privacy.ts';
+import { fantasyGmGrowthQuestion, fantasyGmGrowthReply } from './fantasy-gm-growth.ts';
 
 export interface FantasyGmReply {
   text: string;
@@ -413,6 +414,8 @@ function fantasyGmReplyJapanese(profile: FantasyProfile, text: string): FantasyG
 
 export function fantasyGmReply(profile: FantasyProfile, text: string, locale: NpcLocale = 'ja'): FantasyGmReply {
   if (fantasyPrivateCareerQuestion(text)) return { text: fantasyPrivateCareerReply(locale), suggestions: [] };
+  const growth = !profile.death && fantasyGmGrowthQuestion(text) ? fantasyGmGrowthReply(profile, locale) : undefined;
+  if (growth) return growth;
   if (profile.combatId) return { text: { ko: '지금은 전투 중이야. 전투 화면에서 공격·방어·기술·소모품·퇴각을 선택해 줘. 아직 승패는 정해지지 않았어.', en: 'Combat is in progress. Choose attacks, defense, skills, consumables or retreat on the battlefield. The outcome is not settled yet.', ja: '現在は戦闘中です。戦闘画面で攻撃・防御・技能・消耗品・離脱を選んでください。勝敗はまだ決まっていません。' }[locale], suggestions: [] };
   const clue = profile.character && (fantasyVoyageChoiceReply(profile.character, text, locale) ?? fantasyVoyageClueReply(profile.character, text, locale));
   if (clue) return { text: clue, suggestions: [{ label: { ko: '항해 기록', en: 'Voyage journal', ja: '航海の記録' }[locale], tab: 'journal' }] };
@@ -423,6 +426,7 @@ export function fantasyGmReply(profile: FantasyProfile, text: string, locale: Np
 
 export function fantasyGmCanAnswer(profile: FantasyProfile, text: string): boolean {
   if (fantasyPrivateCareerQuestion(text)) return true;
+  if (profile.character && !profile.death && fantasyGmGrowthQuestion(text)) return true;
   if (profile.combatId) return true;
   if (profile.character && (fantasyVoyageChoiceReply(profile.character, text, 'ja') ?? fantasyVoyageClueReply(profile.character, text, 'ja'))) return true;
   return fantasyGmReplyJapanese(profile, text).topic !== 'unknown';

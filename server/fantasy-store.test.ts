@@ -1,3 +1,4 @@
+import { markFantasyPlatformDataCurrent } from './fantasy-platform-reset.ts';
 import { readFantasySavedProfiles } from './fantasy-test-saved-profiles.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -741,8 +742,9 @@ test('home WebSocket authenticates session context and shares committed progress
   await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', resolve));
   const port = (listener.address() as net.AddressInfo).port;
   await new Promise<void>((resolve) => listener.close(() => resolve()));
+  markFantasyPlatformDataCurrent(directory);
   const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts', '--dev'], {
-    env: { ...process.env, ...(await testServerEnv(t)), TONARIUM_TEST_HELLO_ID: '1', NODE_ENV: 'test', FANTASY_ACCOUNT_TEST_BYPASS: '1', SERVER_PORT: String(port), DATA_DIR: directory, SESSIONS_FILE: sessions, LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' },
+    env: { ...process.env, ...(await testServerEnv(t)), TONARIUM_TEST_HELLO_ID: '1', NODE_ENV: 'test', SERVER_PORT: String(port), DATA_DIR: directory, SESSIONS_FILE: sessions, LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let logs = '';
@@ -773,36 +775,41 @@ test('home WebSocket authenticates session context and shares committed progress
     await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
     const send = (message: unknown) => socket.send(JSON.stringify(message));
     send({ t: 'hello', compat: COMPAT_VERSION, id, name: id });
-    await until(() => received.find((message) => message.t === 'fantasyProfile'));
+    await until(() => received.find((message) => message.t === 'snapshot'));
     const takeProfile = async (from: number) => until(() => received.slice(from).find((message) => message.t === 'fantasyProfile'));
-    return { socket, received, send, takeProfile };
+    const barrier = async () => { const from = received.length; send({ t: 'hello', compat: COMPAT_VERSION, id, name: id }); await until(() => received.slice(from).find(message => message.t === 'snapshot')); };
+    return { socket, received, send, takeProfile, barrier };
   };
   const alice = await peer('alice');
   const second = await peer('alice');
   const bob = await peer('bob');
   let from = alice.received.length;
   alice.send({ t: 'fantasyAction', revision: 0, action: { type: 'draw' } });
-  const outside = await alice.takeProfile(from);
-  assert.ok(outside.error);
-  assert.equal(outside.profile?.draft.remaining, 5);
+  await alice.barrier();
+  assert.equal(alice.received.slice(from).some(message => message.t === 'fantasyProfile'), false);
   from = alice.received.length;
   alice.send({ t: 'fantasyGmChat', requestId: 'gm-outside', text: 'Hello', locale: 'en', profile: { gold: 99999 } });
-  const deniedGm = await until(() => alice.received.slice(from).find(message => message.requestId === 'gm-outside'));
-  assert.equal(deniedGm.error, 'invalid');
+  await alice.barrier();
+  assert.equal(alice.received.slice(from).some(message => message.requestId === 'gm-outside'), false);
   from = alice.received.length;
   alice.send({ t: 'join', sid: 'room-test' });
   alice.send({ t: 'fantasyAction', revision: 0, action: { type: 'sync' } });
-  assert.ok((await alice.takeProfile(from)).error);
+  await alice.barrier();
+  assert.equal(alice.received.slice(from).some(message => message.t === 'fantasyProfile'), false);
   from = alice.received.length;
   const secondFrom = second.received.length;
   const bobProfiles = bob.received.filter((message) => message.t === 'fantasyProfile').length;
   alice.send({ t: 'join', sid: 'fantasy-test' });
+  const entered = await until(() => alice.received.slice(from).find(message => message.t === 'fantasyProfile'));
+  assert.equal(entered.profile?.draft.remaining, 5);
+  assert.equal(entered.profile?.revision, 0);
+  from = alice.received.length;
   alice.send({ t: 'fantasyAction', revision: 0, action: { type: 'draw' } });
   const committed = await alice.takeProfile(from);
   assert.equal(committed.error, undefined);
   assert.equal(committed.profile?.revision, 1);
   assert.equal(committed.profile?.draft.remaining, 4);
-  assert.deepEqual((await second.takeProfile(secondFrom)).profile, committed.profile);
+  assert.deepEqual((await until(() => second.received.slice(secondFrom).find(message => message.profile?.revision === committed.profile!.revision))).profile, committed.profile);
   assert.equal(bob.received.filter((message) => message.t === 'fantasyProfile').length, bobProfiles);
   from = second.received.length;
   second.send({ t: 'fantasyAction', revision: 0, action: { type: 'draw' } });

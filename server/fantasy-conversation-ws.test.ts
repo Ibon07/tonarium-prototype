@@ -1,3 +1,4 @@
+import { markFantasyPlatformDataCurrent } from './fantasy-platform-reset.ts';
 import { readFantasySavedProfiles } from './fantasy-test-saved-profiles.ts';
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,8 +35,9 @@ async function isolated(t: TestContext, location = 'hearth') {
   fs.writeFileSync(sessions, JSON.stringify({ name: 'Conversation test', sessions: [{ id: 'test-world', name: 'Isolated world', world: 'fantasy' }] }));
   const listener = net.createServer(); await new Promise<void>(resolve => listener.listen(0, '127.0.0.1', resolve));
   const port = (listener.address() as net.AddressInfo).port; await new Promise<void>(resolve => listener.close(() => resolve()));
+  markFantasyPlatformDataCurrent(directory);
   const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts', '--dev'], {
-    env: { ...process.env, ...(await testServerEnv(t)), TONARIUM_TEST_HELLO_ID: '1', NODE_ENV: 'test', FANTASY_ACCOUNT_TEST_BYPASS: '1', SERVER_PORT: String(port), DATA_DIR: directory, SESSIONS_FILE: sessions,
+    env: { ...process.env, ...(await testServerEnv(t)), TONARIUM_TEST_HELLO_ID: '1', NODE_ENV: 'test', SERVER_PORT: String(port), DATA_DIR: directory, SESSIONS_FILE: sessions,
       LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '', KOKOAAI_APIKEY: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -66,7 +68,7 @@ async function isolated(t: TestContext, location = 'hearth') {
   await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
   const send = (message: unknown) => socket.send(JSON.stringify(message));
   send({ t: 'hello', compat: COMPAT_VERSION, id: 'alice', name: 'Conversation Test' });
-  await until(() => messages.find(message => message.t === 'fantasyProfile'));
+  await until(() => messages.find(message => message.t === 'snapshot'));
   send({ t: 'join', sid: 'test-world' });
   send({ t: 'fantasyAction', revision: profile.revision, action: { type: 'sync' } });
   await until(() => messages.find(message => message.t === 'fantasyProfile' && message.profile?.character && !message.error));

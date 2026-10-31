@@ -11,7 +11,7 @@ import { applyAvatars } from '../sessionView.ts';
 import { get, recompute, set, showToast, spawnPoint } from '../store.ts';
 import { wsSessionQuery } from '../auth.ts';
 import { msg as uiMsg } from '../i18n/index.ts';
-import { fantasyAccountDisconnected, fantasyAccountIdentityUpdate, fantasyPrivateMessagesAllowed } from '../world/fantasy-account-state.ts';
+import { fantasyAccountDisconnected, fantasyPrivateMessagesAllowed } from '../world/fantasy-account-state.ts';
 import { appendFantasyGmResponse, clearFantasyGmLife, fantasyGmRequestOwner } from '../world/fantasy-gm-history.ts';
 import { clearNpcRequests, consumeNpcRequest, npcRequestOwner } from '../world/npc-request-tracker.ts';
 
@@ -70,11 +70,12 @@ export function connectWs() {
   let openedAt = 0;
   g.__tonariumWs = ws;
   ws.onopen = () => {
+    if (g.__tonariumWs !== ws) return;
     openedAt = performance.now();
     retry = 0;
     set({ wsConnected: true, wsReady: false });
     const s = get();
-    // 本人はログインのセッションで決まる（fantasy のアカウントで動いていても、つなぎ直すとホームの本人に戻る）
+    // 本人は Tonarium のログインセッションで決まる。
     send({ t: 'hello', compat: COMPAT_VERSION });
     if (s.session) {
       send({ t: 'join', sid: s.session });
@@ -82,20 +83,15 @@ export function connectWs() {
       startSessionSync();
     }
   };
-  ws.onmessage = (e) => onMessage(JSON.parse(e.data) as ServerMsg);
+  ws.onmessage = (e) => { if (g.__tonariumWs === ws) onMessage(JSON.parse(e.data) as ServerMsg); };
   ws.onclose = (event) => {
+    if (g.__tonariumWs !== ws) return;
     for (const request of sessionRequests.values()) request.reject(new Error(uiSource('ui471')));
     console.warn('[home-ws] closed', { code: event.code, reason: event.reason, wasClean: event.wasClean,
       connectedSeconds: openedAt ? Math.round((performance.now() - openedAt) / 1000) : 0 });
     stopSessionSync(true);
     const current = get();
-    const accountReset = current.fantasyAccount || current.fantasyHomeId || current.session && current.worldBy[current.session] === 'fantasy'
-      ? fantasyAccountDisconnected(current)
-      : { fantasyAccount: null, fantasyAccountReady: false, fantasyAccountError: null };
-    set({ fantasyTownPresence: null, wsConnected: false, wsReady: false, fantasyRealm: null, fantasyRealmPending: false, fantasyRealmError: null, dialogueProgress: {}, fantasyPending: false, fantasyTestResetAllowed: false, fantasyParty: null, fantasyPartyError: null, fantasyPartyPending: false, fantasyProperties: null, fantasyPropertyError: null, fantasyPropertyPending: false, fantasyCombat: null, fantasyCombatError: null, fantasyCombatPending: false, ...accountReset });
-    if (get().npcPending) set({ npcPending: false, npcRequestId: null, npcError: 'unavailable', npcErrorContext: null });
-    if (get().gmPending) set({ gmPending: false, gmRequestId: null, gmError: 'unavailable', gmErrorLocale: null });
-    if (get().communityPending) set({ communityPending: false, communityError: 'unavailable' });
+    set({ ...fantasyAccountDisconnected(current), wsConnected: false, wsReady: false });
     if (get().session) set({ sync: 'unavailable', syncError: uiSource('ui472') });
     // ログインが切れた（ほかのタブでログアウトした・期限切れ）ときは、つなぎ直しても断られるので入口からやり直す
     if (event.code === 4401) { location.reload(); return; }
@@ -172,25 +168,8 @@ export function applySessionSnapshot(snap: SessionSnapshot) {
 }
 
 export function onMessage(msg: ServerMsg) {
-  if (['fantasyGuildGreeting', 'fantasyTownPresence', 'fantasyProfile', 'fantasyLegacies', 'fantasyRanking', 'fantasyContractBoard', 'fantasyPartyState', 'fantasyRealmState', 'fantasyPropertyState', 'fantasyCombatState', 'communityState', 'fantasyDialogueChunk', 'fantasyGmReply'].includes(msg.t) && !fantasyPrivateMessagesAllowed(get())) return;
+  if (['fantasyGuildGreeting', 'fantasyTownPresence', 'fantasyProfile', 'fantasyLegacies', 'fantasyRanking', 'fantasyContractBoard', 'fantasyPartyState', 'fantasyRealmState', 'fantasyPropertyState', 'fantasyCombatState', 'communityState', 'fantasyDialogueChunk', 'fantasyGmReply', 'npcReply', 'fantasyTestMode'].includes(msg.t) && !fantasyPrivateMessagesAllowed(get())) return;
   switch (msg.t) {
-    case 'fantasyAccountState': {
-      const previous = get(), next = fantasyAccountIdentityUpdate(previous, msg);
-      if (next.changed) stopSessionSync();
-      set(next.patch);
-      recompute();
-      if (next.changed && get().session && get().wsConnected) {
-        startSessionSync();
-        if (get().voice !== 'off') {
-          const sid = get().session!, id = get().selfId;
-          void import('./livekit.ts').then(({ connectVoice }) => {
-            const current = get();
-            if (current.session === sid && current.selfId === id && current.wsConnected && current.voice !== 'off') return connectVoice(sid);
-          });
-        }
-      }
-      return;
-    }
     case 'systemState':
       if (msg.sid === get().session) {
         receiveSystems(msg.sid, msg.view, msg.error);

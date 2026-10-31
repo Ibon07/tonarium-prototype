@@ -18,7 +18,6 @@ import type { FantasyContractBoard, FantasyContractError } from './fantasy-contr
 import type { FantasyCombatOrder, FantasyCombatState } from './fantasy-combat.ts';
 import type { FantasyCombatStartKind } from './fantasy-combat-challenges.ts';
 import type { FantasyPropertyCommand, FantasyPropertyError, FantasyPropertyState } from './fantasy-property.ts';
-import type { FantasyAccountPublic } from './fantasy-account.ts';
 import type { FantasyRankingRow } from './fantasy-ranking.ts';
 export type { FantasyCombatStartKind } from './fantasy-combat-challenges.ts';
 export type FantasyCombatCommand = { type: 'sync' } | { type: 'inspect'; target: string }
@@ -36,7 +35,7 @@ export type Mode = '2d' | '3d';
  * 約束事を壊す変更（メッセージの追加・意味の変更など）を入れたら +1 する。
  * hello で申告が無い・一致しないクライアントはサーバーが接続を断ち、画面は全面で更新を促す（docs/sync.md）
  */
-export const COMPAT_VERSION = 17;
+export const COMPAT_VERSION = 18;
 
 /** セッションを見られる人。省略時は public */
 export type Visibility = 'public' | 'friends' | 'groupPlus' | 'group' | 'invite';
@@ -328,8 +327,6 @@ export interface SessionSnapshot {
 
 /** WebSocket でサーバーへ送るもの（セッションの外でも使う） */
 export type HomeClientMsg =
-  | { t: 'fantasyAccountBind'; ticket: string }
-  | { t: 'fantasyAccountUnbind' }
   | { t: 'fantasyAction'; revision: number; action: FantasyAction }
   | { t:'fantasyAid';target:string;method:'potion'|'temple'|import('./fantasy-carry-return.ts').FantasyCarryReturnMethod }
   | ({ t: 'fantasyRealmRequest' } & FantasyRealmCommand)
@@ -451,7 +448,6 @@ export const isRoomClientMsg = (m: ClientMsg): m is RoomClientMsg => Object.hasO
 
 /** WebSocket でサーバーから届くもの */
 export type HomeServerMsg =
-  | { t: 'fantasyAccountState'; account: FantasyAccountPublic | null; homeId: string; activeId: string; user?: User; error?: string }
   | { t: 'sessionCreated'; sid: string; requestId?: string }
   | { t: 'sessionResult'; requestId: string; error?: string }
   | { t: 'thumbnailRequest'; sid: string }

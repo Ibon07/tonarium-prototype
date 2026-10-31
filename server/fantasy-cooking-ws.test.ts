@@ -1,3 +1,5 @@
+import { testServerEnv } from './test-db.ts';
+import { markFantasyPlatformDataCurrent } from './fantasy-platform-reset.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -47,9 +49,10 @@ test('real server ticks privately push shared warehouse depletion to owner/coown
   fs.writeFileSync(sessions, JSON.stringify({ name: 'WS cooking QA', sessions: [{ id: 'test-world', name: 'Isolated cooking QA', world: 'fantasy' }] }));
   const listener = net.createServer(); await new Promise<void>(resolve => listener.listen(0, '127.0.0.1', resolve));
   const port = (listener.address() as net.AddressInfo).port; await new Promise<void>(resolve => listener.close(() => resolve()));
+  markFantasyPlatformDataCurrent(directory);
   const child = spawn(process.execPath, ['--import', pathToFileURL(hook).href, '--import', 'tsx', 'server/index.ts', '--dev'], {
     cwd: root,
-    env: { ...process.env, NODE_ENV: 'test', FANTASY_ACCOUNT_TEST_BYPASS: '1', SERVER_PORT: String(port), DATA_DIR: directory, SESSIONS_FILE: sessions, QA_CLOCK_FILE: nowFile, LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '', KOKOAAI_APIKEY: '' },
+    env: { ...process.env, ...(await testServerEnv(t)), TONARIUM_TEST_HELLO_ID: '1', NODE_ENV: 'test', SERVER_PORT: String(port), DATA_DIR: directory, SESSIONS_FILE: sessions, QA_CLOCK_FILE: nowFile, LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '', KOKOAAI_APIKEY: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let logs = ''; child.stdout.on('data', value => { logs += String(value); }); child.stderr.on('data', value => { logs += String(value); });
@@ -83,7 +86,7 @@ test('real server ticks privately push shared warehouse depletion to owner/coown
     await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
     const send = (msg: unknown) => socket.send(JSON.stringify(msg)); clients[id] = { messages, raw, send };
     send({ t: 'hello', compat: COMPAT_VERSION, id, name: `WS ${id}` });
-    await until(() => messages.find(message => message.t === 'fantasyProfile'));
+    await until(() => messages.find(message => message.t === 'snapshot'));
     send({ t: 'join', sid: 'test-world' });
     await until(() => messages.find(message => message.t === 'fantasyPropertyState' && message.state?.location === 'hearth'));
   }

@@ -12,7 +12,7 @@ const { setLocale } = require('../locale.ts') as typeof import('../locale.ts');
 const { set, get } = require('../store.ts') as typeof import('../store.ts');
 const names = { ko: '인간', en: 'Human', ja: '人間' }, job = { ko: '성녀', en: 'Saint', ja: '聖女' };
 function initialize(rows: FantasyRankingRow[] | null) {
-  set({ selfId: 'fantasy:viewer', fantasyAccount: { id: 'viewer', principal: 'fantasy:viewer', username: 'viewer' }, fantasyAccountReady: true, wsConnected: true, session: 'rpg', worldBy: { rpg: 'fantasy' }, fantasyRanking: rows });
+  set({ selfId: 'tonarium-viewer', joined: true, wsReady: true, wsConnected: true, session: 'rpg', worldBy: { rpg: 'fantasy' }, fantasyRanking: rows });
 }
 test('ranking panel shows only nickname, localized race, profession and score for ten records', () => {
   const rows = Array.from({ length: 12 }, (_, index) => ({ nickname: `Nickname ${index}`, race: names, job, score: 1000 - index }));
@@ -20,12 +20,12 @@ test('ranking panel shows only nickname, localized race, profession and score fo
     initialize(rows); setLocale(locale); const html = renderToStaticMarkup(createElement(FantasyRankingPanel));
     assert.equal((html.match(/<tr>/g) ?? []).length, 11); assert.equal((html.match(/scope="col"/g) ?? []).length, 4);
     assert.ok(html.includes('Nickname 0')); assert.ok(!html.includes('Nickname 10')); assert.ok(html.includes(names[locale])); assert.ok(html.includes(job[locale]));
-    for (const secret of ['fantasy:viewer', 'generation', 'gender', 'completed', 'inventory', 'owner', 'level']) assert.ok(!html.includes(secret));
+    for (const secret of ['tonarium-viewer', 'generation', 'gender', 'completed', 'inventory', 'owner', 'level']) assert.ok(!html.includes(secret));
   }
 });
-test('ranking requests and stale display are restricted to connected bound fantasy sessions', () => {
+test('ranking requests and stale display are restricted to ready platform-authenticated fantasy sessions', () => {
   initialize([]); assert.equal(fantasyRankingRequestAllowed(get()), true);
-  for (const patch of [{ wsConnected: false }, { fantasyAccount: null }, { fantasyAccountReady: false }, { selfId: 'different' }, { session: null }, { worldBy: { rpg: 'city' as const } }]) {
+  for (const patch of [{ wsConnected: false }, { joined: false }, { wsReady: false }, { selfId: '' }, { session: null }, { worldBy: { rpg: 'city' as const } }]) {
     initialize([{ nickname: 'Hidden cached row', race: names, job, score: 1 }]); set(patch); assert.equal(fantasyRankingRequestAllowed(get()), false);
     assert.ok(!renderToStaticMarkup(createElement(FantasyRankingPanel)).includes('Hidden cached row'));
   }

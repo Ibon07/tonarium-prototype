@@ -98,7 +98,7 @@ DB のテーブルを変えるときは `server/db/schema.ts` を直して `npm 
 - 2D の画面（距離ごとのプレイヤー・アイテムのリスト、顔、通知・チャット、ウィンドウ、試験中のマップ、スマホ・PWA）→ [docs/screens.md](docs/screens.md)
 - 3D 空間（FPS 風の操作、ワールドの切り替え、ガーデン、街（マンション・電車・エレベーター）、お絵描きアバター、配信ディスプレイ）→ [docs/3d.md](docs/3d.md)
 - 悠久の旅路（45地域、51種族、38職業、個人メイン18章と48の連続調査、共有依頼、熟練・制作・狩猟、共通の季節時計、ローカルAIのNPC・GM）→ [docs/fantasy.md](docs/fantasy.md)
-- 悠久の旅路の専用アカウント・別端末への復帰・復旧コード → [docs/fantasy-accounts.md](docs/fantasy-accounts.md)。世界・アカウントの定期バックアップ、復元と旧人物の所有者移行 → [docs/fantasy-backups.md](docs/fantasy-backups.md)
+- 悠久の旅路は Tonarium のログインを共用。今回の初回起動で旧 RPG アカウント・人物・所持品・進行と RPG 専用バックアップを永久初期化し、完了後の進行は保持する → [ログインと初期化の対象](docs/fantasy-accounts.md)。新しい世界保存・完了印の定期バックアップと復元 → [docs/fantasy-backups.md](docs/fantasy-backups.md)
 - RPG のブラウザ・認証済み多人数・復元障害・外部同期・戦闘の追加検証と範囲 → [docs/fantasy-feasible-validation.md](docs/fantasy-feasible-validation.md)
 - RPG の行動・AI 診断ログと運営用の会話検索・書き出し → [docs/fantasy-diagnostics.md](docs/fantasy-diagnostics.md)
 - RPG 診断・AI 品質・TLS/WSS・非公開ファイルの追加検証 → [docs/fantasy-predeploy-diagnostics-validation.md](docs/fantasy-predeploy-diagnostics-validation.md)

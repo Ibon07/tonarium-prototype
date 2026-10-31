@@ -70,9 +70,6 @@ import { FantasyDice } from './FantasyDice.tsx';
 import { FantasyLegacy } from './FantasyLegacy.tsx';
 import { ReasonButton } from './FantasyActionButton.tsx';
 import { actionHelp, skillBriefText, skillDescriptionText, skillEffectText } from './fantasy-action-help.ts';
-import { FantasyAccountGate } from './FantasyAccountGate.tsx';
-import type { FantasyAccountResponse } from '../../../shared/fantasy-account.ts';
-import { clearFantasyAccountPrivateState } from './fantasy-account-state.ts';
 
 type Tab = 'location' | 'quests' | 'inventory' | 'equipment' | 'skills' | 'jobs' | 'journal' | 'gm' | 'npc' | 'buildings' | 'company' | 'magic' | 'alchemy' | 'legacy' | 'party' | 'property' | 'priest' | 'economy' | 'civic' | 'blackMarket' | 'ranking';
 const genderName = { male: '男性', female: '女性', none: '性別なし' };
@@ -183,13 +180,8 @@ type FantasyPanelProps = { socialOpen: boolean; onSocialToggle: () => void };
 export function FantasyPanel(props: FantasyPanelProps) {
   useEffect(() => { void cleanupRetiredBrowserAi().catch(() => {}); }, []);
   const languageChosen = useLanguageChosen();
-  const account=useStore(state=>state.fantasyAccount),ready=useStore(state=>state.fantasyAccountReady),connected=useStore(state=>state.wsConnected),error=useStore(state=>state.fantasyAccountError);
-  const unbind=()=>{const state=get();set({...clearFantasyAccountPrivateState([state.selfId,state.fantasyAccount?.principal]),fantasyAccountReady:false,fantasyAccountError:null});send({t:'fantasyAccountUnbind'});};
-  const authenticated=(response:FantasyAccountResponse)=>{
-    if(response.ticket){set({fantasyAccountReady:false,fantasyAccountError:null});send({t:'fantasyAccountBind',ticket:response.ticket});}
-    else if(!response.account&&get().fantasyAccount)unbind();
-  };
-  return languageChosen ? <FantasyAccountGate account={account} ready={ready} connected={connected} error={error} onAuthenticated={authenticated} onLogout={unbind}><FantasyPanelContent key={`${account?.id??''}:${account?.principal??''}`} {...props}/></FantasyAccountGate> : <LanguageScreen/>;
+  const selfId = useStore(state => state.selfId);
+  return languageChosen ? <FantasyPanelContent key={selfId} {...props}/> : <LanguageScreen/>;
 }
 
 export function FantasyPanelContent({socialOpen,onSocialToggle}: FantasyPanelProps){

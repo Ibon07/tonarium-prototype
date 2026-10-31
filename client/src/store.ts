@@ -24,7 +24,6 @@ import type { FantasyPartyState, FantasyPartyError } from '../../shared/fantasy-
 import type { FantasyTownPresence } from '../../shared/fantasy-town-presence.ts';
 import type { FantasyCombatState } from '../../shared/fantasy-combat.ts';
 import type { FantasyPropertyState } from '../../shared/fantasy-property.ts';
-import type { FantasyAccountPublic } from '../../shared/fantasy-account.ts';
 import { createAdSlice, type AdSlice } from './ad/slice.ts';
 import type { AdPanelTarget } from '../../shared/antimatterLayout.ts';
 import { deriveSession } from './sessionView.ts';
@@ -172,10 +171,6 @@ interface State extends AdSlice {
   /** 仮IDに紐づくサーバー保存の個人進行 */
   survivorProfile: SurvivorProfile;
   fantasyProfile: FantasyProfile | null;
-  fantasyAccount: FantasyAccountPublic | null;
-  fantasyHomeId: string | null;
-  fantasyAccountReady: boolean;
-  fantasyAccountError: string | null;
   fantasyLegacies: FantasyLegacyRecord[];
   fantasyRanking: FantasyRankingRow[] | null;
   fantasyContractBoard: FantasyContractBoard | null;
@@ -352,10 +347,6 @@ export const useStore = create<State>((set, get) => ({
   survivorProfile: newSurvivorProfile(),
   fantasyProfile: null,
   fantasyRanking: null,
-  fantasyAccount: null,
-  fantasyHomeId: null,
-  fantasyAccountReady: false,
-  fantasyAccountError: null,
   fantasyLegacies: [],
   fantasyContractBoard: null,
   fantasyGuildGreeting: null,

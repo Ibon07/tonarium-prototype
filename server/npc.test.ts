@@ -586,7 +586,11 @@ test('home WebSocket NPC works after hello without joining a session and uses it
   const sockets: WebSocket[] = [];
   const until = async <T>(read: () => T | undefined, timeout = 10_000): Promise<T> => {
     const end = Date.now() + timeout;
-    while (Date.now() < end) { const value = read(); if (value !== undefined) return value; await new Promise(resolve => setTimeout(resolve, 15)); }
+    while (Date.now() < end) {
+      const value = read(); if (value !== undefined) return value;
+      if (child?.exitCode != null) throw new Error(`NPC test server exited (${child.exitCode}): ${logs}`);
+      await new Promise(resolve => setTimeout(resolve, 15));
+    }
     throw new Error(`Timed out waiting for NPC WebSocket: ${logs}`);
   };
   t.after(async () => {
@@ -600,12 +604,12 @@ test('home WebSocket NPC works after hello without joining a session and uses it
     fs.rmSync(directory, { recursive: true, force: true });
   });
   child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts', '--dev'], {
-    env: { ...process.env, ...(await testServerEnv(t)), TONARIUM_TEST_HELLO_ID: '1', NODE_ENV: 'test', FANTASY_ACCOUNT_TEST_BYPASS: '1', SERVER_PORT: String(port), DATA_DIR: directory, SESSIONS_FILE: sessions, KOKOAAI_BASEURL: `https://127.0.0.1:${modelPort}/v1`, KOKOAAI_MODEL: 'test-remote-model', KOKOAAI_APIKEY: 'integration-test-only', NODE_EXTRA_CA_CERTS: fileURLToPath(new URL('./fixtures/kokoa-test-cert.pem', import.meta.url)), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' },
+    env: { ...process.env, ...(await testServerEnv(t)), TONARIUM_TEST_HELLO_ID: '1', NODE_ENV: 'test', SERVER_PORT: String(port), DATA_DIR: directory, SESSIONS_FILE: sessions, KOKOAAI_BASEURL: `https://127.0.0.1:${modelPort}/v1`, KOKOAAI_MODEL: 'test-remote-model', KOKOAAI_APIKEY: 'integration-test-only', NODE_EXTRA_CA_CERTS: fileURLToPath(new URL('./fixtures/kokoa-test-cert.pem', import.meta.url)), LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.stdout?.on('data', chunk => { logs += String(chunk); });
   child.stderr?.on('data', chunk => { logs += String(chunk); });
-  await until(() => logs.includes('server on') ? true : undefined);
+  await until(() => logs.includes('server on') ? true : undefined, 20_000);
   const peer = async (id: string) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`); sockets.push(ws);
     const messages: { t: string; requestId?: string; text?: string; error?: string; model?: string; npcId?: string; locale?: string; relationship?: string }[] = [];

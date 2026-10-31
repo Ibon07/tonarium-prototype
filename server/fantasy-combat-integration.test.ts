@@ -1,3 +1,4 @@
+import { markFantasyPlatformDataCurrent } from './fantasy-platform-reset.ts';
 import { learnFantasyMagicBook } from '../shared/fantasy-magic-discovery.ts';
 import { fantasyTestClearRoute } from '../shared/fantasy-combat-test-tactics.ts';
 import test, { type TestContext } from 'node:test';
@@ -390,7 +391,8 @@ test('real combat WebSockets enforce party consent, session ownership, turn slot
   fs.writeFileSync(path.join(directory, 'fantasy.json'), JSON.stringify(profiles)); fs.writeFileSync(path.join(directory, 'fantasy-clock.json'), JSON.stringify({ version: 1, hour: 12, wallTime: Date.now() + 3600000 }));
   const sessions = path.join(directory, 'sessions.json'); fs.writeFileSync(sessions, JSON.stringify({ name: 'Combat integration', sessions: [{ id: 'one', name: 'One', world: 'fantasy' }, { id: 'two', name: 'Two', world: 'fantasy' }] }));
   const listener = net.createServer(); await new Promise<void>(resolve => listener.listen(0, '127.0.0.1', resolve)); const port = (listener.address() as net.AddressInfo).port; await new Promise<void>(resolve => listener.close(() => resolve()));
-  const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts', '--dev'], { env: { ...process.env, ...(await testServerEnv(t)), TONARIUM_TEST_HELLO_ID: '1', NODE_ENV:'test',FANTASY_ACCOUNT_TEST_BYPASS:'1',SERVER_PORT: String(port), DATA_DIR: directory, SESSIONS_FILE: sessions, LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '', KOKOAAI_APIKEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  markFantasyPlatformDataCurrent(directory);
+  const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts', '--dev'], { env: { ...process.env, ...(await testServerEnv(t)), TONARIUM_TEST_HELLO_ID: '1', NODE_ENV:'test',SERVER_PORT: String(port), DATA_DIR: directory, SESSIONS_FILE: sessions, LIVEKIT_URL: '', LIVEKIT_API_KEY: '', LIVEKIT_API_SECRET: '', KOKOAAI_APIKEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = ''; child.stdout.on('data', chunk => { output += String(chunk); }); child.stderr.on('data', chunk => { output += String(chunk); }); const sockets: WebSocket[] = [];
   t.after(async () => { for (const socket of sockets) socket.terminate(); child.kill(); if (child.exitCode === null && !child.signalCode) await new Promise<void>(resolve => { const timer = setTimeout(() => { child.kill('SIGKILL'); resolve(); }, 3000); child.once('exit', () => { clearTimeout(timer); resolve(); }); }); assert.equal(path.dirname(path.resolve(directory)), path.resolve(os.tmpdir())); assert.ok(path.basename(directory).startsWith('fantasy-combat-ws-')); fs.rmSync(directory, { recursive: true, force: true }); });
   async function until<T>(read: () => T | undefined | null | false): Promise<T> { const deadline = Date.now() + 15000; while (Date.now() < deadline) { const value = read(); if (value) return value; if (child.exitCode !== null) throw new Error(output); await new Promise(resolve => setTimeout(resolve, 20)); } throw new Error(`Combat WS timeout: ${output}`); }
@@ -398,7 +400,7 @@ test('real combat WebSockets enforce party consent, session ownership, turn slot
     let ws: WebSocket | undefined; const deadline = Date.now() + 30000;
     while (!ws && Date.now() < deadline) { const attempt = new WebSocket(`ws://127.0.0.1:${port}/ws`); const opened = await new Promise<boolean>(resolve => { attempt.once('open', () => resolve(true)); attempt.once('error', () => resolve(false)); }); if (opened) ws = attempt; else { attempt.terminate(); if (child.exitCode !== null) throw new Error(output); await new Promise(resolve => setTimeout(resolve, 30)); } }
     if (!ws) throw new Error(output); sockets.push(ws); const messages: Record<string, any>[] = []; ws.on('message', data => messages.push(JSON.parse(String(data)))); const send = (message: object) => ws!.send(JSON.stringify(message));
-    send({ t: 'hello', compat: COMPAT_VERSION, id, name: id }); await until(() => messages.find(message => message.t === 'fantasyPartyState')); const joinedAt = messages.length;
+    send({ t: 'hello', compat: COMPAT_VERSION, id, name: id }); await until(() => messages.find(message => message.t === 'snapshot')); const joinedAt = messages.length;
     send({ t: 'join', sid: session }); send({ t: 'fantasyPartyRequest', command: { type: 'sync' } }); await until(() => messages.slice(joinedAt).find(message => message.t === 'fantasyPartyState' && !message.error));
     return { ws, messages, send };
   }
