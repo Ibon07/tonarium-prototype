@@ -20,6 +20,8 @@ import { fantasyQuestEligible } from '../shared/fantasy-access.ts';
 
 const OLD='a1234567-1234-4234-8234-123456789abc',OTHER=OLD+'-alt',NEW='fantasy:b1234567-1234-4234-8234-123456789abc';
 const sha=(value:Uint8Array)=>createHash('sha256').update(value).digest('hex');
+const savedBytes=(file:string)=>fs.existsSync(file)?fs.readFileSync(file):null;
+const savedHash=(file:string)=>{const bytes=savedBytes(file);return bytes===null?null:sha(bytes);};
 function fixture(t:{after:(fn:()=>void)=>void},combat=false){
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'tonarium-legacy-owner-'));
   t.after(()=>{assert.equal(path.dirname(directory),os.tmpdir());assert.ok(path.basename(directory).startsWith('tonarium-legacy-owner-'));fs.rmSync(directory,{recursive:true,force:true});});
@@ -56,10 +58,10 @@ function fixture(t:{after:(fn:()=>void)=>void},combat=false){
 }
 
 test('legacy migration preview is read-only and reserved owner migration preserves all saved ownership',t=>{
-  const f=fixture(t),before=Object.fromEntries(Object.entries(f.files).map(([key,file])=>[key,sha(fs.readFileSync(file))]));
+  const f=fixture(t),before=Object.fromEntries(Object.entries(f.files).map(([key,file])=>[key,savedHash(file)]));
   const preview=migrateFantasyLegacyOwner({dataDirectory:f.directory,legacyOwner:OLD,newOwner:NEW});
   assert.equal(preview.applied,false);assert.ok(preview.files.some(file=>file.key==='world'));assert.equal(fs.existsSync(path.join(f.directory,'fantasy-backups')),false);
-  for(const[key,file]of Object.entries(f.files))assert.equal(sha(fs.readFileSync(file)),before[key]);
+  for(const[key,file]of Object.entries(f.files))assert.equal(savedHash(file),before[key]);
   const result=migrateFantasyLegacyOwner({dataDirectory:f.directory,legacyOwner:OLD,newOwner:NEW,apply:true});assert.ok(result.applied&&result.backupId);
   const saved=JSON.parse(fs.readFileSync(f.files.world,'utf8'));
   assert.equal(saved.profiles[OLD],undefined);assert.ok(saved.profiles[NEW]);assert.deepEqual(saved.profiles[OTHER],f.world.profiles[OTHER]);
@@ -99,10 +101,10 @@ test('migration refuses live servers, existing targets and invalid saves without
 });
 
 test('migration write failure restores every changed ledger and leaves no partially reassigned owner',t=>{
-  const f=fixture(t),before=Object.fromEntries(Object.entries(f.files).map(([key,file])=>[key,fs.readFileSync(file)])),rename=fs.renameSync;let failed=false;
+  const f=fixture(t),before=Object.fromEntries(Object.entries(f.files).map(([key,file])=>[key,savedBytes(file)])),rename=fs.renameSync;let failed=false;
   fs.renameSync=((from:fs.PathLike,to:fs.PathLike)=>{if(String(to)===f.files.community&&!failed){failed=true;throw Object.assign(new Error('Injected migration write failure'),{code:'EIO'});}return rename(from,to);}) as typeof fs.renameSync;
   try {assert.throws(()=>migrateFantasyLegacyOwner({dataDirectory:f.directory,legacyOwner:OLD,newOwner:NEW,apply:true}),/previous files were restored/u);}finally{fs.renameSync=rename;}
-  assert.ok(failed);for(const[key,file]of Object.entries(f.files))assert.deepEqual(fs.readFileSync(file),before[key]);
+  assert.ok(failed);for(const[key,file]of Object.entries(f.files))assert.deepEqual(savedBytes(file),before[key]);
   assert.equal(new FantasyBackups({dataDirectory:f.directory,files:f.files}).status().recoveryRequired,false);
 });
 

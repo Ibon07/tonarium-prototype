@@ -39,7 +39,7 @@ function pathsHull(fragment:string):Bounds {
 const touches=(a:Bounds,b:Bounds,margin=0)=>a.left<=b.right+margin&&a.right+margin>=b.left&&a.top<=b.bottom+margin&&a.bottom+margin>=b.top;
 
 test('every registered NPC owns an independent portrait asset and explicit character design',()=>{
-  assert.equal(NPC_PUBLIC.length,137);
+  assert.equal(NPC_PUBLIC.length,160);
   assert.deepEqual(Object.keys(NPC_PORTRAIT_DESIGNS).sort(),NPC_PUBLIC.map(npc=>npc.id).sort());
   const urls=NPC_PUBLIC.map(npc=>npcSvgPortraitUrl(npc.id));assert.equal(new Set(urls).size,NPC_PUBLIC.length);
   for(const npc of NPC_PUBLIC){
@@ -89,7 +89,7 @@ test('all SD bodies connect the head, neck, dressed torso, arms, two hands and f
 });
 
 test('regional garments preserve each home culture and match local climate',()=>{
-  const cultures={aurelia:'western',noctis:'moon-wrap',sylvara:'rain-hanbok',kazaran:'caravan',islands:'island-linen'} as const;
+  const cultures={aurelia:'western',noctis:'moon-wrap',sylvara:'rain-hanbok',kazaran:'caravan',islands:'island-linen',frontier:'western'} as const;
   const renderedCultures=new Set<string>(),renderedClimates=new Set<string>();
   for(const npc of NPC_PUBLIC){
     const wardrobe=npcWardrobe(npc),svg=text(npc.id),place=FANTASY_LOCATIONS.find(place=>place.id===npc.homeLocation)!;

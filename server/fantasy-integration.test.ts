@@ -1,3 +1,4 @@
+import { learnFantasyMagicBook } from '../shared/fantasy-magic-discovery.ts';
 import { readFantasySavedProfiles } from './fantasy-test-saved-profiles.ts';
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
@@ -125,7 +126,8 @@ test('new action envelopes accept only exact requests and never accept supplied 
 });
 
 test('specialty reservations survive restart and finish with their result exactly once', t => {
-  const { file } = temporary(t); const mage = player('mage'), leader = player('leader'); put(file, { mage, leader });
+  const { file } = temporary(t); const mage = player('priest'), leader = player('leader');
+  learnFantasyMagicBook(mage.character!, 'remedies-and-rites'); put(file, { mage, leader });
   let hour = 8; let store = new FantasyStore(file, { worldHour: () => hour });
   const spell = store.apply('mage', mage.revision, { type: 'magicPrepare', slot: 1, element: 'tide', form: 'mend' }, high);
   const hired = store.apply('leader', leader.revision, { type: 'command', kind: 'troop', operation: 'hire', member: 'troop-guard' }, high);
@@ -172,6 +174,7 @@ test('shared contract grants are committed through the board, persist and reject
   const result = board.claim(a, { quest: offer.quest, offer: offer.id }, 8, grant => store.apply('alice', before.revision, { type: 'accept', quest: offer.quest, offer: offer.id }, high, { contract: grant }));
   assert.equal(result.error, undefined); assert.equal(result.result!.error, undefined);
   const accepted = store.profile('alice'); assert.equal(accepted.character!.contracts![offer.quest].gold, offer.gold);
+  assert.ok(Object.values(accepted.character!.contracts![offer.quest]).every(value => value !== undefined), 'Absent grant fields must remain absent across persistence');
   assert.deepEqual(new FantasyStore(file).profile('alice'), accepted);
   assert.equal(board.claim(b, { quest: offer.quest, offer: offer.id }, 8, () => { throw new Error('Must not double claim'); }).error, 'taken');
   assert.equal(handleFantasyAction(store, { id: 'bob', session: null }, before.revision, { type: 'accept', quest: offer.quest, offer: offer.id }, { contract: accepted.character!.contracts![offer.quest] }).changed, false);

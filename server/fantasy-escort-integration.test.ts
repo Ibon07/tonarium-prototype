@@ -1,3 +1,4 @@
+import { fantasyTestClearRoute } from '../shared/fantasy-combat-test-tactics.ts';
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,7 +7,7 @@ import path from 'node:path';
 import { FantasyStore } from './fantasy-store.ts';
 import { applyFantasyAction, fantasyStats, newFantasyProfile } from '../shared/fantasy-engine.ts';
 import { fantasyCombatOrderError, validFantasyCombatState, type FantasyCombatOrder, type FantasyCombatState } from '../shared/fantasy-combat.ts';
-import { fantasyCombatDistance, fantasyCombatMoveRange, fantasyCombatPath } from '../shared/fantasy-combat-tactics.ts';
+import { fantasyCombatDistance, fantasyCombatMoveRange, fantasyCombatPath, fantasyCombatWithinRange } from '../shared/fantasy-combat-tactics.ts';
 import { fantasyEscortAdvanceTile, fantasyEscortBattleWon } from '../shared/fantasy-escort-battle.ts';
 import { fantasyEscortPair, fantasyEscortTransportError } from '../shared/fantasy-escort.ts';
 import { FANTASY_AMBUSH_SLOT_HOURS, fantasyAmbushHit } from '../shared/fantasy-ambush.ts';
@@ -39,16 +40,16 @@ function start(f: Fixture, user = 'a') {
   assert.equal(result.error, undefined, f.errors.join('\n')); assert.ok(result.state); assert.ok(validFantasyCombatState(result.state)); return result.state;
 }
 function choose(f: Fixture, state: FantasyCombatState, user: string, order: FantasyCombatOrder) {
-  const result = f.store.combatOrder(user, 'same', state.id, state.revision, order); assert.equal(result.error, undefined, f.errors.join('\n')); assert.ok(result.state); assert.ok(validFantasyCombatState(result.state)); return result.state;
+  const result = f.store.combatOrder(user, 'same', state.id, state.revision, order); assert.equal(result.error, undefined, `${f.errors.join('\n')} order=${JSON.stringify(order)} valid=${validFantasyCombatState(state)} round=${state.round}`); assert.ok(result.state); assert.ok(validFantasyCombatState(result.state)); return result.state;
 }
 function action(state: FantasyCombatState, user: string, useSkills = false): FantasyCombatOrder {
   const actor = state.fighters.find(f => f.userId === user)!, enemy = state.fighters.find(f => f.side === 'enemies' && f.hp > 0 && !f.fled);
-  if (!enemy) return { type: 'guard' };
+  if (!enemy) return fantasyEscortAdvanceTile(state) ? { type: 'guard' } : fantasyTestClearRoute(state, user, useSkills) ?? { type: 'guard' };
   if (useSkills) for (const skill of actor.skills.filter(skill => skill.kind === 'attack')) { const order: FantasyCombatOrder = { type: 'skill', skill: skill.id, target: enemy.id }; if (!fantasyCombatOrderError(state, user, order)) return order; }
   const attack: FantasyCombatOrder = { type: 'attack', target: enemy.id }; if (!fantasyCombatOrderError(state, user, attack)) return attack;
   const range = actor.range === 'melee' ? 1 : actor.range === 'ranged' ? 7 : 8;
-  const paths = Array.from({ length: 80 }, (_, i) => ({ x: i % 10, y: Math.floor(i / 10) })).filter(tile => enemy.tile && fantasyCombatDistance(tile, enemy.tile) <= range).flatMap(tile => { const path = fantasyCombatPath(state, actor, tile); return path && path.length > 1 ? [path] : []; }).sort((a, b) => a.length - b.length);
-  return paths[0] ? { type: 'moveTo', tile: paths[0][Math.min(paths[0].length - 1, fantasyCombatMoveRange(actor))] } : { type: 'guard' };
+  const paths = Array.from({ length: 80 }, (_, i) => ({ x: i % 10, y: Math.floor(i / 10) })).filter(tile => enemy.tile && fantasyCombatWithinRange(state, { ...actor, tile }, enemy, actor.range)).flatMap(tile => { const path = fantasyCombatPath(state, actor, tile); return path && path.length > 1 ? [path] : []; }).sort((a, b) => a.length - b.length);
+  return paths[0] ? { type: 'moveTo', tile: paths[0][Math.min(paths[0].length - 1, fantasyCombatMoveRange(actor))] } : fantasyTestClearRoute(state, user, useSkills) ?? { type: 'guard' };
 }
 function win(f: Fixture, initial: FantasyCombatState, useSkills = false) {
   let state = initial;
@@ -57,7 +58,7 @@ function win(f: Fixture, initial: FantasyCombatState, useSkills = false) {
     if (state.status !== 'active') break;
     const tile = fantasyEscortAdvanceTile(state); state = choose(f, state, state.escort!.owner, { type: 'escort', order: tile ? { type: 'moveTo', tile } : { type: 'guard' } });
   }
-  assert.equal(state.status, 'victory', f.errors.join('\n')); assert.ok(fantasyEscortBattleWon(state)); return state;
+  assert.equal(state.status, 'victory', `${f.errors.join('\n')} wagon=${JSON.stringify(state.escort?.wagon.tile)} actors=${JSON.stringify(state.fighters.map(f=>({id:f.id,tile:f.tile,hp:f.hp,mp:f.mp})))} obstacles=${JSON.stringify(state.battlefield?.obstacles)} logs=${JSON.stringify(state.logs.slice(-8).map(log=>log.text.en))}`); assert.ok(fantasyEscortBattleWon(state)); return state;
 }
 
 test('new contracts require actual caravan defense before escort departure, while six-field legacy contracts remain usable', t => {
@@ -83,7 +84,8 @@ test('starting and finalizing caravan defense save atomically and retry without 
   assert.equal(f.store.startEscortCombat('a', 'same', contract.id).error, 'save-failed'); assert.deepEqual(f.store.profile('a'), initial); assert.equal(fs.readFileSync(f.file, 'utf8'), bytes);
   f.fail(false); let state = start(f);
   for (let n = 0; n < 40 && state.status === 'active'; n++) {
-    state = choose(f, state, 'a', action(state, 'a')); const tile = fantasyEscortAdvanceTile(state), order: FantasyCombatOrder = { type: 'escort', order: tile ? { type: 'moveTo', tile } : { type: 'guard' } };
+    state = choose(f, state, 'a', action(state, 'a')); const cleared = state.fighters.filter(fighter => fighter.side === 'enemies').every(fighter => fighter.hp <= 0);
+    const tile = cleared ? fantasyEscortAdvanceTile(state) : undefined, order: FantasyCombatOrder = { type: 'escort', order: tile ? { type: 'moveTo', tile } : { type: 'guard' } };
     if (state.fighters.filter(fighter => fighter.side === 'enemies').every(fighter => fighter.hp <= 0) && tile?.x === state.escort!.exit.x && tile?.y === state.escort!.exit.y) {
       const before = f.store.profile('a'), disk = fs.readFileSync(f.file, 'utf8'), pending = structuredClone(state); f.fail(true);
       assert.equal(f.store.combatOrder('a', 'same', state.id, state.revision, order).error, 'save-failed'); assert.deepEqual(f.store.profile('a'), before); assert.deepEqual(f.store.combat('a', 'same'), pending); assert.equal(fs.readFileSync(f.file, 'utf8'), disk);
@@ -113,8 +115,9 @@ test('retreat closes a pending convoy without contract pay and cannot be replaye
 });
 test('actual player incapacitation uses normal town rescue while convoy failure never invents permanent death', t => {
   const p = person('부상 호위자', 1); p.character!.hp = 1; const f = fixture(t, { a: p }); accept(f); let state = start(f);
+  f.editFixture(saved => { saved.combats[state.id].state.fighters.find((fighter: any) => fighter.side === 'enemies').tile = { x: 3, y: 1 }; }); state = f.store.combat('a', 'same')!;
   for (let n = 0; n < 12 && state.status === 'active'; n++) { state = choose(f, state, 'a', { type: 'escort', order: { type: 'guard' } }); state = choose(f, state, 'a', { type: 'guard' }); }
-  const after = f.store.profile('a'); assert.equal(state.status, 'defeat'); assert.equal(state.fighters.find(fighter => fighter.userId === 'a')!.hp, 0); assert.equal(after.death, undefined); assert.ok(after.character!.hp > 0); assert.equal(after.character!.escort, undefined); assert.equal(after.character!.location, 'hearth');
+  const after = f.store.profile('a'); assert.equal(state.status, 'defeat'); assert.equal(state.fighters.find(fighter => fighter.userId === 'a')!.hp, 0); assert.equal(after.death, undefined); assert.equal(after.character!.hp,0);assert.ok(after.character!.downed);assert.equal(after.character!.escort,undefined);assert.equal(after.character!.location,'hearth');f.time(after.character!.downed!.expiresAt);const rescued=f.store.synchronize('a').profile;assert.ok(rescued.character!.hp>0);assert.equal(rescued.death,undefined);
 });
 test('wrong contracts, foreign sessions and strangers cannot control a convoy; eligible local party support keeps its own controls', t => {
   const f = fixture(t), contract = accept(f), initial = f.store.profile('a'); assert.equal(f.store.startEscortCombat('a', 'same', 'forged-contract').error, 'incompatible'); assert.deepEqual(f.store.profile('a'), initial);

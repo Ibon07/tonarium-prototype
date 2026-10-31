@@ -11,6 +11,8 @@ export interface NpcPortraitDesign {
 }
 type Row = [id: string, hair: NpcPortraitHair, face: NpcPortraitFace, expression: NpcPortraitExpression, clothes: NpcPortraitClothes, prop: NpcPortraitProp, palette: number, glasses?: boolean, beard?: boolean];
 const DESIGNS: Row[] = [
+  ['frontier-landing-sena','crop','square','focused','vest','ledger',138,true,false],
+  ['wandering-cartographer','locks','long','curious','vest','map',137,true,false],
   ['rin','bun','round','warm','apron','ledger',0],
   ['borin','bald','broad','stern','apron','hammer',1,false,true],
   ['eris','bob','heart','curious','scholar','book',2,true],

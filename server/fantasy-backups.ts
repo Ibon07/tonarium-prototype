@@ -241,7 +241,7 @@ export class FantasyBackups {
 }
 
 export function fantasyBackupFiles(dataDirectory:string):Record<string,string> {
-  return Object.fromEntries([['world','fantasy.json'],['clock','fantasy-clock.json'],['community','fantasy-community.json'],['contracts','fantasy-contracts.json'],['accounts','fantasy-accounts.json']].map(([key,name])=>[key,path.join(dataDirectory,name)]));
+  return Object.fromEntries([['world','fantasy.json'],['clock','fantasy-clock.json'],['community','fantasy-community.json'],['contracts','fantasy-contracts.json'],['named-commissions','fantasy-named-commissions.json'],['accounts','fantasy-accounts.json']].map(([key,name])=>[key,path.join(dataDirectory,name)]));
 }
 
 export function createFantasyBackupSave(backups:FantasyBackups,write?:(file:string,text:string)=>void):(file:string,text:string)=>void {

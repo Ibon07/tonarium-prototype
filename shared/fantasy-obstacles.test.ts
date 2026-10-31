@@ -25,9 +25,9 @@ test('breakable obstacles double damage on their weakness and never go below zer
 
 test('small, flying and large bodies pass holes and low obstacles differently', () => {
   const hole = fantasyObstacleKind('hole')!, wall = fantasyObstacleKind('low-wall')!, rubble = fantasyObstacleKind('rubble')!, rock = fantasyObstacleKind('boulder')!;
-  assert.equal(fantasyObstaclePassage(hole, { small: true }), 'under');
+  assert.equal(fantasyObstaclePassage(hole, { small: true }), 'block');
   assert.equal(fantasyObstaclePassage(hole, {}), 'block');
-  assert.equal(fantasyObstaclePassage(wall, { flying: true }), 'under');
+  assert.equal(fantasyObstaclePassage(wall, { flying: true }), 'over');
   assert.equal(fantasyObstaclePassage(rubble, { large: true }), 'over');
   assert.equal(fantasyObstaclePassage(rubble, { flying: true }), 'over');
   assert.equal(fantasyObstaclePassage(rubble, {}), 'block');

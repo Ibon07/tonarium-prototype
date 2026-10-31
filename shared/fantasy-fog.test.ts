@@ -4,6 +4,7 @@ import { advanceFantasyWorld, applyFantasyAction, fantasyTransports, newFantasyP
 import { fantasyKnownLocations } from './fantasy-town.ts';
 import { FANTASY_LOCATIONS, FANTASY_ROUTES } from './fantasy-data.ts';
 import type { FantasyProfile } from './fantasy.ts';
+import { isFantasyRetreat } from './fantasy-retreats.ts';
 
 function player(location = 'hearth'): FantasyProfile {
   const profile = applyFantasyAction(newFantasyProfile(), { type: 'create', name: 'Fog test', gender: 'female', source: 'human' }, () => .5).profile;
@@ -32,7 +33,7 @@ function multiLegRoute() {
     if (!foot?.available || foot.path.length < 3) continue;
     const known = new Set(fantasyKnownLocations(profile.character!));
     const hidden = [...new Set(foot.path.slice(1, -1).flatMap(id => [...neighboursOf(id)]))]
-      .filter(id => !known.has(id) && id !== to.id);
+      .filter(id => !known.has(id) && id !== to.id && !isFantasyRetreat(id));
     if (hidden.length) return { from: from.id, to: to.id, foot, hidden };
   }
   return undefined;
@@ -51,6 +52,13 @@ test('a multi-region journey lifts the fog around every region it passes through
     assert.equal(before.has(id), false);
     assert.ok(known.includes(id), `${id} near the route should be revealed`);
     assert.equal(done.character!.visited.includes(id), false, `${id} must not count as a visit`);
+  }
+  const retreats = [...new Set(route!.foot.path.flatMap(id => [...neighboursOf(id)]))].filter(isFantasyRetreat);
+  for (const id of retreats) {
+    assert.equal(known.includes(id), false, `${id} stays hidden without its map`);
+    assert.equal(done.character!.charted.includes(id), false);assert.equal(done.character!.visited.includes(id), false);
+    const mapped=structuredClone(done.character!);mapped.charted.push(id);
+    assert.equal(fantasyKnownLocations(mapped).includes(id),true,`${id} is revealed by its map`);
   }
 });
 

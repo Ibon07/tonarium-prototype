@@ -89,7 +89,7 @@ export function connectWs() {
     const accountReset = current.fantasyAccount || current.fantasyHomeId || current.session && current.worldBy[current.session] === 'fantasy'
       ? fantasyAccountDisconnected(current)
       : { fantasyAccount: null, fantasyAccountReady: false, fantasyAccountError: null };
-    set({ wsConnected: false, wsReady: false, fantasyRealm: null, fantasyRealmPending: false, fantasyRealmError: null, dialogueProgress: {}, fantasyPending: false, fantasyTestResetAllowed: false, fantasyParty: null, fantasyPartyError: null, fantasyPartyPending: false, fantasyProperties: null, fantasyPropertyError: null, fantasyPropertyPending: false, fantasyCombat: null, fantasyCombatError: null, fantasyCombatPending: false, ...accountReset });
+    set({ fantasyTownPresence: null, wsConnected: false, wsReady: false, fantasyRealm: null, fantasyRealmPending: false, fantasyRealmError: null, dialogueProgress: {}, fantasyPending: false, fantasyTestResetAllowed: false, fantasyParty: null, fantasyPartyError: null, fantasyPartyPending: false, fantasyProperties: null, fantasyPropertyError: null, fantasyPropertyPending: false, fantasyCombat: null, fantasyCombatError: null, fantasyCombatPending: false, ...accountReset });
     if (get().npcPending) set({ npcPending: false, npcRequestId: null, npcError: 'unavailable', npcErrorContext: null });
     if (get().gmPending) set({ gmPending: false, gmRequestId: null, gmError: 'unavailable', gmErrorLocale: null });
     if (get().communityPending) set({ communityPending: false, communityError: 'unavailable' });
@@ -167,7 +167,7 @@ export function applySessionSnapshot(snap: SessionSnapshot) {
 }
 
 export function onMessage(msg: ServerMsg) {
-  if (['fantasyProfile', 'fantasyLegacies', 'fantasyContractBoard', 'fantasyPartyState', 'fantasyRealmState', 'fantasyPropertyState', 'fantasyCombatState', 'communityState', 'fantasyDialogueChunk', 'fantasyGmReply'].includes(msg.t) && !fantasyPrivateMessagesAllowed(get())) return;
+  if (['fantasyGuildGreeting', 'fantasyTownPresence', 'fantasyProfile', 'fantasyLegacies', 'fantasyRanking', 'fantasyContractBoard', 'fantasyPartyState', 'fantasyRealmState', 'fantasyPropertyState', 'fantasyCombatState', 'communityState', 'fantasyDialogueChunk', 'fantasyGmReply'].includes(msg.t) && !fantasyPrivateMessagesAllowed(get())) return;
   switch (msg.t) {
     case 'fantasyAccountState': {
       const previous = get(), next = fantasyAccountIdentityUpdate(previous, msg);
@@ -332,6 +332,7 @@ export function onMessage(msg: ServerMsg) {
       set({ survivorProfile: msg.profile });
       return;
     case 'fantasyProfile':
+      if (msg.profile.activity?.action.type === 'travel' || msg.profile.death || get().fantasyProfile?.character?.location !== msg.profile.character?.location || get().fantasyProfile?.generation !== msg.profile.generation) set({ fantasyTownPresence: null });
       if (get().fantasyProfile && (get().fantasyProfile!.generation ?? 1) !== (msg.profile.generation ?? 1)) {
         clearFantasyGmLife(get().selfId);
         clearNpcRequests(get().selfId);
@@ -346,6 +347,15 @@ export function onMessage(msg: ServerMsg) {
     case 'fantasyLegacies':
       set({ fantasyLegacies: msg.records });
       return;
+    case 'fantasyRanking':
+      set({ fantasyRanking: msg.rows });
+      return;
+    case 'fantasyGuildGreeting': {
+      const state=get(),profile=state.fantasyProfile;
+      if(!profile?.character||profile.death||profile.character.location!==msg.location||(profile.generation??1)!==msg.generation||state.npcMessages.some(entry=>entry.id===msg.id))return;
+      set(s=>({fantasyGuildGreeting:{id:msg.id,npcId:msg.npcId,location:msg.location,generation:msg.generation,locale:msg.locale},npcMessages:[...s.npcMessages,{id:msg.id,role:'assistant' as const,text:msg.text,npcId:msg.npcId,locale:msg.locale,source:'canon' as const}].slice(-72)}));
+      return;
+    }
     case 'fantasyContractBoard':
       set({ fantasyContractBoard: msg.board, fantasyContractError: msg.error ?? null });
       return;
@@ -354,6 +364,9 @@ export function onMessage(msg: ServerMsg) {
       return;
     case 'fantasyPartyState':
       set({ fantasyParty: msg.state, fantasyPartyError: msg.error ?? null, fantasyPartyPending: false });
+      return;
+    case 'fantasyTownPresence':
+      set({ fantasyTownPresence: msg.state.location === get().fantasyProfile?.character?.location && !get().fantasyProfile?.death && get().fantasyProfile?.activity?.action.type !== 'travel' ? msg.state : null });
       return;
     case 'fantasyRealmState':
       set({ fantasyRealm: msg.state, fantasyRealmPending: false, fantasyRealmError: msg.error ?? null });

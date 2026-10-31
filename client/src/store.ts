@@ -15,11 +15,13 @@ import { NEW_ELEVATOR, type ElevatorState } from '../../shared/city.ts';
 import type { PositionRoute } from '../../shared/session-position.ts';
 import { newSurvivorProfile, type SurvivorProfile, type SurvivorState } from '../../shared/survivor.ts';
 import type { FantasyProfile, FantasyWorldClock, FantasyLegacyRecord } from '../../shared/fantasy.ts';
+import type { FantasyRankingRow } from '../../shared/fantasy-ranking.ts';
 import type { NpcChatMessage, NpcId, NpcRelationship } from '../../shared/npc.ts';
 import type { FantasyGmChatResponse } from '../../shared/fantasy-gm.ts';
 import type { FantasyCommunityState } from '../../shared/fantasy-community.ts';
 import type { FantasyContractBoard, FantasyContractError } from '../../shared/fantasy-contracts.ts';
 import type { FantasyPartyState, FantasyPartyError } from '../../shared/fantasy-party.ts';
+import type { FantasyTownPresence } from '../../shared/fantasy-town-presence.ts';
 import type { FantasyCombatState } from '../../shared/fantasy-combat.ts';
 import type { FantasyPropertyState } from '../../shared/fantasy-property.ts';
 import type { FantasyAccountPublic } from '../../shared/fantasy-account.ts';
@@ -169,9 +171,12 @@ interface State extends AdSlice {
   fantasyAccountReady: boolean;
   fantasyAccountError: string | null;
   fantasyLegacies: FantasyLegacyRecord[];
+  fantasyRanking: FantasyRankingRow[] | null;
   fantasyContractBoard: FantasyContractBoard | null;
   fantasyContractError: FantasyContractError | null;
+  fantasyGuildGreeting: {id:string;npcId:import('../../shared/npc.ts').NpcId;location:string;generation:number;locale:import('../../shared/npc.ts').NpcLocale}|null;
   fantasyParty: FantasyPartyState | null;
+  fantasyTownPresence: FantasyTownPresence | null;
   fantasyPartyError: FantasyPartyError | null;
   fantasyPartyPending: boolean;
   fantasyCombat: FantasyCombatState | null;
@@ -336,14 +341,17 @@ export const useStore = create<State>((set, get) => ({
   survivors: {},
   survivorProfile: newSurvivorProfile(),
   fantasyProfile: null,
+  fantasyRanking: null,
   fantasyAccount: null,
   fantasyHomeId: null,
   fantasyAccountReady: false,
   fantasyAccountError: null,
   fantasyLegacies: [],
   fantasyContractBoard: null,
+  fantasyGuildGreeting: null,
   fantasyContractError: null,
   fantasyParty: null,
+  fantasyTownPresence: null,
   fantasyPartyError: null,
   fantasyPartyPending: false,
   fantasyCombat: null,

@@ -14,8 +14,8 @@ export const fantasyPrivateMessagesAllowed=(state:Pick<ClientState,'selfId'|'fan
 export function clearFantasyAccountPrivateState(owners:readonly (string|null|undefined)[]):Partial<ClientState>{
   for(const owner of new Set(owners.filter((value):value is string=>!!value))){clearFantasyGmLife(owner);clearNpcRequests(owner);}
   return {
-    fantasyProfile:null,fantasyLegacies:[],fantasyContractBoard:null,fantasyContractError:null,
-    fantasyParty:null,fantasyPartyError:null,fantasyPartyPending:false,
+    fantasyProfile:null,fantasyGuildGreeting:null,fantasyLegacies:[],fantasyRanking:null,fantasyContractBoard:null,fantasyContractError:null,
+    fantasyParty:null,fantasyPartyError:null,fantasyPartyPending:false,fantasyTownPresence:null,
     fantasyCombat:null,fantasyCombatError:null,fantasyCombatPending:false,
     fantasyRealm:null,fantasyRealmPending:false,fantasyRealmError:null,
     fantasyProperties:null,fantasyPropertyPending:false,fantasyPropertyError:null,

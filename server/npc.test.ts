@@ -20,6 +20,7 @@ import { FANTASY_JOBS, FANTASY_LOCATIONS, FANTASY_RACES } from '../shared/fantas
 import { fantasyBuildings } from '../shared/fantasy-town.ts';
 import { fantasyGmTokenEstimate } from '../shared/fantasy-gm-context.ts';
 import { unknownNpcInformation } from './dialogue-knowledge.ts';
+import { FANTASY_MAP_MERCHANT_EVENT } from '../shared/fantasy-map-merchant.ts';
 
 const answer = (text = 'Welcome to the inn.') => new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: text } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 const request = (text = 'A quiet evening sounds pleasant.', extra: Partial<NpcChatRequest> = {}): NpcChatRequest => ({ requestId: crypto.randomUUID(), text, locale: 'en', npcId: 'rin', ...extra });
@@ -370,9 +371,10 @@ test('the loaded model name in a valid backend response takes precedence over th
 test('public NPC profiles contain only public metadata, while every private secret stays out of every prompt', () => {
   assert.ok(NPC_PUBLIC.length >= 25);
   assert.equal(new Set(NPC_PUBLIC.map(npc => npc.id)).size, NPC_PUBLIC.length);
-  const permitted = ['id', 'name', 'role', 'age', 'gender', 'race', 'homeLocation', 'building', 'personality', 'speech', 'knownTopics', 'trainableJobs', 'trainableSkills'];
+  const permitted = ['id', 'name', 'role', 'age', 'gender', 'race', 'homeLocation', 'building', 'personality', 'speech', 'knownTopics', 'trainableJobs', 'trainableSkills', 'travelOnly'];
   for (const npc of NPC_PUBLIC) {
     assert.ok(Object.keys(npc).every(key => permitted.includes(key)));
+    if (npc.travelOnly !== undefined) assert.equal(typeof npc.travelOnly, 'boolean');
     for (const locale of ['ko', 'en', 'ja'] as const) {
       assert.ok(npc.name[locale]); assert.ok(npc.knownTopics[locale].length);
       const system = npcSystemPrompt(locale, npc.id, 'trusted', { completedQuests: ['quest-herbalist', 'quest-fish', 'quest-crystal', 'quest-tower', 'quest-ore', 'quest-moon'] });
@@ -469,7 +471,9 @@ test('NPC identity, age, gender and personality use public metadata with an expl
   let calls = 0;
   const service = new NpcChat({ url: 'http://127.0.0.1:18081/v1', fetch: (async () => { calls++; throw new Error('offline'); }) as typeof fetch });
   for (const npc of NPC_PUBLIC) {
-    const response = await service.chat(`profile-${npc.id}`, request('이름이 뭐야?', { npcId: npc.id, locale: 'ko' }));
+    const character = npc.travelOnly ? applyFantasyAction(newFantasyProfile(), { type: 'create', name: 'Road visitor', source: 'human', gender: 'female' }, () => .5).profile.character! : undefined;
+    if (character) { character.hour = 12; character.location = 'greenwood'; character.travelPosition = { from: 'hearth', to: 'greenwood', fraction: .5 }; }
+    const response = await service.chat(`profile-${npc.id}`, request('이름이 뭐야?', { npcId: npc.id, locale: 'ko' }), npc.travelOnly ? { character, travelEncounter: FANTASY_MAP_MERCHANT_EVENT } : {});
     assert.equal(response.source, 'canon');
     assert.equal(response.model, '');
     assert.ok(response.text.includes(npc.name.ko));

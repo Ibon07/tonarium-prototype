@@ -27,7 +27,7 @@ test('battlefields accept obstacle placements and reject unknown, duplicate or o
   assert.equal(fantasyCombatValidField({ ...base, obstacles: 'nope' as never }), false);
 });
 
-test('a boulder forces a detour while a small body slips through a hole', () => {
+test('a boulder forces a detour while a small body slips under a fallen log', () => {
   const field = { ...fantasyCombatField(), obstacles: [{ kind: 'boulder', tile: { x: 1, y: 2 } }] };
   const walker = fighter('walker', { x: 0, y: 2 });
   const path = fantasyCombatPath(state(field, walker), walker, { x: 2, y: 2 })!;
@@ -35,7 +35,7 @@ test('a boulder forces a detour while a small body slips through a hole', () => 
   assert.ok(path.length > 3, 'the direct step is blocked so the path must go around');
   assert.ok(!path.some(tile => tile.x === 1 && tile.y === 2));
 
-  const hole = { ...fantasyCombatField(), obstacles: [{ kind: 'hole', tile: { x: 1, y: 2 } }] };
+  const hole = { ...fantasyCombatField(), obstacles: [{ kind: 'fallen-log', tile: { x: 1, y: 2 } }] };
   const key = (tile: { x: number; y: number }) => `${tile.x},${tile.y}`;
   const small = fighter('small', { x: 0, y: 2 }, { small: true });
   assert.deepEqual(fantasyCombatPath(state(hole, small), small, { x: 2, y: 2 })!.map(key), ['0,2', '1,2', '2,2']);

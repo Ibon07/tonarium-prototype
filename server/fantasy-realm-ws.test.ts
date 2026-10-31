@@ -17,6 +17,7 @@ async function isolated(t: TestContext) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tonarium-realm-ws-')), file = path.join(directory, 'fantasy.json');
   const players = Object.fromEntries(['alice', 'bob', 'outsider'].map(id => {
     const p = applyFantasyAction(newFantasyProfile(), { type: 'create', name: id === 'outsider' ? 'Outsider' : id === 'alice' ? 'Alice' : 'Bob', source: 'human', gender: 'female' }, () => .5).profile;
+    p.character!.inventory['arcane-bag-3']=1;p.character!.bag='arcane-bag-3';
     p.character!.gold = 2000; p.character!.inventory.herb = 20; p.character!.inventory.ore = 10; return [id, p];
   }));
   fs.writeFileSync(file, JSON.stringify(players));

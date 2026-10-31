@@ -1,121 +1,114 @@
-# 다음 작업 인수인계 — 기나긴 여정
+> **2026-10-31 미개척 대륙·장비·해상 전투.** 새 대륙14지역·유적4/동굴3·개인별 최초 클리어30% 유물28종, 길드/동급 사제/밀항 입장, 공용 일일 보급·생존, 장비14부위와 직업별 보조 손, 매끈한 해안 안개, 갑판/바다/촉수/공용 작살을 연결했다. [현재 구현·검사 기록](fantasy-frontier-2026-10-31.md)과 [해상 전투](fantasy-naval-combat-2026-10-31.md)를 먼저 읽는다. 최종 검사 수량은 `work/qa/frontier-2026-10-31/verification.json`을 따른다. 아래 수량·미실행 표기는 이전 이력이다.
 
-새 세션(또는 다른 PC)에서 이 문서만 읽고 이어서 작업할 수 있게 정리했다. **2026-10-28 15:45 기준**, 작업 3b(습격→호위 수레 전투) 완료 직후.
+> **2026-10-31 계절·날씨 장비.** 의복/도구7종·제작법6개, 기존 야영 장비 방수·보온, 누적 기후 회복 손실, 이동 중 착용·장비 교체, 피로/허기 게이지 유지 및 조건부 디버프, 광원별 잔여 어둠, 세 언어 현재 효과 툴팁을 추가했다. [구현과 검사 범위](fantasy-weather-equipment-2026-10-31.md)를 먼저 읽는다. 판타지 전체1,852개·NPC160개·화면36개·브라우저30조합과 필수 완료 검사를 통과했다. 최종 검사 결과는 해당 문서의 완료 기록을 따른다.
 
-## 프로젝트와 실행
+> **2026-10-31 의뢰 소속·혼합 파티 v9.** 길드·신전·뒷골목·주민 의뢰를 분리하고 신전8개·뒷골목16개, 조직 신뢰 보상, 실제 아군 지원에 따른 사제 성장, 직업에 관계없는 파티 보수 균등 정산, 실효 공헌 기록을 추가했다. 길드 복귀 제한은 추가하지 않았다. [현재 구현·검사 범위](fantasy-institutions-v9-2026-10-31.md)를 먼저 읽는다. 아래 검사 수량과 승률은 각 버전의 과거 이력이다.
 
-- 원본: `E:\tonarium2` (Tonarium의 `fantasy` 월드 = '기나긴 여정')
-- 백업: `E:\tonarium-backups\tonarium2-2026-10-28_1232\` (전체 트리 + git 번들). 12:32 시점이라 그 뒤의 변경분(작업 3b 포함)은 들어 있지 않다. 되돌릴 때만 쓴다.
-- **Node.js 24 필수**. 시스템 기본 `node`는 v18이라 `tsc`가 깨진다.
-  - 번들 노드: `C:\Users\user222\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe`
-  - 타입 검사: `& $node 'E:\tonarium2\node_modules\typescript\lib\tsc.js' --noEmit -p 'E:\tonarium2\tsconfig.json'`
-  - 테스트: `& $node 'E:\tonarium2\node_modules\tsx\dist\cli.mjs' --test <파일...>`
-  - 빌드: `& $node 'E:\tonarium2\node_modules\vite\bin\vite.js' build`
-- **샌드박스 주의**: 파일 쓰기(E: 드라이브)뿐 아니라 `tsx`/`vite` 실행도 `danger-full-access` 승인이 필요하다. 샌드박스 안에서는 esbuild가 자식 프로세스를 못 띄워 `spawn EPERM`으로 실패한다.
-- 테스트는 104개 파일을 한 번에 돌리면 멈춘다. **30개씩 나눠 실행**할 것(아래 명령 참고).
-- 현재 작업 트리는 **커밋하지 않았다**(마지막 커밋 `cccc032`, 그 위에 31개 수정 + 신규 파일). `git checkout`/`reset`으로 되돌리지 말 것.
-- 다른 PC로 옮길 때는 저장소 전체(또는 `git bundle`)를 복사하고 Node 24 + `npm ci`로 의존성을 설치한다. 이 문서의 경로는 `E:\tonarium2` 기준이니 환경에 맞게 바꾼다.
+> **2026-10-31 범죄 직업 길드 등록 제한.** 사제 계열에 더해 도둑·밀수업자·암살자·산적·첩자·범죄조직 두목 및 그 세부분기를 등록·승급·등급 혜택에서 제외했다. 직업의 범죄 분류를 사용하며 과거 등급은 비활성 보관한다. 관련 기능50개·화면14개 검사가 통과했다. [현재 등록 대상과 검사 범위](fantasy-guild-eligibility-2026-10-31.md)를 먼저 읽는다.
 
-## 현재 상태 요약
+> **2026-10-31 사제 등급 소속 변경.** 사제와 모든 사제 세부분기는 신전의 성직 등급만 사용한다. 길드 등록·승급·실적·모험가 혜택은 적용하지 않으며 과거 길드 이력은 비활성 보관한다. 다른 직업의 등록 조건은 유지한다. 관련 회귀42개·UI14개가 통과했다. [소속 규칙과 검사 범위](fantasy-clergy-ranks-and-benefits-2026-10-30.md)를 먼저 읽는다. 아래 전체 검사 수량은 사제 소속 변경 전의 이력이다.
 
-| # | 기능 | 상태 |
-| --- | --- | --- |
-| 1 | 행동 중간 취소 | 완료 |
-| 2 | 경유지 안개(`seen`) | 완료 |
-| 3 | 이동 중 습격(3%/호위9%) | 완료 |
-| 3b | 습격→호위 수레 전투 | **완료(이번 작업)** |
-| 4 | 목적지 변경·호위 위약금 | 완료 |
-| 5 | UI(오른쪽 2/5·접이식·툴팁) | 완료(브라우저 미확인) |
-| 7 | 파티장 양도·추방·전투 3택 | 완료 |
-| 8 | 주사위 2.5초/5.5초·소리 | 완료(브라우저 미확인) |
-| 9a~9e | 장애물 데이터·배치·파괴·엄폐·클릭 타겟팅 | 완료 |
-| 4(잔여) | 파티 이동 목적지 변경 승인 | 미착수 |
-| 5(잔여) | 파티 조사 판정 공유 | 미착수(테스트 선행) |
-| 6(잔여) | 불참자 퀘스트 진행 인정 | 미착수 |
+> **2026-10-31 직업·생산 v8.** 주직업(전투)과 서브직업(생산·생활)을 각각 1개씩 동시에 사용하며, 16개 생활 직업의 시설·상인길드·주민 21명·가공 의뢰·고용 NPC 업무와 숙련을 연결했다. 생활 직업의 전투 효과를 제외하고 음유시인·첩보원·산적의 역할을 조정했다. 판타지 전체 1,761개·NPC 전체 160개와 필수 검사를 통과했으며, 최종 480전·352개 직업 조합·60쌍의 비교를 남겼다. [현재 구현·검사·남은 편차](fantasy-dual-careers-artisans-2026-10-31.md)를 우선 읽는다. 아래 v7 이전 수량·승률은 과거 이력이다.
 
-완료된 기능의 파일·테스트는 아래 표를 따른다. **건드리지 말 것.**
+> **2026-10-31 직업 보정 v7.** 마법사·전사의 상시 화력을 소폭 낮추고 궁수 체력·기사 방어·사제 공격·숙련 전사의 보호 효과를 보완했다. 같은 캐릭터의 평균 범위 이탈 폭은 일반13.4%·상위15.5% 감소했다.42개 표본의 등급 변화0, 신규 최종 비교22,890전의 오류·시간 초과0, 전체1,726검사와 필수 검사를 통과했다. 전사7등급의 감소와 남은 개별 미달도 공개한다. [현재 직업 보정·전후 비교·파티 결과](fantasy-combat-roles-2026-10-31-v7.md)를 우선 읽는다. v6의22/22는 이전 버전의 합산 결과다.
 
-| # | 핵심 파일 | 테스트 |
-| --- | --- | --- |
-| 1 | `shared/fantasy-engine.ts`, `server/fantasy-store.ts`, `client/src/world/FantasyActivity.tsx` | `shared/fantasy-cancel.test.ts` |
-| 2 | `shared/fantasy-engine.ts`, `shared/fantasy-town.ts` | `shared/fantasy-fog.test.ts` |
-| 3 | `shared/fantasy-ambush.ts`, `shared/fantasy-encounters.ts`, `shared/fantasy-engine.ts` | `shared/fantasy-ambush.test.ts` |
-| 3b | `shared/fantasy-encounters.ts`, `shared/fantasy-engine.ts`, `shared/fantasy-combat-challenges.ts`, `server/fantasy-store.ts` | `shared/fantasy-ambush.test.ts`, `shared/fantasy-encounters.test.ts`, `shared/fantasy-combat-challenges.test.ts`, `server/fantasy-escort-integration.test.ts` |
-| 4 | `shared/fantasy-engine.ts`, `shared/fantasy-escort.ts` | `shared/fantasy-redirect.test.ts`, `shared/fantasy-travel-contracts.test.ts` |
-| 5 | `client/src/world/fantasy.css`, `FantasyPanel.tsx` | - |
-| 7 | `shared/fantasy-party.ts`, `server/fantasy-party.ts`, `FantasyPartyPanel.tsx` | `server/fantasy-party.test.ts` |
-| 8 | `client/src/world/FantasyDice.tsx`, `sounds.ts` | - |
-| 9a~9e | `shared/fantasy-obstacles.ts`, `fantasy-combat-tactics.ts`, `fantasy-combat.ts`, `FantasyTacticalBoard.tsx` | `shared/fantasy-obstacles.test.ts`, `fantasy-tactics-obstacles.test.ts` |
+> **2026-10-31 전투 v6.** 대표 인간5직업의 기존 합산22구간은 모두 목표 안이다. 새 일반74,600전·상위29,000전과 일반종족 대조10,800전, 회귀71개·감사3개·필수 검사를 확인했다. 개별 직업 미달·초급 후보 누락·종족 대표3종의 높은 승률과 직업 격차 증가가 남아 있어 전체 균형 합격은 아니다. [최신 수치와 남은 범위](fantasy-combat-targets-2026-10-31-v6.md)를 우선 읽는다.
 
-## 3b. 습격→호위 수레 전투 (이번에 구현한 것)
+> **2026-10-31 전투 v5 편차 조정·검증.** 대표5직업의2–6등급 평균 격차20.95→17.67%p, 일반12종족 평균 격차7.67→4.44%p를 확인했다. 전체1,725검사·최종 수치 회귀94검사와 필수 검사가 통과했다. 일반 합산14/17·상위3/5구간만 목표 안이므로 전체 균형 합격은 아니다. [최신 수치·소스 재사용 검증·남은 편차](fantasy-combat-variance-2026-10-31-v5.md)를 우선 읽는다. 실제 AI·운영 장시간 플레이는 추후 운영 로그로 확인한다.
 
-호위 이동 중 습격이 나면 전용 조우가 열리고, 싸우면 수레가 포함된 `source: escort:<계약ID>` 전투로 이어진다.
+> **2026-10-30 전투 v4 검증 갱신.** 적의 특성별 준비 공격·민첩 기반 추가 이동을 구현하고 판타지1,707/1,707 검사를 통과했다. 합산 승률 21/22구간과 개별 편차·미존재 표본은 [최신 v4 검사 기록](fantasy-combat-validation-2026-10-30-v4.md)을 따른다. 아래 v3·이전 수량과 승률은 과거 이력이다. 실제 AI 품질·실서버 장시간 플레이는 추후 운영 로그로 확인한다.
 
-- **조우**: `FANTASY_ESCORT_AMBUSH_ENCOUNTER = 'encounter-escort-ambush'` (`shared/fantasy-encounters.ts`). 이름 '호송 수레를 노리는 습격자', 사람 상대(fight/escape/talk). `FANTASY_HOSTILE_ENCOUNTERS`에 추가되어 `FANTASY_EVENTS` 총계가 261→**262**가 됐다.
-- **원인 구분**: `shared/fantasy-engine.ts`의 `advanceFantasyWorld`가 `activity.action.transport === 'escort'`일 때 `confront(next, 'escort-ambush')`로 전용 조우를 열고, 로그도 '護送中の隊列が襲撃を受け、足を止めた。'로 남긴다. 일반 이동은 기존 `travel-ambush` 그대로다.
-- **전투 계획**: `shared/fantasy-combat-challenges.ts`의 `fantasyCombatStartPlan`이
-  - `kind:'escort'`(출발 전 방어)과
-  - `kind:'encounter', target:'encounter-escort-ambush'`(이동 중 습격)
-  을 모두 `source: escort:<계약ID>`, 적 1명(`road-ambusher`, 레벨 3/7 기준으로 slime→wolf→goblin-raider)으로 계획한다. `profile.event`가 실제로 그 조우일 때만 성립하므로 다른 조우로는 수레 전투가 열리지 않는다.
-- **서버**: `server/fantasy-store.ts`
-  - `startCombat`이 계획의 source가 `escort:`로 풀리면 `startEscortCombat`으로 위임한다(단독 시작만; 여러 명 동시 시작은 `incompatible`).
-  - `startEscortCombat`은 (a) 출발 전 `defense:'pending'` 방어와 (b) `event === 'encounter-escort-ambush'`인 이동 중 습격을 모두 받는다. 계약ID가 실제 소유 계약과 일치해야 하고, 습격 전투를 시작할 때 `profile.event`를 `null`로 지우고 로그 '護送隊への襲撃だ。馬車を守り抜け。'를 남긴다.
-  - 전투 종료 처리(`applyCombatResult`)는 수레 HP>0 승리면 계약 유지(`defense:'cleared'`), 패배·도주면 계약 삭제. 승리 로그는 출발 전이면 '護衛隊の出発路を確保した。', 습격이면 '護送隊を守り抜いた。旅を続けられる。'.
-- **플레이 흐름**: 습격 발생 → 이동 중단(원지) → 조우에서 `fight` 선택 → 수레 전투 → 승리 시 계약 유지·재출발, 수레 HP 0이면 계약 실패. `escape`/`talk`로 조우를 끝내면 전투 없이 계약만 유지된다(재출발 가능).
-- **테스트**: `server/fantasy-escort-integration.test.ts`에 (1) 결정적 seed로 실제 tick 습격을 일으켜 `startCombat(source:'encounter')`이 수레 전투로 이어지고 수레 HP 0에서 패배·계약 삭제되는 흐름, (2) 평범한 조우(`encounter-woodland-wolf`)로는 수레 전투가 열리지 않는 회귀를 추가했다.
+> **2026-10-30 전투 v3 검증 갱신.** 판타지 1,623/1,623·NPC 159/159·AI 연결 모의/왕복 16/16과 필수 번역·타입·빌드 검사가 통과했다. 공통 승률 22구간은 목표 안이며, 개별 직업·종족 균형 전체를 합격 판정하지 않았다. [현재 변경·검사 기록](fantasy-combat-validation-2026-10-30-v3.md)을 먼저 읽는다. 아래 v2·이전 수량은 과거 이력이다. 실서버 장시간 플레이와 실제 AI 품질은 추후 운영 로그로 확인한다.
 
-### 이번에 수정한 파일
+> **최신 검증 — 2026-10-30.** 다섯 칸·반복 조리·창고 정산과 NPC 연동을 검사하고 발견한 문제를 수정했다. **판타지194파일1,584/1,584, NPC159/159, 타입·번역·빌드 모두 통과**, 실제 Chrome 세 언어 화면12조합 및 공유 창고 실시간 갱신도 확인했다. [최종 검사 기록과 남은 범위](fantasy-cooking-validation-2026-10-30.md)를 먼저 읽는다. 아래 미실행·옛 수량 정책·이전1,524건 표기는 과거 이력이며 전투 승률/실서버 운영 잔여를 완료했다는 뜻이 아니다.
 
-`shared/fantasy-encounters.ts`, `shared/fantasy-engine.ts`, `shared/fantasy-combat-challenges.ts`, `server/fantasy-store.ts`, `shared/fantasy-ambush.test.ts`, `shared/fantasy-encounters.test.ts`, `shared/fantasy-combat-challenges.test.ts`, `server/fantasy-escort-integration.test.ts`, `docs/fantasy.md`, `docs/fantasy-escort-tactics.md`, `docs/fantasy-current-status.md`, `docs/fantasy-requested-features-status.md`, `docs/world-bible.md`, `docs/fantasy-expansion-plan.md`, `docs/fantasy-expansion-candidates.md`, `docs/fantasy-interface.md`, 이 문서.
+## 2026-10-30 최신 결과 — 기능 검증 완료, 세부 균형 조정 남음
 
-## 검증 (2026-10-28 이번 세션)
+[최신 통합 검증 기록](fantasy-recent-validation-2026-10-30.md)을 먼저 읽는다. 재료/수량 배합 요리, 무효 조합 무소비, 유효 조리의 숙련·재료 상태·난이도 판정과 실패/성공 보상을 연결했다. 야간 주방 입력 우회, 보존 가방 슬롯, 실제 소비 식품 부패 검사, 계약 저장 복구, 최신 HP 이행과 전투 상태 검사 등에서 발견한 문제를 수정했다.
 
-- `tsc --noEmit`: 0 오류.
-- 판타지 테스트 **1,033개 / 104파일 전부 통과**(30파일씩 4묶음, 각 묶음 `fail 0`).
-- `vite build`: 성공(청크 크기 경고만 있음).
-- `node scripts/check-changelog.mjs`: 성공(변경 이력 없음).
-- `tsx scripts/content-translations.ts validate`: `Content metadata valid: 39 registered documents.`
-- **브라우저 실물 확인은 하지 않았다.** 조우→수레 전투 화면, 9e 클릭 타겟팅, UI 배치·툴팁 위치, 주사위 소리는 미확인이다.
+고정 몬스터 **v2**에서 판타지185파일 **1,524/1,524 통과, 실패/건너뜀0**, 필수 완료 검사(콘텐츠39문서/타입/빌드) 통과. 한국어·영어·일본어 데스크톱/모바일 화면48건 확인. 실제 운영 저장 파일을 건드리지 않았고 미커밋·미배포다. 작업 위치 E:/tonarium2, 브랜치 codex/fantasy-handoff-audit.
 
-### 전체 판타지 테스트 실행 예
+**균형 작업 전체가 완료된 것은 아니다.** 신규200시드 일반 전투159,000회는 합산 기준17구간 전부 통과했지만, 고등급29,000회는7→7=33.51%(목표35–45), 8→7=67.14%(목표55–65)로 두 구간 미달이다. 개별 직업의 큰 승률 차이도 남아 있으며, 평균 통과를 모든 직업/종족의 동일한 성능으로 해석하지 않는다. 추가 표본·다크엘프 검사 전술 수정·선택용 실험과 최종 증거의 구분은 [승률 보고서](fantasy-combat-measurement-2026-10-30.md)를 따른다. 선택용 몬스터/리치 실험값은 운영에 반영하지 않았다.
 
-```powershell
-$node='C:\Users\user222\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe'
-$all = Get-ChildItem -Recurse -Filter '*.test.ts' -Path shared,server,client/src |
-  Where-Object { $_.Name -match 'fantasy' } | Sort-Object FullName | ForEach-Object { $_.FullName }
-# 30개씩 4묶음으로 실행(전체를 한 번에 넘기면 멈춤)
-foreach ($i in 0..3) {
-  $start=$i*30; $end=[Math]::Min($start+29,$all.Count-1); if ($start -ge $all.Count) { break }
-  & $node 'E:\tonarium2\node_modules\tsx\dist\cli.mjs' --test @($all[$start..$end])
-}
-```
+다음에는 회복/방어/사거리의 가치와 실제 전투력 평가·무기 조건·파티 기여를 함께 보고 남은 균형을 조정한다. 이미 통과한 테스트를 이유 없이 반복하지 않되 수치를 바꾸면 관련 검증과 완료 검사를 갱신한다. 사용자가 명시한 이번 검사 범위에서는 과거의 보류 지시가 해제되었다. 아래는 과거 인수인계 이력이다.
 
-## 남은 작업 (이어서 할 것)
+> **2026-10-30 사용자 요청으로 작업 재개.** 파티의 경유 구간 시간표까지 가장 느린 일행에게 통일하고, 길드 고정 보급 묶음은 공동 재고 구매 우대(모험가4부터 추가2% 할인)로 바꾸었다. 보행 부담이 없는 구간의 견적은 원래 시간을 보존한다. 이번 추가 수정도 검증·커밋·배포하지 않았다.
 
-### 4. 파티 이동 목적지 변경 승인
+# 최신 인수인계 — 2026-10-30 등급 혜택·야영·보조 가방
 
-- 목표: 파티장이 새 목적지를 제안 → 파티원 전원 동의 → 전원이 같은 시각에 `redirect`로 함께 방향을 바꾼다.
-- 시작 지점: `server/fantasy-party.ts`의 기존 `readyTravel`/`startTravel` 패턴을 복제해 `redirectTravel`(제안)·동의 저장·`startRedirect`를 추가. `shared/fantasy-party.ts`의 상태·검증 타입, `client/src/world/FantasyPartyPanel.tsx`/`FantasyPartyExtras.tsx`의 버튼·표시도 함께.
-- 저장소 쪽: 전원의 진행 중 활동을 같은 시각에 바꿔야 하므로 `server/fantasy-store.ts`에 `startGroupRedirect`(예: `startGroupTravel` 참고)를 추가하고, `applyFantasyAction`의 `redirect` 규칙(배·호위는 불가, 마차는 도보로)을 그대로 적용한다. 원자적 저장·실패 시 무변경을 기존 패턴대로 유지.
-- 완료 조건: 파티장 제안 → 전원 동의 → 전원 동시 `redirect`(거절·만료 시 아무 변화 없음). `server/fantasy-party.test.ts`에 결정적 테스트 추가.
+[요청별 구현 기록과 다음 작업](fantasy-rank-camp-bags-handoff-2026-10-30.md)을 먼저 읽는다. 성직 난이도 대응/선택 기술서/길드·신전 혜택/NPC 안내/대여품 품질/야외 요리/안전 휴양지/식품 보존 보조 가방/장비창/짐에 따른 이동/공동 길드 한정 재고까지 로컬 소스에 반영했다. 현재 프로토콜16. 아래 과거 기록의 ‘혜택 제안 단계’와 구형 신앙 경계는 최신 구현을 설명하지 않는다.
 
-### 5. 파티 조사 판정 공유
+**사용자 지시로 테스트·타입 검사·빌드·시뮬레이션·브라우저 확인·별도 리뷰는 실행하지 않았다.** 검사 요청을 받으면 [검증 목록](fantasy-validation-backlog.md)을 일괄 수행한다. 이번 작업의 PR·커밋·배포는 하지 않았다. 작업은 E:/tonarium2에서 이어가며 실사용 저장 파일을 수정하지 않는다.
 
-- **선행**: `server/fantasy-party.test.ts`의 "independent same-duration personal investigations"와 "completion-save failure publishes no partial clue" 두 테스트를 "판정 공유·정보 비공개" 규칙으로 재작성한다.
-- 이후: `FantasyStore.startGroupInvestigation`에서 그룹(같은 퀘스트·단계·시각의 참가자)을 기억하고, 조사 완료 시 `mainTrials[quest].proofs`에 같은 단계 증거가 있는 동료의 증거를 복사한다(로그: 동료의 조사 결과 공유). 개인 기믹(함정·회복)은 개인 판정 유지.
-- 주의: 완료 저장 실패 시 일부 증거만 발행되지 않아야 한다. 이전 시도에서 로직은 동작했으나 위 테스트 충돌로 되돌렸다.
+# 이전 인수인계 — 2026-10-30 길드·의뢰
 
-### 6. 불참자 퀘스트 진행 인정
+길드 등급 표기·전체 의뢰 등급·5건 실적 승급·낮의 지명의뢰·NPC 구매/숙박/수주·스킬 설명·마지막 새벽 사망 확인창·몬스터 승률 목표 반영은 [통합 기록](fantasy-guild-dialogue-handoff-2026-10-30.md)을 먼저 읽는다.
 
-- 파티 전투 승리 시, 같은 파티의 거절·불참자에게 해당 단계 증거를 전달한다.
-- 시작 지점: `server/fantasy-store.ts`의 `applyCombatResult`(승리 처리). 저장소는 파티 상태를 모르므로 `FantasyParty`를 조회할 수 있는 콜백/프로바이더를 `StoreOptions`에 두거나, `server/index.ts`에서 전투 결과 커밋 후 파티 단위로 적용하는 설계를 먼저 정한다(단일 저장 원자성 고려).
-- 완료 조건: 승리 시 참가자·불참자 모두 같은 단계 증거를 받고, 거절자는 제외하지 않는다. 중복 지급·재시작 내구성 테스트 포함.
+**프로토콜 15, 구현 반영 / 검증 미실행 / 미커밋·미배포**. 승률은 실측 전 목표치다. 사용자 요청 전 테스트·시뮬레이션·타입 검사·빌드·브라우저 QA를 실행하지 않는다. 기존 프로토콜14 문서는 이전 상태다.
 
-## 규칙과 주의
+# 최신 재개 지점 — 길드·조우·파티 부축 개편
 
-- `changelog/`와 `shared/changelog.ts`는 **수정 금지**(`check:changelog`가 develop 기준으로 막는다).
-- 기능·조작·구성을 바꾸면 해당 `docs/`를 같은 작업에서 갱신한다. 등록 사건 수를 바꾸면 `docs/fantasy.md`, `docs/fantasy-current-status.md`, `docs/world-bible.md`, `docs/fantasy-expansion-plan.md`, `docs/fantasy-expansion-candidates.md`, `docs/fantasy-interface.md`의 262 표기도 함께 고친다.
-- 현황 문서: `docs/fantasy-requested-features-status.md`. 작업 후 표·검증 기록을 갱신한다.
-- 각 작업 후 `tsc` + 관련 테스트 + `vite build`를 돌린다. 브라우저 확인은 선택이지만, UI·툴팁·주사위 소리는 아직 미확인임을 계속 명시한다.
-- 3b로 104개 판타지 테스트 묶음이 이미 1,033개다. 파일을 추가하면 위 묶음 명령의 개수만 바뀌고 방식은 그대로 쓰면 된다.
-- 향후 파티 동반 호위 전투(여러 명이 한 수레 전투를 함께 시작)는 3b에서 의도적으로 단독 시작만 허용했다. 필요하면 `createFantasyEscortBattle`의 지휘권(owner/leader) 규칙과 `startCombat`의 다인 시작을 함께 확장해야 한다. 현재는 단독 시작 후 다른 파티원이 `joinCombat`으로 합류하는 방식만 지원한다.
+2026-10-29: `fantasy-guild-encounter-handoff-2026-10-29.md`를 먼저 읽는다. 랭킹 마지막/전투 탭 제거/직업별 메뉴, 서버 전투력 등급 심사, 일반 조우≤6,7·8 전용 암시장 지도11개, 토벌 의뢰26개, 글로벌2시간 갱신, 현장 집결 예약 공동토벌, 개인/공동 실제 처치 진행 및 저장 복구를 코드로 연결했다. 후속 지시에 따라 부축은 전투 행동에서 제거하여 파티원 행으로 이동했다. 프로토콜14, 미커밋·미배포. 이번 신규 기능의 테스트·타입 검사·빌드·브라우저 QA는 사용자 지시로 보류하고 검사 대기에 기록했다.
+
+## 2026-10-29 최신 변경: 효과음·건너뛰기 제거·새벽 조건
+
+마지막 새벽의 **본인 HP·MP 비율 조건은 사용자 최종 지시로 전부 제거**했다. 본인이 생존/행동 가능, 성자·성녀, 다른 참가 플레이어 과반 빈사, 살아 있는 강적(7·8등급, 능력치 비교 없음) 조건은 유지한다. 과거 HP20%/MP15%나 HP50% 요청은 폐기된 이력이다. 연출 건너뛰기 UI/안내/훅 API 제거, 기존 효과음 AudioContext/음량을 쓰는 짧은 기술별 합성 효과음을 연결했다. 일반 장애물 파괴로 마지막 새벽을 우회 실행하던 경로를 막았다.
+
+요청한 범위의 조건/명령/오디오 테스트만 실행. 상세 목록·검증: `fantasy-combat-sound-and-awakening.md`. 전체 타입·빌드·게임 일괄 QA는 여전히 보류. 미커밋·미배포.
+
+# 최신 추가 — 전투 연출 등급/개별 문양/전장 전체 새벽
+
+2026-10-29: 큰 중앙 기술명 배너를 제거하고 전장 바깥 위쪽 34px 고정 줄로 이동했다. 사용자의 후속 요청에 따라 마지막 새벽만 기술명과 대사를 화면 중앙에 함께 표시하고, 나머지 기술명은 위쪽 고정 줄에 둔다. 마지막 새벽은 거리·벽·대표 대상과 관계없이 전장 전체 적에게 피해, 전장 전체의 적격 아군에게 회복/기상을 적용한다. 공격 범위 표시·설명·서버 판정도 함께 변경했다. 피해 계수와 사망 대가는 유지한다.
+
+일반/속성 기술에 시각 등급1–3, 직업 최종 기술4, 기적5, 마지막 새벽6을 연결했다. 등급에 따라 잔상·충격파·입자·지속시간을 늘린다. 속성/연금술9종·기적7종과 각 직업 최종 기술21종에 별도의 SVG 형상과 움직임을 연결했다. 신규 파일 `FantasyElementMiracleEffects.tsx`, `FantasyUltimateEffects.tsx`와 대응 CSS/문서를 참조한다. 서버가 배포하는 기술 메타데이터에 visualTier/battlefieldWide를 추가하여 프로토콜13이다.
+
+미리보기: http://127.0.0.1:5230/combat-effects-preview.html . 일반/속성 입문·숙련·고급 선택, 전체21직업 순차 재생을 지원한다. 현재 화면을 보여주는 범위에서 마지막 새벽/마법사 최종 기술을 재생하여 스크린샷만 남겼다. **게임 기능 검증·자동 테스트·타입 검사·빌드·전체 브라우저 QA는 보류**하며 `fantasy-validation-backlog.md`에 기록했다. 미커밋·미배포이며 운영 저장 데이터 수정 없음.
+
+# 최신 재개 지점 — 검증 대기
+
+2026-10-29 사용자의 ‘검증 전까지는 전부 완료’ 요청에 따라 남아 있던 전투 부축·내려놓기·환자 동반 이동·운반 상태의 도주와 전투 밖 이전까지 코드로 연결했다. 외부 환자 운반 한도, 환자 기상/운반자 붕괴, 신전 치료·운반 도주로 마지막 새벽 대가를 우회하지 못하도록 전투에 묶인 저장 표식도 추가했다. [전체 구현 내역](fantasy-saint-combat-handoff.md)을 먼저 읽을 것. 프로토콜13, 미커밋/미배포. 테스트·타입 검사·빌드·브라우저 QA 등은 사용자의 요청이 올 때만 실행한다. 현재는 **구현 반영 / 검증 미실행** 상태이며 배포 가능 확정 상태가 아니다.
+
+# 다음 작업 인수인계 — 최신 요청 우선
+
+2026-10-29 최신 작업: [성자·전투·착용 개편 전체 요청/진행/재개 지점](fantasy-saint-combat-handoff.md)을 먼저 읽는다. HP 직군 배율, 신전 기적3개 준비·희귀 발견·기적6종과 기존 기상 통합, 마지막 새벽과 승리 사망, 피해 빈사/실신, 전투 밖 부축·간호·동의 귀환, 파티 운반 이동, 사제7분기 신성 공격, 직업21개 최종 기술, 전투 FX/이동 재생, 가방 착용 UI를 코드에 반영했다. 전투 내부의 부축 타일 이동 명령은 아직 없다. 테스트/타입/빌드/브라우저/추가 검사는 사용자가 요청할 때만 실행하며 최신 변경에 관해 실행한 것이 없다. 프로토콜11, 미커밋·미배포. 운영 데이터는 건드리지 않았다.
+
+# 다음 작업 인수인계 — 교차검증 후
+
+2026-10-29 地図・工房・不動産・雇用の拡張をローカルに反映。[統合仕様](fantasy-estates-workshops-and-maps.md)を参照。内部地図は物理コピーと実探査を区別。邸宅・小住宅/商業倉庫・直接制作・30名の雇用・部隊編入・素材/商品・身体特性を追加し、商業販売量に季節/土地/昼夜を適用。COMPAT_VERSION10。最新変更のテスト・型・ビルド・画面・レビューはユーザーの依頼で保留し、回帰は作成のみ。未実行一覧は[検査待ち](fantasy-validation-backlog.md)。運用データ/AI/変更履歴は触らず、未コミット/未配信。
+
+2026-10-29 신체·기동 확장: [신체 기술과 이동 구분](fantasy-body-and-mobility-skills.md). 신체 기술9개·직업 기술13개 추가, 특성→능력→제한 보정 데이터 표, 적중 상태이상, 세 언어 설명을 연결했다. 기동은 `dash`(적 관통 후 뒤), `advance`(적 앞 이동 후 공격), `reposition`(공격 없이 빈칸)으로 구분한다. 전송 호환 버전9. 최신 변경의 테스트·타입 검사·빌드·화면 확인·추가 리뷰는 사용자 요청에 따라 미실행이다.
+
+2026-10-29 공격 형상 확장: [사거리·모양·기술 표](fantasy-attack-shapes.md). 새 무기 기술7개, 기존 전직 공격과 용족 브레스의 형상, 무기/신체 보정, 전장 미리보기를 연결했다. 전송 호환 버전8. 사용자 지시에 따라 이 단계 회귀는 작성만 했으며 테스트·타입 검사·빌드·화면 검사는 미실행이다.
+
+2026-10-29 사용자 지시: 테스트·검사는 사용자가 요청할 때만 모아서 실행한다. 그 전에는 개발과 [검사 대기 목록](fantasy-validation-backlog.md) 기록을 진행한다. 새로운 원정·조합·랭킹 기능은 개발 중이며, 이전 검증 수치를 최종 변경 전체의 통과로 해석하지 않는다.
+
+현재 확장 구현 설명은 [원정·발견·랭킹](fantasy-expeditions-and-discoveries.md)을 따른다. 중복 룬, 자기 축복/자기 회복의0 예외와 타인 사거리, 신·구 연금술 결과 발견, 지속 전투 타일, 시드 기반 던전과 파티 배치 간 획득 기록 보존, 교대 불침번, 성자/성녀 표시, 상위10위 기록을 연결했다. 구형 연금술 발견과 마지막 번역 회귀는 작성 후 미실행이다. 최종 전체 회귀·타입/완료 검사·화면 검사는 대기 중이다. 임시 원정 QA 서버와 화면 파일은 정리했다.
+
+2026-10-29 후속 확장 완료: [마법진·연금술·생산·가방·암시장](fantasy-runic-circles.md), [최종 검증 기록](fantasy-cross-verification.md). 판타지1,287건·세 언어 화면19건·필수 완료 검사 통과. 회복 합성은 사제 전용으로 마법사 구형 저장 주문까지 차단한다. 빈사자의 파티·보상·입찰금 보존, 가방 초과 보상 보관과 원자적 수령을 포함한다. 임시 QA 화면/서버는 제거·종료했다.
+
+
+2026-10-28 Codex 작업. 기존 Deepseek 수정은 로컬 커밋 `4f3f77f`로 보존했다. 최신 develop 통합은 `292b5ad`. 현재 작업 폴더는 `E:\tonarium2`, 브랜치는 `codex/fantasy-handoff-audit`다. 아직 이 브랜치를 푸시하거나 배포하지 않았다.
+
+이번 요청과 실제 수정은 [교차검증 기록](fantasy-cross-verification.md), 직업·종족의 실제 전투 기능은 [상세 목록](fantasy-combat-capabilities.md)을 따른다. 이전 문서에 완료라고 적힌 일부 기능도 실제 경계에서는 미완성이었으므로 과거 완료 표를 작업 금지 지시로 사용하지 않는다. 원본 인수인계는 위 보존 커밋에서 확인할 수 있다.
+
+검증은 Node 24를 사용한다. 원본 `data/fantasy.json`과 운영 계정을 사용하지 말고 임시 DATA_DIR의 테스트만 실행한다. AI는 기존 KokoaAI 외부 연결을 유지한다. 브라우저 AI나 컨테이너 모델을 다시 추가하지 않는다.
+
+최종 검사 수치와 남은 범위는 [현재 상태](fantasy-current-status.md)에서 확인한다.
+
+
+2026-10-29 추가: 사용자가 마지막 새벽만 중앙 기술명 표시를 요청하여 `기적 — 마지막 새벽` 이름을 중앙 대사 위에 크게 표시한다. 나머지 기술은 상단 고정 줄을 유지한다. 이름/대사 표시 시간을 약3초 확보한다. 물·대지·바람·별빛 연출도 추가하며 합성 코어/기존 조합 속성을 시각 전용 visualElement 메타데이터로 연결한다(슬로우/빙결 장판은 냉기, 독 장판은 독 시각 유지). 피해·방어 수치는 바꾸지 않는다. 이 추가 내용의 검증 역시 요청 시 실시한다.
+
+화면 제공 추가 기록: 중앙 기술명과 대사가 표시된 마지막 새벽 화면을 `work/qa/combat-last-dawn-centered-title-preview.png`에 저장했다. 화면 표시 외의 게임 기능 검증은 보류한다.
+
+2026-10-29 최종 강적 기준 변경: 살아 있고 도주하지 않은 **7등급 이상이면 능력치 제한 없이** 마지막 새벽의 강적에 해당한다. 기존 공격력≥시전자 방어력×1.4 조건은 폐기했다. 조건 테스트8개 통과(7·8등급11종 전체 포함).
+
+
+## 2026-10-29 UI 화면 제공
+
+현재 실제 `FantasyPanelContent`를 재사용하는 오프라인 표시 전용 `client/menu-preview.html` / `menu-preview.tsx`를 추가했다. 게임 진입의 계정 검사/서버 권한은 그대로이며 UI 본문만 named export하여 로컬 표시 화면에서 재사용한다. WebSocket 연결/계정/운영 데이터/전투 실행 없이 메모리의 예시 캐릭터를 표시한다. 기존 수동 연출 미리보기도 유지한다.
+
+- 평소 메뉴: http://127.0.0.1:5230/menu-preview.html
+- 전체 전투 UI: http://127.0.0.1:5230/menu-preview.html?view=combat
+- 연출: http://127.0.0.1:5230/combat-effects-preview.html
+
+캐릭터/지도/오른쪽 일반 메뉴, 캐릭터/전장/오른쪽 행동 선택을 실제 컴포넌트로 표시했다. 메뉴와 기술·대상·범위 보기만 가능하며 행동 확정은 연결이 없어 잠긴다. 현재 화면의 렌더링만 열어서 살펴봤으며 전체 기능 QA/타입 검사/빌드는 실행하지 않았다. 화면 캡처: `work/qa/normal-menu-current-preview.png`, `work/qa/full-combat-ui-current-preview.png`.

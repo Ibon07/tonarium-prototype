@@ -8,6 +8,10 @@ export function unlockEmoteAudio() {
   try { ctx ??= new AudioContext(); if (ctx.state === 'suspended') void ctx.resume().catch(() => {}); } catch { /* optional audio */ }
 }
 
+export function activeEffectAudioContext(): AudioContext | undefined {
+  return ctx?.state === 'running' ? ctx : undefined;
+}
+
 export function playChatNotification() {
   try {
     const volume = fxVolume() * 0.22;
@@ -97,7 +101,7 @@ export function playPoke() {
 }
 
 /** ダイスが転がる音。演出だけの任意機能なので、鳴らせない環境では黙って諦める。 */
-export function playDiceRoll() {
+export function playDiceRoll(durationMs=2500) {
   const volume = fxVolume() * 0.42;
   if (volume <= 0.001) return;
   try {

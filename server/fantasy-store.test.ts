@@ -71,8 +71,8 @@ test('expired legitimate max-resource effects are pruned and clamped once during
 });
 
 test('new action payloads validate exact operator fields and reject supplied rewards or invented slots', () => {
-  for (const action of [{ type: 'manaTrain', exercise: 'sense' }, { type: 'learn', skill: 'mentor-parry', npcId: 'hearth-galen' }, { type: 'equip', item: 'blade' }, { type: 'unequip', slot: 'offhand' }, { type: 'haggle', service: 'food' }]) assert.ok(isFantasyAction(action));
-  for (const action of [{ type: 'manaTrain', exercise: 'grant' }, { type: 'manaTrain', exercise: 'sense', mastery: 20 }, { type: 'learn', skill: 'mentor-focus', npcId: {} }, { type: 'equip', item: 'blade', stats: {} }, { type: 'unequip', slot: 'head' }, { type: 'haggle', service: 'all', discount: 1 }]) assert.equal(isFantasyAction(action), false);
+  for (const action of [{ type: 'manaTrain', exercise: 'sense' }, { type: 'learn', skill: 'mentor-parry', npcId: 'hearth-galen' }, { type: 'equip', item: 'blade' }, { type: 'unequip', slot: 'offhand' }, { type: 'unequip', slot: 'head' }, { type: 'equip', item: 'ruby-ring', slot: 'ring2' }, { type: 'haggle', service: 'food' }]) assert.ok(isFantasyAction(action));
+  for (const action of [{ type: 'manaTrain', exercise: 'grant' }, { type: 'manaTrain', exercise: 'sense', mastery: 20 }, { type: 'learn', skill: 'mentor-focus', npcId: {} }, { type: 'equip', item: 'blade', stats: {} }, { type: 'unequip', slot: 'invented-slot' }, { type: 'haggle', service: 'all', discount: 1 }]) assert.equal(isFantasyAction(action), false);
 });
 
 test('effective MP use grows mana only after the reserved action completes and survives restart once', t => {
@@ -121,10 +121,12 @@ test('creation always starts unassigned and profession acquisition is validated 
   assert.equal(invalidNpc.changed, false);
   const learned = store.apply('learner', created.profile.revision, { type: 'job', job: 'cook', via: 'npc', npcId: 'rin' });
   assert.equal(learned.error, undefined);
-  assert.equal(learned.profile.character!.job, 'cook');
+  assert.equal(learned.profile.character!.job, 'unassigned');
+  assert.equal(learned.profile.character!.lifeJob, 'cook');
   const gm = store.apply('learner', learned.profile.revision, { type: 'job', job: 'assassin', via: 'gm' });
   assert.equal(gm.error, undefined);
   assert.equal(new FantasyStore(file).profile('learner').character!.job, 'assassin');
+  assert.equal(new FantasyStore(file).profile('learner').character!.lifeJob, 'cook');
   for (const action of [{ type: 'job', job: 'cook', via: 'hack' }, { type: 'job', job: 'cook', npcId: {} }, { type: 'job', job: 'cook', via: ['gm'] }, { type: 'job', job: 'cook', character: {} }]) assert.equal(isFantasyAction(action), false);
 });
 
@@ -156,7 +158,8 @@ test('two users share one clock and a reserved action never jumps time or grants
   now += 60_000;
   const finished = store.tick(new Set(['alice', 'bob']));
   assert.ok(finished.some(update => update.user === 'alice'));
-  assert.equal(store.profile('alice').character!.job, 'cook');
+  assert.equal(store.profile('alice').character!.job, 'unassigned');
+  assert.equal(store.profile('alice').character!.lifeJob, 'cook');
   assert.equal(store.profile('alice').activity, undefined);
   assert.equal(store.profile('alice').character!.hour, 9);
   assert.equal(store.profile('bob').character!.hour, 9);
@@ -549,8 +552,8 @@ test('valid drafts, fixed genders, buffs, events and level growth reload unchang
   const stoneDraft = newFantasyProfile();
   stoneDraft.draft = { remaining: 4, candidate: 'stoneborn', kept: null };
   const stone = applyFantasyAction(stoneDraft, { type: 'create', name: '石の旅人', gender: 'female', source: 'candidate', job: 'blacksmith' }).profile;
-  stone.character!.job = 'blacksmith';
-  stone.character!.jobXp = { blacksmith: 0 };
+  stone.character!.lifeJob = 'blacksmith';
+  stone.character!.jobXp = { unassigned: 0, blacksmith: 0 };
   const event = applyFantasyAction(created, { type: 'work' }, () => 0).profile;
   const buff = applyFantasyAction(stone, { type: 'skill', skill: 'stoneborn-echo' }).profile;
   let leveled = created;

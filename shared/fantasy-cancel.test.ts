@@ -76,3 +76,31 @@ test('the server accepts exactly the cancel action shape', () => {
   assert.equal(isFantasyAction({ type: 'cancel', extra: 1 }), false);
   assert.equal(isFantasyAction({ type: 'cancel', quest: 'x' }), false);
 });
+import { FANTASY_TASK_QUESTS } from './fantasy-task-quests.ts';
+import { FANTASY_MAIN_QUESTS } from './fantasy-second-content.ts';
+
+test('cancelling a scheduled action for an accepted survey never grants task progress or its result',()=>{
+ const quest=FANTASY_TASK_QUESTS.find(quest=>quest.objective.type==='survey')!;
+ let p=player();p.character!.location=quest.giver;p.character!.visited.push(quest.giver);
+ const accepted=applyFantasyAction(p,{type:'accept',quest:quest.id},()=>.999);assert.equal(accepted.error,undefined);p=accepted.profile;
+ p.character!.location=quest.destination;p.character!.visited.push(quest.destination);p.character!.buff={effect:'check',power:40};
+ const before=structuredClone(p.character!);
+ const started=startFantasyActivity(p,{type:'explore'},p.character!.hour,()=>.999);assert.equal(started.error,undefined);
+ const partial=advanceFantasyWorld(started.profile,p.character!.hour+1).profile;
+ const cancelled=applyFantasyAction(partial,{type:'cancel'}).profile;
+ const later=advanceFantasyWorld(cancelled,p.character!.hour+8).profile;
+ assert.deepEqual(later.character!.taskProgress,before.taskProgress);assert.deepEqual(later.character!.completed,before.completed);
+ assert.deepEqual(later.character!.inventory,before.inventory);assert.equal(later.character!.xp,before.xp);
+});
+test('cancelling a scheduled main investigation preserves the accepted stage without proof or completion credit',()=>{
+ const quest=FANTASY_MAIN_QUESTS[0];let p=player();p.character!.location=quest.giver;p.character!.visited.push(quest.giver);
+ const accepted=applyFantasyAction(p,{type:'accept',quest:quest.id});assert.equal(accepted.error,undefined);p=accepted.profile;
+ p.character!.location=quest.destination;p.character!.visited.push(quest.destination);p.character!.buff={effect:'check',power:40};
+ const before=structuredClone(p.character!);
+ const started=startFantasyActivity(p,{type:'investigate',quest:quest.id,approach:'analyze'},p.character!.hour,()=>.999);assert.equal(started.error,undefined);
+ const partial=advanceFantasyWorld(started.profile,p.character!.hour+.25).profile;
+ const cancelled=applyFantasyAction(partial,{type:'cancel'}).profile;
+ const later=advanceFantasyWorld(cancelled,p.character!.hour+1).profile;
+ assert.deepEqual(later.character!.mainTrials,before.mainTrials);assert.deepEqual(later.character!.completed,before.completed);
+ assert.equal(later.character!.xp,before.xp);assert.deepEqual(later.character!.quests,before.quests);
+});

@@ -25,9 +25,11 @@ function webpInfo(buffer:Buffer){
   return {width,height,alpha};
 }
 
-test('illustration catalog assigns one independent file to every real NPC and rejects unknown identities',()=>{
-  const ids=NPC_PUBLIC.map(npc=>npc.id).sort();
-  assert.equal(ids.length,137);assert.deepEqual([...NPC_ILLUSTRATION_IDS].sort(),ids);assert.deepEqual(Object.keys(NPC_PORTRAIT_ILLUSTRATIONS).sort(),ids);
+test('illustration catalog preserves released portraits while new expedition characters use individual SVG portraits',()=>{
+  const ids:string[]=[...NPC_ILLUSTRATION_IDS].sort();
+  const fallback=NPC_PUBLIC.filter(npc=>!ids.includes(npc.id)).map(npc=>npc.id);
+  assert.equal(NPC_PUBLIC.length,160);assert.equal(ids.length,137);assert.ok(ids.every(id=>NPC_PUBLIC.some(npc=>npc.id===id)));assert.deepEqual(Object.keys(NPC_PORTRAIT_ILLUSTRATIONS).sort(),ids);
+  for(const id of fallback){assert.ok(NPC_PUBLIC.some(npc=>npc.id===id));assert.equal(npcIllustrationUrl(id),undefined);assert.equal(npcPortraitUrl(id),npcSvgPortraitUrl(id));assert.ok(fs.existsSync(path.join(publicRoot,npcSvgPortraitUrl(id)!)));}
   assert.equal(new Set(Object.values(NPC_PORTRAIT_ILLUSTRATIONS)).size,ids.length);
   for(const id of ids)assert.equal(NPC_PORTRAIT_ILLUSTRATIONS[id],`/fantasy/npc-illustrations/${id}.webp`);
   for(const unknown of ['missing-npc','../rin','rin.webp','constructor','toString']){assert.equal(npcIllustrationUrl(unknown),undefined);assert.equal(npcPortraitUrl(unknown),undefined);}

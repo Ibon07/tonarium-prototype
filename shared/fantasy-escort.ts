@@ -1,8 +1,9 @@
+import { fantasyRankBenefitEscortBonus, recordFantasyRankBenefitEscortBonus } from './fantasy-rank-benefits.ts';
 import type { FantasyCharacter } from './fantasy.ts';
 import { FANTASY_LOCATIONS, FANTASY_ROUTES } from './fantasy-data.ts';
 import { FANTASY_SETTLEMENTS, fantasyBuildings, fantasyFrontierLocations, fantasyKnownLocations } from './fantasy-town.ts';
 
-export const FANTASY_ESCORT_JOBS = Object.freeze(['adventurer','warrior','knight','spearfighter','archer','scout','pugilist','spellblade','shieldbearer','mage','hunter','priest','summoner'] as const);
+export const FANTASY_ESCORT_JOBS = Object.freeze(['adventurer','warrior','knight','spearfighter','archer','scout','pugilist','spellblade','shieldbearer','mage','hunter','ranger','priest','summoner'] as const);
 export const FANTASY_ESCORT_COOLDOWN_HOURS = 12;
 export interface FantasyEscortOffer { from: string; destination: string; hours: number; reward: number; path: string[]; available: boolean; reason?: string }
 export const fantasyEscortPair = (a: string, b: string) => [a,b].sort().join('~');
@@ -73,10 +74,12 @@ export function fantasyEscortComplete(character: FantasyCharacter, from: string,
   if(!contract||contract.defense==='pending'||contract.from!==from||contract.destination!==destination||character.location!==destination)return 0;
   const offer=fantasyEscortTerms(from,destination);
   if(!offer||offer.reward!==contract.reward||offer.hours!==contract.hours)return 0;
-  character.gold+=offer.reward;
+  const extra=fantasyRankBenefitEscortBonus(character,offer.reward);
+  character.gold+=offer.reward+extra.bonus;
+  if(extra.bonus>0)recordFantasyRankBenefitEscortBonus(character,extra.day);
   character.escortHistory??={};character.escortHistory[fantasyEscortPair(from,destination)]=character.hour;
   delete character.escort;
-  return offer.reward;
+  return offer.reward+extra.bonus;
 }
 export function validFantasyEscort(character: Pick<FantasyCharacter,'escort'|'escortHistory'|'escortPenalty'|'hour'|'lifeStartedAt'>): boolean {
   const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);

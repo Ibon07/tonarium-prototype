@@ -22,12 +22,12 @@ function ambushRandom(seed: number): () => number {
 }
 
 /** 移動の残り区間のうち、最初に襲撃が起きる時刻を返す。抽選は保存済みの種から決まる。 */
-export function fantasyAmbushHit(activity: Pick<FantasyActivity, 'action' | 'startedAt' | 'endsAt' | 'seed'>, until: number): { hour: number; slot: number } | undefined {
+export function fantasyAmbushHit(activity: Pick<FantasyActivity, 'action' | 'startedAt' | 'endsAt' | 'seed'>, until: number, after = activity.startedAt): { hour: number; slot: number } | undefined {
   if (activity.action.type !== 'travel') return undefined;
   const chance = fantasyAmbushChance(activity.action);
   const limit = Math.min(until, activity.endsAt);
   const slots = Math.floor((limit - activity.startedAt) / FANTASY_AMBUSH_SLOT_HOURS);
-  for (let slot = 0; slot < slots; slot++) {
+  for (let slot = Math.max(0, Math.floor((after - activity.startedAt + 1e-8) / FANTASY_AMBUSH_SLOT_HOURS)); slot < slots; slot++) {
     const hour = activity.startedAt + (slot + 1) * FANTASY_AMBUSH_SLOT_HOURS;
     if (hour >= activity.endsAt - 1e-9) break;
     if (ambushRandom((activity.seed ^ Math.imul(slot + 1, 0x9e3779b1)) >>> 0)() < chance) return { hour, slot };

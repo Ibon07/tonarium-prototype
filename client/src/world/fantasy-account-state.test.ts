@@ -33,9 +33,9 @@ test('account ownership change clears private RPG records, proposals and both ow
 });
 
 test('disconnect forgets private ownership but retains the home identity for a safe reconnect',()=>{
-  const before={...identity(),fantasyAccountReady:true,fantasyProfile:{private:'A'},fantasyClock:{hour:40}};
+  const before={...identity(),fantasyAccountReady:true,fantasyProfile:{private:'A'},fantasyTownPresence:{location:'hearth',players:[{id:'secret',name:'Secret'}]},fantasyClock:{hour:40}};
   const after={...before,...fantasyAccountDisconnected(before)};
-  assert.equal(after.fantasyAccount,null);assert.equal(after.fantasyAccountReady,false);assert.equal(after.fantasyProfile,null);
+  assert.equal(after.fantasyAccount,null);assert.equal(after.fantasyAccountReady,false);assert.equal(after.fantasyProfile,null);assert.equal(after.fantasyTownPresence,null);
   assert.equal(after.selfId,accountA.principal);assert.equal(after.fantasyHomeId,'browser-home');assert.equal(fantasyReconnectIdentity(after),'browser-home');assert.equal(after.fantasyClock,before.fantasyClock);
   const guest={...after,...fantasyAccountIdentityUpdate(after,{account:null,activeId:'browser-home',homeId:'browser-home'}).patch};
   assert.equal(guest.selfId,'browser-home');assert.equal(guest.fantasyHomeId,null);assert.equal(fantasyReconnectIdentity(guest),'browser-home');

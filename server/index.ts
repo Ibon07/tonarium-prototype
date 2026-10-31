@@ -1,4 +1,13 @@
+import { handleFantasyNpcRankBenefits, clearFantasyNpcRankBenefits } from './npc-rank-benefits.ts';
+import { NpcTransactions } from './npc-transactions.ts';
+import { FantasyNamedCommissions } from './fantasy-named-commissions.ts';
+import { fantasyRegisteredGuildGrade } from '../shared/fantasy-guild-progression.ts';
+import { FANTASY_MAP_MERCHANT_EVENT, FANTASY_MAP_MERCHANT_NPC, fantasyMapMerchantDaylight } from '../shared/fantasy-map-merchant.ts';
+import { FANTASY_MAPS } from '../shared/fantasy-town.ts';
+import { isFantasyDungeonAction } from '../shared/fantasy-dungeon.ts';
+import { fantasyFacilityOpen, fantasyFacilityClosedText } from '../shared/fantasy-facility-hours.ts';
 import { AdStore, AdStoreError } from './ad-store.ts';
+import { fantasyTownPresence, type FantasyTownCandidate } from '../shared/fantasy-town-presence.ts';
 import { scheduleChessAiReply } from './chess-ai.ts';
 import 'dotenv/config';
 import { configuredTranslationModel, createTranslationHandler, createTranslator } from './translation.ts';
@@ -56,16 +65,19 @@ import { Follows } from './follows.ts';
 import { POST_RATE, Timeline, UPLOAD_RATE } from './timeline.ts';
 import { POST_IMAGE_MAX_BYTES, isImageId, type Post } from '../shared/timeline.ts';
 import { createSyncGrant, handleSyncOffer, upgradeSync, revokeSync, revokeUserSync, leaveRoom, livekitRoom, roomSend, roomSendSnapshot, shutdownRooms, type RoomHandlers } from './rooms.ts';
-import { FantasyStore, handleFantasyAction, isFantasyAction } from './fantasy-store.ts';
+import { FantasyStore, handleFantasyAction, isFantasyAction, type FantasyCombatPlan } from './fantasy-store.ts';
 import { FantasyClock } from './fantasy-clock.ts';
 import { FantasyParty } from './fantasy-party.ts';
 import { NpcChat } from './npc.ts';
 import { FantasyGmChat } from './fantasy-gm-chat.ts';
 import { FantasyCommunity, type CommunityActor } from './fantasy-community.ts';
 import { FantasyContracts, type FantasyContractActor } from './fantasy-contracts.ts';
-import { fantasyPersonalQuest, fantasyContractErrorText } from '../shared/fantasy-contracts.ts';
+import { fantasyPersonalQuest, fantasyContractErrorText, FANTASY_CONTRACT_RAID_PARTICIPANTS } from '../shared/fantasy-contracts.ts';
+import { fantasyOnRoad } from '../shared/fantasy-travel.ts';
 import { FANTASY_QUESTS } from '../shared/fantasy-data.ts';
 import { FantasyPropertyDialogue } from './fantasy-property-dialogue.ts';
+import { fantasyBlackMarketDialogue } from './fantasy-black-market-dialogue.ts';
+import { fantasyBlackMarketText } from '../shared/fantasy-black-market.ts';
 import { FantasyBargaining } from './fantasy-bargaining.ts';
 import { FantasyConversationActions } from './fantasy-conversation-actions.ts';
 import { NPC_PUBLIC } from '../shared/npc.ts';
@@ -88,6 +100,8 @@ const fantasyGmChat = new FantasyGmChat();
 const fantasyPropertyDialogue = new FantasyPropertyDialogue();
 const fantasyBargaining = new FantasyBargaining();
 const fantasyConversationActions = new FantasyConversationActions();
+const fantasyNpcTransactions = new NpcTransactions();
+const fantasyGuildVisits = new Map<string, number>();
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'client/dist');
 // index.html は読み込むファイル名にハッシュを含むので、画面が変わったときだけ版が変わる
@@ -148,6 +162,7 @@ const fantasyStore = new FantasyStore(path.join(DATA_DIR, 'fantasy.json'), {
 fantasyClock = new FantasyClock(path.join(DATA_DIR, 'fantasy-clock.json'), { save: saveFantasyData, initialHour: fantasyStore.maximumHour() });
 const fantasyCommunity = new FantasyCommunity(path.join(DATA_DIR, 'fantasy-community.json'), { save: saveFantasyData });
 const fantasyContracts = new FantasyContracts(path.join(DATA_DIR, 'fantasy-contracts.json'), { save: saveFantasyData, lookup: user => fantasyStore.loadError ? undefined : fantasyStore.profile(user) });
+const fantasyNamedCommissions = new FantasyNamedCommissions(path.join(DATA_DIR, 'fantasy-named-commissions.json'), {save:saveFantasyData});
 const fantasyAccounts = new FantasyAccounts({ file:path.join(DATA_DIR,'fantasy-accounts.json'),save:saveFantasyData,
   trustProxy:process.env.FANTASY_TRUST_PROXY==='1',
   trustedProxyAddresses:(process.env.FANTASY_TRUSTED_PROXY_IPS??'').split(',').map(value=>value.trim()).filter(Boolean),
@@ -162,8 +177,30 @@ catch(error){console.error('[fantasy-backup] startup snapshot failed',error);}
 const fantasyParty = new FantasyParty({ lookup: id => {
   const user = users.get(id);
   return user && fantasyUserAuthorized(id) ? { id, name: user.name, session: user.session, world: user.session ? worldOf.get(user.session) : undefined, profile: fantasyStore.profile(id) } : undefined;
-}, start: plans => fantasyStore.startGroupInvestigation(plans), startCombat: plans => fantasyStore.startCombat(plans),
-  startTravel: plans => fantasyStore.startGroupTravel(plans),
+}, start: plans => fantasyStore.startGroupInvestigation(plans),
+  guildContract: (user, offer) => {
+    const raid = fantasyContracts.raidSnapshot(offer);
+    return !!raid && raid.offer.startedAt === undefined && fantasyStore.guildRaidStarted(offer) === undefined && raid.participants.some(owner => {
+      const c = fantasyStore.profile(owner).character;
+      return !!c && fantasyRegisteredGuildGrade(c) > 0 && c.contracts?.[raid.quest.id]?.offerId === offer && fantasyStore.partyContractParticipants(owner, raid.quest.id).includes(user);
+    });
+  },
+  worldHour: () => fantasyClock.snapshot().hour,
+  startCombat: (plans,context) => {
+    if (plans[0]?.source !== 'guild') return context ? fantasyStore.startPartyCombat(plans,context) : fantasyStore.startCombat(plans);
+    const raid = fantasyContracts.raidSnapshot(plans[0].target), now = fantasyClock.snapshot().hour;
+    if (!context || !raid || raid.offer.startedAt !== undefined || raid.offer.startsAt === undefined || now < raid.offer.startsAt || fantasyStore.guildRaidStarted(raid.offer.id) !== undefined
+      || plans.length > FANTASY_CONTRACT_RAID_PARTICIPANTS || plans.some(plan => plan.source !== 'guild' || plan.target !== raid.offer.id || plan.session !== context.session)) return { updates: [], error: 'unavailable' };
+    const owners = raid.participants.filter(owner => { const c = fantasyStore.profile(owner).character; return !!c && fantasyRegisteredGuildGrade(c) > 0 && c.contracts?.[raid.quest.id]?.offerId === raid.offer.id; });
+    const signed = new Set(owners.flatMap(owner => fantasyStore.partyContractParticipants(owner, raid.quest.id)));
+    if (!owners.some(owner => plans.some(plan => plan.user === owner)) || plans.some(plan => !signed.has(plan.user))) return { updates: [], error: 'incompatible' };
+    return fantasyStore.startGuildRaid(plans, raid.offer);
+  },
+  startTravel: (plans,context) => fantasyStore.startGroupTravel(plans,context),
+  startRedirect: (plans,context) => fantasyStore.startGroupRedirect(plans,context),
+  startDungeon: (plans,context) => fantasyStore.startGroupDungeon(plans,context),
+  load: () => fantasyStore.partyState(), save: snapshot => fantasyStore.savePartyState(snapshot),
+  transaction: (run,snapshot) => fantasyStore.partyTransaction(run,snapshot),
   battle: (user, session) => fantasyStore.combat(user, session),
   joinCombat: (user, session, combat, confirm) => fantasyStore.joinCombat(user, session, combat, confirm),
   vault: party => fantasyStore.partyVault(party), vaultRequest: (party, user, command) => fantasyStore.partyVaultRequest(party, user, command),
@@ -175,7 +212,7 @@ const fantasyParty = new FantasyParty({ lookup: id => {
 });
 function communityActor(user: User): CommunityActor {
   const profile = fantasyStore.profile(user.id);
-  return { id: user.id, session: user.session, world: user.session ? worldOf.get(user.session) : undefined, character: profile.character ?? undefined, busy: !!profile.activity };
+  return { id: user.id, session: user.session, world: user.session ? worldOf.get(user.session) : undefined, character: profile.character ?? undefined, busy: !!profile.activity || !!profile.combatId || !!profile.death || !!profile.event || !profile.character || profile.character.hp<=0 || fantasyStore.onRoad(user.id) || !!profile.character?.dungeon?.active };
 }
 
 const AD_LEADERBOARD_FILE = path.join(DATA_DIR, 'ad-leaderboard.json');
@@ -520,8 +557,9 @@ function fantasyMarketQuote(user: User, action: import('../shared/fantasy.ts').F
   if (action.type !== 'buy' && action.type !== 'sell') return undefined;
   const economy = fantasyStore.realmState(user.id, fantasyRealmContext(user)).economy;
   for (const shop of economy.shops) {
+    if(action.type === 'buy' && action.building && shop.building !== action.building) continue;
     const lot = action.type === 'buy' ? shop.lots.find(lot => lot.item === action.item && lot.count > 0) : shop.sales.find(lot => lot.item === action.item && lot.canSell && (!action.instance || lot.instance === action.instance) && (!action.quality || lot.quality === action.quality));
-    if (lot) return { text: String(lot.unitPrice)+' G · '+({ko:'즉시',en:'Immediate',ja:'即時'}[locale]), key: JSON.stringify([shop.building, shop.revision, lot.unitPrice, 'id' in lot ? lot.id : lot.key]) };
+    if (lot && (action.type !== 'buy' || lot.count >= (action.count ?? 1))) return { text: String(lot.unitPrice*(action.type === 'buy' ? action.count ?? 1 : 1))+' G · '+({ko:'즉시',en:'Immediate',ja:'即時'}[locale]), key: JSON.stringify([shop.building, shop.revision, lot.unitPrice, 'id' in lot ? lot.id : lot.key, action.type === 'buy' ? action.count ?? 1 : 1]) };
   }
   return { text: {ko:'지금은 거래할 수 없는 물건입니다.',en:'This item cannot be traded now.',ja:'今は取引できない品物です。'}[locale], key: 'unavailable' };
 }
@@ -535,7 +573,35 @@ function fantasyDialogueFacts(user: User, locale: 'ko'|'en'|'ja'): DialogueDynam
 function publishFantasyRealms() {
   for (const user of users.values()) if (fantasyUserAuthorized(user.id)&&user.session && worldOf.get(user.session) === 'fantasy') sendTo([user.id], { t: 'fantasyRealmState', state: fantasyStore.realmState(user.id, fantasyRealmContext(user)) });
 }
+const fantasyPropertyPublished = new Map<string, string>();
+function publishFantasyProperties() {
+  for (const user of users.values()) {
+    if (!fantasyUserAuthorized(user.id) || !user.session || worldOf.get(user.session) !== 'fantasy') { fantasyPropertyPublished.delete(user.id); continue; }
+    const profile = fantasyStore.profile(user.id), state = fantasyStore.propertyState(user.id, fantasyRealmContext(user));
+    const signature = JSON.stringify([state.revision, state.location, profile.generation ?? 1, !!profile.death, (profile.character?.hp ?? 0) > 0, user.session]);
+    if (fantasyPropertyPublished.get(user.id) === signature) continue;
+    fantasyPropertyPublished.set(user.id, signature);
+    sendTo([user.id], { t: 'fantasyPropertyState', state });
+  }
+}
 const fantasyPartyPublished = new Map<string, string>();
+const fantasyTownPublished = new Map<string, string>();
+function townCandidates(): FantasyTownCandidate[] {
+  return [...users.values()].flatMap(user => {
+    if (!user.session || worldOf.get(user.session) !== 'fantasy' || !fantasyUserAuthorized(user.id)) return [];
+    const profile = fantasyStore.profile(user.id), character = profile.character;
+    return character ? [{ id: user.id, name: user.name, session: user.session, location: character.location, online: true, alive: !profile.death && (character.hp > 0||!!character.downed), ...(character.downed?{downed:true}:{}), travelling: profile.activity?.action.type === 'travel' || !!character.travelPosition }] : [];
+  });
+}
+function publishFantasyTowns() {
+  const candidates = townCandidates();
+  for (const user of users.values()) {
+    if (!fantasyUserAuthorized(user.id)) { fantasyTownPublished.delete(user.id); continue; }
+    const state = fantasyTownPresence(candidates.find(candidate => candidate.id === user.id), candidates), signature = JSON.stringify(state);
+    if (fantasyTownPublished.get(user.id) === signature) continue;
+    fantasyTownPublished.set(user.id, signature); sendTo([user.id], { t: 'fantasyTownPresence', state });
+  }
+}
 const fantasyCombatPublished = new Map<string, string>();
 function publishFantasyCombats() {
   for (const user of users.values()) {
@@ -547,6 +613,7 @@ function publishFantasyCombats() {
   }
 }
 function publishFantasyParties() {
+  publishFantasyTowns();
   fantasyParty.sweep();
   for (const user of users.values()) {
     if(!fantasyUserAuthorized(user.id))continue;
@@ -556,7 +623,9 @@ function publishFantasyParties() {
   }
 }
 function applyFantasyUserAction(actor: FantasyContractActor, revision: unknown, action: unknown, options: Parameters<typeof handleFantasyAction>[4] = {}) {
-  const started=performance.now(),before=fantasyStore.profile(actor.id),result=applyFantasyUserActionCore(actor,revision,action,options);
+  const started=performance.now(),before=fantasyStore.profile(actor.id),members=fantasyParty.state(actor.id).members.map(member=>member.id),revisions=new Map(members.map(id=>[id,fantasyStore.profile(id).revision])),result=applyFantasyUserActionCore(actor,revision,action,options);
+  if(result.changed&&!result.error){for(const id of members)if(id!==actor.id){const profile=fantasyStore.profile(id);if(profile.revision!==revisions.get(id))sendTo([id],{t:'fantasyProfile',profile});}publishFantasyParties();}
+  publishFantasyProperties();
   if(actor.world==='fantasy')fantasyDiagnostics.record({type:'game.action',actorId:actor.id,sessionId:actor.session??undefined,action:isFantasyAction(action)?action.type:'invalid',
     status:result.error?'rejected':'ok',errorCode:result.error?(before.revision!==revision?'stale':'game-rule'):undefined,revision:result.profile.revision,
     expectedRevision:typeof revision==='number'?revision:undefined,generation:result.profile.generation??1,location:result.profile.character?.location,durationMs:performance.now()-started});
@@ -564,6 +633,16 @@ function applyFantasyUserAction(actor: FantasyContractActor, revision: unknown, 
 }
 function applyFantasyUserActionCore(actor: FantasyContractActor, revision: unknown, action: unknown, options: Parameters<typeof handleFantasyAction>[4] = {}) {
   const current = fantasyStore.profile(actor.id);
+  // 会話による受注も掲示板と同じ予約を経由する。
+  if (isFantasyAction(action) && action.type === 'accept' && !options.contract) {
+    const quest=FANTASY_QUESTS.find(quest=>quest.id===action.quest);
+    if(quest&&!fantasyPersonalQuest(quest)){
+      const fresh={...actor,character:current.character??undefined};
+      const claim=fantasyContracts.claim(fresh,{quest:quest.id,offer:action.offer??''},fantasyClock.snapshot().hour,grant=>applyFantasyUserActionCore(fresh,revision,action,{...options,contract:grant}));
+      return claim.result??fantasyStore.reject(actor.id,fantasyContractErrorText(claim.error??'unavailable','ja'));
+    }
+  }
+  if (fantasyParty.state(actor.id).id && isFantasyAction(action) && (['travel','redirect','hunt','dungeonEnter','dungeonMove','dungeonInspect','dungeonExit'].includes(action.type) || action.type === 'event' && action.choice === 'fight')) return fantasyStore.reject(actor.id, 'パーティーの移動や戦闘は、リーダーの提案に返答して始めてください。');
   if (actor.session && actor.world === 'fantasy' && current.character?.combatStoryVersion === 1 && isFantasyAction(action)) {
     const fight = action.type === 'hunt' ? { source: 'hunt' as const, target: action.monster ?? fantasyCombatHuntOptions(current.character)[0]?.id }
       : action.type === 'event' && action.choice === 'fight' && current.event && fantasyHostileEncounter(current.event) ? { source: 'encounter' as const, target: current.event } : undefined;
@@ -574,18 +653,26 @@ function applyFantasyUserActionCore(actor: FantasyContractActor, revision: unkno
       return { profile: fantasyStore.profile(actor.id), changed: combat.updates.length > 0, ...(combat.error ? { error: combat.error } : {}) };
     }
   }
-  const result = handleFantasyAction(fantasyStore, actor, revision, action, options);
+  const result = handleFantasyAction(fantasyStore, actor, revision, action, {...options,realm:actor.session??undefined});
   if (result.changed && (action as { type?: string })?.type !== 'sync') { fantasyParty.invalidate(actor.id); publishFantasyParties(); }
   return result;
 }
 function publishFantasyWorld(user: User, periodic = false) {
   if(!fantasyUserAuthorized(user.id))return;
+  fantasyStore.updateRankingNickname(user.id, user.name);
+  const initial=fantasyStore.profile(user.id);let guildReady=true;
+  for(const grant of Object.values(initial.character?.contracts??{})){
+    let raid=fantasyContracts.raidSnapshot(grant.offerId);if(!raid)continue;
+    const started=fantasyStore.guildRaidStarted(grant.offerId);
+    if(started!==undefined&&raid.offer.startedAt===undefined){if(!fantasyContracts.markRaidStarted(grant.offerId,started))guildReady=false;raid=fantasyContracts.raidSnapshot(grant.offerId);}
+    if(raid){const synced=fantasyStore.synchronizeGuildRaid(raid.offer);for(const update of synced.updates)sendTo([update.user],{t:'fantasyProfile',profile:update.profile});}
+  }
   const profile = fantasyStore.profile(user.id);
   const hunt = profile.character?.lastHunt;
-  const receipt = hunt ? `${user.id}:${profile.generation ?? 1}:${hunt.hour}:${hunt.id}` : '';
+  const receipt = hunt ? hunt.receipt??`${user.id}:${profile.generation ?? 1}:${hunt.hour}:${hunt.id}` : '';
   const prior = reportedFantasyHunts.get(user.id);
-  reportedFantasyHunts.set(user.id, receipt);
-  if (prior !== receipt && hunt?.success) fantasyContracts.recordHunt({ ...contractActor(user), character: { ...profile.character!, location: hunt.location } }, 1, hunt.hour, receipt, hunt.id);
+  if(prior!==receipt&&hunt?.success){if(guildReady&&fantasyContracts.recordHunt({...contractActor(user),character:{...profile.character!,location:hunt.location}},hunt.count??1,hunt.hour,receipt,hunt.id))reportedFantasyHunts.set(user.id,receipt);}
+  else if(!hunt)reportedFantasyHunts.set(user.id,receipt);
   if (profile.death) for (const grant of Object.values(profile.character?.contracts ?? {})) fantasyContracts.release(user.id, grant.offerId);
   const progress = fantasyStore.synchronizeContractProgress(user.id, offer => fantasyContracts.progress(user.id, offer));
   if (progress.changed) sendTo([user.id], { t: 'fantasyProfile', profile: progress.profile });
@@ -605,6 +692,7 @@ setInterval(() => {
     const user = users.get(update.user);
     if (user) sendTo([user.id], { t: 'communityState', state: fantasyCommunity.state(communityActor(user)) });
   }
+  publishFantasyProperties();
   for (const user of users.values()) if (fantasyUserAuthorized(user.id)&&user.session && worldOf.get(user.session) === 'fantasy') publishFantasyWorld(user, true);
   const clock = fantasyClock.snapshot();
   sendTo(users.keys(), { t: 'fantasyClock', clock });
@@ -1186,10 +1274,13 @@ function switchFantasyIdentity(ws:WebSocket,state:HomeConnectionState,target:str
 }
 function publishFantasyInitial(ws:WebSocket,state:HomeConnectionState,user:User):void {
   if(!fantasySocketAuthorized(ws))return;
+  fantasyStore.updateRankingNickname(user.id, user.name);
   const synchronized=fantasyStore.synchronize(user.id);
   send(ws,{t:'fantasyProfile',profile:synchronized.profile,error:synchronized.error??fantasyStore.loadError??fantasyClock.error});
   send(ws,{t:'fantasyClock',clock:fantasyClock.snapshot()});
   send(ws,{t:'fantasyPartyState',state:fantasyParty.state(user.id)});
+  const candidates = townCandidates();
+  send(ws,{t:'fantasyTownPresence',state:fantasyTownPresence(candidates.find(candidate=>candidate.id===user.id),candidates)});
   send(ws,{t:'communityState',state:fantasyCommunity.state(communityActor(user))});
   publishFantasyWorld(user);publishFantasyRealms();
 }
@@ -1247,6 +1338,7 @@ function handle(ws:WebSocket,state:HomeConnectionState,msg:ClientMsg){
     }}catch{/* 診断失敗で処理結果を変えない。 */}
   }
 }
+const fantasyRankingRequestAt = new Map<string, number>();
 function handleMessage(ws: WebSocket, state: HomeConnectionState, msg: ClientMsg) {
   if (msg.t === 'hello') {
     if (typeof msg.id !== 'string' || !msg.id || msg.id.length > 128 || msg.id.startsWith('fantasy:') || typeof msg.name !== 'string' || (state.id && state.id !== msg.id)) return;
@@ -1335,6 +1427,15 @@ function handleMessage(ws: WebSocket, state: HomeConnectionState, msg: ClientMsg
   if(msg.t==='fantasyAccountUnbind'){unbindFantasyAccount(ws,state);return;}
   const worldRequest=msg.t.startsWith('fantasy')||msg.t==='communityContribute'||msg.t==='npcChat'&&!!me.session&&worldOf.get(me.session)==='fantasy';
   if(worldRequest&&!fantasySocketAuthorized(ws)){if(state.id?.startsWith('fantasy:'))unbindFantasyAccount(ws,state,'unauthenticated');else fantasyAccountState(ws,state,'unauthenticated');return;}
+  if (msg.t === 'fantasyRankingRequest') {
+    if (Object.keys(msg).length !== 1 || !me.session || worldOf.get(me.session) !== 'fantasy') return;
+    const now = Date.now();
+    if (now - (fantasyRankingRequestAt.get(me.id) ?? -Infinity) < 1000) return;
+    fantasyRankingRequestAt.set(me.id, now);
+    fantasyStore.updateRankingNickname(me.id, me.name);
+    send(ws, { t: 'fantasyRanking', rows: fantasyStore.publicRanking() });
+    return;
+  }
   if (msg.t === 'fantasyTestReset') {
     let result;
     const prior = fantasyStore.profile(me.id);
@@ -1346,6 +1447,8 @@ function handleMessage(ws: WebSocket, state: HomeConnectionState, msg: ClientMsg
       fantasyParty.leave(me.id); publishFantasyParties();
       for (const grant of Object.values(prior.character?.contracts ?? {})) fantasyContracts.release(me.id, grant.offerId);
       fantasyConversationActions.clear(me.id);
+      fantasyNpcTransactions.clear(me.id);
+      clearFantasyNpcRankBenefits(me.id);
       fantasyBargaining.clear(me.id);
       reportedFantasyHunts.delete(me.id);
       sendTo([me.id], { t: 'fantasyProfile', profile: result.profile });
@@ -1362,35 +1465,55 @@ function handleMessage(ws: WebSocket, state: HomeConnectionState, msg: ClientMsg
     const npcDiagnosticToken=inFantasy&&typeof msg.text==='string'&&typeof msg.requestId==='string'&&/^[a-zA-Z0-9_-]{1,80}$/u.test(msg.requestId)&&['ko','en','ja'].includes(msg.locale)&&NPC_PUBLIC.some(npc=>npc.id===msg.npcId)
       ?fantasyDialogueObserver.begin(ws,{actorId:me.id,sessionId:me.session,kind:'npc',requestId:msg.requestId,locale:msg.locale,npcId:msg.npcId,query:msg.text,
         generation:profile.generation??1,location:character?.location,profile,dynamicFacts:npcDynamicFacts}):undefined;
-    const validDialogue=typeof msg.requestId==='string'&&/^[a-zA-Z0-9_-]{1,80}$/.test(msg.requestId)&&['ko','en','ja'].includes(msg.locale)&&typeof msg.text==='string'&&msg.text.length<=800&&NPC_PUBLIC.some(npc=>npc.id===msg.npcId&&npc.homeLocation===character?.location);
-    if(inFantasy&&validDialogue&&(profile.activity||profile.combatId||fantasyStore.civicBlocked(me.id))){
+    const merchantSpeaker=inFantasy&&msg.npcId===FANTASY_MAP_MERCHANT_NPC&&profile.event===FANTASY_MAP_MERCHANT_EVENT&&!!character&&fantasyMapMerchantDaylight(character.hour);
+    const merchant=merchantSpeaker?fantasyStore.realmState(me.id,fantasyRealmContext(me)).economy.merchant:undefined;
+    const validDialogue=typeof msg.requestId==='string'&&/^[a-zA-Z0-9_-]{1,80}$/.test(msg.requestId)&&['ko','en','ja'].includes(msg.locale)&&typeof msg.text==='string'&&msg.text.length<=800&&NPC_PUBLIC.some(npc=>npc.id===msg.npcId&&(merchantSpeaker||!npc.travelOnly&&npc.homeLocation===character?.location));
+    const speaker=NPC_PUBLIC.find(npc=>npc.id===msg.npcId);
+    if(inFantasy&&validDialogue&&speaker&&speaker.building!=='residence'&&!fantasyFacilityOpen(speaker.building,profile.character!.hour)){send(ws,{t:'npcReply',requestId:msg.requestId,npcId:msg.npcId,locale:msg.locale,text:fantasyFacilityClosedText(msg.locale),model:'',source:'canon',relationship:'familiar',error:'busy'},npcDiagnosticToken);return;}
+    if(inFantasy&&validDialogue&&(profile.activity||profile.character?.returnLantern||profile.combatId||profile.character?.dungeon?.active||!merchantSpeaker&&fantasyStore.onRoad(me.id)||fantasyStore.civicBlocked(me.id))){
       send(ws,{t:'npcReply',requestId:msg.requestId,npcId:msg.npcId,locale:msg.locale,text:{ko:'하던 일을 마친 뒤에 다시 이야기하자.',en:'Let us talk after you have finished what you are doing.',ja:'今の用事が終わってから、また話しましょう。'}[msg.locale],model:'',source:'canon',relationship:'familiar',error:'busy'},npcDiagnosticToken);return;
     }
     if(inFantasy&&validDialogue){
+      const blackMarket = fantasyBlackMarketDialogue(profile,msg.npcId,msg.text,msg.locale);
+      if(blackMarket.handled){
+        const result=blackMarket.command?fantasyStore.blackMarketRequest(me.id,blackMarket.command,fantasyRealmContext(me)):undefined;
+        for(const update of result?.updates??[])sendTo([update.user],{t:'fantasyProfile',profile:update.profile});
+        const text=result?.error?fantasyBlackMarketText(result.error,msg.locale)??{ko:'지금은 그 이야기를 나눌 수 없군요. 잠시 뒤 다시 찾아주세요.',en:'We cannot arrange that just now. Please return in a little while.',ja:'今はその話を進められません。少し後で、また訪ねてください。'}[msg.locale]:blackMarket.text??'';
+        send(ws,{t:'npcReply',requestId:msg.requestId,npcId:msg.npcId,locale:msg.locale,text,model:'',source:'canon',relationship:'familiar'},npcDiagnosticToken);
+        publishFantasyRealms();return;
+      }
       const apply=(revision:number,action:import('../shared/fantasy.ts').FantasyAction)=>applyFantasyUserAction(contractActor(me),revision,action);
       const context={user:me.id,speaker:msg.npcId,locale:msg.locale,profile,marketQuote:(action:import('../shared/fantasy.ts').FantasyAction)=>fantasyMarketQuote(me,action,msg.locale),text:msg.text};
-      const land = fantasyPropertyDialogue.chat({user:me.id,npc:msg.npcId,text:msg.text,locale:msg.locale,profile,state:fantasyStore.propertyState(me.id),requestId:msg.requestId},command=>{
-        const result=fantasyStore.propertyRequest(me.id,command);for(const update of result.updates)sendTo([update.user],{t:'fantasyProfile',profile:update.profile});return result;
-      },()=>fantasyStore.propertyState(me.id));
-      if(land.handled){send(ws,{t:'npcReply',requestId:msg.requestId,npcId:msg.npcId,locale:msg.locale,text:land.text??'',model:'',source:'canon',relationship:'familiar'},npcDiagnosticToken);send(ws,{t:'fantasyPropertyState',state:fantasyStore.propertyState(me.id)});publishFantasyRealms();return;}
+      const land = fantasyPropertyDialogue.chat({user:me.id,npc:msg.npcId,text:msg.text,locale:msg.locale,profile,state:fantasyStore.propertyState(me.id,fantasyRealmContext(me)),requestId:msg.requestId},command=>{
+        const result=fantasyStore.propertyRequest(me.id,command,fantasyRealmContext(me));for(const update of result.updates)sendTo([update.user],{t:'fantasyProfile',profile:update.profile});return result;
+      },()=>fantasyStore.propertyState(me.id,fantasyRealmContext(me)));
+      if(land.handled){send(ws,{t:'npcReply',requestId:msg.requestId,npcId:msg.npcId,locale:msg.locale,text:land.text??'',model:'',source:'canon',relationship:'familiar'},npcDiagnosticToken);send(ws,{t:'fantasyPropertyState',state:fantasyStore.propertyState(me.id,fantasyRealmContext(me))});publishFantasyRealms();return;}
       const bargain=fantasyBargaining.chat({...context,npcId:msg.npcId},apply);
       const conversation=bargain.handled?bargain:fantasyConversationActions.confirm(context,apply);
       if(conversation.handled){
         if(conversation.result)sendTo([me.id],{t:'fantasyProfile',profile:conversation.result.profile,error:conversation.result.error});
         send(ws,{t:'npcReply',requestId:msg.requestId,npcId:msg.npcId,locale:msg.locale,text:conversation.result?.error?{ko:'지금은 그렇게 도와주기 어렵겠어. 준비가 되면 다시 이야기하자.',en:'I cannot arrange that just now. Let us talk again when you are ready.',ja:'今はそうするのは難しそうです。準備が整ってから話しましょう。'}[msg.locale]:conversation.text??'',model:'',source:'canon',relationship:'familiar'},npcDiagnosticToken);
-        publishFantasyWorld(me);return;
+        publishFantasyWorld(me);if(conversation.result?.changed)publishFantasyRealms();return;
+      }
+      const rankReply=handleFantasyNpcRankBenefits(context,fantasyConversationActions);
+      if(rankReply.handled){send(ws,{t:'npcReply',requestId:msg.requestId,npcId:msg.npcId,locale:msg.locale,text:rankReply.text??'',model:'',source:'canon',relationship:'familiar'},npcDiagnosticToken);return;}
+      const transaction=fantasyNpcTransactions.chat({...context,dynamicFacts:npcDynamicFacts,rooms:fantasyStore.innAvailability(me.id),contractBoard:speaker?fantasyContracts.state(contractActor(me),fantasyClock.snapshot().hour)??undefined:undefined},fantasyConversationActions);
+      if(transaction.handled){
+        send(ws,{t:'npcReply',requestId:msg.requestId,npcId:msg.npcId,locale:msg.locale,text:transaction.text??'',model:'',source:'canon',relationship:'familiar'},npcDiagnosticToken);
+        return;
       }
     }
     const npcConversationSession=me.session,npcConversationWorld=me.session?worldOf.get(me.session):undefined;
     const conversationCurrent=()=>{
       const current=fantasyStore.profile(me.id);
+      if(merchantSpeaker){const fresh=fantasyStore.realmState(me.id,fantasyRealmContext(me)).economy.merchant;if(!fresh||fresh.road!==merchant?.road||fresh.day!==merchant?.day||fresh.revision!==merchant?.revision)return false;}
       return ws.readyState===WebSocket.OPEN&&(!inFantasy||fantasySocketAuthorized(ws))&&state.id===me.id&&current.revision===profile.revision&&(current.generation??1)===(profile.generation??1)&&current.character?.lifeStartedAt===profile.character?.lifeStartedAt&&current.character?.location===profile.character?.location&&users.get(me.id)?.session===npcConversationSession&&(npcConversationSession?worldOf.get(npcConversationSession):undefined)===npcConversationWorld;
     };
     void npcChat.chat(character?me.id+':life-'+(profile.generation??1):me.id, { requestId: msg.requestId, text: msg.text, reset: msg.reset, locale: msg.locale, npcId: msg.npcId }, {
-      onProgress:inFantasy?text=>{if(conversationCurrent())send(ws,{t:'fantasyDialogueChunk',kind:'npc',requestId:msg.requestId,locale:msg.locale,npcId:msg.npcId,text});}:undefined,isCurrent:conversationCurrent,completedQuests: character?.completed ?? [], character,
-      contractBoard:character&&NPC_PUBLIC.some(npc=>npc.id===msg.npcId&&npc.building==='guild')?fantasyContracts.state(contractActor(me),fantasyClock.snapshot().hour)??undefined:undefined,
+      onProgress:inFantasy?text=>{if(conversationCurrent())send(ws,{t:'fantasyDialogueChunk',kind:'npc',requestId:msg.requestId,locale:msg.locale,npcId:msg.npcId,text});}:undefined,isCurrent:conversationCurrent,completedQuests: character?.completed ?? [], character, travelEncounter:merchantSpeaker?profile.event??undefined:undefined, merchant,
+      contractBoard:character&&NPC_PUBLIC.some(npc=>npc.id===msg.npcId&&npc.homeLocation===character.location&&!npc.travelOnly)?fantasyContracts.state(contractActor(me),fantasyClock.snapshot().hour)??undefined:undefined,
       dynamicFacts:npcDynamicFacts,
-      communityFacts: character ? [...fantasyCommunity.facts(communityActor(me), msg.locale), ...fantasyStore.legacyFacts(me.id, msg.locale), ...fantasyStore.realmFacts(me.id,msg.locale,msg.npcId)] : [],
+      communityFacts: character ? [...(merchant?[{ko:'현재 상인이 판매하는 지도: ',en:'Charts currently for sale: ',ja:'現在販売中の地図：'}[msg.locale]+merchant.offers.map(offer=>(FANTASY_MAPS.find(map=>map.item===offer.item)?.name[msg.locale]??offer.item)+` · ${offer.unitPrice} G · ×${offer.count}`).join(' / ')]:[]), ...fantasyCommunity.facts(communityActor(me), msg.locale), ...fantasyStore.legacyFacts(me.id, msg.locale), ...fantasyStore.realmFacts(me.id,msg.locale,msg.npcId)] : [],
     }).then(reply=>{
       let text=reply.text;
       const current=fantasyStore.profile(me.id);
@@ -1412,30 +1535,63 @@ function handleMessage(ws: WebSocket, state: HomeConnectionState, msg: ClientMsg
     else for (const user of users.values()) if (user.session && worldOf.get(user.session) === 'fantasy') sendTo([user.id], { t: 'communityState', state: fantasyCommunity.state(communityActor(user)) });
     return;
   }
+  if (msg.t === 'fantasyGuildVisit') {
+    if(Object.keys(msg).length!==2||!['ko','en','ja'].includes(msg.locale)||!me.session||worldOf.get(me.session)!=='fantasy')return;
+    const last=fantasyGuildVisits.get(me.id)??0,now=Date.now();if(now-last<5000)return;
+    fantasyGuildVisits.set(me.id,now);if(fantasyGuildVisits.size>5000)for(const [id,at]of fantasyGuildVisits)if(now-at>120000)fantasyGuildVisits.delete(id);
+    const synchronized=fantasyStore.synchronize(me.id);if(synchronized.error)return;
+    const profile=fantasyStore.profile(me.id),c=profile.character,hour=fantasyClock.snapshot().hour;
+    if(!c||profile.death||c.hp<=0||c.downed||profile.activity||profile.event||profile.combatId||c.returnLantern||c.carrying||c.dungeon?.active||fantasyStore.onRoad(me.id)||fantasyStore.civicBlocked(me.id)||fantasyRegisteredGuildGrade(c)<3||hour%24<6||hour%24>=18)return;
+    const npc=NPC_PUBLIC.find(npc=>npc.homeLocation===c.location&&npc.building==='guild'&&!npc.travelOnly);if(!npc)return;
+    const actor=contractActor(me),day=Math.floor(hour/24);
+    const commission=fantasyNamedCommissions.offer(me.id,day,()=>fantasyContracts.namedCommission(actor,hour,day));if(!commission)return;
+    const greeting=fantasyNpcTransactions.chat({user:me.id,speaker:npc.id,locale:msg.locale,profile,text:'',visit:true,namedCommission:commission,contractBoard:fantasyContracts.state(actor,hour)??undefined,dynamicFacts:fantasyDialogueFacts(me,msg.locale),rooms:fantasyStore.innAvailability(me.id),marketQuote:action=>fantasyMarketQuote(me,action,msg.locale)},fantasyConversationActions);
+    if(greeting.handled&&greeting.text){
+      const requestId=randomUUID(),token=fantasyDialogueObserver.begin(ws,{actorId:me.id,sessionId:me.session,kind:'npc',requestId,locale:msg.locale,npcId:npc.id,query:'[guild visit]',generation:profile.generation??1,location:c.location,profile});
+      send(ws,{t:'fantasyGuildGreeting',id:`named-${day}-${commission.id}`,npcId:npc.id,locale:msg.locale,text:greeting.text,location:c.location,generation:profile.generation??1});
+      fantasyDialogueObserver.reply(ws,{kind:'npc',requestId,text:greeting.text,route:'canon',currentActorId:me.id,token});
+    }
+    publishFantasyWorld(me);return;
+  }
   if (msg.t === 'fantasyContracts') { publishFantasyWorld(me); return; }
   if (msg.t === 'fantasyRealmRequest') {
     if (!me.session || worldOf.get(me.session) !== 'fantasy') { send(ws, { t: 'fantasyRealmState', state: null, error: 'unavailable' }); return; }
     const result = Object.keys(msg).length === 3 ? fantasyStore.realmRequest(me.id, { domain: msg.domain, command: msg.command }, fantasyRealmContext(me)) : { updates: [], error: 'invalid' };
     for (const update of result.updates) { sendTo([update.user], { t: 'fantasyProfile', profile: update.profile }); fantasyParty.invalidate(update.user); }
     publishFantasyRealms(); send(ws, { t: 'fantasyRealmState', state: fantasyStore.realmState(me.id, fantasyRealmContext(me)), ...(result.error ? { error: result.error } : {}) });
-    publishFantasyParties(); publishFantasyRealms(); return;
+    publishFantasyParties(); return;
   }
   if (msg.t === 'fantasyPropertyRequest') {
     if (!me.session || worldOf.get(me.session) !== 'fantasy') { send(ws, { t: 'fantasyPropertyState', state: null, error: 'unavailable' }); return; }
     const targetName = msg.command && typeof msg.command === 'object' && 'target' in msg.command ? String(msg.command.target) : undefined;
     const propertyTarget = targetName ? [...users.values()].find(peer => peer.session === me.session && (peer.id === targetName || fantasyStore.profile(peer.id).character?.name === targetName)) : undefined;
-    if (targetName && (!propertyTarget || propertyTarget.session !== me.session)) { send(ws, { t: 'fantasyPropertyState', state: fantasyStore.propertyState(me.id), error: 'invalid' }); return; }
-    const result = Object.keys(msg).length === 2 ? fantasyStore.propertyRequest(me.id, msg.command) : { updates: [], error: 'invalid' as const };
+    if (targetName && (!propertyTarget || propertyTarget.session !== me.session)) { send(ws, { t: 'fantasyPropertyState', state: fantasyStore.propertyState(me.id,fantasyRealmContext(me)), error: 'invalid' }); return; }
+    const result = Object.keys(msg).length === 2 ? fantasyStore.propertyRequest(me.id, msg.command, fantasyRealmContext(me)) : { updates: [], error: 'invalid' as const };
     for (const update of result.updates) {
       sendTo([update.user], { t: 'fantasyProfile', profile: update.profile }); fantasyParty.invalidate(update.user);
     }
-    send(ws, { t: 'fantasyPropertyState', state: fantasyStore.propertyState(me.id), ...(result.error ? { error: result.error } : {}) });
+    send(ws, { t: 'fantasyPropertyState', state: fantasyStore.propertyState(me.id,fantasyRealmContext(me)), ...(result.error ? { error: result.error } : {}) });
     publishFantasyParties(); return;
   }
   if (msg.t === 'fantasyPartyRequest') {
     const result = Object.keys(msg).length === 2 ? fantasyParty.request(me.id, msg.command) : { error: 'invalid' as const };
+    let reservationSaved = true;
+    if (!result.error && result.updates?.length) {
+      const offers = new Set(result.updates.flatMap(update => update.profile.combatId ? Object.values(update.profile.character?.contracts ?? {}).filter(grant => grant.startedAt !== undefined).map(grant => grant.offerId) : []));
+      for (const offer of offers) {
+        let raid = fantasyContracts.raidSnapshot(offer); const started = fantasyStore.guildRaidStarted(offer);
+        if (!raid || started === undefined) continue;
+        // パーティー全体の保存が成功してから受付を確定する。
+        if (raid.offer.startedAt === undefined) { if (!fantasyContracts.markRaidStarted(offer, started)) reservationSaved = false; raid = fantasyContracts.raidSnapshot(offer); }
+        if (raid) for (const update of fantasyStore.synchronizeGuildRaid(raid.offer).updates) {
+          const index = result.updates.findIndex(existing => existing.user === update.user);
+          if (index < 0) result.updates.push(update); else result.updates[index] = update;
+        }
+      }
+      if (!reservationSaved) console.error('[fantasy guild raid] Party battle started but reservation save failed');
+    }
     for (const update of result.updates ?? []) sendTo([update.user], { t: 'fantasyProfile', profile: update.profile });
-    send(ws, { t: 'fantasyPartyState', state: fantasyParty.state(me.id), ...(result.error ? { error: result.error } : {}) });
+    send(ws, { t: 'fantasyPartyState', state: fantasyParty.state(me.id), ...(result.error || !reservationSaved ? { error: result.error ?? 'unavailable' } : {}) });
     publishFantasyParties(); publishFantasyCombats(); return;
   }
   if (msg.t === 'fantasyCombatRequest') {
@@ -1450,6 +1606,7 @@ function handleMessage(ws: WebSocket, state: HomeConnectionState, msg: ClientMsg
     else if (Object.keys(msg).length === 2 && value?.type === 'start' && (keys('source', 'target') || keys('source', 'target', 'confirm') && typeof value.confirm === 'boolean')
       && text(value.target) && ['hunt', 'story', 'encounter', 'apex', 'challenge', 'escort'].includes(String(value.source))) {
       const p = fantasyStore.profile(me.id);
+      if (fantasyParty.state(me.id).id) { send(ws, { t: 'fantasyCombatState', state: fantasyStore.combat(me.id,me.session), error: 'unavailable' }); return; }
       result = value.source === 'escort' ? fantasyStore.startEscortCombat(me.id,me.session,value.target) : p.character ? fantasyStore.startCombat([{ user: me.id, session: me.session, location: p.character.location, generation: p.generation ?? 1,
         source: value.source as 'hunt' | 'story' | 'encounter' | 'apex' | 'challenge', target: value.target, ...(value.confirm !== undefined ? { confirm: value.confirm as boolean } : {}) }]) : { updates: [], error: 'not-alive' };
     } else if (Object.keys(msg).length === 2 && value?.type === 'order' && keys('combatId', 'revision', 'order') && text(value.combatId) && Number.isSafeInteger(value.revision)) result = fantasyStore.combatOrder(me.id, me.session, value.combatId, value.revision, value.order as never);
@@ -1459,6 +1616,64 @@ function handleMessage(ws: WebSocket, state: HomeConnectionState, msg: ClientMsg
     publishFantasyParties(); publishFantasyCombats(); return;
   }
   if (msg.t === 'fantasyAction') {
+    if (msg.action.type === 'guildRaidStart') {
+      const current = fantasyStore.profile(me.id), now = fantasyClock.snapshot().hour;
+      const action = msg.action;
+      let result: ReturnType<FantasyStore['startCombat']> = { updates: [], error: 'invalid' };
+      let reservationSaved = true;
+      if (Object.keys(msg).length === 3 && Object.keys(action).length === 2 && Object.hasOwn(action, 'type') && Object.hasOwn(action, 'offer')
+        && typeof action.offer === 'string' && /^offer-[a-z0-9-]{1,75}$/.test(action.offer)
+        && Number.isSafeInteger(msg.revision) && me.session && worldOf.get(me.session) === 'fantasy') {
+        if (msg.revision !== current.revision) result = { updates: [], error: 'stale' };
+        else {
+          const party = fantasyParty.state(me.id);
+          if (party.id && party.members.length > 1) {
+            const proposed = fantasyParty.request(me.id, { type: 'readyCombat', source: 'guild', target: action.offer });
+            result = { updates: proposed.updates ?? [], ...(proposed.error ? { error: proposed.error } : {}) };
+          } else {
+          const raid = fantasyContracts.raidOffer(contractActor(me), action.offer, now);
+          if (!raid) result = { updates: [], error: 'unavailable' };
+          else {
+            const plans: FantasyCombatPlan[] = [];
+            for (const id of new Set([me.id, ...raid.participants])) {
+              if (!raid.participants.includes(id)) continue;
+              const user = users.get(id);
+              const online = [...sockets.get(id) ?? []].some(socket => socket.readyState === WebSocket.OPEN && fantasySocketAuthorized(socket));
+              if (!user || !online || user.session !== me.session || !user.session || worldOf.get(user.session) !== 'fantasy') continue;
+              const profile = fantasyStore.profile(id), c = profile.character, grant = c?.contracts?.[raid.quest.id];
+              if (!c || profile.death || c.hp <= 0 || profile.activity || profile.event || profile.combatId || c.downed || c.carrying || c.returnLantern
+                || c.dungeon?.active || fantasyOnRoad(c) || c.location !== raid.quest.destination
+                || !c.quests.includes(raid.quest.id) || grant?.offerId !== raid.offer.id || grant.startedAt !== undefined) continue;
+              plans.push({ user: id, session: user.session, generation: profile.generation ?? 1, location: c.location, source: 'guild', target: raid.offer.id });
+              if (plans.length >= FANTASY_CONTRACT_RAID_PARTICIPANTS) break;
+            }
+            if (!plans.some(plan => plan.user === me.id)) result = { updates: [], error: 'busy' };
+            else {
+              result = fantasyStore.startGuildRaid(plans, raid.offer);
+              // 受付の保存に失敗しても開始済みの戦闘を失わないよう、戦闘を先に確定する。
+              if (result.updates.length) {
+                reservationSaved = fantasyContracts.markRaidStarted(raid.offer.id, now);
+                const started=fantasyContracts.raidSnapshot(raid.offer.id);if(started?.offer.startedAt!==undefined){const synced=fantasyStore.synchronizeGuildRaid(started.offer);for(const update of synced.updates)if(!result.updates.some(existing=>existing.user===update.user))result.updates.push(update);}
+                if (!reservationSaved) console.error('[fantasy guild raid] Battle started but reservation save failed', { offer: raid.offer.id });
+              }
+            }
+          }
+          }
+        }
+      }
+      for (const update of result.updates) {
+        sendTo([update.user], { t: 'fantasyProfile', profile: update.profile });
+        fantasyParty.invalidate(update.user);
+        const user = users.get(update.user); if (user) publishFantasyWorld(user);
+      }
+      if (result.error || !reservationSaved || !result.updates.length) send(ws, { t: 'fantasyProfile', profile: fantasyStore.profile(me.id), ...(result.error || !reservationSaved ? { error: result.error ?? fantasyContractErrorText('unavailable', 'ja') } : {}) });
+      send(ws, { t: 'fantasyClock', clock: fantasyClock.snapshot() });
+      send(ws, { t: 'fantasyCombatState', state: me.session ? fantasyStore.combat(me.id, me.session) : null, ...(result.error ? { error: result.error } : {}) });
+      sendTo([me.id], { t: 'communityState', state: fantasyCommunity.state(communityActor(me)) });
+      publishFantasyParties(); publishFantasyCombats();
+      for (const user of users.values()) if (user.session && worldOf.get(user.session) === 'fantasy') publishFantasyWorld(user);
+      return;
+    }
     const previousRevision = fantasyStore.profile(me.id).revision;
     const actor = contractActor(me);
     let result;
@@ -1477,11 +1692,21 @@ function handleMessage(ws: WebSocket, state: HomeConnectionState, msg: ClientMsg
       }
     }
     if (result.changed || result.profile.revision !== previousRevision) sendTo([me.id], { t: 'fantasyProfile', profile: result.profile });
+    if(result.changed&&result.profile.character?.carrying)sendTo([result.profile.character.carrying.target],{t:'fantasyProfile',profile:fantasyStore.profile(result.profile.character.carrying.target)});
     if (!result.changed) send(ws, { t: 'fantasyProfile', profile: result.profile, error: result.error });
+    if(result.changed&&['lodge','cancel','buy','sell'].includes(msg.action.type))publishFantasyRealms();
     send(ws, { t: 'fantasyClock', clock: fantasyClock.snapshot() });
     sendTo([me.id], { t: 'communityState', state: fantasyCommunity.state(communityActor(me)) });
     for (const user of users.values()) if (user.session && worldOf.get(user.session) === 'fantasy') publishFantasyWorld(user);
     return;
+  }
+  if(msg.t==='fantasyAid'){
+    const party=fantasyParty.state(me.id),context={...fantasyRealmContext(me),allies:party.id?party.members.map(member=>member.id):[me.id]};
+    const valid=Object.keys(msg).length===3&&typeof msg.target==='string'&&['potion','temple','carry','putDown','tend','returnInvite','returnAccept','returnDecline'].includes(msg.method)&&!!me.session&&worldOf.get(me.session)==='fantasy';
+    const result=!valid?{updates:[],error:'carry:unavailable'}:msg.method==='potion'||msg.method==='temple'?fantasyStore.aidDowned(me.id,msg.target,msg.method,context):fantasyStore.carryReturn(me.id,msg.target,msg.method,{party:party.id??`solo:${me.id}`,allies:context.allies});
+    for(const update of result.updates){sendTo([update.user],{t:'fantasyProfile',profile:update.profile});fantasyParty.invalidate(update.user);}
+    if(result.error)send(ws,{t:'fantasyProfile',profile:fantasyStore.profile(me.id),error:result.error});
+    publishFantasyParties();publishFantasyTowns();return;
   }
   if (msg.t === 'fantasyGmChat') {
     const world = me.session ? worldOf.get(me.session) : undefined;
@@ -2325,7 +2550,7 @@ function onClose(ws: WebSocket, id: string | null, quiet=false) {
   users.delete(id);
   lastAttention.delete(id);
   lastRoll.delete(id);
-  fantasyPartyPublished.delete(id); fantasyCombatPublished.delete(id); publishFantasyParties();
+  fantasyTownPublished.delete(id); fantasyPartyPublished.delete(id); fantasyCombatPublished.delete(id); publishFantasyParties();
   if(!quiet)broadcastUsers();
   if (wasIn&&!quiet) broadcastSessions();
 }
