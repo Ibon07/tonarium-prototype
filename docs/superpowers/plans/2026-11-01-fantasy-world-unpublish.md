@@ -11,6 +11,8 @@
 - [x] Remove published catalog/prototype/render entry points and reject stale requests; exclude existing RPG sessions.
 - [x] Stop RPG loading, clock, backups and diagnostics while preserving non-RPG behavior.
 - [x] Verify retirement and general world/session behavior, run completion gate, and review diff.
-- [ ] Commit and create a separate PR against current develop; report deployment boundary and backup path.
+- [x] Commit and create a separate PR against current develop; report deployment boundary and backup path.
 
 Ruling: PR #391 is already merged. Use a new branch from current develop, leaving the original game development branch intact.
+
+Published as PR #402: https://github.com/katteni-kaihatu/tonarium-prototype/pull/402 (open, ready for review). Production merge and redeployment remain with the operator; no live server change was made from this workspace.
